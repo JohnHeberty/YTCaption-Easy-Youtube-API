@@ -3,8 +3,9 @@ YouTube Downloader Implementation using yt-dlp.
 Implementação concreta da interface IVideoDownloader.
 """
 import asyncio
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
 import yt_dlp
 from loguru import logger
 
@@ -19,6 +20,57 @@ class YouTubeDownloader(IVideoDownloader):
     Implementação de downloader do YouTube usando yt-dlp.
     Baixa vídeos na pior qualidade para otimizar extração de áudio.
     """
+    
+    # Palavras-chave para detecção de idioma
+    LANGUAGE_KEYWORDS = {
+        'pt': [
+            'brasil', 'portuguese', 'português', 'pt-br', 'legendado',
+            'dublado', 'notícias', 'reportagem', 'entrevista', 'programa',
+            'episódio', 'temporada', 'série'
+        ],
+        'en': [
+            'english', 'subtitle', 'official', 'trailer', 'interview',
+            'news', 'episode', 'season', 'series', 'documentary'
+        ],
+        'es': [
+            'español', 'spanish', 'latino', 'castellano', 'noticias',
+            'entrevista', 'capítulo', 'temporada'
+        ],
+        'fr': [
+            'français', 'french', 'sous-titres', 'épisode', 'saison'
+        ],
+        'de': [
+            'deutsch', 'german', 'untertitel', 'folge', 'staffel'
+        ],
+        'it': [
+            'italiano', 'italian', 'sottotitoli', 'episodio', 'stagione'
+        ],
+        'ja': [
+            'japanese', '日本語', 'nihongo', 'anime', 'manga'
+        ],
+        'ko': [
+            'korean', '한국어', 'hangul', 'k-pop', 'kdrama'
+        ],
+        'ru': [
+            'russian', 'русский', 'russkiy', 'субтитры'
+        ],
+        'zh': [
+            'chinese', '中文', 'mandarin', 'cantonese'
+        ]
+    }
+    
+    # Caracteres especiais por idioma
+    SPECIAL_CHARS = {
+        'pt': 'àáâãäçèéêëìíîïòóôõöùúûüñ',
+        'es': 'áéíóúüñ¿¡',
+        'fr': 'àâæçéèêëïîôùûüÿœ',
+        'de': 'äöüßẞ',
+        'it': 'àèéìíîòóùú',
+        'ja': 'ぁ-ゔァ-ヴー々〆〤一-龥',
+        'ko': 'ㄱ-ㅎㅏ-ㅣ가-힣',
+        'ru': 'а-яА-ЯёЁ',
+        'zh': '一-龥'
+    }
     
     def __init__(
         self,
@@ -227,3 +279,176 @@ class YouTubeDownloader(IVideoDownloader):
         """
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             return ydl.extract_info(url, download=False)
+    
+    def detect_language_from_text(self, text: str) -> Tuple[str, float]:
+        """
+        Detecta o idioma baseado em análise de texto.
+        
+        Args:
+            text: Texto para análise (título, descrição, etc.)
+            
+        Returns:
+            Tuple[str, float]: (código do idioma, confiança 0-1)
+        """
+        if not text:
+            return 'unknown', 0.0
+        
+        text_lower = text.lower()
+        scores = {}
+        
+        # Pontuação por palavras-chave
+        for lang, keywords in self.LANGUAGE_KEYWORDS.items():
+            score = sum(1 for keyword in keywords if keyword in text_lower)
+            if score > 0:
+                scores[lang] = score
+        
+        # Pontuação por caracteres especiais
+        for lang, chars in self.SPECIAL_CHARS.items():
+            pattern = f'[{chars}]'
+            matches = len(re.findall(pattern, text, re.IGNORECASE))
+            if matches > 0:
+                scores[lang] = scores.get(lang, 0) + (matches * 0.5)
+        
+        if not scores:
+            return 'unknown', 0.0
+        
+        # Calcular idioma com maior pontuação
+        max_lang = max(scores, key=scores.get)
+        max_score = scores[max_lang]
+        total_score = sum(scores.values())
+        
+        # Confiança normalizada
+        confidence = min(max_score / (total_score + 1), 1.0)
+        
+        return max_lang, round(confidence, 2)
+    
+    async def get_video_info_with_language(self, url: YouTubeURL) -> Dict:
+        """
+        Obtém informações do vídeo incluindo detecção de idioma e legendas.
+        
+        Args:
+            url: URL do YouTube
+            
+        Returns:
+            Dict: Informações completas do vídeo
+        """
+        try:
+            logger.info(f"Fetching detailed video info: {url.video_id}")
+            
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extract_flat': False,
+                'socket_timeout': 30,
+                'writesubtitles': True,
+                'writeautomaticsub': True,
+                'listsubtitles': True,
+            }
+            
+            loop = asyncio.get_event_loop()
+            info = await loop.run_in_executor(
+                None,
+                self._get_info_sync,
+                str(url),
+                ydl_opts
+            )
+            
+            # Detectar idioma do texto
+            text_to_analyze = f"{info.get('title', '')} {info.get('description', '')}"
+            detected_lang, confidence = self.detect_language_from_text(text_to_analyze)
+            
+            # Extrair legendas disponíveis
+            subtitles = info.get('subtitles', {})
+            automatic_captions = info.get('automatic_captions', {})
+            
+            # Formatar legendas
+            available_subtitles = []
+            for lang in subtitles.keys():
+                available_subtitles.append({
+                    'language': lang,
+                    'type': 'manual',
+                    'auto_generated': False
+                })
+            
+            for lang in automatic_captions.keys():
+                if lang not in subtitles:  # Evitar duplicatas
+                    available_subtitles.append({
+                        'language': lang,
+                        'type': 'auto',
+                        'auto_generated': True
+                    })
+            
+            # Recomendação de modelo Whisper baseado na duração
+            duration = info.get('duration', 0)
+            whisper_recommendation = self._get_whisper_recommendation(duration)
+            
+            return {
+                'video_id': info.get('id'),
+                'title': info.get('title'),
+                'duration': duration,
+                'description': info.get('description'),
+                'uploader': info.get('uploader'),
+                'upload_date': info.get('upload_date'),
+                'view_count': info.get('view_count'),
+                'formats_available': len(info.get('formats', [])),
+                'language_detection': {
+                    'detected_language': detected_lang,
+                    'confidence': confidence,
+                    'method': 'text_analysis'
+                },
+                'available_subtitles': available_subtitles,
+                'subtitle_languages': list(subtitles.keys()),
+                'auto_caption_languages': list(automatic_captions.keys()),
+                'whisper_recommendation': whisper_recommendation
+            }
+            
+        except yt_dlp.utils.DownloadError as e:
+            logger.error(f"Failed to get video info: {str(e)}")
+            raise VideoDownloadError(f"Failed to get video info: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error getting video info: {str(e)}")
+            raise VideoDownloadError(f"Unexpected error: {str(e)}")
+    
+    def _get_whisper_recommendation(self, duration: int) -> Dict:
+        """
+        Recomenda modelo Whisper baseado na duração do vídeo.
+        
+        Args:
+            duration: Duração em segundos
+            
+        Returns:
+            Dict: Recomendações por modelo
+        """
+        models = {
+            'tiny': {'speed': 32, 'quality': 'lowest'},
+            'base': {'speed': 16, 'quality': 'low'},
+            'small': {'speed': 6, 'quality': 'medium'},
+            'medium': {'speed': 2, 'quality': 'high'},
+            'large': {'speed': 1, 'quality': 'highest'}
+        }
+        
+        recommendations = {}
+        for model, config in models.items():
+            estimated_time = duration / config['speed']
+            recommendations[model] = {
+                'estimated_time_seconds': int(estimated_time),
+                'estimated_time_formatted': self._format_duration(int(estimated_time)),
+                'quality': config['quality'],
+                'recommended': model == 'base'  # Base como padrão
+            }
+        
+        return recommendations
+    
+    def _format_duration(self, seconds: int) -> str:
+        """Formata duração em formato legível."""
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+        
+        if hours > 0:
+            return f"{hours}h {minutes}m {secs}s"
+        elif minutes > 0:
+            return f"{minutes}m {secs}s"
+        else:
+            return f"{secs}s"
+

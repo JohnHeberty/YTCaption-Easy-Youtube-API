@@ -19,6 +19,14 @@ class TranscribeRequestDTO(BaseModel):
         description="Código do idioma (auto para detecção automática)",
         examples=["auto", "en", "pt", "es"]
     )
+    use_youtube_transcript: bool = Field(
+        default=False,
+        description="Se True, usa legendas do YouTube ao invés do Whisper (mais rápido)"
+    )
+    prefer_manual_subtitles: bool = Field(
+        default=True,
+        description="Se True, prefere legendas manuais sobre automáticas (apenas quando use_youtube_transcript=True)"
+    )
     
     @validator('youtube_url')
     def validate_youtube_url(cls, v: str) -> str:
@@ -55,6 +63,14 @@ class TranscribeResponseDTO(BaseModel):
         None,
         description="Tempo de processamento em segundos"
     )
+    source: str = Field(
+        default="whisper",
+        description="Fonte da transcrição (whisper ou youtube_transcript)"
+    )
+    transcript_type: Optional[str] = Field(
+        None,
+        description="Tipo de transcrição do YouTube (manual/auto), se aplicável"
+    )
     
     class Config:
         json_schema_extra = {
@@ -74,7 +90,9 @@ class TranscribeResponseDTO(BaseModel):
                 ],
                 "total_segments": 1,
                 "duration": 2.5,
-                "processing_time": 15.3
+                "processing_time": 15.3,
+                "source": "whisper",
+                "transcript_type": None
             }
         }
 

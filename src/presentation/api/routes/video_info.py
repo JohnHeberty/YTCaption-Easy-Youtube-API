@@ -20,14 +20,18 @@ async def get_video_info(
     downloader: IVideoDownloader = Depends(Container.get_video_downloader)
 ):
     """
-    Obtém informações do vídeo sem baixá-lo.
-    Útil para verificar duração antes de iniciar transcrição.
+    Obtém informações completas do vídeo sem baixá-lo.
+    Inclui detecção de idioma e legendas disponíveis.
     
     Args:
         request: Requisição com URL do YouTube
         
     Returns:
-        Informações do vídeo incluindo duração e tempo estimado de processamento
+        Informações completas do vídeo incluindo:
+        - Duração e tempo estimado de processamento
+        - Detecção de idioma com nível de confiança
+        - Legendas disponíveis (manuais e automáticas)
+        - Recomendações de modelo Whisper
         
     Raises:
         HTTPException: Se houver erro ao obter informações
@@ -47,34 +51,16 @@ async def get_video_info(
                 }
             )
         
-        # Obter informações
-        info = await downloader.get_video_info(youtube_url)
+        # Obter informações completas com detecção de idioma
+        info = await downloader.get_video_info_with_language(youtube_url)
         
         duration = info.get('duration', 0)
-        
-        # Calcular tempo estimado de processamento
-        # Base model: ~0.5x realtime em CPU
-        # Medium model: ~2x realtime em CPU
-        estimated_time = {
-            'tiny': duration * 0.2,
-            'base': duration * 0.5,
-            'small': duration * 1.0,
-            'medium': duration * 2.0,
-            'large': duration * 3.0
-        }
         
         # Formatar duração
         hours = duration // 3600
         minutes = (duration % 3600) // 60
         seconds = duration % 60
         duration_formatted = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        
-        # Formatar tempos estimados
-        estimated_formatted = {}
-        for model, time in estimated_time.items():
-            est_minutes = int(time // 60)
-            est_seconds = int(time % 60)
-            estimated_formatted[model] = f"{est_minutes:02d}:{est_seconds:02d}"
         
         response = {
             "video_id": info.get('video_id'),
@@ -89,10 +75,14 @@ async def get_video_info(
                 if info.get('description') and len(info.get('description', '')) > 200 
                 else info.get('description', '')
             ),
-            "estimated_processing_time": {
-                "seconds": estimated_time,
-                "formatted": estimated_formatted
+            "language_detection": info.get('language_detection', {}),
+            "subtitles": {
+                "available": info.get('available_subtitles', []),
+                "manual_languages": info.get('subtitle_languages', []),
+                "auto_languages": info.get('auto_caption_languages', []),
+                "total": len(info.get('available_subtitles', []))
             },
+            "whisper_recommendation": info.get('whisper_recommendation', {}),
             "warnings": []
         }
         
@@ -113,7 +103,26 @@ async def get_video_info(
                 "Processing may fail or timeout. Consider processing shorter videos."
             )
         
-        logger.info(f"Video info retrieved: {youtube_url.video_id}, duration={duration}s")
+        # Avisos sobre legendas
+        subtitles_info = response["subtitles"]
+        if subtitles_info["total"] > 0:
+            if len(subtitles_info["manual_languages"]) > 0:
+                response["warnings"].append(
+                    f"Manual subtitles available in {len(subtitles_info['manual_languages'])} languages. "
+                    "You can use YouTube transcripts instead of Whisper for faster results."
+                )
+            else:
+                response["warnings"].append(
+                    f"Auto-generated captions available in {len(subtitles_info['auto_languages'])} languages. "
+                    "You can use them for faster results, but quality may vary."
+                )
+        
+        logger.info(
+            f"Video info retrieved: {youtube_url.video_id}, "
+            f"duration={duration}s, "
+            f"detected_lang={info.get('language_detection', {}).get('detected_language')}, "
+            f"subtitles={subtitles_info['total']}"
+        )
         
         return response
         
