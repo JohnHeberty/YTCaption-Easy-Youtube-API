@@ -6,7 +6,7 @@
 # This script will:
 # - Detect system resources (CPU cores, RAM)
 # - Validate Docker and Docker Compose installation
-# - Configure environment based on hardware
+# - Configure environment to use 100% of available resources
 # - Start the application
 #
 # Usage: ./start.sh [options]
@@ -94,20 +94,10 @@ detect_cpu_cores() {
     
     print_success "Detected: $CPU_CORES cores / $CPU_THREADS threads"
     
-    # Calculate recommended values
-    if [ "$CPU_CORES" -ge 8 ]; then
-        DOCKER_CPUS="6"
-        DOCKER_CPUS_RESERVATION="4"
-        print_info "High-performance system detected"
-    elif [ "$CPU_CORES" -ge 4 ]; then
-        DOCKER_CPUS="4"
-        DOCKER_CPUS_RESERVATION="2"
-        print_info "Medium-performance system detected"
-    else
-        DOCKER_CPUS="2"
-        DOCKER_CPUS_RESERVATION="1"
-        print_info "Low-performance system detected"
-    fi
+    # Use 100% of available CPU cores
+    DOCKER_CPUS="$CPU_CORES"
+    DOCKER_CPUS_RESERVATION="$CPU_CORES"
+    print_info "Using 100% of CPU cores: $CPU_CORES"
     
     export DOCKER_CPUS
     export DOCKER_CPUS_RESERVATION
@@ -122,20 +112,10 @@ detect_ram() {
     
     print_success "Detected: ${TOTAL_RAM_GB}GB RAM"
     
-    # Calculate recommended values (50-60% of total RAM for Docker)
-    if [ "$TOTAL_RAM_GB" -ge 16 ]; then
-        DOCKER_MEMORY="8G"
-        DOCKER_MEMORY_RESERVATION="4G"
-        print_info "High-memory system detected"
-    elif [ "$TOTAL_RAM_GB" -ge 8 ]; then
-        DOCKER_MEMORY="6G"
-        DOCKER_MEMORY_RESERVATION="3G"
-        print_info "Medium-memory system detected"
-    else
-        DOCKER_MEMORY="4G"
-        DOCKER_MEMORY_RESERVATION="2G"
-        print_warning "Low-memory system detected. Performance may be limited."
-    fi
+    # Use 100% of available RAM for Docker
+    DOCKER_MEMORY="${TOTAL_RAM_GB}G"
+    DOCKER_MEMORY_RESERVATION="${TOTAL_RAM_GB}G"
+    print_info "Using 100% of RAM: ${TOTAL_RAM_GB}GB"
     
     export DOCKER_MEMORY
     export DOCKER_MEMORY_RESERVATION
@@ -372,10 +352,10 @@ show_configuration() {
     echo -e "${BLUE}==================================${NC}"
     echo -e "${BLUE}  Configuration Summary${NC}"
     echo -e "${BLUE}==================================${NC}"
-    echo -e "CPU Cores:        ${GREEN}$CPU_CORES${NC}"
-    echo -e "Docker CPUs:      ${GREEN}$DOCKER_CPUS (reserved: $DOCKER_CPUS_RESERVATION)${NC}"
-    echo -e "Total RAM:        ${GREEN}${TOTAL_RAM_GB}GB${NC}"
-    echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY (reserved: $DOCKER_MEMORY_RESERVATION)${NC}"
+    echo -e "CPU Cores:        ${GREEN}$CPU_CORES (100% allocated)${NC}"
+    echo -e "Docker CPUs:      ${GREEN}$DOCKER_CPUS${NC}"
+    echo -e "Total RAM:        ${GREEN}${TOTAL_RAM_GB}GB (100% allocated)${NC}"
+    echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY${NC}"
     echo -e "Whisper Device:   ${GREEN}$WHISPER_DEVICE${NC}"
     echo -e "Whisper Model:    ${GREEN}$WHISPER_MODEL${NC}"
     echo -e "GPU Available:    ${GREEN}$GPU_AVAILABLE${NC}"
