@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  whisper-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whisper-transcription-api
+    ports:
+      - "8000:8000"
+    environment:
+      - WHISPER_MODEL=base
+      - TEMP_DIR=/app/temp
+      - MAX_VIDEO_SIZE_MB=1500
+      - MAX_VIDEO_DURATION_SECONDS=10800
+      - DOWNLOAD_TIMEOUT=900
+      - REQUEST_TIMEOUT=3600
+      - MAX_CONCURRENT_REQUESTS=3
+      - CLEANUP_ON_STARTUP=true
+      - LOG_LEVEL=INFO
+    volumes:
+      # Opcional: montar pasta de cache para modelos do Whisper
+      - whisper-cache:/home/appuser/.cache/whisper
+      # Opcional: logs persistentes
+      - ./logs:/app/logs
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 20s
+      retries: 3
+      start_period: 60s
+    networks:
+      - whisper-network
+
+volumes:
+  whisper-cache:
+    driver: local
+
+networks:
+  whisper-network:
+    driver: bridge
