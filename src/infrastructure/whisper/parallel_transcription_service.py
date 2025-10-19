@@ -75,7 +75,7 @@ def _transcribe_chunk_worker(
         
         return adjusted_segments, detected_language, None
         
-    except Exception as e:
+    except (RuntimeError, OSError, MemoryError) as e:
         error_msg = f"Chunk {chunk_start:.1f}-{chunk_end:.1f}s failed: {str(e)}"
         logger.error(f"[PARALLEL] {error_msg}")
         return [], "unknown", error_msg
@@ -155,7 +155,8 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                 ffmpeg_cmd,
                 capture_output=True,
                 text=True,
-                timeout=600  # 10 minutos timeout
+                timeout=600,  # 10 minutos timeout
+                check=False
             )
             
             if result.returncode != 0:
@@ -170,13 +171,13 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             
             return output_path
             
-        except subprocess.TimeoutExpired:
-            raise TranscriptionError("Audio conversion timed out (>10 minutes)")
-        except Exception as e:
+        except subprocess.TimeoutExpired as exc:
+            raise TranscriptionError("Audio conversion timed out (>10 minutes)") from exc
+        except (OSError, IOError) as e:
             if isinstance(e, TranscriptionError):
                 raise
             logger.error(f"[PARALLEL] Audio conversion failed: {str(e)}")
-            raise TranscriptionError(f"Failed to convert audio to WAV: {str(e)}")
+            raise TranscriptionError(f"Failed to convert audio to WAV: {str(e)}") from e
     
     def _get_audio_duration(self, audio_path: Path) -> float:
         """
@@ -213,9 +214,9 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                     rate = wav_file.getframerate()
                     duration = frames / float(rate)
                     return duration
-            except Exception as e:
+            except (OSError, IOError) as e:
                 logger.error(f"Failed to get audio duration: {e}")
-                raise TranscriptionError(f"Failed to get audio duration: {str(e)}")
+                raise TranscriptionError(f"Failed to get audio duration: {str(e)}") from e
     
     def _split_audio_chunks(self, duration: float) -> List[Tuple[float, float]]:
         """
@@ -263,7 +264,7 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             try:
                 logger.info("[PARALLEL] Converting audio to WAV format...")
                 audio_path = self._convert_to_wav(video_file.file_path)
-            except Exception as e:
+            except (TranscriptionError, OSError, IOError) as e:
                 logger.warning(f"[PARALLEL] Audio conversion failed - using original: {e}")
                 audio_path = video_file.file_path
             
@@ -280,6 +281,7 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             
             # Transcrever chunks em paralelo
             loop = asyncio.get_event_loop()
+            timeout_sec = len(chunks) * 600  # Timeout: 10 min por chunk
             
             try:
                 with ProcessPoolExecutor(max_workers=actual_workers) as executor:
@@ -300,11 +302,9 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                     
                     # Aguardar todos os chunks com timeout
                     logger.info("[PARALLEL] Processing chunks...")
-                    # Timeout: 10 min por chunk (para áudios muito longos)
-                    timeout_seconds = len(chunks) * 600
                     results = await asyncio.wait_for(
                         asyncio.gather(*tasks, return_exceptions=True),
-                        timeout=timeout_seconds
+                        timeout=timeout_sec
                     )
                     
                     # Verificar se algum resultado é uma exceção
@@ -314,10 +314,10 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                             logger.error(f"[PARALLEL] {error_msg}")
                             raise TranscriptionError(f"Parallel processing failed: {error_msg}")
                     
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as exc:
                 raise TranscriptionError(
-                    f"Parallel transcription timed out after {timeout_seconds}s"
-                )
+                    f"Parallel transcription timed out after {timeout_sec}s"
+                ) from exc
             except (RuntimeError, OSError) as e:
                 # RuntimeError: process pool errors
                 # OSError: out of memory, resource errors
@@ -328,9 +328,8 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                         f"This usually indicates out of memory (each worker loads Whisper model ~1-2GB RAM). "
                         f"Try: 1) Reduce PARALLEL_WORKERS, 2) Use smaller Whisper model, or 3) Disable parallel mode. "
                         f"Original error: {str(e)}"
-                    )
-                else:
-                    raise
+                    ) from e
+                raise
             
             # Merge dos resultados
             all_segments = []

@@ -3,7 +3,7 @@ Value Object: TranscriptionSegment
 Representa um segmento de transcrição com timestamp.
 """
 from dataclasses import dataclass
-from typing import Optional
+# from typing import Optional  # noqa: F401
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ Implementação concreta da interface IVideoDownloader.
 import asyncio
 import re
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, Tuple
 import yt_dlp
 from loguru import logger
 

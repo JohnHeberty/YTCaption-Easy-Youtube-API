@@ -4,7 +4,7 @@ Define o contrato para serviços de transcrição.
 Segue o princípio de Dependency Inversion (SOLID).
 """
 from abc import ABC, abstractmethod
-from pathlib import Path
+# from pathlib import Path  # noqa: F401
 from src.domain.entities import Transcription, VideoFile
 
 
@@ -26,7 +26,7 @@ class ITranscriptionService(ABC):
         Raises:
             TranscriptionError: Se houver erro na transcrição
         """
-        pass
+        ...
     
     @abstractmethod
     async def detect_language(self, video_file: VideoFile) -> str:
@@ -42,4 +42,4 @@ class ITranscriptionService(ABC):
         Raises:
             TranscriptionError: Se houver erro na detecção
         """
-        pass
+        ...

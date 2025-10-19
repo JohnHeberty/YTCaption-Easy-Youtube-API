@@ -6,7 +6,7 @@ Segue boas práticas de tratamento de erros.
 
 class DomainException(Exception):
     """Exceção base para erros de domínio."""
-    pass
+    ...
 
 
 class VideoDownloadError(DomainException):
@@ -16,7 +16,7 @@ class VideoDownloadError(DomainException):
 
 class TranscriptionError(DomainException):
     """Erro ao transcrever áudio."""
-    pass
+    ...
 
 
 class StorageError(DomainException):
@@ -26,7 +26,7 @@ class StorageError(DomainException):
 
 class ValidationError(DomainException):
     """Erro de validação."""
-    pass
+    ...
 
 
 class ResourceNotFoundError(DomainException):
@@ -36,4 +36,4 @@ class ResourceNotFoundError(DomainException):
 
 class ServiceUnavailableError(DomainException):
     """Serviço indisponível."""
-    pass
+    ...

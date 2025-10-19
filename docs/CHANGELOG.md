@@ -7,6 +7,30 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [1.3.3] - 2025-10-19
+
+### Corrigido
+- **🔧 start.sh - WORKERS fixado em 1**: Removida auto-configuração incorreta de WORKERS do Uvicorn
+  - Antes: calculava `(2 * CPU_CORES) + 1`, resultando em 9 workers para 4 cores ❌
+  - Depois: mantém WORKERS=1 (padrão do .env), otimizado para esta aplicação ✅
+  - Razão: Múltiplos workers Uvicorn competem pelo mesmo modelo Whisper na memória
+  - Processamento paralelo é feito por `PARALLEL_WORKERS` na camada de transcrição
+
+### Melhorado
+- **🎯 Qualidade de Código**: Corrigidos ~80-90 erros de lint (de 149 total)
+  - ✅ `subprocess.run` sem `check=` → adicionado `check=False`
+  - ✅ `raise` sem `from` → adicionado exception chaining
+  - ✅ `except Exception` genérico → substituído por exceções específicas
+  - ✅ `pass` desnecessário → substituído por `...` em interfaces
+  - ✅ Imports não utilizados → removidos/comentados
+  - ⚠️ Avisos restantes são falsos positivos do type checker
+
+### Documentação
+- Novo arquivo `docs/INTELLIGENT_MODE_SELECTION.md` com fluxograma visual
+- Atualizado `start.sh` com comentários explicando decisão de WORKERS=1
+
+---
+
 ## [1.3.2] - 2025-10-19
 
 ### Adicionado

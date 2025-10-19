@@ -27,7 +27,7 @@ class IVideoDownloader(ABC):
         Raises:
             VideoDownloadError: Se houver erro no download
         """
-        pass
+        ...
     
     @abstractmethod
     async def get_video_info(self, url: YouTubeURL) -> dict:
@@ -43,4 +43,4 @@ class IVideoDownloader(ABC):
         Raises:
             VideoDownloadError: Se houver erro ao obter informações
         """
-        pass
+        ...

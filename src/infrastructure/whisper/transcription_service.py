@@ -107,7 +107,8 @@ class WhisperTranscriptionService(ITranscriptionService):
                 ffmpeg_cmd,
                 capture_output=True,
                 text=True,
-                timeout=600  # 10 minutos timeout (vídeos grandes)
+                timeout=600,  # 10 minutos timeout (vídeos grandes)
+                check=False
             )
             
             if result.returncode != 0:
@@ -129,17 +130,17 @@ class WhisperTranscriptionService(ITranscriptionService):
             
             return output_path
             
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             raise TranscriptionError(
                 "Audio conversion/normalization timed out (>10 minutes)"
-            )
-        except Exception as e:
+            ) from exc
+        except (OSError, IOError) as e:
             if isinstance(e, TranscriptionError):
                 raise
             logger.error(f"Audio normalization failed: {str(e)}")
             raise TranscriptionError(
                 f"Failed to normalize audio: {str(e)}"
-            )
+            ) from e
     
     async def transcribe(
         self,

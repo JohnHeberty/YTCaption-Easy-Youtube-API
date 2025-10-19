@@ -19,7 +19,7 @@ class IStorageService(ABC):
         Returns:
             Path: Caminho do diretório criado
         """
-        pass
+        ...
     
     @abstractmethod
     async def cleanup_old_files(self, max_age_hours: int = 24) -> int:
@@ -32,7 +32,7 @@ class IStorageService(ABC):
         Returns:
             int: Número de arquivos removidos
         """
-        pass
+        ...
     
     @abstractmethod
     async def cleanup_directory(self, directory: Path) -> bool:
@@ -45,7 +45,7 @@ class IStorageService(ABC):
         Returns:
             bool: True se removido com sucesso
         """
-        pass
+        ...
     
     @abstractmethod
     async def get_temp_files(self) -> List[Path]:
@@ -55,7 +55,7 @@ class IStorageService(ABC):
         Returns:
             List[Path]: Lista de caminhos dos arquivos
         """
-        pass
+        ...
     
     @abstractmethod
     async def get_storage_usage(self) -> dict:
@@ -65,4 +65,4 @@ class IStorageService(ABC):
         Returns:
             dict: Informações de uso (total, usado, livre)
         """
-        pass
+        ...

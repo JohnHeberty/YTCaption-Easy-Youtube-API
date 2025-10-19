@@ -94,31 +94,17 @@ detect_cpu_cores() {
     
     print_success "Detected: $CPU_CORES cores / $CPU_THREADS threads"
     
-    # Use 100% of available CPU cores
+    # Use 100% of available CPU cores for Docker limits
     DOCKER_CPUS="$CPU_CORES"
     DOCKER_CPUS_RESERVATION="$CPU_CORES"
     print_info "Using 100% of CPU cores: $CPU_CORES"
     
-    # Calculate optimal number of Uvicorn workers
-    # Formula: (2 * CPU_CORES) + 1 (máximo de workers para I/O bound)
-    # Mínimo de 2, máximo de CPU_CORES * 2 (para não sobrecarregar)
-    UVICORN_WORKERS=$((2 * CPU_CORES + 1))
-    
-    # Limitar máximo para evitar overhead
-    if [ "$UVICORN_WORKERS" -gt $((CPU_CORES * 2)) ]; then
-        UVICORN_WORKERS=$((CPU_CORES * 2))
-    fi
-    
-    # Garantir mínimo de 2 workers
-    if [ "$UVICORN_WORKERS" -lt 2 ]; then
-        UVICORN_WORKERS=2
-    fi
-    
-    print_info "Uvicorn workers calculated: $UVICORN_WORKERS (for parallel processing)"
+    # Note: WORKERS=1 (single Uvicorn worker) is optimal for this application
+    # Multiple Uvicorn workers would compete for the same Whisper model in memory
+    # Parallel processing is handled by PARALLEL_WORKERS in transcription layer
     
     export DOCKER_CPUS
     export DOCKER_CPUS_RESERVATION
-    export UVICORN_WORKERS
 }
 
 detect_ram() {
@@ -337,7 +323,9 @@ create_env_file() {
     # Update with detected values
     sed -i "s/WHISPER_MODEL=.*/WHISPER_MODEL=$WHISPER_MODEL/" .env
     sed -i "s/WHISPER_DEVICE=.*/WHISPER_DEVICE=$WHISPER_DEVICE/" .env
-    sed -i "s/WORKERS=.*/WORKERS=$UVICORN_WORKERS/" .env
+    
+    # Note: WORKERS is NOT changed (stays at 1 from .env.example)
+    # Single Uvicorn worker is optimal for this application
     
     # Configure parallel transcription
     # Enable parallel for multi-core systems (4+ cores)
@@ -385,7 +373,7 @@ show_configuration() {
     echo -e "${BLUE}==================================${NC}"
     echo -e "CPU Cores:        ${GREEN}$CPU_CORES (100% allocated)${NC}"
     echo -e "Docker CPUs:      ${GREEN}$DOCKER_CPUS${NC}"
-    echo -e "Uvicorn Workers:  ${GREEN}$UVICORN_WORKERS (API parallel processing)${NC}"
+    echo -e "Uvicorn Workers:  ${GREEN}1 (single worker, optimal)${NC}"
     
     # Show parallel transcription config
     if [ "$CPU_CORES" -ge 4 ]; then
