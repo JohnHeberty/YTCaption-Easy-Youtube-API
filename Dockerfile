@@ -40,8 +40,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --chown=appuser:appuser ./src /app/src
 COPY --chown=appuser:appuser .env.example /app/.env
 
-# Criar diretório temp com permissões corretas para appuser
-RUN mkdir -p /app/temp && chown -R appuser:appuser /app
+# Criar diretórios necessários com permissões corretas para appuser
+RUN mkdir -p /app/temp /app/logs && chown -R appuser:appuser /app/temp /app/logs
 
 # Criar diretório de cache do Whisper para o appuser
 RUN mkdir -p /home/appuser/.cache/whisper && chown -R appuser:appuser /home/appuser/.cache

@@ -4,6 +4,7 @@ Configuração principal da API seguindo Clean Architecture e SOLID.
 """
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -23,14 +24,27 @@ logger.add(
     level=settings.log_level
 )
 
+# Criar diretório de logs antes de configurar o arquivo de log
 if settings.log_file:
-    logger.add(
-        settings.log_file,
-        rotation="100 MB",
-        retention="10 days",
-        level=settings.log_level,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
-    )
+    log_path = Path(settings.log_file)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Log directory ensured: {log_path.parent}")
+    except Exception as e:
+        logger.warning(f"Could not create log directory: {e}")
+
+if settings.log_file:
+    try:
+        logger.add(
+            settings.log_file,
+            rotation="100 MB",
+            retention="10 days",
+            level=settings.log_level,
+            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+        )
+        logger.info(f"File logging configured: {settings.log_file}")
+    except Exception as e:
+        logger.error(f"Failed to configure file logging: {e}")
 
 
 @asynccontextmanager

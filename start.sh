@@ -380,9 +380,9 @@ start_application() {
         print_success "YTCaption started successfully!"
         echo ""
         print_info "Waiting for service to be ready..."
-        
-        # Wait for health check (max 60 seconds)
-        for i in {1..60}; do
+
+        # Wait for health check (max 20 seconds)
+        for i in {1..20}; do
             if curl -s http://localhost:8000/health &> /dev/null; then
                 echo ""
                 print_success "Service is ready!"
