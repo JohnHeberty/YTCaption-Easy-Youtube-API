@@ -265,31 +265,6 @@ PARALLEL_CHUNK_DURATION=120
 - ⬆️ Chunks maiores (240s) = Menos paralelismo, menos overhead
 
 ---
-
-### `AUDIO_LIMIT_SINGLE_CORE`
-**Duração limite para usar single-core ao invés de paralelo.**
-
-```bash
-AUDIO_LIMIT_SINGLE_CORE=300
-```
-
-- **Tipo**: Integer (segundos)
-- **Padrão**: `300` (5 minutos)
-
-**Como funciona**:
-- Áudio **< 5min**: Usa **single-core** (mais eficiente, sem overhead)
-- Áudio **≥ 5min**: Usa **paralelo** (mais rápido)
-
-**Quando ajustar**:
-
-| Valor | Comportamento | Uso Recomendado |
-|-------|---------------|-----------------|
-| `60` | Paralelo para >1min | Servidor potente, prioridade velocidade |
-| `180` | Paralelo para >3min | Equilibrado |
-| `300` ✅ | Paralelo para >5min | **Padrão (recomendado)** |
-| `600` | Paralelo para >10min | RAM limitada |
-| `9999` | Sempre single-core | Desabilitar paralelo (manter fallback) |
-
 ---
 
 ## YouTube Settings
@@ -646,7 +621,6 @@ WHISPER_MODEL=base
 WHISPER_DEVICE=cpu
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=2
-AUDIO_LIMIT_SINGLE_CORE=300
 MAX_CONCURRENT_REQUESTS=3
 WORKERS=1
 ```
@@ -657,7 +631,6 @@ WHISPER_MODEL=base
 WHISPER_DEVICE=cpu
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=4
-AUDIO_LIMIT_SINGLE_CORE=180
 MAX_CONCURRENT_REQUESTS=6
 WORKERS=1
 ```

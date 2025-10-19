@@ -6,6 +6,14 @@
 > A partir da versão 2.0.0, a transcrição paralela foi completamente redesenhada com **Persistent Worker Pool**.  
 > Este documento cobre conceitos gerais. Para detalhes da nova arquitetura, veja [10-PARALLEL-ARCHITECTURE.md](./10-PARALLEL-ARCHITECTURE.md).
 
+> **🔧 SIMPLIFICAÇÃO (v2.1.0):**  
+> A partir de v2.1.0, removemos a lógica de auto-switch baseada em duração do áudio.  
+> Agora o modo (paralelo vs single-core) é definido APENAS por `ENABLE_PARALLEL_TRANSCRIPTION` no `.env`:
+> - `true` = TODOS os áudios em modo paralelo
+> - `false` = TODOS os áudios em modo single-core  
+> 
+> A variável `AUDIO_LIMIT_SINGLE_CORE` foi **REMOVIDA**.
+
 ---
 
 ## 📋 Índice
@@ -59,22 +67,23 @@ Resultado
 
 ## Como Funciona
 
-### 1. Detecção Automática de Duração
+### 1. Seleção de Modo (Baseado no .env)
 
 ```python
-if audio_duration < AUDIO_LIMIT_SINGLE_CORE:
-    # Usa single-core (mais eficiente para áudios curtos)
-    return transcribe_single_core()
-else:
-    # Usa paralelo (mais rápido para áudios longos)
+# Definido no .env uma vez, aplicado a TODOS os áudios
+if ENABLE_PARALLEL_TRANSCRIPTION:
+    # Usa paralelo para TODOS os áudios
     return transcribe_parallel()
+else:
+    # Usa single-core para TODOS os áudios
+    return transcribe_single_core()
 ```
 
-**Padrão**: `AUDIO_LIMIT_SINGLE_CORE=300` (5 minutos)
+**Configuração**: Definida no arquivo `.env` e aplicada no startup da aplicação.
 
 ---
 
-### 2. Divisão em Chunks
+### 2. Divisão em Chunks (Apenas no Modo Paralelo)
 
 ```python
 chunk_duration = PARALLEL_CHUNK_DURATION  # Padrão: 120 segundos
@@ -154,24 +163,21 @@ final_transcription = merge_segments(results)
 ### Variáveis de Ambiente (.env)
 
 ```bash
-# Habilitar/Desabilitar
-ENABLE_PARALLEL_TRANSCRIPTION=true
+# Habilitar/Desabilitar (aplica a TODOS os áudios)
+ENABLE_PARALLEL_TRANSCRIPTION=true    # true=paralelo, false=single-core
 
 # Número de workers (0 = auto-detect)
 PARALLEL_WORKERS=2
 
 # Duração de cada chunk (segundos)
 PARALLEL_CHUNK_DURATION=120
-
-# Limite para usar single-core (segundos)
-AUDIO_LIMIT_SINGLE_CORE=300
 ```
 
 ---
 
 ### ENABLE_PARALLEL_TRANSCRIPTION
 
-**Habilita ou desabilita completamente o modo paralelo.**
+**Habilita ou desabilita o modo paralelo para TODOS os áudios.**
 
 ```bash
 ENABLE_PARALLEL_TRANSCRIPTION=true
@@ -248,37 +254,6 @@ PARALLEL_CHUNK_DURATION=120
 - ✅ Menos overhead
 - ⚠️ Menos paralelismo
 - 🎯 Use se: CPU com 2-4 cores
-
----
-
-### AUDIO_LIMIT_SINGLE_CORE
-
-**Limite para decidir entre single-core vs paralelo.**
-
-```bash
-AUDIO_LIMIT_SINGLE_CORE=300
-```
-
-**Como funciona**:
-```python
-if audio_duration < 300:  # < 5 minutos
-    use_single_core()  # Mais eficiente
-else:
-    use_parallel()  # Mais rápido
-```
-
-| Valor | Comportamento |
-|-------|---------------|
-| `60` | Paralelo para áudios > 1 min |
-| `180` | Paralelo para áudios > 3 min |
-| `300` ✅ | Paralelo para áudios > 5 min (padrão) |
-| `600` | Paralelo para áudios > 10 min |
-| `9999` | Sempre single-core |
-
-**Por que existe esse limite?**
-- Áudios curtos (< 5min) processam rápido mesmo em single-core
-- Overhead de split/merge não compensa
-- Single-core usa menos RAM
 
 ---
 
@@ -512,14 +487,14 @@ ENABLE_PARALLEL_TRANSCRIPTION=false
 
 **Soluções**:
 
-1. **Aumente limite single-core**:
+1. **Aumente chunk duration**:
 ```bash
-AUDIO_LIMIT_SINGLE_CORE=600  # Era 300
+PARALLEL_CHUNK_DURATION=180  # Era 60, aumenta para reduzir overhead
 ```
 
-2. **Aumente chunk duration**:
+2. **Desabilite paralelo** se necessário:
 ```bash
-PARALLEL_CHUNK_DURATION=180  # Era 60
+ENABLE_PARALLEL_TRANSCRIPTION=false  # Volta para single-core
 ```
 
 ---
@@ -560,7 +535,6 @@ WHISPER_MODEL=tiny
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=2
 PARALLEL_CHUNK_DURATION=120
-AUDIO_LIMIT_SINGLE_CORE=300
 WHISPER_MODEL=base
 ```
 
@@ -574,7 +548,6 @@ WHISPER_MODEL=base
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=4
 PARALLEL_CHUNK_DURATION=90
-AUDIO_LIMIT_SINGLE_CORE=180
 WHISPER_MODEL=base
 ```
 
@@ -588,7 +561,6 @@ WHISPER_MODEL=base
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=0  # Auto-detect
 PARALLEL_CHUNK_DURATION=60
-AUDIO_LIMIT_SINGLE_CORE=60
 WHISPER_MODEL=small
 ```
 

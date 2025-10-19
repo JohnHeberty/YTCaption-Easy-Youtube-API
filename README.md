@@ -82,10 +82,9 @@ MAX_VIDEO_SIZE_MB=2500
 PORT=8000
 
 # Transcrição Paralela (Persistent Worker Pool - v2.0.0)
-ENABLE_PARALLEL_TRANSCRIPTION=true   # Workers persistentes (modelo carregado 1x)
+ENABLE_PARALLEL_TRANSCRIPTION=true   # true=paralelo (todos áudios), false=single-core
 PARALLEL_WORKERS=2                   # Número de workers (0 = auto-detect)
 PARALLEL_CHUNK_DURATION=120          # Duração dos chunks em segundos
-AUDIO_LIMIT_SINGLE_CORE=300          # Áudios <5min: single-core, >=5min: paralelo
 ```
 
 ### 🚀 Transcrição Paralela (v2.0.0 - Otimizada!)
@@ -148,7 +147,7 @@ chmod +x start.sh
 
 **Breaking Changes:**
 - Remoção da implementação paralela V1 (lenta)
-- Novas configurações: `AUDIO_LIMIT_SINGLE_CORE`
+- Modo de operação simplificado (sem auto-switch baseado em duração)
 - Workers iniciados no startup da aplicação (não por request)
 
 Veja [docs/CHANGELOG.md](docs/CHANGELOG.md) para detalhes completos.

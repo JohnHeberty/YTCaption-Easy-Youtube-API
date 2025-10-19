@@ -22,20 +22,20 @@ echo "===================================="
 echo -e "${NC}"
 
 # Verificar se está usando Docker
-if [ -f "docker-compose.yml" ]; then
+if [ -f "docker compose.yml" ]; then
     echo -e "${BLUE}ℹ Docker Compose detected${NC}"
     
     # Parar containers
     echo -e "${YELLOW}⏸  Stopping containers...${NC}"
-    docker-compose down
+    docker compose down
     
     # Rebuild (sem cache para garantir código novo)
     echo -e "${YELLOW}🔨 Building image (this may take a few minutes)...${NC}"
-    docker-compose build --no-cache
+    docker compose build --no-cache
     
     # Iniciar
     echo -e "${GREEN}🚀 Starting containers...${NC}"
-    docker-compose up -d
+    docker compose up -d
     
     # Aguardar 5 segundos
     echo -e "${BLUE}ℹ Waiting for workers to load model...${NC}"
@@ -44,7 +44,7 @@ if [ -f "docker-compose.yml" ]; then
     # Mostrar logs
     echo -e "${GREEN}✓ Deploy complete! Showing logs:${NC}"
     echo ""
-    docker-compose logs -f
+    docker compose logs -f
     
 else
     echo -e "${YELLOW}⚠  Docker Compose not found. Manual deployment required.${NC}"

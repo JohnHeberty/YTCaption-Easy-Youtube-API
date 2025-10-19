@@ -108,7 +108,6 @@ nano .env  # Adicione as linhas abaixo
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=2
 PARALLEL_CHUNK_DURATION=120
-AUDIO_LIMIT_SINGLE_CORE=300
 
 # Salvar: Ctrl+X, Y, Enter
 docker-compose restart

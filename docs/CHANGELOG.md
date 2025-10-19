@@ -7,6 +7,31 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [2.1.0] - 2025-10-19
+
+### 🔧 Removido
+
+#### **Simplificação: Remoção de Auto-Switch**
+
+- **Removida variável `AUDIO_LIMIT_SINGLE_CORE`**
+  - Eliminada lógica de auto-switch baseada em duração do áudio
+  - Modo de operação agora definido APENAS por `ENABLE_PARALLEL_TRANSCRIPTION`
+  - `true` = TODOS os áudios em modo paralelo
+  - `false` = TODOS os áudios em modo single-core
+  - Comportamento mais previsível e simples
+
+- **Removida classe `FallbackTranscriptionService`**
+  - Factory agora retorna diretamente o serviço escolhido
+  - Código mais simples e manutenível (~135 linhas removidas)
+  - Sem overhead de detecção de duração via FFprobe
+
+### 📝 Documentação
+
+- Atualizado guia de configuração removendo referências a `AUDIO_LIMIT_SINGLE_CORE`
+- Adicionadas notas de depreciação em docs antigas
+
+---
+
 ## [2.0.0] - 2025-10-19
 
 ### 🚀 Adicionado
@@ -23,7 +48,6 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
   - `ENABLE_PARALLEL_TRANSCRIPTION=true` por padrão
   - `PARALLEL_WORKERS=2` configurado
   - `PARALLEL_CHUNK_DURATION=120` otimizado
-  - `AUDIO_LIMIT_SINGLE_CORE=300` para seleção inteligente
   - Limites de memória ajustados para 8GB (suporta 2 workers)
 
 #### **Nova Arquitetura de Transcrição Paralela (Persistent Worker Pool)**

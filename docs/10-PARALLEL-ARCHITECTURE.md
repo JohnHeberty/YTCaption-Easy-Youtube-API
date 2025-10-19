@@ -216,11 +216,10 @@ transcription = await service.transcribe(
 ### `.env` / Variáveis de Ambiente
 
 ```bash
-# Transcrição Paralela
-ENABLE_PARALLEL_TRANSCRIPTION=true    # true = usar v2, false = single-core
+# Transcrição Paralela (v2.1.0 - Simplificado)
+ENABLE_PARALLEL_TRANSCRIPTION=true    # true=paralelo (TODOS áudios), false=single-core
 PARALLEL_WORKERS=3                     # Número de workers (default: auto)
 PARALLEL_CHUNK_DURATION=120            # Duração de cada chunk (segundos)
-AUDIO_LIMIT_SINGLE_CORE=300            # <5min usa single-core (mais eficiente)
 
 # Whisper
 WHISPER_MODEL=base                     # tiny, base, small, medium, large
@@ -231,6 +230,8 @@ TEMP_DIR=./temp                        # Diretório base
 MAX_TEMP_AGE_HOURS=24                  # Cleanup automático
 CLEANUP_ON_STARTUP=true                # Limpar na inicialização
 ```
+
+> **Nota v2.1.0:** A variável `AUDIO_LIMIT_SINGLE_CORE` foi removida. O modo de operação é agora definido APENAS por `ENABLE_PARALLEL_TRANSCRIPTION`.
 
 ---
 
