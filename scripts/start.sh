@@ -196,31 +196,28 @@ detect_gpu() {
             GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)
             print_success "NVIDIA GPU detected: $GPU_NAME"
             
-            # Check for CUDA
-            if command -v nvcc &> /dev/null; then
-                CUDA_VERSION=$(nvcc --version | grep "release" | awk '{print $5}' | cut -d',' -f1)
-                print_success "CUDA detected: $CUDA_VERSION"
+            # Check if Docker can access GPU (this is what matters!)
+            print_info "Checking if Docker can access GPU..."
+            if docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi &> /dev/null 2>&1; then
+                print_success "Docker GPU access: OK"
+                print_success "GPU will be used for transcription"
                 WHISPER_DEVICE="cuda"
                 GPU_AVAILABLE=true
             else
-                print_warning "CUDA toolkit not installed on host"
+                print_warning "Docker cannot access GPU"
                 echo ""
-                echo -e "${YELLOW}ℹ GPU detected but CUDA not found:${NC}"
-                echo "  • GPU available: $GPU_NAME"
-                echo "  • CUDA toolkit: NOT INSTALLED"
+                echo -e "${YELLOW}ℹ GPU detected but Docker can't access it:${NC}"
+                echo "  • GPU hardware: $GPU_NAME ✓"
+                echo "  • NVIDIA driver: Working ✓"
+                echo "  • Docker GPU access: Failed ✗"
                 echo ""
-                echo -e "${BLUE}Options:${NC}"
-                echo "  1) Continue with CPU (works, but slower for large models)"
-                echo "  2) Install CUDA to use GPU (better performance)"
+                echo -e "${BLUE}Solution:${NC}"
+                echo "  Install NVIDIA Docker runtime:"
+                echo "  ${GREEN}sudo ./scripts/install-nvidia-docker.sh${NC}"
                 echo ""
-                echo -e "${BLUE}To use GPU in production:${NC}"
-                echo "  • Install NVIDIA Docker: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
-                echo "  • Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads"
-                echo "  • Rerun this script after installation"
-                echo ""
-                echo -e "${BLUE}For development/testing:${NC}"
-                echo "  • CPU mode is fine (model 'base' or 'tiny' recommended)"
-                echo "  • No CUDA installation needed"
+                echo -e "${BLUE}Or continue with CPU mode:${NC}"
+                echo "  • Works fine for development"
+                echo "  • Use 'base' or 'tiny' model for speed"
                 echo ""
                 
                 WHISPER_DEVICE="cpu"
@@ -229,7 +226,7 @@ detect_gpu() {
                 read -p "Continue with CPU mode? (Y/n): " -n 1 -r
                 echo
                 if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! -z $REPLY ]]; then
-                    print_info "Installation cancelled. Please install CUDA and try again."
+                    print_info "Startup cancelled. Install NVIDIA Docker and try again."
                     exit 0
                 fi
                 
