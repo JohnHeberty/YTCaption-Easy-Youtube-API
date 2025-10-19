@@ -3,6 +3,7 @@ Whisper Transcription Service Implementation.
 Implementação concreta da interface ITranscriptionService usando OpenAI Whisper.
 """
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import Optional
 import whisper
@@ -62,6 +63,82 @@ class WhisperTranscriptionService(ITranscriptionService):
         
         return self._model
     
+    def _normalize_audio(self, input_path: Path) -> Path:
+        """
+        Normaliza áudio para formato compatível com Whisper usando FFmpeg.
+        Converte para: 16kHz, mono, WAV format
+        
+        Args:
+            input_path: Caminho do arquivo de áudio/vídeo original
+            
+        Returns:
+            Path: Caminho do arquivo de áudio normalizado
+            
+        Raises:
+            TranscriptionError: Se a normalização falhar
+        """
+        try:
+            # Criar arquivo de saída no mesmo diretório
+            output_path = input_path.parent / f"{input_path.stem}_normalized.wav"
+            
+            logger.info(f"Normalizing audio: {input_path.name} -> {output_path.name}")
+            
+            # Comando FFmpeg para normalizar áudio
+            # -i: input file
+            # -ar 16000: sample rate 16kHz (padrão Whisper)
+            # -ac 1: mono (1 canal)
+            # -c:a pcm_s16le: codec PCM 16-bit little-endian
+            # -y: sobrescrever arquivo se existir
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', str(input_path),
+                '-ar', '16000',          # 16kHz sample rate
+                '-ac', '1',              # Mono
+                '-c:a', 'pcm_s16le',    # PCM 16-bit
+                '-y',                    # Overwrite
+                '-loglevel', 'error',    # Apenas erros
+                str(output_path)
+            ]
+            
+            # Executar FFmpeg
+            result = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minutos timeout
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr or "Unknown FFmpeg error"
+                raise TranscriptionError(
+                    f"FFmpeg normalization failed: {error_msg}"
+                )
+            
+            # Verificar se arquivo foi criado
+            if not output_path.exists():
+                raise TranscriptionError(
+                    f"Normalized audio file not created: {output_path}"
+                )
+            
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            logger.info(
+                f"Audio normalized successfully: {file_size_mb:.2f} MB"
+            )
+            
+            return output_path
+            
+        except subprocess.TimeoutExpired:
+            raise TranscriptionError(
+                "Audio normalization timed out (>5 minutes)"
+            )
+        except Exception as e:
+            if isinstance(e, TranscriptionError):
+                raise
+            logger.error(f"Audio normalization failed: {str(e)}")
+            raise TranscriptionError(
+                f"Failed to normalize audio: {str(e)}"
+            )
+    
     async def transcribe(
         self,
         video_file: VideoFile,
@@ -80,11 +157,17 @@ class WhisperTranscriptionService(ITranscriptionService):
         Raises:
             TranscriptionError: Se houver erro na transcrição
         """
+        normalized_audio_path: Optional[Path] = None
+        
         try:
             logger.info(f"Starting transcription: {video_file.file_path.name}")
             
             if not video_file.exists:
                 raise TranscriptionError(f"Video file not found: {video_file.file_path}")
+            
+            # Normalizar áudio antes da transcrição
+            logger.info("Normalizing audio for Whisper compatibility...")
+            normalized_audio_path = self._normalize_audio(video_file.file_path)
             
             # Carregar modelo
             model = self._load_model()
@@ -100,13 +183,13 @@ class WhisperTranscriptionService(ITranscriptionService):
             if language != "auto" and language:
                 transcribe_options['language'] = language
             
-            # Executar transcrição em thread separada
+            # Executar transcrição em thread separada usando áudio normalizado
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
                 self._transcribe_sync,
                 model,
-                str(video_file.file_path),
+                str(normalized_audio_path),  # Usar áudio normalizado
                 transcribe_options
             )
             
@@ -137,6 +220,15 @@ class WhisperTranscriptionService(ITranscriptionService):
         except Exception as e:
             logger.error(f"Transcription failed: {str(e)}")
             raise TranscriptionError(f"Failed to transcribe video: {str(e)}")
+        
+        finally:
+            # Limpar arquivo de áudio normalizado
+            if normalized_audio_path and normalized_audio_path.exists():
+                try:
+                    normalized_audio_path.unlink()
+                    logger.debug(f"Cleaned up normalized audio: {normalized_audio_path.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup normalized audio: {str(e)}")
     
     def _transcribe_sync(
         self,
