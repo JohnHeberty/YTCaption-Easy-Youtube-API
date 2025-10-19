@@ -81,8 +81,8 @@ class PersistentWorkerPool:
         
         logger.info(f"[WORKER POOL] Starting {self.num_workers} persistent workers...")
         
-        # Criar filas
-        self.task_queue = mp.Queue(maxsize=self.num_workers * 10)
+        # Criar filas (aumentada para suportar até 50 chunks em paralelo)
+        self.task_queue = mp.Queue(maxsize=50)  # Era num_workers * 10 = 20, agora 50
         self.result_queue = mp.Queue()
         
         # Criar e iniciar workers
@@ -155,7 +155,7 @@ class PersistentWorkerPool:
         chunk_path: Path,
         chunk_idx: int,
         language: str = "auto",
-        timeout: int = 5
+        timeout: int = 60  # Aumentado de 5s para 60s
     ):
         """
         Envia tarefa para fila de processamento.
