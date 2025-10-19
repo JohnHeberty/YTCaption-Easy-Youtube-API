@@ -19,6 +19,13 @@
 
 set -e  # Exit on error
 
+# Get script directory and project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Change to project root
+cd "$PROJECT_ROOT"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -64,7 +71,8 @@ print_info() {
 }
 
 show_help() {
-    echo "Usage: ./start.sh [options]"
+    echo "Usage: ./scripts/start.sh [options]"
+    echo "   or: cd scripts && ./start.sh [options]"
     echo ""
     echo "Options:"
     echo "  --force-rebuild       Force rebuild Docker images"
@@ -77,13 +85,13 @@ show_help() {
     echo "  --help               Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./start.sh                              # Normal start (100% RAM)"
-    echo "  ./start.sh --force-rebuild              # Rebuild and start"
-    echo "  ./start.sh --model medium --no-gpu      # Use medium model on CPU"
-    echo "  ./start.sh --no-parallel                # Disable parallel mode (test single-core)"
-    echo "  ./start.sh --workers 1 --parallel-workers 4  # 1 API worker, 4 transcription workers"
-    echo "  ./start.sh --memory 4096                # Limit container to 4GB RAM"
-    echo "  ./start.sh --model base --memory 2048   # Base model with 2GB RAM limit"
+    echo "  ./scripts/start.sh                              # Normal start (100% RAM)"
+    echo "  ./scripts/start.sh --force-rebuild              # Rebuild and start"
+    echo "  ./scripts/start.sh --model medium --no-gpu      # Use medium model on CPU"
+    echo "  ./scripts/start.sh --no-parallel                # Disable parallel mode (test single-core)"
+    echo "  ./scripts/start.sh --workers 1 --parallel-workers 4  # 1 API worker, 4 transcription workers"
+    echo "  ./scripts/start.sh --memory 4096                # Limit container to 4GB RAM"
+    echo "  ./scripts/start.sh --model base --memory 2048   # Base model with 2GB RAM limit"
 }
 
 check_root() {
