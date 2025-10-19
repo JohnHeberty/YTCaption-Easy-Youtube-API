@@ -22,14 +22,6 @@ services:
       - PARALLEL_WORKERS=${PARALLEL_WORKERS:-2}
       - PARALLEL_CHUNK_DURATION=${PARALLEL_CHUNK_DURATION:-120}
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '4.0'
-          memory: 8G
-        reservations:
-          cpus: '2.0'
-          memory: 4G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 60s

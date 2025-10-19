@@ -135,7 +135,7 @@ detect_ram() {
 
 detect_gpu() {
     if [ "$DISABLE_GPU" = true ]; then
-        print_info "GPU detection disabled by user"
+        print_info "GPU detection disabled by user (--no-gpu flag)"
         WHISPER_DEVICE="cpu"
         GPU_AVAILABLE=false
         return
@@ -156,9 +156,37 @@ detect_gpu() {
                 WHISPER_DEVICE="cuda"
                 GPU_AVAILABLE=true
             else
-                print_warning "CUDA not found. GPU will not be used."
+                print_warning "CUDA toolkit not installed on host"
+                echo ""
+                echo -e "${YELLOW}ℹ GPU detected but CUDA not found:${NC}"
+                echo "  • GPU available: $GPU_NAME"
+                echo "  • CUDA toolkit: NOT INSTALLED"
+                echo ""
+                echo -e "${BLUE}Options:${NC}"
+                echo "  1) Continue with CPU (works, but slower for large models)"
+                echo "  2) Install CUDA to use GPU (better performance)"
+                echo ""
+                echo -e "${BLUE}To use GPU in production:${NC}"
+                echo "  • Install NVIDIA Docker: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html"
+                echo "  • Install CUDA Toolkit: https://developer.nvidia.com/cuda-downloads"
+                echo "  • Rerun this script after installation"
+                echo ""
+                echo -e "${BLUE}For development/testing:${NC}"
+                echo "  • CPU mode is fine (model 'base' or 'tiny' recommended)"
+                echo "  • No CUDA installation needed"
+                echo ""
+                
                 WHISPER_DEVICE="cpu"
                 GPU_AVAILABLE=false
+                
+                read -p "Continue with CPU mode? (Y/n): " -n 1 -r
+                echo
+                if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! -z $REPLY ]]; then
+                    print_info "Installation cancelled. Please install CUDA and try again."
+                    exit 0
+                fi
+                
+                print_info "Proceeding with CPU mode"
             fi
         else
             print_info "No NVIDIA GPU detected"
