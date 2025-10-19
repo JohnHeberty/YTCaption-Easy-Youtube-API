@@ -119,9 +119,68 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             f"chunk_duration={chunk_duration_seconds}s"
         )
     
+    def _convert_to_wav(self, input_path: Path) -> Path:
+        """
+        Converte qualquer formato de áudio/vídeo para WAV normalizado.
+        Garante compatibilidade com Whisper (16kHz, mono, WAV format).
+        
+        Args:
+            input_path: Caminho do arquivo de áudio/vídeo original
+            
+        Returns:
+            Path: Caminho do arquivo WAV normalizado
+            
+        Raises:
+            TranscriptionError: Se a conversão falhar
+        """
+        try:
+            output_path = input_path.parent / f"{input_path.stem}_converted.wav"
+            
+            logger.info(f"[PARALLEL] Converting to WAV: {input_path.name} -> {output_path.name}")
+            
+            # Converter qualquer formato para WAV normalizado
+            ffmpeg_cmd = [
+                'ffmpeg',
+                '-i', str(input_path),
+                '-vn',                   # No video (apenas áudio)
+                '-ar', '16000',          # 16kHz sample rate
+                '-ac', '1',              # Mono
+                '-c:a', 'pcm_s16le',    # PCM 16-bit (WAV)
+                '-y',                    # Overwrite
+                '-loglevel', 'error',
+                str(output_path)
+            ]
+            
+            result = subprocess.run(
+                ffmpeg_cmd,
+                capture_output=True,
+                text=True,
+                timeout=600  # 10 minutos timeout
+            )
+            
+            if result.returncode != 0:
+                error_msg = result.stderr or "Unknown FFmpeg error"
+                raise TranscriptionError(f"FFmpeg conversion failed: {error_msg}")
+            
+            if not output_path.exists():
+                raise TranscriptionError(f"Converted WAV file not created: {output_path}")
+            
+            file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            logger.info(f"[PARALLEL] Audio converted to WAV: {file_size_mb:.2f} MB")
+            
+            return output_path
+            
+        except subprocess.TimeoutExpired:
+            raise TranscriptionError("Audio conversion timed out (>10 minutes)")
+        except Exception as e:
+            if isinstance(e, TranscriptionError):
+                raise
+            logger.error(f"[PARALLEL] Audio conversion failed: {str(e)}")
+            raise TranscriptionError(f"Failed to convert audio to WAV: {str(e)}")
+    
     def _get_audio_duration(self, audio_path: Path) -> float:
         """
-        Obtém a duração do áudio em segundos usando FFprobe.
+        Obtém a duração do áudio em segundos.
         
         Args:
             audio_path: Caminho do arquivo de áudio
@@ -144,14 +203,19 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                 check=True
             )
             return float(result.stdout.strip())
-        except Exception as e:
-            logger.warning(f"Failed to get audio duration with FFprobe: {e}")
-            # Fallback: carregar áudio e calcular duração
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            logger.warning("FFprobe not available - using Whisper to load audio")
+            # Fallback: carregar áudio direto (sem FFmpeg)
             try:
-                audio = whisper.load_audio(str(audio_path))
-                return len(audio) / 16000  # 16kHz sample rate
-            except Exception as e2:
-                raise TranscriptionError(f"Failed to get audio duration: {str(e2)}")
+                import wave
+                with wave.open(str(audio_path), 'rb') as wav_file:
+                    frames = wav_file.getnframes()
+                    rate = wav_file.getframerate()
+                    duration = frames / float(rate)
+                    return duration
+            except Exception as e:
+                logger.error(f"Failed to get audio duration: {e}")
+                raise TranscriptionError(f"Failed to get audio duration: {str(e)}")
     
     def _split_audio_chunks(self, duration: float) -> List[Tuple[float, float]]:
         """
@@ -194,8 +258,14 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             if not video_file.exists:
                 raise TranscriptionError(f"Video file not found: {video_file.file_path}")
             
-            # Usar áudio original (normalização será aplicada em produção se FFmpeg disponível)
+            # Converter para WAV se necessário
             audio_path = video_file.file_path
+            try:
+                logger.info("[PARALLEL] Converting audio to WAV format...")
+                audio_path = self._convert_to_wav(video_file.file_path)
+            except Exception as e:
+                logger.warning(f"[PARALLEL] Audio conversion failed - using original: {e}")
+                audio_path = video_file.file_path
             
             # Obter duração do áudio
             duration = self._get_audio_duration(audio_path)

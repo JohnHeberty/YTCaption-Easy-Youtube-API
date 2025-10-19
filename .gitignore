@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+teste_melhoria/
+run_test.ps1
+monitor_test.ps1
+test_output.txt
+
 # Distribution / packaging
 .Python
 build/

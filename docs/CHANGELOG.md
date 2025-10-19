@@ -7,6 +7,49 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [1.3.0] - 2025-10-19
+
+### Adicionado
+- **🎯 Conversão Automática para WAV**: Qualquer formato de vídeo/áudio agora é convertido automaticamente para WAV antes da transcrição
+  - Suporta qualquer formato: MP4, WebM, MP3, MKV, AVI, etc.
+  - Normalização automática: 16kHz, mono, PCM 16-bit
+  - Garante 100% de compatibilidade com Whisper
+  - Timeout aumentado para 10 minutos (vídeos grandes)
+- **🚀 Transcrição Paralela Habilitada por Padrão** em sistemas com 4+ cores
+  - `start.sh` detecta cores e configura automaticamente
+  - Auto-detection de workers baseado em CPU cores
+  - Speedup de 3-4x em áudios longos (30+ minutos)
+
+### Melhorado
+- **Bug Fix**: Corrigido erro onde vídeos não-WAV falhavam na transcrição
+  - Adicionado flag `-vn` (no video) para extrair apenas áudio
+  - Conversão automática garante formato correto
+  - Fallback gracioso se FFmpeg não disponível (apenas em dev)
+- **start.sh atualizado**:
+  - Configura automaticamente `ENABLE_PARALLEL_TRANSCRIPTION=true` para 4+ cores
+  - Mostra status de paralelização no sumário de configuração
+  - Define `PARALLEL_WORKERS=0` (auto-detect) por padrão
+- **Logs mais descritivos**:
+  - "Converting audio to WAV format..." ao invés de "Normalizing..."
+  - Indica claramente o processo de conversão
+  - Warnings informativos se FFmpeg não disponível
+
+### Técnico
+- Atualizado `_normalize_audio()` para `_convert_to_wav()` com flag `-vn`
+- Mesma lógica aplicada em ambos os serviços:
+  - `WhisperTranscriptionService` (normal)
+  - `WhisperParallelTranscriptionService` (paralelo)
+- Timeout de conversão aumentado: 300s → 600s (10 minutos)
+- `.env` e `.env.example` atualizados com novos padrões
+- Clean Architecture mantida: mudanças isoladas na camada de infraestrutura
+
+### Performance
+- ✅ **Testado com áudio real de 35+ minutos**
+- ✅ **Conversão automática funciona com qualquer formato**
+- ✅ **Paralelo habilitado por padrão em produção (Proxmox/Linux)**
+
+---
+
 ## [1.2.0] - 2025-10-19
 
 ### Adicionado

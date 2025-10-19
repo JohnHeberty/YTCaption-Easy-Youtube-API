@@ -339,6 +339,18 @@ create_env_file() {
     sed -i "s/WHISPER_DEVICE=.*/WHISPER_DEVICE=$WHISPER_DEVICE/" .env
     sed -i "s/WORKERS=.*/WORKERS=$UVICORN_WORKERS/" .env
     
+    # Configure parallel transcription
+    # Enable parallel for multi-core systems (4+ cores)
+    if [ "$CPU_CORES" -ge 4 ]; then
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=true/" .env
+        # Auto-detect optimal workers (use all cores)
+        sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=0/" .env
+        print_success "Parallel transcription enabled (auto-detect $CPU_CORES cores)"
+    else
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=false/" .env
+        print_info "Parallel transcription disabled (requires 4+ CPU cores)"
+    fi
+    
     print_success ".env file configured"
 }
 
@@ -373,7 +385,15 @@ show_configuration() {
     echo -e "${BLUE}==================================${NC}"
     echo -e "CPU Cores:        ${GREEN}$CPU_CORES (100% allocated)${NC}"
     echo -e "Docker CPUs:      ${GREEN}$DOCKER_CPUS${NC}"
-    echo -e "Uvicorn Workers:  ${GREEN}$UVICORN_WORKERS (parallel processing)${NC}"
+    echo -e "Uvicorn Workers:  ${GREEN}$UVICORN_WORKERS (API parallel processing)${NC}"
+    
+    # Show parallel transcription config
+    if [ "$CPU_CORES" -ge 4 ]; then
+        echo -e "Parallel Transc:  ${GREEN}ENABLED (auto-detect $CPU_CORES cores)${NC}"
+    else
+        echo -e "Parallel Transc:  ${YELLOW}DISABLED (needs 4+ cores)${NC}"
+    fi
+    
     echo -e "Total RAM:        ${GREEN}${TOTAL_RAM_GB}GB (100% allocated)${NC}"
     echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY${NC}"
     echo -e "Whisper Device:   ${GREEN}$WHISPER_DEVICE${NC}"

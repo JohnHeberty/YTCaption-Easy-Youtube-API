@@ -65,14 +65,14 @@ class WhisperTranscriptionService(ITranscriptionService):
     
     def _normalize_audio(self, input_path: Path) -> Path:
         """
-        Normaliza áudio para formato compatível com Whisper usando FFmpeg.
-        Converte para: 16kHz, mono, WAV format
+        Converte qualquer formato de áudio/vídeo para WAV normalizado.
+        Garante compatibilidade com Whisper (16kHz, mono, WAV format).
         
         Args:
             input_path: Caminho do arquivo de áudio/vídeo original
             
         Returns:
-            Path: Caminho do arquivo de áudio normalizado
+            Path: Caminho do arquivo de áudio normalizado em WAV
             
         Raises:
             TranscriptionError: Se a normalização falhar
@@ -81,20 +81,22 @@ class WhisperTranscriptionService(ITranscriptionService):
             # Criar arquivo de saída no mesmo diretório
             output_path = input_path.parent / f"{input_path.stem}_normalized.wav"
             
-            logger.info(f"Normalizing audio: {input_path.name} -> {output_path.name}")
+            logger.info(f"Converting and normalizing audio: {input_path.name} -> {output_path.name}")
             
-            # Comando FFmpeg para normalizar áudio
-            # -i: input file
+            # Comando FFmpeg para converter qualquer formato e normalizar
+            # -i: input file (qualquer formato: mp4, webm, mp3, etc)
+            # -vn: sem vídeo (extrai apenas áudio)
             # -ar 16000: sample rate 16kHz (padrão Whisper)
             # -ac 1: mono (1 canal)
-            # -c:a pcm_s16le: codec PCM 16-bit little-endian
+            # -c:a pcm_s16le: codec PCM 16-bit little-endian (WAV)
             # -y: sobrescrever arquivo se existir
             ffmpeg_cmd = [
                 'ffmpeg',
                 '-i', str(input_path),
+                '-vn',                   # No video (apenas áudio)
                 '-ar', '16000',          # 16kHz sample rate
                 '-ac', '1',              # Mono
-                '-c:a', 'pcm_s16le',    # PCM 16-bit
+                '-c:a', 'pcm_s16le',    # PCM 16-bit (WAV)
                 '-y',                    # Overwrite
                 '-loglevel', 'error',    # Apenas erros
                 str(output_path)
@@ -105,13 +107,13 @@ class WhisperTranscriptionService(ITranscriptionService):
                 ffmpeg_cmd,
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minutos timeout
+                timeout=600  # 10 minutos timeout (vídeos grandes)
             )
             
             if result.returncode != 0:
                 error_msg = result.stderr or "Unknown FFmpeg error"
                 raise TranscriptionError(
-                    f"FFmpeg normalization failed: {error_msg}"
+                    f"FFmpeg conversion/normalization failed: {error_msg}"
                 )
             
             # Verificar se arquivo foi criado
@@ -122,14 +124,14 @@ class WhisperTranscriptionService(ITranscriptionService):
             
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
             logger.info(
-                f"Audio normalized successfully: {file_size_mb:.2f} MB"
+                f"Audio converted and normalized successfully: {file_size_mb:.2f} MB"
             )
             
             return output_path
             
         except subprocess.TimeoutExpired:
             raise TranscriptionError(
-                "Audio normalization timed out (>5 minutes)"
+                "Audio conversion/normalization timed out (>10 minutes)"
             )
         except Exception as e:
             if isinstance(e, TranscriptionError):
@@ -165,9 +167,16 @@ class WhisperTranscriptionService(ITranscriptionService):
             if not video_file.exists:
                 raise TranscriptionError(f"Video file not found: {video_file.file_path}")
             
-            # Normalizar áudio antes da transcrição
-            logger.info("Normalizing audio for Whisper compatibility...")
-            normalized_audio_path = self._normalize_audio(video_file.file_path)
+            # Tentar normalizar áudio (skip se FFmpeg não disponível)
+            try:
+                logger.info("Converting audio to WAV format for Whisper compatibility...")
+                normalized_audio_path = self._normalize_audio(video_file.file_path)
+            except FileNotFoundError:
+                logger.warning("FFmpeg not found - using original file (may fail if not WAV format)")
+                normalized_audio_path = video_file.file_path
+            except Exception as e:
+                logger.warning(f"Audio conversion failed - using original file: {e}")
+                normalized_audio_path = video_file.file_path
             
             # Carregar modelo
             model = self._load_model()
