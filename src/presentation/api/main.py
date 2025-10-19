@@ -15,6 +15,31 @@ from src.presentation.api.routes import transcription, system, video_info
 from src.presentation.api.middlewares import LoggingMiddleware
 from src.presentation.api.dependencies import get_cleanup_use_case, get_storage_service
 
+# Import worker pool para iniciar no startup
+from src.infrastructure.whisper.persistent_worker_pool import PersistentWorkerPool
+from src.infrastructure.whisper.temp_session_manager import TempSessionManager
+from src.infrastructure.whisper.chunk_preparation_service import ChunkPreparationService
+
+# Variáveis globais para worker pool e gerenciadores
+worker_pool: PersistentWorkerPool = None
+temp_session_manager: TempSessionManager = None
+chunk_prep_service: ChunkPreparationService = None
+
+
+def get_worker_pool() -> PersistentWorkerPool:
+    """Retorna instância global do worker pool."""
+    return worker_pool
+
+
+def get_temp_session_manager() -> TempSessionManager:
+    """Retorna instância global do session manager."""
+    return temp_session_manager
+
+
+def get_chunk_prep_service() -> ChunkPreparationService:
+    """Retorna instância global do chunk preparation service."""
+    return chunk_prep_service
+
 
 # Configurar logging
 logger.remove()
@@ -53,6 +78,8 @@ async def lifespan(app: FastAPI):
     Gerencia o ciclo de vida da aplicação.
     Executado no startup e shutdown.
     """
+    global worker_pool, temp_session_manager, chunk_prep_service
+    
     # Startup
     logger.info("=" * 60)
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
@@ -60,6 +87,39 @@ async def lifespan(app: FastAPI):
     logger.info(f"Whisper Model: {settings.whisper_model}")
     logger.info(f"Device: {settings.whisper_device}")
     logger.info(f"Temp Directory: {settings.temp_dir}")
+    logger.info(f"Parallel Transcription: {settings.enable_parallel_transcription}")
+    
+    # Inicializar serviços de sessão e chunks
+    logger.info("Initializing session manager and chunk preparation service...")
+    temp_session_manager = TempSessionManager(base_temp_dir=Path(settings.temp_dir))
+    chunk_prep_service = ChunkPreparationService(
+        chunk_duration_seconds=settings.parallel_chunk_duration
+    )
+    
+    # Inicializar worker pool SE modo paralelo estiver habilitado
+    if settings.enable_parallel_transcription:
+        logger.info("=" * 60)
+        logger.info("PARALLEL MODE ENABLED - Initializing persistent worker pool...")
+        logger.info(f"Workers: {settings.parallel_workers}")
+        logger.info(f"Chunk Duration: {settings.parallel_chunk_duration}s")
+        logger.info("=" * 60)
+        
+        worker_pool = PersistentWorkerPool(
+            model_name=settings.whisper_model,
+            device=settings.whisper_device,
+            num_workers=settings.parallel_workers
+        )
+        
+        # Iniciar workers (carrega modelos na RAM)
+        logger.info("Starting worker pool (this may take a few moments)...")
+        worker_pool.start()
+        
+        # Exibir estatísticas do pool
+        stats = worker_pool.get_stats()
+        logger.info(f"Worker pool started successfully: {stats}")
+    else:
+        logger.info("Parallel transcription disabled - using single-core mode")
+    
     logger.info("=" * 60)
     
     # Limpar arquivos antigos no startup se configurado
@@ -69,13 +129,33 @@ async def lifespan(app: FastAPI):
             cleanup_use_case = get_cleanup_use_case()
             result = await cleanup_use_case.execute()
             logger.info(f"Startup cleanup completed: {result}")
+            
+            # Também limpar sessões antigas
+            if temp_session_manager:
+                cleaned = temp_session_manager.cleanup_old_sessions(
+                    max_age_hours=settings.max_temp_age_hours
+                )
+                logger.info(f"Cleaned {cleaned} old sessions")
         except Exception as e:
             logger.warning(f"Startup cleanup failed: {str(e)}")
+    
+    logger.info("Application startup complete!")
+    logger.info("=" * 60)
     
     yield
     
     # Shutdown
+    logger.info("=" * 60)
     logger.info("Shutting down application...")
+    
+    # Parar worker pool se estiver rodando
+    if worker_pool and worker_pool.running:
+        logger.info("Stopping persistent worker pool...")
+        worker_pool.stop()
+        logger.info("Worker pool stopped")
+    
+    logger.info("Application shutdown complete")
+    logger.info("=" * 60)
 
 
 # Criar aplicação FastAPI

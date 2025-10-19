@@ -1,22 +1,23 @@
-# 🚀 Parallel Transcription V2 - Persistent Worker Pool
+# 🚀 Parallel Transcription - Persistent Worker Pool Architecture
 
 ## 📖 Visão Geral
 
-Esta é a **versão 2.0 otimizada** do sistema de transcrição paralela, que resolve o problema de lentidão da versão anterior.
+Sistema otimizado de transcrição paralela usando **persistent worker pool** com modelo Whisper carregado uma única vez.
 
-### 🔴 Problema da Versão Antiga (v1.x)
+### 🔴 Problema da Versão Antiga (Descontinuada)
 
 - Cada chunk de áudio **carregava o modelo Whisper do zero** (~800MB para `base`)
 - Para um vídeo de 45min com chunks de 2min = **23 carregamentos de modelo**
 - Resultado: **modo paralelo mais lento que single-core** 😱
+- **Status:** Descontinuada em 19/10/2025
 
-### ✅ Solução da Versão Nova (v2.0)
+### ✅ Solução da Versão Atual
 
 - **Workers persistentes** carregam modelo **UMA VEZ** no startup
 - Workers ficam em **loop aguardando tarefas** via fila
 - Chunks preparados em **disco** antes do processamento
 - Sessões **isoladas** por requisição em `temp/{session_id}/`
-- **Speedup esperado: 3-5x** vs versão anterior
+- **Speedup alcançado: 3-5x** vs versão anterior
 
 ---
 

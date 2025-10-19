@@ -2,6 +2,10 @@
 
 **Guia completo de transcrição paralela - como funciona, configuração e otimização.**
 
+> **📢 NOTA IMPORTANTE - v2.0.0:**  
+> A partir da versão 2.0.0, a transcrição paralela foi completamente redesenhada com **Persistent Worker Pool**.  
+> Este documento cobre conceitos gerais. Para detalhes da nova arquitetura, veja [10-PARALLEL-ARCHITECTURE.md](./10-PARALLEL-ARCHITECTURE.md).
+
 ---
 
 ## 📋 Índice
@@ -654,13 +658,13 @@ docker-compose restart
 
 ## Recursos Adicionais
 
-- **Intelligent Mode Selection**: Ver [v1.3.2 docs](./INTELLIGENT_MODE_SELECTION.md)
-- **Workers vs Parallel Workers**: Ver [comparação](./WORKERS_VS_PARALLEL_WORKERS.md)
+- **Persistent Worker Pool Architecture**: Ver [10-PARALLEL-ARCHITECTURE.md](./10-PARALLEL-ARCHITECTURE.md)
+- **Changelog**: Ver [CHANGELOG.md](./CHANGELOG.md) para histórico de versões
 - **Configuração Completa**: Ver [Configuration](./03-CONFIGURATION.md)
 
 ---
 
 **Próximo**: [Deployment](./07-DEPLOYMENT.md)
 
-**Versão**: 1.3.3+  
+**Versão**: 2.0.0  
 **Última atualização**: 19/10/2025

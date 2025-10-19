@@ -49,7 +49,7 @@ class FallbackTranscriptionService(ITranscriptionService):
     """
     Serviço com seleção inteligente e fallback automático:
     - Áudios curtos (< AUDIO_LIMIT_SINGLE_CORE): usa single-core (mais eficiente)
-    - Áudios longos: usa paralelo (mais rápido)
+    - Áudios longos: usa paralelo (workers persistentes, mais rápido)
     - Se paralelo falhar: fallback automático para normal
     """
     
@@ -89,10 +89,11 @@ class FallbackTranscriptionService(ITranscriptionService):
         if self._use_parallel:
             logger.info(
                 f"📊 Audio duration: {duration:.1f}s >= {self.audio_limit_seconds}s limit. "
-                "Using PARALLEL mode (faster for long audio)"
+                "Using PARALLEL mode (persistent workers, faster for long audio)"
             )
             try:
-                return await self.parallel_service.transcribe(video_file, language)
+                # Aceita request_ip opcional (None aqui pois não temos contexto da request)
+                return await self.parallel_service.transcribe(video_file, language, request_ip=None)
             except (RuntimeError, OSError, MemoryError) as e:
                 # Se erro de processo do pool, desabilita paralelo e usa fallback
                 error_msg = str(e).lower()
@@ -134,26 +135,38 @@ def create_transcription_service() -> ITranscriptionService:
         audio_limit = getattr(settings, 'audio_limit_single_core', 300)  # 5 min padrão
         
         logger.info(
-            "🚀 Creating INTELLIGENT transcription service with automatic mode selection:\n"
+            "🚀 Creating INTELLIGENT transcription service with persistent worker pool:\n"
             f"   - Audio < {audio_limit}s: SINGLE-CORE (more efficient)\n"
             f"   - Audio >= {audio_limit}s: PARALLEL mode (workers={settings.parallel_workers}, "
             f"chunk_duration={settings.parallel_chunk_duration}s)\n"
+            "   - Workers load model ONCE at startup (no reload per chunk)\n"
             "   - Automatic fallback on errors"
         )
         
-        parallel_service = WhisperParallelTranscriptionService(
-            model_name=settings.whisper_model,
-            device=settings.whisper_device,
-            num_workers=settings.parallel_workers if settings.parallel_workers > 0 else None,
-            chunk_duration_seconds=settings.parallel_chunk_duration
-        )
-        
-        # Retorna serviço com seleção inteligente e fallback automático
-        return FallbackTranscriptionService(
-            parallel_service=parallel_service,
-            fallback_service=normal_service,
-            audio_limit_seconds=audio_limit
-        )
+        # Importa getters da main.py para acessar worker pool global
+        try:
+            from src.presentation.api.main import (
+                get_worker_pool,
+                get_temp_session_manager,
+                get_chunk_prep_service
+            )
+            
+            parallel_service = WhisperParallelTranscriptionService(
+                worker_pool=get_worker_pool(),
+                temp_manager=get_temp_session_manager(),
+                chunk_prep_service=get_chunk_prep_service(),
+                model_name=settings.whisper_model
+            )
+            
+            # Retorna serviço com seleção inteligente e fallback automático
+            return FallbackTranscriptionService(
+                parallel_service=parallel_service,
+                fallback_service=normal_service,
+                audio_limit_seconds=audio_limit
+            )
+        except (ImportError, AttributeError) as e:
+            logger.warning(f"Could not initialize parallel service: {e}. Using single-core only.")
+            return normal_service
     else:
         logger.info("Creating standard transcription service")
         return normal_service

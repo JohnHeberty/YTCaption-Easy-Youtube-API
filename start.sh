@@ -30,6 +30,8 @@ NC='\033[0m' # No Color
 FORCE_REBUILD=false
 DISABLE_GPU=false
 WHISPER_MODEL=""
+WORKERS=""
+PARALLEL_WORKERS=""
 
 ################################################################################
 # Functions
@@ -63,15 +65,18 @@ show_help() {
     echo "Usage: ./start.sh [options]"
     echo ""
     echo "Options:"
-    echo "  --force-rebuild    Force rebuild Docker images"
-    echo "  --no-gpu          Disable GPU even if available"
-    echo "  --model MODEL     Set Whisper model (tiny|base|small|medium|large)"
-    echo "  --help            Show this help message"
+    echo "  --force-rebuild       Force rebuild Docker images"
+    echo "  --no-gpu             Disable GPU even if available"
+    echo "  --model MODEL        Set Whisper model (tiny|base|small|medium|large)"
+    echo "  --workers NUM        Set number of Uvicorn workers (default: 1)"
+    echo "  --parallel-workers N Set parallel transcription workers (default: auto-detect or 2)"
+    echo "  --help               Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./start.sh                          # Normal start"
-    echo "  ./start.sh --force-rebuild          # Rebuild and start"
-    echo "  ./start.sh --model medium --no-gpu  # Use medium model on CPU"
+    echo "  ./start.sh                              # Normal start"
+    echo "  ./start.sh --force-rebuild              # Rebuild and start"
+    echo "  ./start.sh --model medium --no-gpu      # Use medium model on CPU"
+    echo "  ./start.sh --workers 1 --parallel-workers 4  # 1 API worker, 4 transcription workers"
 }
 
 check_root() {
@@ -324,19 +329,33 @@ create_env_file() {
     sed -i "s/WHISPER_MODEL=.*/WHISPER_MODEL=$WHISPER_MODEL/" .env
     sed -i "s/WHISPER_DEVICE=.*/WHISPER_DEVICE=$WHISPER_DEVICE/" .env
     
-    # Note: WORKERS is NOT changed (stays at 1 from .env.example)
-    # Single Uvicorn worker is optimal for this application
+    # Configure WORKERS if specified by user
+    if [ -n "$WORKERS" ]; then
+        sed -i "s/WORKERS=.*/WORKERS=$WORKERS/" .env
+        print_info "Using user-specified Uvicorn workers: $WORKERS"
+    else
+        # Note: WORKERS is NOT changed (stays at 1 from .env.example)
+        # Single Uvicorn worker is optimal for this application
+        print_info "Using default Uvicorn workers: 1 (optimal for this app)"
+    fi
     
     # Configure parallel transcription
-    # Enable parallel for multi-core systems (4+ cores)
-    if [ "$CPU_CORES" -ge 4 ]; then
+    if [ -n "$PARALLEL_WORKERS" ]; then
+        # User specified parallel workers
         sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=true/" .env
-        # Auto-detect optimal workers (use all cores)
-        sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=0/" .env
-        print_success "Parallel transcription enabled (auto-detect $CPU_CORES cores)"
+        sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=$PARALLEL_WORKERS/" .env
+        print_info "Using user-specified parallel transcription workers: $PARALLEL_WORKERS"
     else
-        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=false/" .env
-        print_info "Parallel transcription disabled (requires 4+ CPU cores)"
+        # Auto-detect based on CPU cores
+        if [ "$CPU_CORES" -ge 4 ]; then
+            sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=true/" .env
+            # Auto-detect optimal workers (use all cores)
+            sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=0/" .env
+            print_success "Parallel transcription enabled (auto-detect $CPU_CORES cores)"
+        else
+            sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=false/" .env
+            print_info "Parallel transcription disabled (requires 4+ CPU cores)"
+        fi
     fi
     
     print_success ".env file configured"
@@ -373,10 +392,18 @@ show_configuration() {
     echo -e "${BLUE}==================================${NC}"
     echo -e "CPU Cores:        ${GREEN}$CPU_CORES (100% allocated)${NC}"
     echo -e "Docker CPUs:      ${GREEN}$DOCKER_CPUS${NC}"
-    echo -e "Uvicorn Workers:  ${GREEN}1 (single worker, optimal)${NC}"
+    
+    # Show workers config
+    if [ -n "$WORKERS" ]; then
+        echo -e "Uvicorn Workers:  ${GREEN}$WORKERS (user-specified)${NC}"
+    else
+        echo -e "Uvicorn Workers:  ${GREEN}1 (default, optimal)${NC}"
+    fi
     
     # Show parallel transcription config
-    if [ "$CPU_CORES" -ge 4 ]; then
+    if [ -n "$PARALLEL_WORKERS" ]; then
+        echo -e "Parallel Transc:  ${GREEN}ENABLED ($PARALLEL_WORKERS workers, user-specified)${NC}"
+    elif [ "$CPU_CORES" -ge 4 ]; then
         echo -e "Parallel Transc:  ${GREEN}ENABLED (auto-detect $CPU_CORES cores)${NC}"
     else
         echo -e "Parallel Transc:  ${YELLOW}DISABLED (needs 4+ cores)${NC}"
@@ -461,6 +488,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --model)
             WHISPER_MODEL="$2"
+            shift 2
+            ;;
+        --workers)
+            WORKERS="$2"
+            shift 2
+            ;;
+        --parallel-workers)
+            PARALLEL_WORKERS="$2"
             shift 2
             ;;
         --help)

@@ -1,48 +1,54 @@
 # YTCaption - API de Transcrição do YouTube
 
-🎙️ **API REST para transcrição de vídeos do YouTube usando Whisper e legendas nativas**
+🎙️ **API REST para transcrição de vídeos do YouTube usando Whisper com Clean Architecture**
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green)](https://fastapi.tiangolo.com/)
 [![Whisper](https://img.shields.io/badge/OpenAI-Whisper-orange)](https://github.com/openai/whisper)
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
 
-## 📋 Recursos
+## ✨ Features
 
-- 🎥 Download automático do YouTube (menor qualidade)
-- 🎙️ Transcrição Whisper ou legendas nativas
-- ⚡ **100x mais rápido** com YouTube Transcript
-- 🌍 Detecção automática de idioma (10 línguas)
-- 🏗️ Clean Architecture + SOLID
--  Docker pronto para Proxmox
-- 📚 Documentação completa
+- 🎥 Download automático de áudio do YouTube
+- 🎙️ Transcrição com OpenAI Whisper (6 modelos disponíveis)
+- ⚡ **Transcrição paralela** (3-4x mais rápido em multi-core)
+- 🧠 **Seleção inteligente** de modo (single-core vs paralelo)
+- 🌍 Suporte a 99 idiomas com detecção automática
+- 🏗️ **Clean Architecture + SOLID Principles**
+- 🐳 Docker pronto para produção (Proxmox/LXC)
+- � Múltiplos formatos de saída (JSON, SRT, VTT, TXT)
+- 🔧 Altamente configurável (52 variáveis de ambiente)
 
-## 🚀 Quick Start
+## 🚀 Quick Start (5 minutos)
 
-### Docker (Recomendado)
-
+**Script automático** (detecta sistema e instala tudo):
 ```bash
-cp .env.example .env
-docker-compose up -d
-curl http://localhost:8000/health
+wget https://raw.githubusercontent.com/JohnHeberty/YTCaption-Easy-Youtube-API/main/start.sh
+chmod +x start.sh
+./start.sh
 ```
 
-### Local
+Acesse: **http://localhost:8000**
 
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac | .\\venv\\Scripts\\activate (Windows)
-pip install -r requirements.txt
-cp .env.example .env
-python -m uvicorn src.presentation.api.main:app --reload
-```
+## 📚 Documentação Completa
 
-## 📖 Documentação
+**Documentação organizada com Single Responsibility Principle**:
 
-- **[docs/README.md](docs/README.md)** - Documentação completa
-- **[docs/EXAMPLES.md](docs/EXAMPLES.md)** - Exemplos práticos
-- **[docs/CHANGELOG.md](docs/CHANGELOG.md)** - Versões e melhorias
-- **Swagger UI**: http://localhost:8000/docs
+| Documento | Descrição |
+|-----------|-----------|
+| **[01-GETTING-STARTED](docs/01-GETTING-STARTED.md)** | 🚀 Início rápido em 5 minutos |
+| **[02-INSTALLATION](docs/02-INSTALLATION.md)** | 📦 Instalação (Docker, Local, Proxmox) |
+| **[03-CONFIGURATION](docs/03-CONFIGURATION.md)** | ⚙️ Todas as 52 variáveis `.env` explicadas |
+| **[04-API-USAGE](docs/04-API-USAGE.md)** | � Endpoints, requests e responses |
+| **[05-WHISPER-MODELS](docs/05-WHISPER-MODELS.md)** | 🎯 Escolher modelo ideal (tiny→large) |
+| **[06-PARALLEL-TRANSCRIPTION](docs/06-PARALLEL-TRANSCRIPTION.md)** | ⚡ Processamento paralelo otimizado |
+| **[07-DEPLOYMENT](docs/07-DEPLOYMENT.md)** | 🚀 Produção (Nginx, SSL, Monitoramento) |
+| **[08-TROUBLESHOOTING](docs/08-TROUBLESHOOTING.md)** | 🔧 Solução de problemas comuns |
+| **[09-ARCHITECTURE](docs/09-ARCHITECTURE.md)** | 🏛️ Clean Architecture + SOLID (para devs) |
+| **[10-PARALLEL-ARCHITECTURE](docs/10-PARALLEL-ARCHITECTURE.md)** | 🚀 Persistent Worker Pool (v2.0.0) |
+| **[CHANGELOG](docs/CHANGELOG.md)** | 📝 Histórico de versões |
+
+**Documentação interativa**: http://localhost:8000/docs (Swagger UI)
 
 ## 🔥 Exemplo Rápido
 
@@ -75,32 +81,39 @@ WHISPER_DEVICE=cpu          # cpu|cuda
 MAX_VIDEO_SIZE_MB=2500
 PORT=8000
 
-# Transcrição Paralela (Experimental - v1.2.0)
-ENABLE_PARALLEL_TRANSCRIPTION=false  # Habilita processamento paralelo
-PARALLEL_WORKERS=4                    # Número de workers (0 = auto-detect)
-PARALLEL_CHUNK_DURATION=120           # Duração dos chunks em segundos
+# Transcrição Paralela (Persistent Worker Pool - v2.0.0)
+ENABLE_PARALLEL_TRANSCRIPTION=true   # Workers persistentes (modelo carregado 1x)
+PARALLEL_WORKERS=2                   # Número de workers (0 = auto-detect)
+PARALLEL_CHUNK_DURATION=120          # Duração dos chunks em segundos
+AUDIO_LIMIT_SINGLE_CORE=300          # Áudios <5min: single-core, >=5min: paralelo
 ```
 
-### 🚀 Transcrição Paralela (Novo!)
+### 🚀 Transcrição Paralela (v2.0.0 - Otimizada!)
 
-Para áudios longos em CPUs multi-core, habilite transcrição paralela:
+Para áudios longos, use transcrição paralela com **persistent worker pool**:
 
 ```env
 ENABLE_PARALLEL_TRANSCRIPTION=true
-PARALLEL_WORKERS=4
+PARALLEL_WORKERS=2
 ```
 
 **Benefícios:**
-- ⚡ 3-4x mais rápido em CPUs com 4+ cores
-- 📦 Processa chunks de áudio em paralelo
+- ⚡ **7-10x mais rápido** vs versão anterior (v1.2.0)
+- 🚀 **3-5x mais rápido** vs single-core
+- 🧠 Workers carregam modelo **UMA VEZ** no startup
+- 📦 Chunks pré-criados em disco via FFmpeg
+- 🔒 Sessões isoladas para requisições concorrentes
 - 🎯 Ideal para vídeos de 10+ minutos
 
-**Trade-offs:**
-- ⚠️ Usa mais memória RAM (N workers = N modelos)
-- ⚠️ Requer FFmpeg instalado
-- 💡 Melhor para servidores com 8+ GB RAM
+**Exemplo Real (Proxmox LXC, 4 cores, modelo base):**
+- Vídeo 45min: **~22 minutos** (v1.2.0) → **~2-3 minutos** (v2.0.0) 🚀
 
-Veja [teste_melhoria/README_BENCHMARK.md](teste_melhoria/README_BENCHMARK.md) para testes e benchmarks.
+**Requisitos:**
+- ⚠️ RAM: `(workers × tamanho_modelo)` - Ex: 2 workers × 800MB = ~2GB
+- ⚠️ Requer FFmpeg instalado
+- 💡 Recomendado: 4GB+ RAM, 2-4 workers
+
+Veja [docs/10-PARALLEL-ARCHITECTURE.md](docs/10-PARALLEL-ARCHITECTURE.md) para arquitetura completa.
 
 ## 🐳 Deploy Proxmox
 
@@ -113,32 +126,32 @@ chmod +x start.sh
 
 ## 📊 Performance
 
-| Método | Vídeo 3min | Vídeo 1h |
-|--------|------------|----------|
+| Método | Vídeo 3min | Vídeo 45min |
+|--------|------------|-------------|
 | **YouTube Transcript** | 1-2s | 2-5s |
 | **Whisper Tiny** | 42s | 15min |
-| **Whisper Base** | 106s | 30min |
-| **Whisper Base (Paralelo 4x)** | ~35s | ~10min |
+| **Whisper Base (Single-core)** | 106s | ~6min |
+| **Whisper Base (Paralelo v2.0)** | ~35s | **~2-3min** 🚀 |
 
-*Transcrição paralela: speedup de ~3x com 4 workers em CPU quad-core*
+*Transcrição paralela v2.0: speedup de 7-10x vs v1.2.0, 3-5x vs single-core*
 
-## 🎓 Novidades v1.2.0
+## � Versão Atual: v2.0.0
 
-- 🚀 **Transcrição Paralela**: 3-4x mais rápido com processamento multi-core
-- ⚡ **ProcessPoolExecutor**: True parallelism em Python
-- 📦 **Chunks de áudio**: Divisão inteligente para processamento simultâneo
-- 🎯 **Auto-detection**: Configuração automática de workers baseada em CPU
-- 📊 **Benchmarks**: Scripts completos de teste e comparação
+### 🚀 Novidades v2.0.0 (Breaking Changes)
 
-### Novidades v1.1.0
+- � **Persistent Worker Pool**: Workers carregam modelo 1x no startup
+- ⚡ **Performance**: 7-10x mais rápido vs v1.2.0 paralelo
+- 🧠 **Session Isolation**: Pastas isoladas para requisições concorrentes
+- 📦 **Chunk Preparation**: Pré-criação de chunks via FFmpeg
+- 🗑️ **V1 Descontinuada**: Versão antiga (ProcessPoolExecutor) removida
+- � **Documentação**: Arquitetura completa e guia de migração
 
-- ✅ YouTube Transcript (100x mais rápido)
-- ✅ Detecção de idioma automática
-- ✅ yt-dlp 2025.10.14 (bugs corrigidos)
-- ✅ Lista de legendas disponíveis
-- ✅ Recomendações de modelo Whisper
+**Breaking Changes:**
+- Remoção da implementação paralela V1 (lenta)
+- Novas configurações: `AUDIO_LIMIT_SINGLE_CORE`
+- Workers iniciados no startup da aplicação (não por request)
 
-Veja [CHANGELOG.md](docs/CHANGELOG.md) para detalhes completos.
+Veja [docs/CHANGELOG.md](docs/CHANGELOG.md) para detalhes completos.
 
 ## 🏗️ Arquitetura
 
