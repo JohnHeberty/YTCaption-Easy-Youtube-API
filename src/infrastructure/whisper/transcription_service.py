@@ -5,7 +5,7 @@ Implementação concreta da interface ITranscriptionService usando OpenAI Whispe
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import whisper
 import torch
 from loguru import logger
@@ -14,6 +14,7 @@ from src.domain.interfaces import ITranscriptionService
 from src.domain.entities import Transcription, VideoFile
 from src.domain.value_objects import TranscriptionSegment
 from src.domain.exceptions import TranscriptionError
+from src.config.settings import settings
 
 
 class WhisperTranscriptionService(ITranscriptionService):
@@ -63,10 +64,51 @@ class WhisperTranscriptionService(ITranscriptionService):
         
         return self._model
     
+    def _build_audio_filters(self) -> Optional[str]:
+        """
+        Constrói a cadeia de filtros de áudio FFmpeg baseado nas configurações.
+        
+        Returns:
+            str | None: String de filtros FFmpeg ou None se nenhum filtro habilitado
+        """
+        filters = []
+        
+        # Filtro 1: Remoção de Ruído de Fundo (Noise Reduction)
+        # Remove frequências fora da faixa de voz humana (200Hz-3000Hz)
+        if settings.enable_audio_noise_reduction:
+            # highpass: Remove frequências abaixo de 200Hz (rumble, vento)
+            filters.append("highpass=f=200")
+            # lowpass: Remove frequências acima de 3000Hz (hiss, chiado)
+            filters.append("lowpass=f=3000")
+            logger.info("Audio filter enabled: Noise reduction (200Hz-3000Hz)")
+        
+        # Filtro 2: Normalização de Volume Dinâmico (Dynamic Audio Normalization)
+        # Equaliza volumes variados DENTRO do mesmo áudio
+        if settings.enable_audio_volume_normalization:
+            # dynaudnorm: Normalização dinâmica (ajusta volume frame-by-frame)
+            # f=150: Frame length 150ms
+            # g=15: Gaussian filter window 15 frames
+            filters.append("dynaudnorm=f=150:g=15")
+            logger.info("Audio filter enabled: Dynamic volume normalization")
+        
+        # Filtro 3: Loudness Normalization (EBU R128 Standard)
+        # Normaliza volume GERAL do áudio para padrão broadcast
+        if settings.enable_audio_volume_normalization:
+            # loudnorm: Normalização de loudness EBU R128
+            # I=-16: Target integrated loudness -16 LUFS (broadcast standard)
+            # TP=-1.5: True peak limit -1.5 dBTP
+            # LRA=11: Loudness range target 11 LU
+            filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+            logger.info("Audio filter enabled: Loudness normalization (EBU R128)")
+        
+        # Retorna cadeia de filtros separados por vírgula, ou None se vazio
+        return ",".join(filters) if filters else None
+    
     def _normalize_audio(self, input_path: Path) -> Path:
         """
         Converte qualquer formato de áudio/vídeo para WAV normalizado.
         Garante compatibilidade com Whisper (16kHz, mono, WAV format).
+        Aplica filtros opcionais: normalização de volume e remoção de ruído.
         
         Args:
             input_path: Caminho do arquivo de áudio/vídeo original
@@ -83,11 +125,15 @@ class WhisperTranscriptionService(ITranscriptionService):
             
             logger.info(f"Converting and normalizing audio: {input_path.name} -> {output_path.name}")
             
+            # Construir filtros de áudio
+            audio_filters = self._build_audio_filters()
+            
             # Comando FFmpeg para converter qualquer formato e normalizar
             # -i: input file (qualquer formato: mp4, webm, mp3, etc)
             # -vn: sem vídeo (extrai apenas áudio)
             # -ar 16000: sample rate 16kHz (padrão Whisper)
             # -ac 1: mono (1 canal)
+            # -af: audio filters (opcional: loudnorm, dynaudnorm, highpass, lowpass)
             # -c:a pcm_s16le: codec PCM 16-bit little-endian (WAV)
             # -y: sobrescrever arquivo se existir
             ffmpeg_cmd = [
@@ -96,11 +142,18 @@ class WhisperTranscriptionService(ITranscriptionService):
                 '-vn',                   # No video (apenas áudio)
                 '-ar', '16000',          # 16kHz sample rate
                 '-ac', '1',              # Mono
+            ]
+            
+            # Adicionar filtros de áudio se habilitados
+            if audio_filters:
+                ffmpeg_cmd.extend(['-af', audio_filters])
+            
+            ffmpeg_cmd.extend([
                 '-c:a', 'pcm_s16le',    # PCM 16-bit (WAV)
                 '-y',                    # Overwrite
                 '-loglevel', 'error',    # Apenas erros
                 str(output_path)
-            ]
+            ])
             
             # Executar FFmpeg
             result = subprocess.run(
@@ -124,8 +177,17 @@ class WhisperTranscriptionService(ITranscriptionService):
                 )
             
             file_size_mb = output_path.stat().st_size / (1024 * 1024)
+            
+            # Log dos filtros aplicados
+            filters_applied = []
+            if settings.enable_audio_noise_reduction:
+                filters_applied.append("noise_reduction")
+            if settings.enable_audio_volume_normalization:
+                filters_applied.append("volume_normalization")
+            
+            filters_str = f" [filters: {', '.join(filters_applied)}]" if filters_applied else ""
             logger.info(
-                f"Audio converted and normalized successfully: {file_size_mb:.2f} MB"
+                f"Audio converted and normalized successfully: {file_size_mb:.2f} MB{filters_str}"
             )
             
             return output_path

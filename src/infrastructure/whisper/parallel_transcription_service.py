@@ -22,6 +22,7 @@ from src.domain.exceptions import TranscriptionError
 from src.infrastructure.whisper.persistent_worker_pool import PersistentWorkerPool
 from src.infrastructure.whisper.temp_session_manager import TempSessionManager, generate_session_id
 from src.infrastructure.whisper.chunk_preparation_service import ChunkPreparationService
+from src.config.settings import settings
 
 
 class WhisperParallelTranscriptionService(ITranscriptionService):
@@ -66,9 +67,34 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             f"model={model_name}, device={device}"
         )
     
+    def _build_audio_filters(self) -> Optional[str]:
+        """
+        Constrói a cadeia de filtros de áudio FFmpeg baseado nas configurações.
+        
+        Returns:
+            str | None: String de filtros FFmpeg ou None se nenhum filtro habilitado
+        """
+        filters = []
+        
+        # Filtro 1: Remoção de Ruído
+        if settings.enable_audio_noise_reduction:
+            filters.append("highpass=f=200")
+            filters.append("lowpass=f=3000")
+        
+        # Filtro 2: Normalização Dinâmica
+        if settings.enable_audio_volume_normalization:
+            filters.append("dynaudnorm=f=150:g=15")
+        
+        # Filtro 3: Loudness Normalization
+        if settings.enable_audio_volume_normalization:
+            filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        
+        return ",".join(filters) if filters else None
+    
     def _convert_to_wav(self, input_path: Path, output_dir: Path) -> Path:
         """
         Converte áudio/vídeo para WAV normalizado.
+        Aplica filtros opcionais: normalização de volume e remoção de ruído.
         
         Args:
             input_path: Arquivo de entrada
@@ -83,17 +109,27 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
         
         logger.info(f"[CONVERT] Converting to WAV: {input_path.name} -> {output_path.name}")
         
+        # Construir filtros
+        audio_filters = self._build_audio_filters()
+        
         ffmpeg_cmd = [
             'ffmpeg',
             '-i', str(input_path),
             '-vn',                   # No video
             '-ar', '16000',          # 16kHz sample rate
             '-ac', '1',              # Mono
+        ]
+        
+        # Adicionar filtros se habilitados
+        if audio_filters:
+            ffmpeg_cmd.extend(['-af', audio_filters])
+        
+        ffmpeg_cmd.extend([
             '-c:a', 'pcm_s16le',    # PCM 16-bit
             '-y',                    # Overwrite
             '-loglevel', 'error',
             str(output_path)
-        ]
+        ])
         
         try:
             result = subprocess.run(

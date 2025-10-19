@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     parallel_workers: int = Field(default=4, alias="PARALLEL_WORKERS")
     parallel_chunk_duration: int = Field(default=120, alias="PARALLEL_CHUNK_DURATION")
     
+    # Audio Normalization (Advanced)
+    enable_audio_volume_normalization: bool = Field(default=False, alias="ENABLE_AUDIO_VOLUME_NORMALIZATION")
+    enable_audio_noise_reduction: bool = Field(default=False, alias="ENABLE_AUDIO_NOISE_REDUCTION")
+    
     # YouTube
     youtube_format: str = Field(default="worstaudio", alias="YOUTUBE_FORMAT")
     max_video_size_mb: int = Field(default=1500, alias="MAX_VIDEO_SIZE_MB")

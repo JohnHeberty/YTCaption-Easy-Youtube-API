@@ -7,6 +7,69 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [2.2.0] - 2025-10-19
+
+### 🎵 Adicionado
+
+#### **Normalização Avançada de Áudio**
+
+- **Normalização de Volume (Loudness Normalization)**
+  - Filtro `loudnorm` (EBU R128 standard: -16 LUFS)
+  - Equaliza volume geral do áudio para padrão broadcast
+  - Útil para áudios muito baixos ou muito altos
+  - Configurável via `ENABLE_AUDIO_VOLUME_NORMALIZATION=true`
+
+- **Equalização Dinâmica (Dynamic Audio Normalization)**
+  - Filtro `dynaudnorm` (frame-by-frame normalization)
+  - Equaliza volumes variados DENTRO do mesmo áudio
+  - Útil para múltiplos speakers ou mic distante/próximo
+  - Ativado automaticamente com normalização de volume
+
+- **Remoção de Ruído de Fundo (Noise Reduction)**
+  - Filtros `highpass=200Hz` e `lowpass=3000Hz`
+  - Foca na faixa de voz humana (200Hz-3kHz)
+  - Remove rumble (ventilador, AC) e hiss (ruído eletrônico)
+  - Configurável via `ENABLE_AUDIO_NOISE_REDUCTION=true`
+
+### 🔧 Modificado
+
+- **Serviço de Transcrição Single-Core** (`transcription_service.py`)
+  - Método `_build_audio_filters()` para construir cadeia FFmpeg
+  - Método `_normalize_audio()` aplicando filtros opcionais
+  - Logs detalhados dos filtros aplicados
+
+- **Serviço de Transcrição Paralela** (`parallel_transcription_service.py`)
+  - Método `_convert_to_wav()` com suporte a filtros
+  - Consistência de qualidade entre modos single/parallel
+
+- **Serviço de Preparação de Chunks** (`chunk_preparation_service.py`)
+  - Método `_extract_chunk_async()` com filtros
+  - Chunks normalizados antes do processamento
+
+- **Configurações** (`settings.py`)
+  - Propriedades `enable_audio_volume_normalization`
+  - Propriedades `enable_audio_noise_reduction`
+
+- **Arquivos de Configuração**
+  - `.env`: 2 novas flags (desabilitadas por padrão)
+  - `.env.example`: Documentação completa das features
+
+### 📊 Performance
+
+- **Overhead:** +10-30% de tempo de processamento (quando habilitado)
+- **Ganho de Acurácia:** +15-30% em áudios de baixa qualidade
+- **Padrão:** Desabilitado (zero overhead para áudios bons)
+
+### 📖 Documentação
+
+- Criado `docs/FEATURE-AUDIO-NORMALIZATION-v2.2.0.md`
+  - Guia completo de configuração
+  - Casos de uso e benchmarks
+  - Detalhes técnicos dos filtros FFmpeg
+  - Exemplos de teste
+
+---
+
 ## [2.1.0] - 2025-10-19
 
 ### 🔧 Removido

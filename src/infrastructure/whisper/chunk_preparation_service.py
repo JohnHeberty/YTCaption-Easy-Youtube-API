@@ -4,13 +4,14 @@ Divide o áudio em pedaços menores usando FFmpeg e salva em disco
 ANTES de enviar aos workers para processamento paralelo.
 """
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import subprocess
 import asyncio
 
 from loguru import logger
 
 from src.domain.exceptions import TranscriptionError
+from src.config.settings import settings
 
 
 class ChunkPreparationService:
@@ -32,6 +33,30 @@ class ChunkPreparationService:
         """
         self.chunk_duration = chunk_duration_seconds
         logger.info(f"Chunk preparation service initialized: chunk_duration={chunk_duration_seconds}s")
+    
+    def _build_audio_filters(self) -> Optional[str]:
+        """
+        Constrói a cadeia de filtros de áudio FFmpeg baseado nas configurações.
+        
+        Returns:
+            str | None: String de filtros FFmpeg ou None se nenhum filtro habilitado
+        """
+        filters = []
+        
+        # Filtro 1: Remoção de Ruído
+        if settings.enable_audio_noise_reduction:
+            filters.append("highpass=f=200")
+            filters.append("lowpass=f=3000")
+        
+        # Filtro 2: Normalização Dinâmica
+        if settings.enable_audio_volume_normalization:
+            filters.append("dynaudnorm=f=150:g=15")
+        
+        # Filtro 3: Loudness Normalization
+        if settings.enable_audio_volume_normalization:
+            filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        
+        return ",".join(filters) if filters else None
     
     def _get_audio_duration(self, audio_path: Path) -> float:
         """
@@ -104,6 +129,7 @@ class ChunkPreparationService:
     ):
         """
         Extrai chunk de áudio usando FFmpeg (async).
+        Aplica filtros opcionais: normalização de volume e remoção de ruído.
         
         Args:
             input_path: Arquivo de áudio original
@@ -116,6 +142,9 @@ class ChunkPreparationService:
         """
         duration = end - start
         
+        # Construir filtros
+        audio_filters = self._build_audio_filters()
+        
         cmd = [
             "ffmpeg",
             "-i", str(input_path),
@@ -123,11 +152,18 @@ class ChunkPreparationService:
             "-t", f"{duration:.3f}",
             "-ar", "16000",          # 16kHz sample rate (Whisper requirement)
             "-ac", "1",              # Mono
+        ]
+        
+        # Adicionar filtros se habilitados
+        if audio_filters:
+            cmd.extend(["-af", audio_filters])
+        
+        cmd.extend([
             "-c:a", "pcm_s16le",    # PCM 16-bit (WAV format)
             "-y",                    # Overwrite output
             "-loglevel", "error",
             str(output_path)
-        ]
+        ])
         
         logger.debug(f"Extracting chunk: {start:.1f}s-{end:.1f}s -> {output_path.name}")
         
