@@ -11,6 +11,21 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ### 🚀 Adicionado
 
+#### **Docker Compose Simplificado**
+
+- **Remoção de Volumes Externos**
+  - Container totalmente autossuficiente sem volumes externos
+  - Cache de modelos Whisper dentro do container
+  - Logs dentro do container (acesso via `docker-compose logs`)
+  - Simplificação da configuração Docker
+
+- **Configurações v2.0.0 no Docker Compose**
+  - `ENABLE_PARALLEL_TRANSCRIPTION=true` por padrão
+  - `PARALLEL_WORKERS=2` configurado
+  - `PARALLEL_CHUNK_DURATION=120` otimizado
+  - `AUDIO_LIMIT_SINGLE_CORE=300` para seleção inteligente
+  - Limites de memória ajustados para 8GB (suporta 2 workers)
+
 #### **Nova Arquitetura de Transcrição Paralela (Persistent Worker Pool)**
 
 - **Persistent Worker Pool** (`persistent_worker_pool.py`)

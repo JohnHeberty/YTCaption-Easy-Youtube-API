@@ -10,18 +10,18 @@ services:
       - WHISPER_MODEL=base
       - WORKERS=${WORKERS:-1}
       - TEMP_DIR=/app/temp
-      - MAX_VIDEO_SIZE_MB=1500
+      - MAX_VIDEO_SIZE_MB=2500
       - MAX_VIDEO_DURATION_SECONDS=10800
       - DOWNLOAD_TIMEOUT=900
       - REQUEST_TIMEOUT=3600
       - MAX_CONCURRENT_REQUESTS=3
       - CLEANUP_ON_STARTUP=true
       - LOG_LEVEL=INFO
-    volumes:
-      # Opcional: montar pasta de cache para modelos do Whisper
-      - whisper-cache:/home/appuser/.cache/whisper
-      # Opcional: logs persistentes
-      - ./logs:/app/logs
+      # Parallel Transcription (v2.0.0)
+      - ENABLE_PARALLEL_TRANSCRIPTION=true
+      - PARALLEL_WORKERS=2
+      - PARALLEL_CHUNK_DURATION=120
+      - AUDIO_LIMIT_SINGLE_CORE=300
     restart: unless-stopped
     deploy:
       resources:
@@ -39,10 +39,6 @@ services:
       start_period: 60s
     networks:
       - whisper-network
-
-volumes:
-  whisper-cache:
-    driver: local
 
 networks:
   whisper-network:

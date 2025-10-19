@@ -2,6 +2,9 @@
 Factory para criar instâncias de serviços de transcrição.
 Escolhe entre transcrição normal ou paralela baseado nas configurações.
 Inclui fallback automático para modo normal se paralelo falhar.
+
+IMPORTANTE: Este factory é chamado UMA VEZ no Container (singleton).
+A instância retornada é reutilizada em TODAS as requisições.
 """
 import subprocess
 from pathlib import Path
@@ -47,10 +50,13 @@ def _get_audio_duration(audio_path: Path | str) -> float:
 
 class FallbackTranscriptionService(ITranscriptionService):
     """
-    Serviço com seleção inteligente e fallback automático:
+    Serviço SINGLETON com seleção inteligente e fallback automático:
     - Áudios curtos (< AUDIO_LIMIT_SINGLE_CORE): usa single-core (mais eficiente)
     - Áudios longos: usa paralelo (workers persistentes, mais rápido)
     - Se paralelo falhar: fallback automático para normal
+    
+    CRÍTICO: Esta instância é criada UMA VEZ e compartilhada entre TODAS as requisições.
+    O worker pool é compartilhado, então múltiplas requisições usam os mesmos 2 workers.
     """
     
     def __init__(
@@ -64,12 +70,25 @@ class FallbackTranscriptionService(ITranscriptionService):
         self.audio_limit_seconds = audio_limit_seconds
         self._use_parallel = True  # Flag global de fallback
         
+        logger.info(
+            f"[FACTORY] FallbackTranscriptionService created (SINGLETON): "
+            f"audio_limit={audio_limit_seconds}s"
+        )
+        
     async def transcribe(self, video_file: VideoFile, language: str = "auto") -> Transcription:
         """
         Seleciona modo baseado na duração do áudio:
         - < audio_limit_seconds: single-core (mais eficiente para áudios curtos)
         - >= audio_limit_seconds: paralelo (mais rápido para áudios longos)
+        
+        IMPORTANTE: Este método é chamado por múltiplas requisições concorrentes.
+        Todas usam a MESMA instância do serviço (singleton) e o MESMO worker pool.
         """
+        logger.info(
+            f"[FALLBACK SERVICE] transcribe() called on instance id={id(self)}. "
+            f"This is a SINGLETON shared across all requests."
+        )
+        
         # Obtém duração do áudio
         try:
             duration = _get_audio_duration(video_file.file_path)
@@ -120,27 +139,35 @@ class FallbackTranscriptionService(ITranscriptionService):
 
 def create_transcription_service() -> ITranscriptionService:
     """
-    Cria e retorna uma instância do serviço de transcrição apropriado.
+    Cria e retorna instância SINGLETON do serviço de transcrição.
+    
+    IMPORTANTE: Esta função é chamada UMA VEZ pelo Container.
+    A instância retornada é reutilizada em TODAS as requisições,
+    garantindo que o worker pool persistente seja compartilhado corretamente.
     
     Returns:
-        ITranscriptionService: Serviço de transcrição com fallback automático
+        ITranscriptionService: Serviço de transcrição singleton com fallback automático
     """
+    logger.info("[FACTORY] create_transcription_service() called - creating SINGLETON instance")
+    
     # Sempre cria serviço normal como fallback
     normal_service = WhisperTranscriptionService(
         model_name=settings.whisper_model,
         device=settings.whisper_device
     )
+    logger.info(f"[FACTORY] Normal service created: {type(normal_service).__name__}")
     
     if settings.enable_parallel_transcription:
         audio_limit = getattr(settings, 'audio_limit_single_core', 300)  # 5 min padrão
         
         logger.info(
-            "🚀 Creating INTELLIGENT transcription service with persistent worker pool:\n"
+            "🚀 [FACTORY] Creating INTELLIGENT transcription service with persistent worker pool:\n"
             f"   - Audio < {audio_limit}s: SINGLE-CORE (more efficient)\n"
             f"   - Audio >= {audio_limit}s: PARALLEL mode (workers={settings.parallel_workers}, "
             f"chunk_duration={settings.parallel_chunk_duration}s)\n"
             "   - Workers load model ONCE at startup (no reload per chunk)\n"
-            "   - Automatic fallback on errors"
+            "   - Automatic fallback on errors\n"
+            "   - SINGLETON: Same instance shared across ALL requests"
         )
         
         # Importa getters da main.py para acessar worker pool global
@@ -151,22 +178,47 @@ def create_transcription_service() -> ITranscriptionService:
                 get_chunk_prep_service
             )
             
-            parallel_service = WhisperParallelTranscriptionService(
-                worker_pool=get_worker_pool(),
-                temp_manager=get_temp_session_manager(),
-                chunk_prep_service=get_chunk_prep_service(),
-                model_name=settings.whisper_model
+            worker_pool = get_worker_pool()
+            temp_manager = get_temp_session_manager()
+            chunk_prep = get_chunk_prep_service()
+            
+            logger.info(
+                f"[FACTORY] Retrieved global instances: "
+                f"worker_pool={worker_pool is not None}, "
+                f"temp_manager={temp_manager is not None}, "
+                f"chunk_prep={chunk_prep is not None}"
             )
             
+            if worker_pool is None:
+                logger.error("[FACTORY] Worker pool is None! Cannot create parallel service.")
+                logger.warning("[FACTORY] Falling back to single-core service")
+                return normal_service
+            
+            parallel_service = WhisperParallelTranscriptionService(
+                worker_pool=worker_pool,
+                temp_manager=temp_manager,
+                chunk_prep_service=chunk_prep,
+                model_name=settings.whisper_model
+            )
+            logger.info(f"[FACTORY] Parallel service created: {type(parallel_service).__name__}")
+            
             # Retorna serviço com seleção inteligente e fallback automático
-            return FallbackTranscriptionService(
+            fallback_service = FallbackTranscriptionService(
                 parallel_service=parallel_service,
                 fallback_service=normal_service,
                 audio_limit_seconds=audio_limit
             )
+            
+            logger.info(
+                f"[FACTORY] Returning SINGLETON FallbackTranscriptionService (id={id(fallback_service)}). "
+                "This instance will be reused for ALL requests."
+            )
+            
+            return fallback_service
+            
         except (ImportError, AttributeError) as e:
-            logger.warning(f"Could not initialize parallel service: {e}. Using single-core only.")
+            logger.warning(f"[FACTORY] Could not initialize parallel service: {e}. Using single-core only.")
             return normal_service
     else:
-        logger.info("Creating standard transcription service")
+        logger.info("[FACTORY] Creating standard transcription service (parallel disabled)")
         return normal_service

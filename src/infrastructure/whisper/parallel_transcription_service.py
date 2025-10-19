@@ -133,6 +133,10 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
         """
         Transcreve vídeo usando worker pool persistente.
         
+        IMPORTANTE: Este serviço é SINGLETON - múltiplas requisições concorrentes
+        usam a MESMA instância e o MESMO worker pool (2 workers compartilhados).
+        As requisições competem pelas tarefas na fila do worker pool.
+        
         Args:
             video_file: Entidade do arquivo de vídeo
             language: Código ISO do idioma ou "auto"
@@ -142,6 +146,12 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             Objeto Transcription com segmentos
         """
         start_total = time.time()
+        
+        logger.info(
+            f"[PARALLEL] transcribe() called on service instance id={id(self)}, "
+            f"worker_pool id={id(self.worker_pool)}. "
+            f"Multiple requests share the SAME worker pool (2 workers)."
+        )
         
         # 1. Gerar session ID único
         session_id = generate_session_id(request_ip)
@@ -155,7 +165,7 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             "model": self.model_name
         }
         
-        session_dir = self.temp_manager.create_session_dir(session_id, session_metadata)
+        self.temp_manager.create_session_dir(session_id, session_metadata)
         
         try:
             # 3. Verificar arquivo existe
@@ -198,7 +208,7 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
                 )
             
             # 7. Coletar resultados dos workers
-            logger.info(f"[PARALLEL] Collecting results from workers...")
+            logger.info("[PARALLEL] Collecting results from workers...")
             results = []
             
             for _ in range(len(chunk_paths)):
