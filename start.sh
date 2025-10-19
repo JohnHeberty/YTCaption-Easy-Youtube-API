@@ -33,6 +33,7 @@ DISABLE_PARALLEL=false
 WHISPER_MODEL=""
 WORKERS=""
 PARALLEL_WORKERS=""
+CUSTOM_MEMORY_MB=""  # Custom memory limit in MB
 
 ################################################################################
 # Functions
@@ -72,14 +73,17 @@ show_help() {
     echo "  --model MODEL        Set Whisper model (tiny|base|small|medium|large)"
     echo "  --workers NUM        Set number of Uvicorn workers (default: 1)"
     echo "  --parallel-workers N Set parallel transcription workers (default: auto-detect or 2)"
+    echo "  --memory MB          Set Docker memory limit in MB (default: 100% of available RAM)"
     echo "  --help               Show this help message"
     echo ""
     echo "Examples:"
-    echo "  ./start.sh                              # Normal start"
+    echo "  ./start.sh                              # Normal start (100% RAM)"
     echo "  ./start.sh --force-rebuild              # Rebuild and start"
     echo "  ./start.sh --model medium --no-gpu      # Use medium model on CPU"
     echo "  ./start.sh --no-parallel                # Disable parallel mode (test single-core)"
     echo "  ./start.sh --workers 1 --parallel-workers 4  # 1 API worker, 4 transcription workers"
+    echo "  ./start.sh --memory 4096                # Limit container to 4GB RAM"
+    echo "  ./start.sh --model base --memory 2048   # Base model with 2GB RAM limit"
 }
 
 check_root() {
@@ -121,16 +125,43 @@ detect_ram() {
     # Get total RAM in GB
     TOTAL_RAM_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
     TOTAL_RAM_GB=$((TOTAL_RAM_KB / 1024 / 1024))
+    TOTAL_RAM_MB=$((TOTAL_RAM_KB / 1024))
     
-    print_success "Detected: ${TOTAL_RAM_GB}GB RAM"
+    print_success "Detected: ${TOTAL_RAM_GB}GB RAM (${TOTAL_RAM_MB}MB)"
     
-    # Use 100% of available RAM for Docker
-    DOCKER_MEMORY="${TOTAL_RAM_GB}G"
-    DOCKER_MEMORY_RESERVATION="${TOTAL_RAM_GB}G"
-    print_info "Using 100% of RAM: ${TOTAL_RAM_GB}GB"
+    # Check if user specified custom memory
+    if [ -n "$CUSTOM_MEMORY_MB" ]; then
+        # Validate custom memory
+        if [ "$CUSTOM_MEMORY_MB" -gt "$TOTAL_RAM_MB" ]; then
+            print_warning "Requested memory (${CUSTOM_MEMORY_MB}MB) exceeds available RAM (${TOTAL_RAM_MB}MB)"
+            print_warning "Limiting to available RAM: ${TOTAL_RAM_MB}MB"
+            CUSTOM_MEMORY_MB=$TOTAL_RAM_MB
+        fi
+        
+        # Convert MB to GB for Docker (rounded down)
+        DOCKER_MEMORY_GB=$((CUSTOM_MEMORY_MB / 1024))
+        if [ "$DOCKER_MEMORY_GB" -lt 1 ]; then
+            DOCKER_MEMORY_GB=1
+            print_warning "Memory too low, setting minimum 1GB"
+        fi
+        
+        DOCKER_MEMORY="${DOCKER_MEMORY_GB}G"
+        DOCKER_MEMORY_RESERVATION="${DOCKER_MEMORY_GB}G"
+        DOCKER_MEMORY_MB=$CUSTOM_MEMORY_MB
+        
+        print_info "Using custom memory limit: ${DOCKER_MEMORY_GB}GB (${CUSTOM_MEMORY_MB}MB)"
+    else
+        # Use 100% of available RAM for Docker
+        DOCKER_MEMORY="${TOTAL_RAM_GB}G"
+        DOCKER_MEMORY_RESERVATION="${TOTAL_RAM_GB}G"
+        DOCKER_MEMORY_MB=$TOTAL_RAM_MB
+        
+        print_info "Using 100% of RAM: ${TOTAL_RAM_GB}GB (${TOTAL_RAM_MB}MB)"
+    fi
     
     export DOCKER_MEMORY
     export DOCKER_MEMORY_RESERVATION
+    export DOCKER_MEMORY_MB
 }
 
 detect_gpu() {
@@ -447,8 +478,14 @@ show_configuration() {
         echo -e "Parallel Transc:  ${YELLOW}DISABLED (needs 4+ cores)${NC}"
     fi
     
-    echo -e "Total RAM:        ${GREEN}${TOTAL_RAM_GB}GB (100% allocated)${NC}"
-    echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY${NC}"
+    # Show memory config
+    echo -e "Total RAM:        ${GREEN}${TOTAL_RAM_GB}GB (${TOTAL_RAM_MB}MB available)${NC}"
+    if [ -n "$CUSTOM_MEMORY_MB" ]; then
+        echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY (${DOCKER_MEMORY_MB}MB, custom limit)${NC}"
+    else
+        echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY (${DOCKER_MEMORY_MB}MB, 100% allocated)${NC}"
+    fi
+    
     echo -e "Whisper Device:   ${GREEN}$WHISPER_DEVICE${NC}"
     echo -e "Whisper Model:    ${GREEN}$WHISPER_MODEL${NC}"
     echo -e "GPU Available:    ${GREEN}$GPU_AVAILABLE${NC}"
@@ -538,6 +575,19 @@ while [[ $# -gt 0 ]]; do
             ;;
         --parallel-workers)
             PARALLEL_WORKERS="$2"
+            shift 2
+            ;;
+        --memory)
+            CUSTOM_MEMORY_MB="$2"
+            # Validate memory value
+            if ! [[ "$CUSTOM_MEMORY_MB" =~ ^[0-9]+$ ]]; then
+                print_error "Invalid memory value: $CUSTOM_MEMORY_MB (must be a number in MB)"
+                exit 1
+            fi
+            if [ "$CUSTOM_MEMORY_MB" -lt 512 ]; then
+                print_error "Memory too low: ${CUSTOM_MEMORY_MB}MB (minimum 512MB required)"
+                exit 1
+            fi
             shift 2
             ;;
         --help)
