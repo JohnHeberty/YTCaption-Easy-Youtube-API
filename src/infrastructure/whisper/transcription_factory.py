@@ -190,7 +190,21 @@ def create_transcription_service() -> ITranscriptionService:
             )
             
             if worker_pool is None:
-                logger.error("[FACTORY] Worker pool is None! Cannot create parallel service.")
+                logger.error(
+                    "[FACTORY] Worker pool is None! This usually means:\n"
+                    "  1. Worker pool not yet started (app still initializing)\n"
+                    "  2. ENABLE_PARALLEL_TRANSCRIPTION=true but pool failed to start\n"
+                    "  3. Worker pool was stopped/crashed"
+                )
+                logger.warning("[FACTORY] Falling back to single-core service")
+                return normal_service
+            
+            if temp_manager is None or chunk_prep is None:
+                logger.error(
+                    "[FACTORY] Session manager or chunk prep service is None!\n"
+                    f"  temp_manager={temp_manager is not None}\n"
+                    f"  chunk_prep={chunk_prep is not None}"
+                )
                 logger.warning("[FACTORY] Falling back to single-core service")
                 return normal_service
             

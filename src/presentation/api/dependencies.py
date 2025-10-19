@@ -58,11 +58,20 @@ class Container:
         CRÍTICO: Criado UMA VEZ para garantir que o worker pool persistente
         seja compartilhado entre TODAS as requisições. Se criarmos nova instância
         a cada requisição, teremos referências duplicadas ao worker pool.
+        
+        IMPORTANTE: O serviço é criado de forma LAZY (preguiçosa), ou seja,
+        apenas quando realmente necessário. Isso garante que o worker pool
+        já esteja iniciado quando o serviço for criado.
         """
         if cls._transcription_service is None:
             logger.info("[CONTAINER] Creating TranscriptionService singleton (with persistent worker pool)")
-            cls._transcription_service = create_transcription_service()
-            logger.info(f"[CONTAINER] TranscriptionService created: {type(cls._transcription_service).__name__}")
+            try:
+                cls._transcription_service = create_transcription_service()
+                logger.info(f"[CONTAINER] TranscriptionService created: {type(cls._transcription_service).__name__}")
+            except Exception as e:
+                logger.error(f"[CONTAINER] Failed to create TranscriptionService: {e}")
+                # Re-raise para que o erro seja propagado corretamente
+                raise
         return cls._transcription_service
     
     @classmethod
