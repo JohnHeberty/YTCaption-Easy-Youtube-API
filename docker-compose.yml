@@ -18,7 +18,7 @@ services:
       - CLEANUP_ON_STARTUP=true
       - LOG_LEVEL=INFO
       # Parallel Transcription (v2.0.0)
-      - ENABLE_PARALLEL_TRANSCRIPTION=true
+      - ENABLE_PARALLEL_TRANSCRIPTION=false
       - PARALLEL_WORKERS=2
       - PARALLEL_CHUNK_DURATION=120
     restart: unless-stopped

@@ -382,14 +382,34 @@ update_docker_compose() {
     fi
     
     # Update CPU and memory limits using sed
-    sed -i "s/cpus: '[0-9]*'/cpus: '$DOCKER_CPUS'/" docker-compose.yml
+    sed -i "s/cpus: '[0-9.]*'/cpus: '$DOCKER_CPUS.0'/" docker-compose.yml
     sed -i "s/memory: [0-9]*G/memory: $DOCKER_MEMORY/" docker-compose.yml
     
     # Update reservations
-    sed -i "/reservations:/,/memory:/ s/cpus: '[0-9]*'/cpus: '$DOCKER_CPUS_RESERVATION'/" docker-compose.yml
+    sed -i "/reservations:/,/memory:/ s/cpus: '[0-9.]*'/cpus: '$DOCKER_CPUS_RESERVATION.0'/" docker-compose.yml
     sed -i "/reservations:/,/memory:/ s/memory: [0-9]*G/memory: $DOCKER_MEMORY_RESERVATION/" docker-compose.yml
     
-    print_success "docker-compose.yml updated"
+    # Update WHISPER_MODEL environment variable
+    sed -i "s/WHISPER_MODEL=.*/WHISPER_MODEL=$WHISPER_MODEL/" docker-compose.yml
+    
+    # Update ENABLE_PARALLEL_TRANSCRIPTION environment variable
+    if [ "$DISABLE_PARALLEL" = true ]; then
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=false/" docker-compose.yml
+        print_info "Parallel transcription DISABLED in docker-compose.yml"
+    elif [ -n "$PARALLEL_WORKERS" ]; then
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=true/" docker-compose.yml
+        sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=$PARALLEL_WORKERS/" docker-compose.yml
+        print_info "Parallel workers set to $PARALLEL_WORKERS in docker-compose.yml"
+    elif [ "$CPU_CORES" -ge 4 ]; then
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=true/" docker-compose.yml
+        sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=0/" docker-compose.yml
+        print_info "Parallel transcription ENABLED (auto-detect) in docker-compose.yml"
+    else
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=false/" docker-compose.yml
+        print_info "Parallel transcription DISABLED (needs 4+ cores) in docker-compose.yml"
+    fi
+    
+    print_success "docker-compose.yml updated with all configurations"
 }
 
 show_configuration() {
