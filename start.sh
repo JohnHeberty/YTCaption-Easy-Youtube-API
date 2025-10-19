@@ -174,8 +174,16 @@ detect_gpu() {
     
     print_info "Detecting GPU..."
     
-    # Check for NVIDIA GPU
+    # Check for NVIDIA GPU using lspci first (more reliable)
+    if lspci 2>/dev/null | grep -i nvidia &> /dev/null; then
+        print_info "NVIDIA hardware detected via lspci"
+    else
+        print_info "No NVIDIA hardware found via lspci"
+    fi
+    
+    # Check for NVIDIA GPU with nvidia-smi
     if command -v nvidia-smi &> /dev/null; then
+        print_info "nvidia-smi command found, checking GPU status..."
         if nvidia-smi &> /dev/null; then
             GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)
             print_success "NVIDIA GPU detected: $GPU_NAME"
@@ -220,12 +228,39 @@ detect_gpu() {
                 print_info "Proceeding with CPU mode"
             fi
         else
-            print_info "No NVIDIA GPU detected"
+            print_warning "nvidia-smi found but GPU not accessible"
+            print_info "This usually means:"
+            print_info "  1) NVIDIA driver not installed or not loaded"
+            print_info "  2) GPU passthrough not configured properly (VM)"
+            print_info "  3) User doesn't have permission to access GPU"
+            echo ""
+            print_info "Checking driver status..."
+            if lsmod 2>/dev/null | grep -i nvidia &> /dev/null; then
+                print_success "NVIDIA kernel modules loaded"
+            else
+                print_warning "NVIDIA kernel modules NOT loaded"
+                print_info "Install driver: sudo apt install nvidia-driver-535"
+            fi
+            echo ""
             WHISPER_DEVICE="cpu"
             GPU_AVAILABLE=false
         fi
     else
-        print_info "nvidia-smi not found. Using CPU only."
+        print_info "nvidia-smi not found"
+        print_info "Checking for NVIDIA hardware via lspci..."
+        if lspci 2>/dev/null | grep -i nvidia &> /dev/null; then
+            GPU_INFO=$(lspci | grep -i nvidia)
+            print_warning "NVIDIA hardware found but driver not installed:"
+            echo "  $GPU_INFO"
+            echo ""
+            print_info "To use GPU, install NVIDIA driver:"
+            print_info "  sudo apt update"
+            print_info "  sudo apt install nvidia-driver-535"
+            print_info "  sudo reboot"
+            echo ""
+        else
+            print_info "No NVIDIA hardware detected"
+        fi
         WHISPER_DEVICE="cpu"
         GPU_AVAILABLE=false
     fi
