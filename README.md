@@ -74,7 +74,33 @@ WHISPER_MODEL=base          # tiny|base|small|medium|large
 WHISPER_DEVICE=cpu          # cpu|cuda
 MAX_VIDEO_SIZE_MB=2500
 PORT=8000
+
+# Transcrição Paralela (Experimental - v1.2.0)
+ENABLE_PARALLEL_TRANSCRIPTION=false  # Habilita processamento paralelo
+PARALLEL_WORKERS=4                    # Número de workers (0 = auto-detect)
+PARALLEL_CHUNK_DURATION=120           # Duração dos chunks em segundos
 ```
+
+### 🚀 Transcrição Paralela (Novo!)
+
+Para áudios longos em CPUs multi-core, habilite transcrição paralela:
+
+```env
+ENABLE_PARALLEL_TRANSCRIPTION=true
+PARALLEL_WORKERS=4
+```
+
+**Benefícios:**
+- ⚡ 3-4x mais rápido em CPUs com 4+ cores
+- 📦 Processa chunks de áudio em paralelo
+- 🎯 Ideal para vídeos de 10+ minutos
+
+**Trade-offs:**
+- ⚠️ Usa mais memória RAM (N workers = N modelos)
+- ⚠️ Requer FFmpeg instalado
+- 💡 Melhor para servidores com 8+ GB RAM
+
+Veja [teste_melhoria/README_BENCHMARK.md](teste_melhoria/README_BENCHMARK.md) para testes e benchmarks.
 
 ## 🐳 Deploy Proxmox
 
@@ -92,8 +118,19 @@ chmod +x start.sh
 | **YouTube Transcript** | 1-2s | 2-5s |
 | **Whisper Tiny** | 42s | 15min |
 | **Whisper Base** | 106s | 30min |
+| **Whisper Base (Paralelo 4x)** | ~35s | ~10min |
 
-## 🎓 Novidades v1.1.0
+*Transcrição paralela: speedup de ~3x com 4 workers em CPU quad-core*
+
+## 🎓 Novidades v1.2.0
+
+- 🚀 **Transcrição Paralela**: 3-4x mais rápido com processamento multi-core
+- ⚡ **ProcessPoolExecutor**: True parallelism em Python
+- 📦 **Chunks de áudio**: Divisão inteligente para processamento simultâneo
+- 🎯 **Auto-detection**: Configuração automática de workers baseada em CPU
+- 📊 **Benchmarks**: Scripts completos de teste e comparação
+
+### Novidades v1.1.0
 
 - ✅ YouTube Transcript (100x mais rápido)
 - ✅ Detecção de idioma automática

@@ -10,7 +10,7 @@ from src.domain.interfaces import (
     IStorageService
 )
 from src.infrastructure.youtube import YouTubeDownloader
-from src.infrastructure.whisper import WhisperTranscriptionService
+from src.infrastructure.whisper.transcription_factory import create_transcription_service
 from src.infrastructure.storage import LocalStorageService
 from src.application.use_cases import (
     TranscribeYouTubeVideoUseCase,
@@ -39,10 +39,7 @@ class Container:
     def get_transcription_service(cls) -> ITranscriptionService:
         """Obtém instância do serviço de transcrição."""
         if cls._transcription_service is None:
-            cls._transcription_service = WhisperTranscriptionService(
-                model_name=settings.whisper_model,
-                device=settings.whisper_device
-            )
+            cls._transcription_service = create_transcription_service()
         return cls._transcription_service
     
     @classmethod

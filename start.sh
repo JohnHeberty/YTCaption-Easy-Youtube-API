@@ -99,8 +99,26 @@ detect_cpu_cores() {
     DOCKER_CPUS_RESERVATION="$CPU_CORES"
     print_info "Using 100% of CPU cores: $CPU_CORES"
     
+    # Calculate optimal number of Uvicorn workers
+    # Formula: (2 * CPU_CORES) + 1 (máximo de workers para I/O bound)
+    # Mínimo de 2, máximo de CPU_CORES * 2 (para não sobrecarregar)
+    UVICORN_WORKERS=$((2 * CPU_CORES + 1))
+    
+    # Limitar máximo para evitar overhead
+    if [ "$UVICORN_WORKERS" -gt $((CPU_CORES * 2)) ]; then
+        UVICORN_WORKERS=$((CPU_CORES * 2))
+    fi
+    
+    # Garantir mínimo de 2 workers
+    if [ "$UVICORN_WORKERS" -lt 2 ]; then
+        UVICORN_WORKERS=2
+    fi
+    
+    print_info "Uvicorn workers calculated: $UVICORN_WORKERS (for parallel processing)"
+    
     export DOCKER_CPUS
     export DOCKER_CPUS_RESERVATION
+    export UVICORN_WORKERS
 }
 
 detect_ram() {
@@ -319,6 +337,7 @@ create_env_file() {
     # Update with detected values
     sed -i "s/WHISPER_MODEL=.*/WHISPER_MODEL=$WHISPER_MODEL/" .env
     sed -i "s/WHISPER_DEVICE=.*/WHISPER_DEVICE=$WHISPER_DEVICE/" .env
+    sed -i "s/WORKERS=.*/WORKERS=$UVICORN_WORKERS/" .env
     
     print_success ".env file configured"
 }
@@ -354,6 +373,7 @@ show_configuration() {
     echo -e "${BLUE}==================================${NC}"
     echo -e "CPU Cores:        ${GREEN}$CPU_CORES (100% allocated)${NC}"
     echo -e "Docker CPUs:      ${GREEN}$DOCKER_CPUS${NC}"
+    echo -e "Uvicorn Workers:  ${GREEN}$UVICORN_WORKERS (parallel processing)${NC}"
     echo -e "Total RAM:        ${GREEN}${TOTAL_RAM_GB}GB (100% allocated)${NC}"
     echo -e "Docker Memory:    ${GREEN}$DOCKER_MEMORY${NC}"
     echo -e "Whisper Device:   ${GREEN}$WHISPER_DEVICE${NC}"

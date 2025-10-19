@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     whisper_device: str = Field(default="cpu", alias="WHISPER_DEVICE")
     whisper_language: str = Field(default="auto", alias="WHISPER_LANGUAGE")
     
+    # Parallel Transcription (Experimental)
+    enable_parallel_transcription: bool = Field(default=False, alias="ENABLE_PARALLEL_TRANSCRIPTION")
+    parallel_workers: int = Field(default=4, alias="PARALLEL_WORKERS")
+    parallel_chunk_duration: int = Field(default=120, alias="PARALLEL_CHUNK_DURATION")
+    
     # YouTube
     youtube_format: str = Field(default="worstaudio", alias="YOUTUBE_FORMAT")
     max_video_size_mb: int = Field(default=1500, alias="MAX_VIDEO_SIZE_MB")

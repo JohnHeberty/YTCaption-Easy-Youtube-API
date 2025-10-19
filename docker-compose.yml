@@ -8,6 +8,7 @@ services:
       - "8000:8000"
     environment:
       - WHISPER_MODEL=base
+      - WORKERS=${WORKERS:-1}
       - TEMP_DIR=/app/temp
       - MAX_VIDEO_SIZE_MB=1500
       - MAX_VIDEO_DURATION_SECONDS=10800
