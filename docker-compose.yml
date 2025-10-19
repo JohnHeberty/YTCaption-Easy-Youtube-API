@@ -25,10 +25,10 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '4'
+          cpus: '4.0'
           memory: 8G
         reservations:
-          cpus: '2'
+          cpus: '2.0'
           memory: 4G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
