@@ -2,7 +2,30 @@
 
 ## 📅 Data: 18 de Outubro de 2025
 
-## 🎯 Melhorias Implementadas
+## 🔧 Correções de Bugs (v1.1.1)
+
+### 6. ✅ Correção do ImportError: TranscriptionSegment
+
+**Problema**: Erro de importação ao iniciar o serviço no Proxmox:
+```
+ImportError: cannot import name 'TranscriptionSegment' from 'src.domain.entities'
+```
+
+**Causa**: `TranscriptionSegment` estava definido em `src.domain.value_objects` mas sendo importado de `src.domain.entities` no use case.
+
+**Solução**: Adicionado re-export de `TranscriptionSegment` em `src/domain/entities/__init__.py` para compatibilidade.
+
+**Arquivos modificados**:
+- ✅ `src/domain/entities/__init__.py` - Adicionado export de `TranscriptionSegment`
+
+**Impacto**:
+- ✅ Serviço inicia corretamente no Docker/Proxmox
+- ✅ Mantém compatibilidade com imports existentes
+- ✅ Resolve crash loop no container
+
+---
+
+## 🎯 Melhorias Implementadas (v1.1.0)
 
 ### 1. ✅ Atualização do yt-dlp (2024.10.7 → 2025.10.14)
 
