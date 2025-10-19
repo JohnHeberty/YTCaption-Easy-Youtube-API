@@ -5,7 +5,7 @@ Cada worker carrega o modelo UMA VEZ e fica aguardando tarefas via fila.
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 import multiprocessing as mp
-from queue import Empty
+from queue import Empty, Full
 import time
 
 from loguru import logger
@@ -177,11 +177,37 @@ class PersistentWorkerPool:
             "language": language
         }
         
-        try:
-            self.task_queue.put(task, timeout=timeout)
-        except Exception as e:
-            logger.error(f"Failed to submit task: {e}")
-            raise
+        start = time.time()
+        # Attempt to put task with simple backoff if queue is full. Avoids
+        # raising a generic exception with an empty message when the
+        # underlying exception (e.g. queue.Full) has no str().
+        while True:
+            try:
+                # Use a small per-attempt timeout so we can retry with backoff
+                self.task_queue.put(task, timeout=min(1, max(0.1, timeout)))
+                return
+            except Full as e:
+                elapsed = time.time() - start
+                # Log type and repr to avoid empty messages
+                logger.warning(
+                    f"Task queue full while submitting chunk {chunk_idx} for session {session_id}: "
+                    f"elapsed={elapsed:.2f}s, queue_size={self.task_queue.qsize() if self.task_queue else 'N/A'}, "
+                    f"exc={type(e).__name__}: {repr(e)}"
+                )
+                if elapsed >= timeout:
+                    logger.error(
+                        f"Failed to submit task after {elapsed:.2f}s (timeout={timeout}s)."
+                    )
+                    raise
+                # brief backoff before retrying
+                time.sleep(0.25)
+            except Exception as e:
+                # Catch-all: log exception type and repr to avoid empty messages
+                logger.error(
+                    f"Failed to submit task (unexpected error) for chunk {chunk_idx} in session {session_id}: "
+                    f"{type(e).__name__}: {repr(e)}"
+                )
+                raise
     
     def get_result(self, timeout: int = 600) -> Dict[str, Any]:
         """
