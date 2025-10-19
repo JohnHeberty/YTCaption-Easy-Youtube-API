@@ -7,6 +7,54 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [1.3.2] - 2025-10-19
+
+### Adicionado
+- **🎯 Seleção Inteligente de Modo**: Sistema decide automaticamente entre single-core e paralelo baseado na duração do áudio
+  - Áudios **< 5 minutos**: usa **single-core** (mais eficiente, menos overhead, economiza RAM)
+  - Áudios **≥ 5 minutos**: usa **paralelo** (mais rápido, aproveita múltiplos cores)
+  - Configurável via `AUDIO_LIMIT_SINGLE_CORE` (padrão: 300s = 5min)
+  - Logs claros indicando qual modo foi escolhido e por quê
+  - Elimina overhead de ProcessPoolExecutor para áudios curtos
+
+### Melhorado
+- **Factory Pattern Aprimorado**: `FallbackTranscriptionService` agora é inteligente
+  - Detecta duração do áudio com FFprobe
+  - Escolhe modo automaticamente (sem intervenção manual)
+  - Mantém fallback para modo normal em caso de erro
+  - 3 camadas de proteção: escolha inteligente → paralelo → fallback normal
+
+### Técnico
+- Nova função `_get_audio_duration()` em `transcription_factory.py`
+- `FallbackTranscriptionService.transcribe()` agora analisa duração antes de decidir modo
+- Novo campo em `settings.py`: `audio_limit_single_core` (int, default=300)
+- Atualizado `.env` e `.env.example` com `AUDIO_LIMIT_SINGLE_CORE=300`
+
+### Documentação
+- Novo arquivo `docs/CONFIGURATION_EXAMPLES.md` com 6 cenários diferentes
+- Exemplos incluem: servidor básico, performance, memória limitada, GPU, etc.
+
+---
+
+## [1.3.1] - 2025-10-19
+
+### Corrigido
+- **🛡️ Fallback Automático para Modo Normal**: Sistema agora detecta falhas no modo paralelo e automaticamente usa transcrição normal
+  - Detecta erros de "process pool terminated abruptly" (geralmente por falta de memória)
+  - Desabilita paralelo automaticamente na mesma sessão após primeira falha
+  - Logs detalhados com sugestões de resolução (reduzir workers, usar modelo menor)
+  - Mensagem de erro mais clara indicando causa provável (memória RAM insuficiente)
+- **⏱️ Timeout em Chunks Paralelos**: Adicionado timeout de 10 minutos por chunk para evitar processos travados
+- **🔍 Detecção de Exceções em Workers**: Verifica se workers retornaram exceções e propaga erro apropriado
+
+### Técnico
+- Novo `FallbackTranscriptionService` em `transcription_factory.py`
+- Tratamento robusto de `RuntimeError` e `OSError` no modo paralelo
+- Timeout configurável baseado no número de chunks (`len(chunks) * 600s`)
+- `asyncio.gather(..., return_exceptions=True)` para capturar falhas de workers individuais
+
+---
+
 ## [1.3.0] - 2025-10-19
 
 ### Adicionado

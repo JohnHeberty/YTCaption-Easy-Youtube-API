@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     enable_parallel_transcription: bool = Field(default=False, alias="ENABLE_PARALLEL_TRANSCRIPTION")
     parallel_workers: int = Field(default=4, alias="PARALLEL_WORKERS")
     parallel_chunk_duration: int = Field(default=120, alias="PARALLEL_CHUNK_DURATION")
+    audio_limit_single_core: int = Field(default=300, alias="AUDIO_LIMIT_SINGLE_CORE")  # 5 minutos
     
     # YouTube
     youtube_format: str = Field(default="worstaudio", alias="YOUTUBE_FORMAT")

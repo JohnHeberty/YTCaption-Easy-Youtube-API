@@ -281,25 +281,56 @@ class WhisperParallelTranscriptionService(ITranscriptionService):
             # Transcrever chunks em paralelo
             loop = asyncio.get_event_loop()
             
-            with ProcessPoolExecutor(max_workers=actual_workers) as executor:
-                # Criar tasks para cada chunk
-                tasks = []
-                for chunk_start, chunk_end in chunks:
-                    task = loop.run_in_executor(
-                        executor,
-                        _transcribe_chunk_worker,
-                        self.model_name,
-                        self.device,
-                        str(audio_path),
-                        chunk_start,
-                        chunk_end,
-                        language
+            try:
+                with ProcessPoolExecutor(max_workers=actual_workers) as executor:
+                    # Criar tasks para cada chunk
+                    tasks = []
+                    for chunk_start, chunk_end in chunks:
+                        task = loop.run_in_executor(
+                            executor,
+                            _transcribe_chunk_worker,
+                            self.model_name,
+                            self.device,
+                            str(audio_path),
+                            chunk_start,
+                            chunk_end,
+                            language
+                        )
+                        tasks.append(task)
+                    
+                    # Aguardar todos os chunks com timeout
+                    logger.info("[PARALLEL] Processing chunks...")
+                    # Timeout: 10 min por chunk (para áudios muito longos)
+                    timeout_seconds = len(chunks) * 600
+                    results = await asyncio.wait_for(
+                        asyncio.gather(*tasks, return_exceptions=True),
+                        timeout=timeout_seconds
                     )
-                    tasks.append(task)
-                
-                # Aguardar todos os chunks
-                logger.info("[PARALLEL] Processing chunks...")
-                results = await asyncio.gather(*tasks)
+                    
+                    # Verificar se algum resultado é uma exceção
+                    for i, result in enumerate(results):
+                        if isinstance(result, Exception):
+                            error_msg = f"Chunk {i} failed: {str(result)}"
+                            logger.error(f"[PARALLEL] {error_msg}")
+                            raise TranscriptionError(f"Parallel processing failed: {error_msg}")
+                    
+            except asyncio.TimeoutError:
+                raise TranscriptionError(
+                    f"Parallel transcription timed out after {timeout_seconds}s"
+                )
+            except (RuntimeError, OSError) as e:
+                # RuntimeError: process pool errors
+                # OSError: out of memory, resource errors
+                error_msg = str(e).lower()
+                if "process pool" in error_msg or "abruptly" in error_msg or "memory" in error_msg:
+                    raise TranscriptionError(
+                        f"A process in the process pool was terminated abruptly while the future was running or pending. "
+                        f"This usually indicates out of memory (each worker loads Whisper model ~1-2GB RAM). "
+                        f"Try: 1) Reduce PARALLEL_WORKERS, 2) Use smaller Whisper model, or 3) Disable parallel mode. "
+                        f"Original error: {str(e)}"
+                    )
+                else:
+                    raise
             
             # Merge dos resultados
             all_segments = []
