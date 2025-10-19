@@ -29,6 +29,7 @@ NC='\033[0m' # No Color
 # Default values
 FORCE_REBUILD=false
 DISABLE_GPU=false
+DISABLE_PARALLEL=false
 WHISPER_MODEL=""
 WORKERS=""
 PARALLEL_WORKERS=""
@@ -67,6 +68,7 @@ show_help() {
     echo "Options:"
     echo "  --force-rebuild       Force rebuild Docker images"
     echo "  --no-gpu             Disable GPU even if available"
+    echo "  --no-parallel        Disable parallel transcription (use single-core mode)"
     echo "  --model MODEL        Set Whisper model (tiny|base|small|medium|large)"
     echo "  --workers NUM        Set number of Uvicorn workers (default: 1)"
     echo "  --parallel-workers N Set parallel transcription workers (default: auto-detect or 2)"
@@ -76,6 +78,7 @@ show_help() {
     echo "  ./start.sh                              # Normal start"
     echo "  ./start.sh --force-rebuild              # Rebuild and start"
     echo "  ./start.sh --model medium --no-gpu      # Use medium model on CPU"
+    echo "  ./start.sh --no-parallel                # Disable parallel mode (test single-core)"
     echo "  ./start.sh --workers 1 --parallel-workers 4  # 1 API worker, 4 transcription workers"
 }
 
@@ -340,7 +343,11 @@ create_env_file() {
     fi
     
     # Configure parallel transcription
-    if [ -n "$PARALLEL_WORKERS" ]; then
+    if [ "$DISABLE_PARALLEL" = true ]; then
+        # User explicitly disabled parallel mode
+        sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=false/" .env
+        print_warning "Parallel transcription DISABLED by user (--no-parallel)"
+    elif [ -n "$PARALLEL_WORKERS" ]; then
         # User specified parallel workers
         sed -i "s/ENABLE_PARALLEL_TRANSCRIPTION=.*/ENABLE_PARALLEL_TRANSCRIPTION=true/" .env
         sed -i "s/PARALLEL_WORKERS=.*/PARALLEL_WORKERS=$PARALLEL_WORKERS/" .env
@@ -401,7 +408,9 @@ show_configuration() {
     fi
     
     # Show parallel transcription config
-    if [ -n "$PARALLEL_WORKERS" ]; then
+    if [ "$DISABLE_PARALLEL" = true ]; then
+        echo -e "Parallel Transc:  ${YELLOW}DISABLED (--no-parallel flag)${NC}"
+    elif [ -n "$PARALLEL_WORKERS" ]; then
         echo -e "Parallel Transc:  ${GREEN}ENABLED ($PARALLEL_WORKERS workers, user-specified)${NC}"
     elif [ "$CPU_CORES" -ge 4 ]; then
         echo -e "Parallel Transc:  ${GREEN}ENABLED (auto-detect $CPU_CORES cores)${NC}"
@@ -484,6 +493,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-gpu)
             DISABLE_GPU=true
+            shift
+            ;;
+        --no-parallel)
+            DISABLE_PARALLEL=true
             shift
             ;;
         --model)
