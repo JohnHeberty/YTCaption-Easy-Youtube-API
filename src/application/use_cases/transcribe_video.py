@@ -2,8 +2,12 @@
 Use Case: Transcribe YouTube Video
 Orquestra o processo completo de transcrição de vídeos do YouTube.
 Segue o princípio de Single Responsibility (SOLID).
+
+v2.0: Integrado com cache de transcrição e validação de áudio.
 """
 import time
+import hashlib
+from pathlib import Path
 from typing import Optional
 from loguru import logger
 
@@ -39,7 +43,10 @@ class TranscribeYouTubeVideoUseCase:
         transcription_service: ITranscriptionService,
         storage_service: IStorageService,
         cleanup_after_processing: bool = True,
-        max_video_duration: int = 10800  # 3 horas por padrão
+        max_video_duration: int = 10800,  # 3 horas por padrão
+        # v2.0: Serviços opcionais de otimização
+        audio_validator=None,
+        transcription_cache=None
     ):
         """
         Inicializa o use case.
@@ -50,6 +57,8 @@ class TranscribeYouTubeVideoUseCase:
             storage_service: Serviço de armazenamento
             cleanup_after_processing: Se deve limpar arquivos após processar
             max_video_duration: Duração máxima permitida em segundos
+            audio_validator: (v2.0) Validador de áudio (opcional)
+            transcription_cache: (v2.0) Cache de transcrições (opcional)
         """
         self.video_downloader = video_downloader
         self.transcription_service = transcription_service
@@ -57,6 +66,15 @@ class TranscribeYouTubeVideoUseCase:
         self.cleanup_after_processing = cleanup_after_processing
         self.max_video_duration = max_video_duration
         self.youtube_transcript_service = YouTubeTranscriptService()
+        
+        # v2.0: Otimizações opcionais
+        self.audio_validator = audio_validator
+        self.transcription_cache = transcription_cache
+        logger.info(
+            f"📋 TranscribeVideoUseCase initialized "
+            f"(cache={'enabled' if transcription_cache else 'disabled'}, "
+            f"validation={'enabled' if audio_validator else 'disabled'})"
+        )
     
     async def execute(
         self,
@@ -65,6 +83,8 @@ class TranscribeYouTubeVideoUseCase:
         """
         Executa o processo de transcrição.
         
+        v2.0: Integra cache e validação de áudio.
+        
         Args:
             request: Requisição com URL e parâmetros
             
@@ -72,12 +92,13 @@ class TranscribeYouTubeVideoUseCase:
             TranscribeResponseDTO: Resposta com transcrição completa
             
         Raises:
-            ValidationError: Se a URL for inválida
+            ValidationError: Se a URL for inválida ou áudio inválido
             VideoDownloadError: Se falhar o download
             TranscriptionError: Se falhar a transcrição
         """
         start_time = time.time()
         temp_dir = None
+        cache_key = None
         
         try:
             # 1. Validar URL do YouTube
@@ -98,11 +119,29 @@ class TranscribeYouTubeVideoUseCase:
                     start_time
                 )
             
-            # 3. Criar diretório temporário
+            # 3. Criar cache key baseado em URL + parâmetros
+            if self.transcription_cache:
+                cache_key = self._create_cache_key(
+                    youtube_url.url,
+                    request.language
+                )
+                
+                # Verificar cache
+                cached_result = self.transcription_cache.get(cache_key)
+                if cached_result:
+                    logger.info(f"✅ Cache hit for {youtube_url.video_id}")
+                    response = cached_result.copy()
+                    response["cache_hit"] = True
+                    response["processing_time"] = time.time() - start_time
+                    return TranscribeResponseDTO(**response)
+                else:
+                    logger.info(f"❌ Cache miss for {youtube_url.video_id}")
+            
+            # 4. Criar diretório temporário
             temp_dir = await self.storage_service.create_temp_directory()
             logger.debug(f"Created temp directory: {temp_dir}")
             
-            # 4. Baixar vídeo (com validação de duração)
+            # 5. Baixar vídeo (com validação de duração)
             logger.info(f"Downloading video: {youtube_url.video_id}")
             video_file = await self.video_downloader.download(
                 youtube_url, 
@@ -114,7 +153,28 @@ class TranscribeYouTubeVideoUseCase:
                 f"Video downloaded: {video_file.file_size_mb:.2f} MB"
             )
             
-            # 5. Transcrever vídeo com Whisper
+            # 6. v2.0: Validar áudio antes de processar
+            if self.audio_validator and video_file.file_path:
+                logger.info("🔍 Validating audio file...")
+                validation_start = time.time()
+                
+                validation_result = await self.audio_validator.validate_file(
+                    Path(video_file.file_path)
+                )
+                
+                if not validation_result["valid"]:
+                    error_msg = f"Invalid audio file: {', '.join(validation_result['errors'])}"
+                    logger.error(f"❌ {error_msg}")
+                    raise ValidationError(error_msg)
+                
+                validation_time = time.time() - validation_start
+                logger.info(
+                    f"✅ Audio validation passed in {validation_time:.2f}s "
+                    f"(duration={validation_result.get('duration', 0):.1f}s, "
+                    f"estimated_processing={validation_result.get('estimated_processing_time', 0):.1f}s)"
+                )
+            
+            # 7. Transcrever vídeo com Whisper
             logger.info("Starting Whisper transcription")
             transcription = await self.transcription_service.transcribe(
                 video_file,
@@ -131,8 +191,24 @@ class TranscribeYouTubeVideoUseCase:
                 f"time={transcription.processing_time:.2f}s"
             )
             
-            # 6. Criar DTO de resposta
+            # 8. Criar DTO de resposta
             response = self._create_response_dto(transcription, source="whisper")
+            
+            # 9. v2.0: Salvar no cache
+            if self.transcription_cache and cache_key:
+                try:
+                    # Converter para dict para cachear
+                    cache_data = response.model_dump()
+                    cache_data["cache_hit"] = False
+                    
+                    self.transcription_cache.put(
+                        cache_key,
+                        cache_data,
+                        size_bytes=len(str(cache_data))
+                    )
+                    logger.info(f"💾 Cached transcription for {youtube_url.video_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to cache result: {e}")
             
             return response
             
@@ -143,7 +219,7 @@ class TranscribeYouTubeVideoUseCase:
             raise TranscriptionError(f"Unexpected error: {str(e)}")
         
         finally:
-            # 7. Limpar arquivos temporários
+            # 10. Limpar arquivos temporários
             if temp_dir and self.cleanup_after_processing:
                 try:
                     await self.storage_service.cleanup_directory(temp_dir)
@@ -262,3 +338,24 @@ class TranscribeYouTubeVideoUseCase:
             source=source,
             transcript_type=transcript_type
         )
+    
+    def _create_cache_key(self, youtube_url: str, language: Optional[str]) -> str:
+        """
+        Cria chave de cache baseada em URL + parâmetros.
+        
+        Args:
+            youtube_url: URL do YouTube
+            language: Idioma solicitado
+            
+        Returns:
+            str: Hash MD5 da combinação URL + parâmetros
+        """
+        # Normalizar language (None ou "auto" = "auto")
+        lang = language if language else "auto"
+        
+        # Criar string combinada
+        cache_string = f"{youtube_url}|{lang}"
+        
+        # Gerar hash MD5
+        return hashlib.md5(cache_string.encode()).hexdigest()
+

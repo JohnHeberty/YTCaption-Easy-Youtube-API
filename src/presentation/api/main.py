@@ -20,10 +20,24 @@ from src.infrastructure.whisper.persistent_worker_pool import PersistentWorkerPo
 from src.infrastructure.whisper.temp_session_manager import TempSessionManager
 from src.infrastructure.whisper.chunk_preparation_service import ChunkPreparationService
 
+# NOVO: Imports das otimizações v2.0
+from src.infrastructure.whisper.model_cache import get_model_cache
+from src.infrastructure.storage.file_cleanup_manager import FileCleanupManager
+from src.infrastructure.cache import get_transcription_cache
+from src.infrastructure.validators import AudioValidator
+from src.infrastructure.utils import get_ffmpeg_optimizer
+
 # Variáveis globais para worker pool e gerenciadores
 worker_pool: PersistentWorkerPool = None
 temp_session_manager: TempSessionManager = None
 chunk_prep_service: ChunkPreparationService = None
+
+# NOVO: Variáveis globais para serviços otimizados
+model_cache = None
+file_cleanup_manager = None
+transcription_cache = None
+audio_validator = None
+ffmpeg_optimizer = None
 
 
 def get_worker_pool() -> PersistentWorkerPool:
@@ -39,6 +53,32 @@ def get_temp_session_manager() -> TempSessionManager:
 def get_chunk_prep_service() -> ChunkPreparationService:
     """Retorna instância global do chunk preparation service."""
     return chunk_prep_service
+
+
+# NOVO: Funções getter para serviços otimizados
+def get_model_cache_service():
+    """Retorna cache global de modelos Whisper."""
+    return model_cache
+
+
+def get_file_cleanup_manager_service():
+    """Retorna gerenciador de cleanup de arquivos."""
+    return file_cleanup_manager
+
+
+def get_transcription_cache_service():
+    """Retorna cache de transcrições."""
+    return transcription_cache
+
+
+def get_audio_validator_service():
+    """Retorna validador de áudio."""
+    return audio_validator
+
+
+def get_ffmpeg_optimizer_service():
+    """Retorna otimizador FFmpeg."""
+    return ffmpeg_optimizer
 
 
 # Configurar logging
@@ -79,15 +119,72 @@ async def lifespan(app: FastAPI):
     Executado no startup e shutdown.
     """
     global worker_pool, temp_session_manager, chunk_prep_service
+    global model_cache, file_cleanup_manager, transcription_cache, audio_validator, ffmpeg_optimizer
     
     # Startup
     logger.info("=" * 60)
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    logger.info(f"Starting {settings.app_name} v{settings.app_version} (OPTIMIZED v2.0)")
     logger.info(f"Environment: {settings.app_environment}")
     logger.info(f"Whisper Model: {settings.whisper_model}")
     logger.info(f"Device: {settings.whisper_device}")
     logger.info(f"Temp Directory: {settings.temp_dir}")
     logger.info(f"Parallel Transcription: {settings.enable_parallel_transcription}")
+    logger.info("=" * 60)
+    
+    # ========== OTIMIZAÇÕES v2.0 ==========
+    
+    # 1. Inicializar cache de modelos Whisper
+    logger.info("🚀 [v2.0] Initializing Whisper model cache (singleton)...")
+    model_cache = get_model_cache()
+    model_cache.set_unload_timeout(settings.model_cache_timeout_minutes)
+    logger.info(f"✅ Model cache initialized (timeout: {settings.model_cache_timeout_minutes}min)")
+    
+    # 2. Inicializar cache de transcrições
+    if settings.enable_transcription_cache:
+        logger.info("🚀 [v2.0] Initializing transcription cache (LRU)...")
+        transcription_cache = get_transcription_cache(
+            max_size=settings.cache_max_size,
+            ttl_hours=settings.cache_ttl_hours
+        )
+        logger.info(f"✅ Transcription cache initialized (size: {settings.cache_max_size}, TTL: {settings.cache_ttl_hours}h)")
+    else:
+        logger.info("⚠️  Transcription cache disabled")
+    
+    # 3. Inicializar gerenciador de cleanup
+    logger.info("🚀 [v2.0] Initializing file cleanup manager...")
+    file_cleanup_manager = FileCleanupManager(
+        base_temp_dir=Path(settings.temp_dir),
+        default_ttl_hours=settings.max_temp_age_hours,
+        cleanup_interval_minutes=settings.cleanup_interval_minutes
+    )
+    
+    # Iniciar limpeza periódica
+    if settings.enable_periodic_cleanup:
+        file_cleanup_manager.start_periodic_cleanup()
+        logger.info(f"✅ Periodic cleanup started (interval: {settings.cleanup_interval_minutes}min)")
+    else:
+        logger.info("⚠️  Periodic cleanup disabled")
+    
+    # 4. Inicializar validador de áudio
+    logger.info("🚀 [v2.0] Initializing audio validator...")
+    audio_validator = AudioValidator()
+    logger.info("✅ Audio validator initialized")
+    
+    # 5. Inicializar otimizador FFmpeg
+    logger.info("🚀 [v2.0] Initializing FFmpeg optimizer...")
+    ffmpeg_optimizer = get_ffmpeg_optimizer()
+    capabilities = ffmpeg_optimizer.get_capabilities()
+    logger.info(
+        f"✅ FFmpeg optimizer initialized: "
+        f"version={capabilities.version}, "
+        f"hw_accel={capabilities.has_hw_acceleration}, "
+        f"cuda={capabilities.has_cuda}, "
+        f"nvenc={capabilities.has_nvenc}"
+    )
+    
+    logger.info("=" * 60)
+    
+    # ========== SERVIÇOS EXISTENTES ==========
     
     # Inicializar serviços de sessão e chunks
     logger.info("Initializing session manager and chunk preparation service...")
@@ -146,7 +243,33 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("=" * 60)
-    logger.info("Shutting down application...")
+    logger.info("Shutting down application (OPTIMIZED v2.0)...")
+    
+    # ========== SHUTDOWN OTIMIZAÇÕES v2.0 ==========
+    
+    # 1. Parar cleanup periódico
+    if file_cleanup_manager:
+        logger.info("Stopping file cleanup manager...")
+        await file_cleanup_manager.stop_periodic_cleanup()
+        logger.info("✅ File cleanup manager stopped")
+    
+    # 2. Limpar cache de modelos
+    if model_cache:
+        logger.info("Clearing model cache...")
+        stats = model_cache.get_cache_stats()
+        logger.info(f"Model cache stats: {stats}")
+        model_cache.clear_all()
+        logger.info("✅ Model cache cleared")
+    
+    # 3. Limpar cache de transcrições
+    if transcription_cache:
+        logger.info("Clearing transcription cache...")
+        stats = transcription_cache.get_stats()
+        logger.info(f"Transcription cache stats: {stats}")
+        transcription_cache.clear()
+        logger.info("✅ Transcription cache cleared")
+    
+    # ========== SHUTDOWN SERVIÇOS EXISTENTES ==========
     
     # Parar worker pool se estiver rodando
     if worker_pool and worker_pool.running:

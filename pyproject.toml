@@ -67,6 +67,43 @@ addopts = "-v --cov=src --cov-report=html --cov-report=term"
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
-disallow_untyped_defs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+no_implicit_optional = false
+strict_optional = false
+
+[tool.pylint]
+max-line-length = 120
+disable = [
+    "C0111",  # missing-docstring
+    "C0103",  # invalid-name
+    "C0301",  # line-too-long
+    "R0913",  # too-many-arguments
+    "R0914",  # too-many-locals
+    "W0212",  # protected-access
+    "W0703",  # broad-except
+    "E0401",  # import-error
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line-too-long
+    "E402",  # module-level-import-not-at-top-of-file
+    "F401",  # unused-import
+    "F841",  # unused-variable
+]

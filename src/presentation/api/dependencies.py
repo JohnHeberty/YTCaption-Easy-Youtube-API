@@ -94,15 +94,27 @@ class Container:
         
         CRÍTICO: Use case também é singleton para garantir que sempre
         use o MESMO serviço de transcrição (que por sua vez usa o mesmo worker pool).
+        
+        v2.0: Injeta serviços de otimização (cache, validação).
         """
         if cls._transcribe_use_case is None:
             logger.debug("[CONTAINER] Creating TranscribeYouTubeVideoUseCase singleton")
+            
+            # v2.0: Importar serviços de otimização do main.py
+            from src.presentation.api.main import (
+                audio_validator,
+                transcription_cache
+            )
+            
             cls._transcribe_use_case = TranscribeYouTubeVideoUseCase(
                 video_downloader=cls.get_video_downloader(),
                 transcription_service=cls.get_transcription_service(),
                 storage_service=cls.get_storage_service(),
                 cleanup_after_processing=settings.cleanup_after_processing,
-                max_video_duration=settings.max_video_duration_seconds
+                max_video_duration=settings.max_video_duration_seconds,
+                # v2.0: Otimizações opcionais
+                audio_validator=audio_validator,
+                transcription_cache=transcription_cache
             )
         return cls._transcribe_use_case
     

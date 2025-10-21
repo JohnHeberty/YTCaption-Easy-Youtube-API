@@ -59,6 +59,21 @@ class Settings(BaseSettings):
     # Performance
     workers: int = Field(default=1, alias="WORKERS")
     
+    # Cache (NOVO - v2.0)
+    enable_transcription_cache: bool = Field(default=True, alias="ENABLE_TRANSCRIPTION_CACHE")
+    cache_max_size: int = Field(default=100, alias="CACHE_MAX_SIZE")
+    cache_ttl_hours: int = Field(default=24, alias="CACHE_TTL_HOURS")
+    
+    # Model Cache (NOVO - v2.0)
+    model_cache_timeout_minutes: int = Field(default=30, alias="MODEL_CACHE_TIMEOUT_MINUTES")
+    
+    # FFmpeg Optimization (NOVO - v2.0)
+    enable_ffmpeg_hw_accel: bool = Field(default=True, alias="ENABLE_FFMPEG_HW_ACCEL")
+    
+    # File Cleanup (NOVO - v2.0)
+    enable_periodic_cleanup: bool = Field(default=True, alias="ENABLE_PERIODIC_CLEANUP")
+    cleanup_interval_minutes: int = Field(default=30, alias="CLEANUP_INTERVAL_MINUTES")
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
