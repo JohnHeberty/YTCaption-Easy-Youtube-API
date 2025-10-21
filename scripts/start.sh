@@ -42,6 +42,9 @@ WORKERS=""
 PARALLEL_WORKERS=""
 CUSTOM_MEMORY_MB=""  # Custom memory limit in MB
 
+# ---- Test image para validação de GPU no Docker ----
+CUDA_TEST_IMAGE="${CUDA_TEST_IMAGE:-nvidia/cuda:12.2.0-base-ubuntu22.04}"
+
 ################################################################################
 # Functions
 ################################################################################
@@ -68,6 +71,24 @@ print_warning() {
 
 print_info() {
     echo -e "${BLUE}ℹ $1${NC}"
+}
+
+check_docker_runtime_status() {
+    # Pega o runtime default e a lista de runtimes disponíveis
+    DOCKER_DEFAULT_RUNTIME="$(docker info --format '{{.DefaultRuntime}}' 2>/dev/null || true)"
+    if [ -z "$DOCKER_DEFAULT_RUNTIME" ]; then
+        # fallback parsing caso o --format não esteja disponível
+        DOCKER_DEFAULT_RUNTIME="$(docker info 2>/dev/null | awk -F': ' '/Default Runtime:/ {print $2}')"
+    fi
+
+    # Tenta descobrir se o runtime "nvidia" existe
+    if docker info 2>/dev/null | grep -qiE 'Runtimes:.*\bnvidia\b'; then
+        NVIDIA_RUNTIME_PRESENT=true
+    else
+        NVIDIA_RUNTIME_PRESENT=false
+    fi
+
+    export DOCKER_DEFAULT_RUNTIME NVIDIA_RUNTIME_PRESENT
 }
 
 show_help() {
@@ -177,101 +198,109 @@ detect_gpu() {
         print_info "GPU detection disabled by user (--no-gpu flag)"
         WHISPER_DEVICE="cpu"
         GPU_AVAILABLE=false
+        export WHISPER_DEVICE GPU_AVAILABLE
         return
     fi
-    
+
     print_info "Detecting GPU..."
-    
-    # Check for NVIDIA GPU using lspci first (more reliable)
-    if lspci 2>/dev/null | grep -i nvidia &> /dev/null; then
+
+    # 1) hardware NVIDIA?
+    if lspci 2>/dev/null | grep -qi nvidia; then
         print_info "NVIDIA hardware detected via lspci"
     else
         print_info "No NVIDIA hardware found via lspci"
     fi
-    
-    # Check for NVIDIA GPU with nvidia-smi
-    if command -v nvidia-smi &> /dev/null; then
-        print_info "nvidia-smi command found, checking GPU status..."
-        if nvidia-smi &> /dev/null; then
-            GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -n 1)
-            print_success "NVIDIA GPU detected: $GPU_NAME"
-            
-            # Check if Docker can access GPU (this is what matters!)
-            print_info "Checking if Docker can access GPU..."
-            if docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi &> /dev/null 2>&1; then
-                print_success "Docker GPU access: OK"
-                print_success "GPU will be used for transcription"
-                WHISPER_DEVICE="cuda"
-                GPU_AVAILABLE=true
-            else
-                print_warning "Docker cannot access GPU"
-                echo ""
-                echo -e "${YELLOW}ℹ GPU detected but Docker can't access it:${NC}"
-                echo "  • GPU hardware: $GPU_NAME ✓"
-                echo "  • NVIDIA driver: Working ✓"
-                echo "  • Docker GPU access: Failed ✗"
-                echo ""
-                echo -e "${BLUE}Solution:${NC}"
-                echo "  Install NVIDIA Docker runtime:"
-                echo "  ${GREEN}sudo ./scripts/install-nvidia-docker.sh${NC}"
-                echo ""
-                echo -e "${BLUE}Or continue with CPU mode:${NC}"
-                echo "  • Works fine for development"
-                echo "  • Use 'base' or 'tiny' model for speed"
-                echo ""
-                
-                WHISPER_DEVICE="cpu"
-                GPU_AVAILABLE=false
-                
-                read -p "Continue with CPU mode? (Y/n): " -n 1 -r
-                echo
-                if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! -z $REPLY ]]; then
-                    print_info "Startup cancelled. Install NVIDIA Docker and try again."
-                    exit 0
-                fi
-                
-                print_info "Proceeding with CPU mode"
-            fi
-        else
-            print_warning "nvidia-smi found but GPU not accessible"
-            print_info "This usually means:"
-            print_info "  1) NVIDIA driver not installed or not loaded"
-            print_info "  2) GPU passthrough not configured properly (VM)"
-            print_info "  3) User doesn't have permission to access GPU"
-            echo ""
-            print_info "Checking driver status..."
-            if lsmod 2>/dev/null | grep -i nvidia &> /dev/null; then
-                print_success "NVIDIA kernel modules loaded"
-            else
-                print_warning "NVIDIA kernel modules NOT loaded"
-                print_info "Install driver: sudo apt install nvidia-driver-535"
-            fi
-            echo ""
-            WHISPER_DEVICE="cpu"
-            GPU_AVAILABLE=false
-        fi
-    else
-        print_info "nvidia-smi not found"
-        print_info "Checking for NVIDIA hardware via lspci..."
-        if lspci 2>/dev/null | grep -i nvidia &> /dev/null; then
-            GPU_INFO=$(lspci | grep -i nvidia)
-            print_warning "NVIDIA hardware found but driver not installed:"
-            echo "  $GPU_INFO"
-            echo ""
-            print_info "To use GPU, install NVIDIA driver:"
-            print_info "  sudo apt update"
-            print_info "  sudo apt install nvidia-driver-535"
-            print_info "  sudo reboot"
-            echo ""
-        else
-            print_info "No NVIDIA hardware detected"
-        fi
+
+    # 2) driver ok no host?
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        print_warning "nvidia-smi not found on host (driver ausente). Usando CPU."
         WHISPER_DEVICE="cpu"
         GPU_AVAILABLE=false
+        export WHISPER_DEVICE GPU_AVAILABLE
+        return
     fi
-    
-    export WHISPER_DEVICE
+
+    if ! nvidia-smi >/dev/null 2>&1; then
+        print_warning "nvidia-smi found but GPU not accessible on host. Usando CPU."
+        WHISPER_DEVICE="cpu"
+        GPU_AVAILABLE=false
+        export WHISPER_DEVICE GPU_AVAILABLE
+        return
+    fi
+
+    GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n1 || echo 'NVIDIA GPU')"
+    print_success "NVIDIA GPU detected on host: $GPU_NAME"
+
+    # 3) Testar acesso via Docker
+    print_info "Checking if Docker can access GPU..."
+
+    # Se soubermos o runtime default e o "nvidia" existir, decidimos a estratégia
+    check_docker_runtime_status
+
+    # primeiro: se default já for nvidia, testamos sem --runtime
+    docker_gpu_ok=false
+    if [ "$DOCKER_DEFAULT_RUNTIME" = "nvidia" ]; then
+        if docker run --rm --gpus all "$CUDA_TEST_IMAGE" nvidia-smi >/dev/null 2>&1; then
+            docker_gpu_ok=true
+        fi
+    fi
+
+    # se ainda não OK, tenta com --runtime=nvidia (caminho que funcionou no seu host)
+    if [ "$docker_gpu_ok" = false ] && [ "$NVIDIA_RUNTIME_PRESENT" = true ]; then
+        if docker run --rm --runtime=nvidia --gpus all "$CUDA_TEST_IMAGE" nvidia-smi >/dev/null 2>&1; then
+            docker_gpu_ok=true
+        fi
+    fi
+
+    # fallback final (caso o default não seja nvidia e o runtime não esteja listado)
+    if [ "$docker_gpu_ok" = false ]; then
+        # ainda vale tentar sem --runtime se o toolkit estiver montando libs por hook mesmo com default=runc
+        if docker run --rm --gpus all "$CUDA_TEST_IMAGE" nvidia-smi >/dev/null 2>&1; then
+            docker_gpu_ok=true
+        fi
+    fi
+
+    if [ "$docker_gpu_ok" = true ]; then
+        print_success "Docker GPU access: OK"
+        print_success "GPU will be used for transcription"
+        WHISPER_DEVICE="cuda"
+        GPU_AVAILABLE=true
+    else
+        print_warning "Docker cannot access GPU"
+        echo ""
+        echo -e "${YELLOW}ℹ GPU detected but Docker can't access it:${NC}"
+        echo "  • GPU hardware: $GPU_NAME ✓"
+        echo "  • NVIDIA driver (host): OK ✓"
+        echo "  • Docker GPU access: Failed ✗"
+        echo ""
+        echo -e "${BLUE}Dicas rápidas:${NC}"
+        if [ "$NVIDIA_RUNTIME_PRESENT" = false ]; then
+          echo "  • Runtime 'nvidia' não aparece no 'docker info'. Configure com:"
+          echo "    sudo nvidia-ctk runtime configure --runtime=docker --set-as-default && sudo systemctl restart docker"
+        else
+          if [ "$DOCKER_DEFAULT_RUNTIME" != "nvidia" ]; then
+            echo "  • Default Runtime atual: '$DOCKER_DEFAULT_RUNTIME'. Rode com '--runtime=nvidia' ou defina como default:"
+            echo "    sudo nvidia-ctk runtime configure --runtime=docker --set-as-default && sudo systemctl restart docker"
+          fi
+        fi
+        echo ""
+
+        WHISPER_DEVICE="cpu"
+        GPU_AVAILABLE=false
+
+        # mantém o comportamento de perguntar se segue no CPU
+        read -p "Continue with CPU mode? (Y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ ! -z $REPLY ]]; then
+            print_info "Startup cancelled. Install/Configure NVIDIA Docker and try again."
+            exit 0
+        fi
+        print_info "Proceeding with CPU mode"
+    fi
+
+    export WHISPER_DEVICE GPU_AVAILABLE
 }
+
 
 recommend_whisper_model() {
     if [ -n "$WHISPER_MODEL" ]; then
