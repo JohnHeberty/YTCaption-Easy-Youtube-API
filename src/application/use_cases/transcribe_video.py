@@ -125,8 +125,11 @@ class TranscribeYouTubeVideoUseCase:
                     start_time
                 )
             
-            # 3. Criar cache key baseado em URL + parâmetros
-            if self.transcription_cache:
+            # 3. DESABILITADO: Cache de transcrição precisa ser reimplementado
+            # O cache atual usa file_hash (hash do arquivo de áudio), não URL
+            # Não é possível verificar cache antes de baixar o vídeo
+            # TODO: Implementar cache baseado em video_id + model + language
+            if False and self.transcription_cache:  # Temporariamente desabilitado
                 cache_key = self._create_cache_key(
                     youtube_url.url,
                     request.language
@@ -164,12 +167,13 @@ class TranscribeYouTubeVideoUseCase:
                 logger.info("🔍 Validating audio file...")
                 validation_start = time.time()
                 
-                validation_result = await self.audio_validator.validate_file(
+                # validate_file() é SÍNCRONO e retorna AudioMetadata (dataclass)
+                validation_result = self.audio_validator.validate_file(
                     Path(video_file.file_path)
                 )
                 
-                if not validation_result["valid"]:
-                    error_msg = f"Invalid audio file: {', '.join(validation_result['errors'])}"
+                if not validation_result.is_valid:
+                    error_msg = f"Invalid audio file: {', '.join(validation_result.validation_errors)}"
                     logger.error(f"❌ {error_msg}")
                     
                     # v2.1: Usar exceção granular
@@ -179,12 +183,19 @@ class TranscribeYouTubeVideoUseCase:
                     )
                 
                 validation_time = time.time() - validation_start
-                audio_duration = validation_result.get('duration', 0)
+                audio_duration = validation_result.duration_seconds
+                
+                # Estimar tempo de processamento
+                min_time, max_time = self.audio_validator.estimate_processing_time(
+                    validation_result,
+                    model_name=getattr(self.transcription_service, 'model_name', 'base'),
+                    device=getattr(self.transcription_service, 'device', 'cpu')
+                )
                 
                 logger.info(
                     f"✅ Audio validation passed in {validation_time:.2f}s "
                     f"(duration={audio_duration:.1f}s, "
-                    f"estimated_processing={validation_result.get('estimated_processing_time', 0):.1f}s)"
+                    f"estimated_processing={min_time:.1f}-{max_time:.1f}s)"
                 )
             else:
                 # Estimar duração do vídeo se validator não disponível
@@ -235,8 +246,10 @@ class TranscribeYouTubeVideoUseCase:
             # 8. Criar DTO de resposta
             response = self._create_response_dto(transcription, source="whisper")
             
-            # 9. v2.0: Salvar no cache
-            if self.transcription_cache and cache_key:
+            # 9. DESABILITADO: Salvar no cache
+            # Cache desabilitado temporariamente - precisa ser reimplementado
+            # para usar file_hash do arquivo de áudio após download
+            if False and self.transcription_cache and cache_key:
                 try:
                     # Converter para dict para cachear
                     cache_data = response.model_dump()
