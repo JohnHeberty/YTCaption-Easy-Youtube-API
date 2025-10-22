@@ -3,10 +3,13 @@ Rotas de sistema.
 Health check e informações da API.
 
 v2.1: Rate limiting e melhorias de logging.
+v2.2: Healthcheck detalhado, métricas Prometheus, Circuit Breaker.
 """
 import time
+import subprocess
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from loguru import logger
@@ -84,6 +87,200 @@ async def health_check(
                 "request_id": request_id
             }
         ) from e
+
+
+@router.get(
+    "/health/ready",
+    summary="Readiness check",
+    description="Kubernetes/Docker readiness probe - validates all critical components"
+)
+@limiter.limit("60/minute")  # Mais permissivo para health checks automáticos
+async def readiness_check(request: Request) -> Dict[str, Any]:
+    """
+    Readiness probe detalhado para Kubernetes/Docker.
+    
+    Valida TODOS os componentes críticos:
+    - Model cache
+    - Transcription cache
+    - FFmpeg
+    - Whisper library
+    - Storage
+    - File cleanup manager
+    
+    Returns:
+        200: Todos componentes saudáveis
+        503: Um ou mais componentes falharam
+    """
+    request_id = getattr(request.state, "request_id", "unknown")
+    
+    checks: Dict[str, Any] = {
+        "api": {"status": "healthy", "details": "API responding"},
+        "model_cache": {"status": "unknown", "details": None},
+        "transcription_cache": {"status": "unknown", "details": None},
+        "ffmpeg": {"status": "unknown", "details": None},
+        "whisper": {"status": "unknown", "details": None},
+        "storage": {"status": "unknown", "details": None},
+        "file_cleanup": {"status": "unknown", "details": None}
+    }
+    
+    # 1. Validar Model Cache
+    try:
+        from src.presentation.api.main import model_cache
+        if model_cache:
+            stats = model_cache.get_cache_stats()
+            checks["model_cache"] = {
+                "status": "healthy",
+                "details": f"Cache size: {stats.get('cache_size', 0)}, Total usage: {stats.get('total_usage_count', 0)}"
+            }
+        else:
+            checks["model_cache"] = {
+                "status": "unhealthy",
+                "details": "Model cache not initialized"
+            }
+    except Exception as e:
+        checks["model_cache"] = {
+            "status": "unhealthy",
+            "details": f"Error: {str(e)}"
+        }
+    
+    # 2. Validar Transcription Cache
+    try:
+        from src.presentation.api.main import transcription_cache
+        if transcription_cache:
+            stats = transcription_cache.get_stats()
+            checks["transcription_cache"] = {
+                "status": "healthy",
+                "details": f"Size: {stats.get('cache_size', 0)}/{stats.get('max_size', 0)}, Hit rate: {stats.get('hit_rate_percent', 0)}%"
+            }
+        else:
+            checks["transcription_cache"] = {
+                "status": "unhealthy",
+                "details": "Transcription cache not initialized"
+            }
+    except Exception as e:
+        checks["transcription_cache"] = {
+            "status": "unhealthy",
+            "details": f"Error: {str(e)}"
+        }
+    
+    # 3. Validar FFmpeg
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version_line = result.stdout.split('\n')[0]
+            checks["ffmpeg"] = {
+                "status": "healthy",
+                "details": version_line[:100]  # Primeiros 100 chars
+            }
+        else:
+            checks["ffmpeg"] = {
+                "status": "unhealthy",
+                "details": "FFmpeg returned non-zero exit code"
+            }
+    except subprocess.TimeoutExpired:
+        checks["ffmpeg"] = {
+            "status": "unhealthy",
+            "details": "FFmpeg command timed out"
+        }
+    except FileNotFoundError:
+        checks["ffmpeg"] = {
+            "status": "unhealthy",
+            "details": "FFmpeg not found in PATH"
+        }
+    except Exception as e:
+        checks["ffmpeg"] = {
+            "status": "unhealthy",
+            "details": f"Error: {str(e)}"
+        }
+    
+    # 4. Validar Whisper
+    try:
+        import whisper
+        checks["whisper"] = {
+            "status": "healthy",
+            "details": f"Whisper library loaded, version: {getattr(whisper, '__version__', 'unknown')}"
+        }
+    except ImportError as e:
+        checks["whisper"] = {
+            "status": "unhealthy",
+            "details": f"Failed to import whisper: {str(e)}"
+        }
+    except Exception as e:
+        checks["whisper"] = {
+            "status": "unhealthy",
+            "details": f"Error: {str(e)}"
+        }
+    
+    # 5. Validar Storage
+    try:
+        from src.presentation.api.dependencies import get_storage_service
+        storage = get_storage_service()
+        # Tentar operação básica
+        temp_files = await storage.get_temp_files()
+        checks["storage"] = {
+            "status": "healthy",
+            "details": f"Storage accessible, temp files: {len(temp_files)}"
+        }
+    except Exception as e:
+        checks["storage"] = {
+            "status": "unhealthy",
+            "details": f"Error: {str(e)}"
+        }
+    
+    # 6. Validar File Cleanup Manager
+    try:
+        from src.presentation.api.main import file_cleanup_manager
+        if file_cleanup_manager:
+            stats = file_cleanup_manager.get_stats()
+            checks["file_cleanup"] = {
+                "status": "healthy",
+                "details": f"Tracked files: {stats.get('tracked_files', 0)}, Running: {stats.get('periodic_cleanup_running', False)}"
+            }
+        else:
+            checks["file_cleanup"] = {
+                "status": "unhealthy",
+                "details": "File cleanup manager not initialized"
+            }
+    except Exception as e:
+        checks["file_cleanup"] = {
+            "status": "unhealthy",
+            "details": f"Error: {str(e)}"
+        }
+    
+    # Verificar se todos estão saudáveis
+    all_healthy = all(
+        check.get("status") == "healthy" 
+        for check in checks.values()
+    )
+    
+    overall_status = "ready" if all_healthy else "not_ready"
+    http_status = status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    
+    logger.info(
+        f"Readiness check: {overall_status}",
+        extra={
+            "request_id": request_id,
+            "all_healthy": all_healthy,
+            "checks": {k: v["status"] for k, v in checks.items()}
+        }
+    )
+    
+    return {
+        "status": overall_status,
+        "timestamp": datetime.utcnow().isoformat(),
+        "checks": checks,
+        "summary": {
+            "total_checks": len(checks),
+            "healthy": sum(1 for c in checks.values() if c.get("status") == "healthy"),
+            "unhealthy": sum(1 for c in checks.values() if c.get("status") == "unhealthy"),
+            "unknown": sum(1 for c in checks.values() if c.get("status") == "unknown")
+        }
+    }, http_status
 
 
 @router.get(

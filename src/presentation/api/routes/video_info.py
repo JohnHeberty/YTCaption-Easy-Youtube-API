@@ -2,6 +2,7 @@
 Video Info Routes - Endpoint para obter informações do vídeo antes de transcrever.
 
 v2.1: Rate limiting e melhorias de exception handling.
+v2.2: Circuit breaker para proteção contra falhas em cascata.
 """
 from fastapi import APIRouter, HTTPException, Depends, Request
 from slowapi import Limiter
@@ -12,6 +13,7 @@ from src.application.dtos import TranscribeRequestDTO
 from src.domain.value_objects import YouTubeURL
 from src.domain.exceptions import VideoDownloadError, NetworkError
 from src.domain.interfaces import IVideoDownloader
+from src.infrastructure.utils import CircuitBreakerOpenError
 from src.presentation.api.dependencies import Container
 
 
@@ -159,6 +161,26 @@ async def get_video_info(
     
     except HTTPException:
         raise
+    
+    # v2.2: Circuit Breaker protection
+    except CircuitBreakerOpenError as e:
+        logger.warning(
+            "⚡ Circuit breaker is open - YouTube API temporarily unavailable",
+            extra={
+                "request_id": request_id,
+                "circuit_name": e.circuit_name,
+                "url": request_dto.youtube_url
+            }
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "ServiceTemporarilyUnavailable",
+                "message": f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
+                "request_id": request_id,
+                "retry_after_seconds": 60
+            }
+        ) from e
     
     except (VideoDownloadError, NetworkError) as e:
         logger.error(

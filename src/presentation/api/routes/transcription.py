@@ -3,6 +3,7 @@ Rotas de transcrição.
 Endpoints para transcrição de vídeos do YouTube.
 
 v2.1: Rate limiting para prevenir abuso.
+v2.2: Circuit breaker para proteção contra falhas em cascata.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from loguru import logger
@@ -24,6 +25,7 @@ from src.domain.exceptions import (
     OperationTimeoutError,
     NetworkError
 )
+from src.infrastructure.utils import CircuitBreakerOpenError
 from src.presentation.api.dependencies import get_transcribe_use_case
 
 
@@ -137,6 +139,26 @@ async def transcribe_video(
                     "duration": e.duration,
                     "max_duration": e.max_duration
                 }
+            }
+        ) from e
+    
+    # v2.2: Circuit Breaker protection
+    except CircuitBreakerOpenError as e:
+        logger.warning(
+            "⚡ Circuit breaker is open - YouTube API temporarily unavailable",
+            extra={
+                "request_id": request_id,
+                "circuit_name": e.circuit_name,
+                "url": request_dto.youtube_url
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "ServiceTemporarilyUnavailable",
+                "message": f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
+                "request_id": request_id,
+                "retry_after_seconds": 60
             }
         ) from e
     

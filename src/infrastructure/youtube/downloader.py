@@ -2,7 +2,8 @@
 YouTube Downloader Implementation using yt-dlp.
 Implementação concreta da interface IVideoDownloader.
 
-v2.1: Retry logic com exponential backoff e circuit breaker.
+v2.1: Retry logic com exponential backoff.
+v2.2: Circuit breaker próprio integrado.
 """
 import asyncio
 import re
@@ -17,12 +18,21 @@ from tenacity import (
     retry_if_exception_type,
     before_sleep_log
 )
-from circuitbreaker import circuit
 
 from src.domain.interfaces import IVideoDownloader
 from src.domain.value_objects import YouTubeURL
 from src.domain.entities import VideoFile
 from src.domain.exceptions import VideoDownloadError, NetworkError, AudioTooLongError
+from src.infrastructure.utils import CircuitBreaker, CircuitBreakerOpenError
+
+
+# Circuit Breaker global para YouTube API
+_youtube_circuit_breaker = CircuitBreaker(
+    name="youtube_api",
+    failure_threshold=5,
+    timeout_seconds=60,
+    half_open_max_calls=3
+)
 
 
 class YouTubeDownloader(IVideoDownloader):
@@ -100,14 +110,6 @@ class YouTubeDownloader(IVideoDownloader):
         self.max_filesize = max_filesize
         self.timeout = timeout
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=4, max=30),
-        retry=retry_if_exception_type((yt_dlp.utils.DownloadError, ConnectionError, TimeoutError)),
-        before_sleep=before_sleep_log(logger, logger.level("WARNING").no),
-        reraise=True
-    )
-    @circuit(failure_threshold=5, recovery_timeout=60, name="youtube_download")
     async def download(
         self, 
         url: YouTubeURL, 
@@ -118,7 +120,7 @@ class YouTubeDownloader(IVideoDownloader):
         """
         Baixa vídeo do YouTube na pior qualidade (focado em áudio).
         
-        v2.1: Com retry (3 tentativas) e circuit breaker (5 falhas = 60s cooldown).
+        v2.2: Circuit breaker custom + retry com exponential backoff.
         
         Args:
             url: URL do YouTube
@@ -132,7 +134,26 @@ class YouTubeDownloader(IVideoDownloader):
         Raises:
             VideoDownloadError: Se houver erro no download
             AudioTooLongError: Se vídeo exceder duração máxima
+            CircuitBreakerOpenError: Se circuit breaker estiver aberto
         """
+        # Envolve a lógica de download com Circuit Breaker
+        return await _youtube_circuit_breaker.call(self._download_internal, url, output_path, validate_duration, max_duration)
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=30),
+        retry=retry_if_exception_type((yt_dlp.utils.DownloadError, ConnectionError, TimeoutError)),
+        before_sleep=before_sleep_log(logger, logger.level("WARNING").no),
+        reraise=True
+    )
+    async def _download_internal(
+        self,
+        url: YouTubeURL,
+        output_path: Path,
+        validate_duration: bool,
+        max_duration: Optional[int]
+    ) -> VideoFile:
+        """Método interno com retry logic - chamado pelo Circuit Breaker."""
         try:
             logger.info(f"🔽 Starting download: {url.video_id}")
             
@@ -245,19 +266,11 @@ class YouTubeDownloader(IVideoDownloader):
                 'duration': info.get('duration', 0)
             }
     
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((yt_dlp.utils.DownloadError, ConnectionError, TimeoutError)),
-        before_sleep=before_sleep_log(logger, logger.level("WARNING").no),
-        reraise=True
-    )
-    @circuit(failure_threshold=5, recovery_timeout=60, name="youtube_info")
     async def get_video_info(self, url: YouTubeURL) -> dict:
         """
         Obtém informações do vídeo sem baixar.
         
-        v2.1: Com retry (3 tentativas) e circuit breaker.
+        v2.2: Circuit breaker custom + retry logic.
         
         Args:
             url: URL do YouTube
@@ -267,7 +280,20 @@ class YouTubeDownloader(IVideoDownloader):
             
         Raises:
             VideoDownloadError: Se houver erro ao obter informações
+            CircuitBreakerOpenError: Se circuit breaker estiver aberto
         """
+        # Envolve a lógica de info com Circuit Breaker
+        return await _youtube_circuit_breaker.call(self._get_video_info_internal, url)
+    
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((yt_dlp.utils.DownloadError, ConnectionError, TimeoutError)),
+        before_sleep=before_sleep_log(logger, logger.level("WARNING").no),
+        reraise=True
+    )
+    async def _get_video_info_internal(self, url: YouTubeURL) -> dict:
+        """Método interno com retry logic - chamado pelo Circuit Breaker."""
         try:
             logger.info(f"Fetching video info: {url.video_id}")
             
