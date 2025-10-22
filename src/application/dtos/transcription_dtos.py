@@ -12,7 +12,7 @@ class TranscribeRequestDTO(BaseModel):
     youtube_url: str = Field(
         ...,
         description="URL do vídeo do YouTube",
-        examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+        examples=["https://www.youtube.com/watch?v=hmQKOoSXnLk"]
     )
     language: Optional[str] = Field(
         default="auto",
@@ -76,13 +76,13 @@ class TranscribeResponseDTO(BaseModel):
         json_schema_extra = {
             "example": {
                 "transcription_id": "123e4567-e89b-12d3-a456-426614174000",
-                "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                "video_id": "dQw4w9WgXcQ",
+                "youtube_url": "https://www.youtube.com/watch?v=hmQKOoSXnLk",
+                "video_id": "hmQKOoSXnLk",
                 "language": "en",
-                "full_text": "Never gonna give you up...",
+                "full_text": "Welcome to this tutorial...",
                 "segments": [
                     {
-                        "text": "Never gonna give you up",
+                        "text": "Welcome to this tutorial",
                         "start": 0.0,
                         "end": 2.5,
                         "duration": 2.5
@@ -191,14 +191,14 @@ class VideoInfoResponseDTO(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "video_id": "dQw4w9WgXcQ",
-                "title": "Rick Astley - Never Gonna Give You Up",
-                "duration_seconds": 213,
-                "duration_formatted": "00:03:33",
-                "uploader": "Rick Astley",
-                "upload_date": "20091024",
-                "view_count": 1400000000,
-                "description_preview": "The official video for 'Never Gonna Give You Up'...",
+                "video_id": "hmQKOoSXnLk",
+                "title": "Sample Tutorial Video",
+                "duration_seconds": 180,
+                "duration_formatted": "00:03:00",
+                "uploader": "Tutorial Channel",
+                "upload_date": "20231015",
+                "view_count": 50000,
+                "description_preview": "A comprehensive tutorial on...",
                 "language_detection": {
                     "detected_language": "en",
                     "confidence": 0.95,

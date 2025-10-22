@@ -183,6 +183,7 @@ class YouTubeDownloader(IVideoDownloader):
             output_path.mkdir(parents=True, exist_ok=True)
             
             # Configurações do yt-dlp para baixar pior qualidade (menor arquivo)
+            # v2.2.1: Headers adicionados para evitar HTTP 403 Forbidden
             ydl_opts = {
                 'format': 'worstaudio/worst',  # Pior qualidade de áudio/vídeo
                 'outtmpl': str(output_path / self.output_template),
@@ -192,6 +193,20 @@ class YouTubeDownloader(IVideoDownloader):
                 'socket_timeout': self.timeout,
                 'nocheckcertificate': True,
                 'prefer_insecure': True,
+                # Headers para evitar bloqueio do YouTube (HTTP 403)
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate',
+                },
+                # Usar extractor config para bypass
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web'],
+                        'player_skip': ['webpage', 'configs'],
+                    }
+                },
             }
             
             if self.max_filesize:
@@ -297,11 +312,26 @@ class YouTubeDownloader(IVideoDownloader):
         try:
             logger.info(f"Fetching video info: {url.video_id}")
             
+            # v2.2.1: Headers adicionados para evitar HTTP 403
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
                 'socket_timeout': 30,
+                # Headers para evitar bloqueio
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                    'Sec-Fetch-Mode': 'navigate',
+                },
+                # Usar extractor config para bypass
+                'extractor_args': {
+                    'youtube': {
+                        'player_client': ['android', 'web'],
+                        'player_skip': ['webpage', 'configs'],
+                    }
+                },
             }
             
             loop = asyncio.get_event_loop()
