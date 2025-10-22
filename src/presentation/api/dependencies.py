@@ -157,3 +157,53 @@ def get_storage_service() -> IStorageService:
     Retorna sempre a MESMA instância do serviço (singleton).
     """
     return Container.get_storage_service()
+
+
+# ============= ERROR RESPONSE HELPERS (v2.2.1) =============
+
+from typing import Any, Dict, Optional
+from fastapi import HTTPException, status as http_status
+from fastapi.encoders import jsonable_encoder
+from src.application.dtos import ErrorResponseDTO
+
+
+def raise_error(
+    status_code: int,
+    error_type: str,
+    message: str,
+    request_id: str,
+    details: Optional[Dict[str, Any]] = None
+) -> None:
+    """
+    Helper para lançar HTTPException com ErrorResponseDTO padronizado.
+    
+    Args:
+        status_code: Código HTTP (400, 404, 500, etc.)
+        error_type: Nome da exception/classe de erro
+        message: Mensagem de erro legível
+        request_id: ID da requisição para tracking
+        details: Dicionário com detalhes adicionais (opcional)
+        
+    Raises:
+        HTTPException: Com detail seguindo ErrorResponseDTO
+        
+    Example:
+        >>> raise_error(
+        ...     status_code=400,
+        ...     error_type="AudioTooLongError",
+        ...     message="Audio exceeds maximum duration",
+        ...     request_id="abc-123",
+        ...     details={"duration": 7250, "max_duration": 7200}
+        ... )
+    """
+    error_response = ErrorResponseDTO(
+        error=error_type,
+        message=message,
+        request_id=request_id,
+        details=details or {}
+    )
+    
+    raise HTTPException(
+        status_code=status_code,
+        detail=jsonable_encoder(error_response)
+    )

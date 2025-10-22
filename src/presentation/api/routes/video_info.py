@@ -21,7 +21,7 @@ from src.domain.value_objects import YouTubeURL
 from src.domain.exceptions import VideoDownloadError, NetworkError
 from src.domain.interfaces import IVideoDownloader
 from src.infrastructure.utils import CircuitBreakerOpenError
-from src.presentation.api.dependencies import Container
+from src.presentation.api.dependencies import Container, raise_error
 
 
 router = APIRouter(prefix="/api/v1", tags=["video-info"])
@@ -126,14 +126,12 @@ async def get_video_info(
                     "error": str(e)
                 }
             )
-            raise HTTPException(
+            raise_error(
                 status_code=400,
-                detail={
-                    "error": "ValidationError",
-                    "message": f"Invalid YouTube URL: {str(e)}",
-                    "request_id": request_id
-                }
-            ) from e
+                error_type="ValidationError",
+                message=f"Invalid YouTube URL: {str(e)}",
+                request_id=request_id
+            )
         
         # Obter informações completas com detecção de idioma
         info = await downloader.get_video_info_with_language(youtube_url)
@@ -262,15 +260,13 @@ async def get_video_info(
                 "url": request_dto.youtube_url
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=503,
-            detail={
-                "error": "ServiceTemporarilyUnavailable",
-                "message": f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
-                "request_id": request_id,
-                "retry_after_seconds": 60
-            }
-        ) from e
+            error_type="ServiceTemporarilyUnavailable",
+            message=f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
+            request_id=request_id,
+            details={"retry_after_seconds": 60}
+        )
     
     except (VideoDownloadError, NetworkError) as e:
         logger.error(
@@ -283,14 +279,13 @@ async def get_video_info(
             },
             exc_info=True
         )
-        raise HTTPException(
+        raise_error(
             status_code=404,
-            detail={
-                "error": type(e).__name__,
-                "message": str(e),
-                "request_id": request_id
-            }
-        ) from e
+            error_type=type(e).__name__,
+            message=str(e),
+            request_id=request_id,
+            details={"url": request_dto.youtube_url}
+        )
     
     except Exception as e:
         logger.critical(
@@ -303,11 +298,9 @@ async def get_video_info(
             },
             exc_info=True
         )
-        raise HTTPException(
+        raise_error(
             status_code=500,
-            detail={
-                "error": "InternalServerError",
-                "message": "Failed to get video information",
-                "request_id": request_id
-            }
-        ) from e
+            error_type="InternalServerError",
+            message="Failed to get video information",
+            request_id=request_id
+        )

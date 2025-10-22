@@ -28,7 +28,7 @@ from src.domain.exceptions import (
 )
 from src.infrastructure.utils import CircuitBreakerOpenError
 from src.infrastructure.monitoring import MetricsCollector
-from src.presentation.api.dependencies import get_transcribe_use_case
+from src.presentation.api.dependencies import get_transcribe_use_case, raise_error
 
 
 router = APIRouter(prefix="/api/v1/transcribe", tags=["Transcription"])
@@ -43,46 +43,97 @@ limiter = Limiter(key_func=get_remote_address)
     status_code=status.HTTP_200_OK,
     summary="Transcribe YouTube video",
     description="""
-    Downloads a YouTube video and transcribes its audio using Whisper.
+    Downloads a YouTube video and transcribes its audio using Whisper AI or YouTube's native transcripts.
     
-    **Rate Limit**: 5 requests per minute per IP address.
+    **⚡ Rate Limit:** 5 requests per minute per IP address
     
-    **Timeout**: Automatic timeout based on video duration.
+    **Processing Time:**
+    - With YouTube transcripts: ~2-5 seconds
+    - With Whisper: ~30-120 seconds (depends on video duration and model)
+    
+    **Automatic Timeout:** Based on video duration to prevent hanging requests.
+    
+    If rate limit is exceeded, returns HTTP 429 with retry information.
     """,
     responses={
         200: {
-            "description": "Successful transcription",
-            "model": TranscribeResponseDTO
+            "description": "Transcription successful",
+            "model": TranscribeResponseDTO,
+            "headers": {
+                "X-Request-ID": {
+                    "description": "Unique request identifier for tracking",
+                    "schema": {"type": "string", "format": "uuid"}
+                },
+                "X-Process-Time": {
+                    "description": "Processing time in seconds",
+                    "schema": {"type": "string"}
+                }
+            }
         },
         400: {
-            "description": "Invalid request",
-            "model": ErrorResponseDTO
+            "description": "Bad Request (validation error, audio too long, corrupted)",
+            "model": ErrorResponseDTO,
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "audio_too_long": {
+                            "summary": "Audio exceeds maximum duration",
+                            "value": {
+                                "error": "AudioTooLongError",
+                                "message": "Audio duration (7250s) exceeds maximum allowed (7200s)",
+                                "request_id": "abc-123-def",
+                                "details": {"duration": 7250, "max_duration": 7200}
+                            }
+                        },
+                        "validation": {
+                            "summary": "Invalid YouTube URL",
+                            "value": {
+                                "error": "ValidationError",
+                                "message": "Must be a valid YouTube URL",
+                                "request_id": "abc-123-def",
+                                "details": {}
+                            }
+                        }
+                    }
+                }
+            }
         },
         404: {
-            "description": "Video not found",
+            "description": "Video not found or download error",
             "model": ErrorResponseDTO
         },
         429: {
-            "description": "Rate limit exceeded",
+            "description": "Rate limit exceeded - 5 requests per minute per IP",
+            "model": ErrorResponseDTO,
             "content": {
                 "application/json": {
                     "example": {
                         "error": "RateLimitExceeded",
-                        "message": "Rate limit exceeded: 5 per 1 minute"
+                        "message": "Rate limit exceeded: 5 per 1 minute",
+                        "request_id": "abc-123-def",
+                        "details": {"limit": "5/minute", "retry_after_seconds": 60}
                     }
                 }
             }
         },
         500: {
-            "description": "Server error",
+            "description": "Internal server error",
+            "model": ErrorResponseDTO
+        },
+        503: {
+            "description": "Service unavailable (Circuit Breaker open)",
+            "model": ErrorResponseDTO
+        },
+        504: {
+            "description": "Gateway timeout - Operation took too long",
             "model": ErrorResponseDTO
         }
     }
 )
-@limiter.limit("5/minute")  # v2.1: Rate limiting
+@limiter.limit("5/minute")
 async def transcribe_video(
-    request: Request,  # ✅ CORRIGIDO: Primeiro parâmetro deve ser Request
-    request_dto: TranscribeRequestDTO,  # ✅ Renomeado para request_dto
+    request: Request,
+    request_dto: TranscribeRequestDTO,
     use_case: TranscribeYouTubeVideoUseCase = Depends(get_transcribe_use_case)
 ) -> TranscribeResponseDTO:
     """
@@ -113,7 +164,7 @@ async def transcribe_video(
             extra={
                 "request_id": request_id,
                 "transcription_id": response.transcription_id,
-                "segments_count": response.total_segments,
+                "total_segments": response.total_segments,  # ✅ CORRIGIDO: alinhado com DTO
                 "processing_time": response.processing_time
             }
         )
@@ -131,18 +182,16 @@ async def transcribe_video(
                 "url": request_dto.youtube_url
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "AudioTooLongError",
-                "message": str(e),
-                "request_id": request_id,
-                "details": {
-                    "duration": e.duration,
-                    "max_duration": e.max_duration
-                }
+            error_type="AudioTooLongError",
+            message=str(e),
+            request_id=request_id,
+            details={
+                "duration": e.duration,
+                "max_duration": e.max_duration
             }
-        ) from e
+        )
     
     # v2.2: Circuit Breaker protection
     except CircuitBreakerOpenError as e:
@@ -154,15 +203,13 @@ async def transcribe_video(
                 "url": request_dto.youtube_url
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "ServiceTemporarilyUnavailable",
-                "message": f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
-                "request_id": request_id,
-                "retry_after_seconds": 60
-            }
-        ) from e
+            error_type="ServiceTemporarilyUnavailable",
+            message=f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
+            request_id=request_id,
+            details={"retry_after_seconds": 60}
+        )
     
     except AudioCorruptedError as e:
         logger.error(
@@ -173,14 +220,13 @@ async def transcribe_video(
                 "reason": e.reason
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "AudioCorruptedError",
-                "message": str(e),
-                "request_id": request_id
-            }
-        ) from e
+            error_type="AudioCorruptedError",
+            message=str(e),
+            request_id=request_id,
+            details={"file_path": e.file_path, "reason": e.reason}
+        )
     
     except ValidationError as e:
         logger.warning(
@@ -191,15 +237,13 @@ async def transcribe_video(
                 "url": request_dto.youtube_url
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "ValidationError",
-                "message": str(e),
-                "request_id": request_id,
-                "details": {"url": request_dto.youtube_url}
-            }
-        ) from e
+            error_type="ValidationError",
+            message=str(e),
+            request_id=request_id,
+            details={"url": request_dto.youtube_url}
+        )
     
     except OperationTimeoutError as e:
         logger.error(
@@ -210,18 +254,16 @@ async def transcribe_video(
                 "timeout": e.timeout
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail={
-                "error": "OperationTimeoutError",
-                "message": str(e),
-                "request_id": request_id,
-                "details": {
-                    "operation": e.operation,
-                    "timeout_seconds": e.timeout
-                }
+            error_type="OperationTimeoutError",
+            message=str(e),
+            request_id=request_id,
+            details={
+                "operation": e.operation,
+                "timeout_seconds": e.timeout
             }
-        ) from e
+        )
     
     except (VideoDownloadError, NetworkError) as e:
         logger.error(
@@ -233,15 +275,13 @@ async def transcribe_video(
                 "url": request_dto.youtube_url
             }
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail={
-                "error": type(e).__name__,
-                "message": str(e),
-                "request_id": request_id,
-                "details": {"url": request_dto.youtube_url}
-            }
-        ) from e
+            error_type=type(e).__name__,
+            message=str(e),
+            request_id=request_id,
+            details={"url": request_dto.youtube_url}
+        )
     
     except TranscriptionError as e:
         logger.error(
@@ -252,14 +292,12 @@ async def transcribe_video(
             },
             exc_info=True
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "TranscriptionError",
-                "message": str(e),
-                "request_id": request_id
-            }
-        ) from e
+            error_type="TranscriptionError",
+            message=str(e),
+            request_id=request_id
+        )
     
     except Exception as e:
         logger.critical(
@@ -272,11 +310,10 @@ async def transcribe_video(
             },
             exc_info=True
         )
-        raise HTTPException(
+        raise_error(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "InternalServerError",
-                "message": "An unexpected error occurred",
-                "request_id": request_id
-            }
-        ) from e
+            error_type="InternalServerError",
+            message="An unexpected error occurred during transcription",
+            request_id=request_id
+        )
+
