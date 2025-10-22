@@ -1,26 +1,26 @@
 # Presentation Layer - FastAPI REST API
 
-Camada de apresentação - API REST com FastAPI.
+Presentation layer - REST API with FastAPI.
 
 ---
 
-## Visão Geral
+## Overview
 
-A **Presentation Layer** expõe a funcionalidade via REST API:
+The **Presentation Layer** exposes functionality via REST API:
 - **FastAPI** framework (async/await)
-- **OpenAPI/Swagger** documentation automática
+- **OpenAPI/Swagger** automatic documentation
 - **Pydantic** validation
 - **CORS** middleware
-- **Rate limiting** por IP
-- **Error handling** padronizado
+- **Rate limiting** per IP
+- **Error handling** standardized
 - **Health checks** (liveness/readiness)
 
 ---
 
-## Endpoints Principais
+## Main Endpoints
 
 ### POST `/api/v1/transcribe`
-Transcreve vídeo do YouTube.
+Transcribes YouTube video.
 
 **Request**:
 ```json
@@ -46,10 +46,10 @@ Transcreve vídeo do YouTube.
 ```
 
 ### GET `/api/v1/video-info/{video_id}`
-Obtém informações do vídeo.
+Gets video information.
 
 ### POST `/api/v1/transcriptions/{id}/export`
-Exporta transcrição (SRT/VTT/JSON).
+Exports transcription (SRT/VTT/JSON).
 
 ### GET `/health`
 Health check (status, version, uptime).
@@ -62,24 +62,24 @@ Readiness check (Whisper model loaded, storage OK).
 ## Middlewares
 
 ### ErrorHandlerMiddleware
-- Captura exceções
-- Retorna `ErrorResponseDTO` padronizado
-- Logging de erros
+- Captures exceptions
+- Returns standardized `ErrorResponseDTO`
+- Error logging
 
 ### RateLimitMiddleware
-- Limite por IP (60 req/min)
-- Rate limiting adaptativo
-- Resposta 429 Too Many Requests
+- Limit per IP (60 req/min)
+- Adaptive rate limiting
+- 429 Too Many Requests response
 
 ### CORSMiddleware
-- Permite cross-origin requests
-- Configurável por domínio
+- Allows cross-origin requests
+- Configurable per domain
 
 ---
 
 ## Dependency Injection
 
-FastAPI `Depends()` para injeção de dependências:
+FastAPI `Depends()` for dependency injection:
 
 ```python
 from fastapi import Depends
@@ -105,9 +105,9 @@ async def transcribe(
 
 ---
 
-## Documentação Automática
+## Automatic Documentation
 
-FastAPI gera documentação interativa:
+FastAPI generates interactive documentation:
 
 - **Swagger UI**: `http://localhost:8000/docs`
 - **ReDoc**: `http://localhost:8000/redoc`
@@ -115,13 +115,13 @@ FastAPI gera documentação interativa:
 
 ---
 
-## Exemplo de Cliente
+## Client Example
 
 ```python
 import httpx
 
 async with httpx.AsyncClient() as client:
-    # Transcrever
+    # Transcribe
     response = await client.post(
         "http://localhost:8000/api/v1/transcribe",
         json={
@@ -134,7 +134,7 @@ async with httpx.AsyncClient() as client:
     result = response.json()
     transcription_id = result["transcription_id"]
     
-    # Exportar SRT
+    # Export SRT
     srt_response = await client.post(
         f"http://localhost:8000/api/v1/transcriptions/{transcription_id}/export",
         json={"format": "srt"}
@@ -160,6 +160,6 @@ docker-compose up -d
 
 ---
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
