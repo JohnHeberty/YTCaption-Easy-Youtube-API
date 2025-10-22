@@ -32,12 +32,101 @@ cp .env.example .env
 nano .env
 ```
 
-**Configuração mínima**:
+**Configuração mínima (v2.x)**:
 ```bash
 WHISPER_MODEL=base
 ENABLE_PARALLEL_TRANSCRIPTION=true
 PARALLEL_WORKERS=2
 MAX_CONCURRENT_REQUESTS=3
+```
+
+**🆕 Configuração Produção v3.0 (RECOMENDADO)**:
+```bash
+# Whisper & Performance (v2.0)
+WHISPER_MODEL=base
+ENABLE_PARALLEL_TRANSCRIPTION=true
+PARALLEL_WORKERS=4
+MAX_CONCURRENT_REQUESTS=5
+
+# YouTube Resilience (v3.0) - CRÍTICO PARA PRODUÇÃO
+ENABLE_TOR_PROXY=true
+TOR_PROXY_URL=socks5h://tor-proxy:9050
+
+ENABLE_MULTI_STRATEGY=true
+ENABLE_USER_AGENT_ROTATION=true
+
+YOUTUBE_MAX_RETRIES=5
+YOUTUBE_RETRY_DELAY_MIN=5
+YOUTUBE_RETRY_DELAY_MAX=60
+
+YOUTUBE_REQUESTS_PER_MINUTE=10
+YOUTUBE_REQUESTS_PER_HOUR=200
+YOUTUBE_COOLDOWN_ON_ERROR=30
+
+YOUTUBE_CIRCUIT_BREAKER_THRESHOLD=10
+YOUTUBE_CIRCUIT_BREAKER_TIMEOUT=60
+
+# Limites de Recursos
+MAX_VIDEO_SIZE_MB=2500
+MAX_VIDEO_DURATION_SECONDS=10800
+DOWNLOAD_TIMEOUT=900
+REQUEST_TIMEOUT=3600
+
+# Cleanup & Logs
+CLEANUP_ON_STARTUP=true
+LOG_LEVEL=INFO
+```
+
+**Configurações por Cenário**:
+
+#### 🟢 Cenário 1: Alto Volume (100+ requisições/dia)
+```bash
+# Agressivo com proteções
+YOUTUBE_REQUESTS_PER_MINUTE=15
+YOUTUBE_REQUESTS_PER_HOUR=300
+YOUTUBE_MAX_RETRIES=7
+ENABLE_TOR_PROXY=true
+YOUTUBE_COOLDOWN_ON_ERROR=20
+PARALLEL_WORKERS=6
+MAX_CONCURRENT_REQUESTS=8
+```
+
+#### 🟡 Cenário 2: Médio Volume (20-100 requisições/dia)
+```bash
+# Balanceado
+YOUTUBE_REQUESTS_PER_MINUTE=10
+YOUTUBE_REQUESTS_PER_HOUR=200
+YOUTUBE_MAX_RETRIES=5
+ENABLE_TOR_PROXY=true
+YOUTUBE_COOLDOWN_ON_ERROR=30
+PARALLEL_WORKERS=4
+MAX_CONCURRENT_REQUESTS=5
+```
+
+#### 🔵 Cenário 3: Baixo Volume (<20 requisições/dia)
+```bash
+# Conservador
+YOUTUBE_REQUESTS_PER_MINUTE=5
+YOUTUBE_REQUESTS_PER_HOUR=100
+YOUTUBE_MAX_RETRIES=3
+ENABLE_TOR_PROXY=false  # Opcional
+YOUTUBE_COOLDOWN_ON_ERROR=60
+PARALLEL_WORKERS=2
+MAX_CONCURRENT_REQUESTS=3
+```
+
+#### 🔴 Cenário 4: YouTube bloqueando ativamente
+```bash
+# Máxima proteção
+YOUTUBE_REQUESTS_PER_MINUTE=3
+YOUTUBE_REQUESTS_PER_HOUR=50
+YOUTUBE_MAX_RETRIES=7
+ENABLE_TOR_PROXY=true
+YOUTUBE_COOLDOWN_ON_ERROR=120
+YOUTUBE_CIRCUIT_BREAKER_THRESHOLD=5
+YOUTUBE_CIRCUIT_BREAKER_TIMEOUT=300
+YOUTUBE_RETRY_DELAY_MIN=10
+YOUTUBE_RETRY_DELAY_MAX=180
 ```
 
 ---
@@ -63,6 +152,23 @@ docker-compose up -d
 **Check status**:
 ```bash
 docker-compose ps
+
+# Esperado (v3.0):
+# whisper-transcription-api    Up (healthy)
+# whisper-prometheus           Up
+# whisper-grafana              Up
+# whisper-tor-proxy            Up
+```
+
+**🆕 Check Tor (v3.0)**:
+```bash
+# Aguarde Tor estabelecer circuito (30-60s)
+docker-compose logs tor-proxy | grep "Bootstrapped 100%"
+
+# Teste conexão Tor
+docker-compose exec whisper-api curl --socks5-hostname tor-proxy:9050 https://check.torproject.org
+
+# Esperado: "Congratulations. This browser is configured to use Tor."
 ```
 
 **Check logs**:
@@ -73,6 +179,17 @@ docker-compose logs -f
 **Test API**:
 ```bash
 curl http://localhost:8000/health
+```
+
+**🆕 Test download resilience (v3.0)**:
+```bash
+curl -X POST http://localhost:8000/api/v1/transcribe \
+  -H "Content-Type: application/json" \
+  -d '{"youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+
+# Verifique métricas no Grafana:
+http://localhost:3000
+# Dashboard: YouTube Resilience v3.0
 ```
 
 ---

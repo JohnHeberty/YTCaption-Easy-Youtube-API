@@ -91,11 +91,73 @@ GPU Available:    true
 
 ---
 
-## 🎯 Comandos Úteis
+## � 5. Configurar YouTube Resilience (v3.0)
+
+**Edite `.env` para produção:**
+```bash
+nano .env
+```
+
+**Configuração Recomendada (v3.0)**:
+```bash
+# YouTube Resilience (v3.0) - CRÍTICO
+ENABLE_TOR_PROXY=true
+TOR_PROXY_URL=socks5h://tor-proxy:9050
+
+ENABLE_MULTI_STRATEGY=true
+ENABLE_USER_AGENT_ROTATION=true
+
+YOUTUBE_MAX_RETRIES=5
+YOUTUBE_RETRY_DELAY_MIN=5
+YOUTUBE_RETRY_DELAY_MAX=60
+
+YOUTUBE_REQUESTS_PER_MINUTE=10
+YOUTUBE_REQUESTS_PER_HOUR=200
+YOUTUBE_COOLDOWN_ON_ERROR=30
+
+YOUTUBE_CIRCUIT_BREAKER_THRESHOLD=10
+YOUTUBE_CIRCUIT_BREAKER_TIMEOUT=60
+```
+
+**Restart após mudanças**:
+```bash
+./scripts/stop.sh
+./scripts/start.sh --model base --memory 2048
+```
+
+**Aguarde Tor (30-60s)**:
+```bash
+docker-compose logs tor-proxy | grep "Bootstrapped 100%"
+# Esperado: "Bootstrapped 100% (done): Done"
+```
+
+**Teste download resiliente**:
+```bash
+curl -X POST http://localhost:8000/api/v1/transcribe \
+  -H "Content-Type: application/json" \
+  -d '{"youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
+```
+
+**Verifique métricas**:
+```bash
+# Grafana (UI visual)
+http://localhost:3000
+# Login: admin / whisper2024
+
+# Prometheus (dados brutos)
+http://localhost:9090
+```
+
+---
+
+## �🎯 Comandos Úteis
 
 ### Ver logs em tempo real:
 ```bash
 docker-compose logs -f
+
+# Apenas YouTube download events (v3.0)
+docker-compose logs -f | grep "youtube_download"
 ```
 
 ### Ver uso GPU em tempo real:

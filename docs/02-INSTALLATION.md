@@ -36,9 +36,25 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-#### 5. Teste a API
+#### 5. 🆕 Aguarde Tor inicializar (v3.0)
+```bash
+# Aguarde Tor estabelecer circuito (30-60s)
+docker-compose logs torproxy | grep "Bootstrapped 100%"
+
+# Esperado: "Bootstrapped 100% (done): Done"
+```
+
+#### 6. Teste a API
 ```bash
 curl http://localhost:8000/health
+```
+
+**🆕 Teste download com Tor (v3.0)**:
+```bash
+# Dentro do container
+docker-compose exec app curl --socks5-hostname torproxy:9050 https://check.torproject.org
+
+# Esperado: "Congratulations. This browser is configured to use Tor."
 ```
 
 ---

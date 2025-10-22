@@ -63,6 +63,8 @@ Content-Type: application/json
 |-------|------|-------------|---------|-----------|
 | `video_url` | string | ✅ Sim | URL do YouTube | Link do vídeo |
 | `format` | string | ❌ Não | `json`, `text`, `srt`, `vtt` | Formato de saída (padrão: `json`) |
+| 🆕 `enable_tor` | boolean | ❌ Não | `true`, `false` | Override: força uso do Tor (v3.0) |
+| 🆕 `max_retries` | integer | ❌ Não | `1-10` | Override: número de retries (v3.0) |
 
 #### Response Success (200 OK)
 
@@ -154,10 +156,15 @@ Segunda frase transcrita.
 | 400 | `Invalid YouTube URL` | URL malformada ou não é do YouTube |
 | 400 | `Video duration exceeds limit` | Vídeo muito longo (>MAX_VIDEO_DURATION_SECONDS) |
 | 400 | `Video size exceeds limit` | Vídeo muito grande (>MAX_VIDEO_SIZE_MB) |
+| 🆕 403 | `YouTube download failed: HTTP 403` | YouTube bloqueou (habilite Tor - v3.0) |
 | 404 | `Video not found` | Vídeo privado, deletado ou indisponível |
+| 🆕 429 | `Rate limit exceeded` | Limite de YouTube requests/min (v3.0) |
 | 429 | `Too many requests` | Limite de requisições atingido |
 | 500 | `Transcription failed` | Erro interno no processamento |
+| 🆕 500 | `All download strategies failed` | YouTube bloqueou todas as 7 estratégias (v3.0) |
 | 503 | `Service temporarily unavailable` | Servidor sobrecarregado |
+
+**🆕 Troubleshooting v3.0**: Para erros 403/429/500 relacionados a download, veja [Troubleshooting - YouTube Resilience](./08-TROUBLESHOOTING.md#v30---youtube-resilience-system).
 
 ---
 

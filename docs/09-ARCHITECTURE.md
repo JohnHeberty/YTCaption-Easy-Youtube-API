@@ -230,8 +230,14 @@ src/
 │   ├── whisper/                     # Implementação Whisper
 │   │   ├── transcription_service.py
 │   │   └── parallel_transcription_service.py
-│   ├── youtube/                     # Implementação YouTube
-│   │   └── downloader.py
+│   ├── youtube/                     # Implementação YouTube (v3.0 ↓)
+│   │   ├── downloader.py            # ← Core download logic
+│   │   ├── download_config.py       # 🆕 v3.0 - Configurações centralizadas
+│   │   ├── download_strategies.py   # 🆕 v3.0 - 7 estratégias de download
+│   │   ├── rate_limiter.py          # 🆕 v3.0 - Rate limiting inteligente
+│   │   ├── user_agent_rotator.py    # 🆕 v3.0 - Rotação de User-Agents
+│   │   ├── proxy_manager.py         # 🆕 v3.0 - Gerenciamento Tor proxy
+│   │   └── metrics.py               # 🆕 v3.0 - Métricas Prometheus
 │   ├── storage/                     # Sistema de arquivos
 │   │   └── local_storage.py
 │   └── config/                      # Configurações
@@ -249,6 +255,14 @@ src/
 │
 └── main.py                          # Entry point
 ```
+
+**🆕 v3.0 - Novos Módulos (YouTube Resilience)**:
+- `download_config.py`: Centraliza todas as configurações de download (retries, timeouts, rate limits)
+- `download_strategies.py`: Implementa 7 estratégias diferentes (Strategy Pattern)
+- `rate_limiter.py`: Rate limiting + Circuit Breaker Pattern
+- `user_agent_rotator.py`: Rotaciona 17 User-Agents automaticamente
+- `proxy_manager.py`: Gerencia Tor proxy (SOCKS5)
+- `metrics.py`: 26 métricas Prometheus para monitoramento
 
 ---
 
@@ -670,6 +684,216 @@ class TranscriptionService:
 
 ---
 
+## 🆕 v3.0 - YouTube Resilience Architecture
+
+### Diagrama de Componentes (v3.0)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Presentation Layer                        │
+│                  (FastAPI Routes)                            │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│               Application Layer (Use Case)                   │
+│          TranscribeVideoUseCase.execute()                    │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│             Infrastructure - YouTube Module (v3.0)           │
+│                                                              │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │              YouTubeDownloader                      │    │
+│  │            (Orchestrator/Facade)                    │    │
+│  └─────────────┬──────────────────────────────────────┘    │
+│                │                                             │
+│    ┌───────────┼───────────┬───────────┬──────────────┐    │
+│    │           │           │           │              │    │
+│    ↓           ↓           ↓           ↓              ↓    │
+│  ┌─────┐  ┌─────────┐  ┌──────┐  ┌─────────┐  ┌────────┐ │
+│  │ DNS │  │ Multi-  │  │ Rate │  │  User   │  │  Tor   │ │
+│  │Layer│  │Strategy │  │Limiter  │ Agent   │  │ Proxy  │ │
+│  │     │  │         │  │Circuit │ │Rotator  │  │Manager │ │
+│  │8.8. │  │ (7      │  │Breaker│  │ (17 UAs)│  │(SOCKS5)│ │
+│  │8.8  │  │strategies  │        │  │         │  │        │ │
+│  └─────┘  └─────────┘  └──────┘  └─────────┘  └────────┘ │
+│                            │                                │
+│                            ↓                                │
+│                      ┌──────────┐                          │
+│                      │ Metrics  │ ← 26 Prometheus metrics  │
+│                      │ (v3.0)   │                          │
+│                      └─────┬────┘                          │
+└────────────────────────────┼─────────────────────────────┘
+                             │
+                             ↓
+                    ┌──────────────────┐
+                    │   Monitoring     │
+                    │ Prometheus +     │
+                    │   Grafana        │
+                    └──────────────────┘
+```
+
+### Fluxo de Download (v3.0)
+
+```
+Request
+  │
+  ↓
+┌─────────────────────────────────┐
+│ 1. DownloadConfig               │ ← Carrega configurações (.env)
+│    • Max retries: 5             │
+│    • Rate limits: 10/min        │
+│    • Circuit breaker: 10 erros  │
+└────────┬────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────┐
+│ 2. RateLimiter Check            │ ← Verifica limites
+│    • Requests/min OK?           │
+│    • Circuit breaker OPEN?      │
+└────────┬────────────────────────┘
+         │ YES (continua)
+         ↓
+┌─────────────────────────────────┐
+│ 3. UserAgentRotator             │ ← Seleciona UA aleatório
+│    • Rotaciona entre 17 UAs     │
+│    • Chrome/Firefox/Safari/Edge │
+└────────┬────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────┐
+│ 4. ProxyManager (Tor)           │ ← Configura proxy (se habilitado)
+│    • SOCKS5: tor-proxy:9050     │
+│    • Nova identidade a cada N   │
+└────────┬────────────────────────┘
+         │
+         ↓
+┌─────────────────────────────────┐
+│ 5. DownloadStrategies (7x)      │ ← Tenta estratégias sequencialmente
+│    Strategy 1: Direct           │
+│    Strategy 2: Cookies          │ ← Se 1 falha
+│    Strategy 3: Mobile UA        │ ← Se 2 falha
+│    Strategy 4: Referer          │ ← Se 3 falha
+│    Strategy 5: Extract Format   │ ← Se 4 falha
+│    Strategy 6: Embedded         │ ← Se 5 falha
+│    Strategy 7: OAuth2           │ ← Se 6 falha
+└────────┬────────────────────────┘
+         │
+    ┌────┴────┐
+    │         │
+SUCCESS    FAILURE (todas as 7)
+    │         │
+    ↓         ↓
+┌────────┐  ┌─────────────────────┐
+│Metrics │  │ 6. Retry with       │ ← Exponential backoff
+│Update  │  │    Exponential      │   delay = min * 2^attempt
+└────────┘  │    Backoff          │
+            └─────────┬───────────┘
+                      │
+                      ↓
+            ┌─────────────────────┐
+            │ 7. Circuit Breaker  │ ← Abre após N falhas
+            │    (se > threshold) │   Aguarda timeout
+            │    • Cooldown: 60s  │
+            └─────────────────────┘
+```
+
+### Design Patterns Aplicados (v3.0)
+
+#### 1. Strategy Pattern
+**Onde**: `download_strategies.py`
+
+```python
+class DownloadStrategy(ABC):
+    @abstractmethod
+    def download(self, url: str) -> str:
+        pass
+
+class DirectStrategy(DownloadStrategy):
+    def download(self, url: str) -> str:
+        # Implementação direta
+
+class CookiesStrategy(DownloadStrategy):
+    def download(self, url: str) -> str:
+        # Com cookies do navegador
+
+# ... 5 outras estratégias
+```
+
+**Benefício**: Adicionar nova estratégia sem modificar código existente (Open/Closed).
+
+---
+
+#### 2. Circuit Breaker Pattern
+**Onde**: `rate_limiter.py`
+
+```python
+class CircuitBreaker:
+    def __init__(self, threshold: int, timeout: int):
+        self.failures = 0
+        self.threshold = threshold
+        self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+    
+    def call(self, func):
+        if self.state == "OPEN":
+            raise CircuitOpenError("Too many failures")
+        
+        try:
+            result = func()
+            self.on_success()
+            return result
+        except Exception:
+            self.on_failure()
+            raise
+```
+
+**Benefício**: Previne sobrecarga do YouTube, evita bans permanentes.
+
+---
+
+#### 3. Retry Pattern with Exponential Backoff
+**Onde**: `downloader.py`
+
+```python
+def download_with_retry(self, url: str) -> str:
+    for attempt in range(self.max_retries):
+        try:
+            return self._try_download(url)
+        except Exception as exc:
+            delay = min(
+                self.retry_delay_min * (2 ** attempt),
+                self.retry_delay_max
+            )
+            time.sleep(delay)
+            continue
+    
+    raise AllStrategiesFailedError()
+```
+
+**Benefício**: Aumenta taxa de sucesso sem sobrecarregar YouTube.
+
+---
+
+#### 4. Singleton Pattern (Metrics)
+**Onde**: `metrics.py`
+
+```python
+class YouTubeMetrics:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._init_metrics()
+        return cls._instance
+```
+
+**Benefício**: Métricas centralizadas, thread-safe.
+
+---
+
 ## Benefícios da Arquitetura
 
 ### ✅ Testabilidade
@@ -677,23 +901,34 @@ class TranscriptionService:
 - Mocks fáceis (interfaces)
 - Testes unitários isolados
 - Sem dependências externas em testes
+- **v3.0**: Estratégias testáveis individualmente
 
 ### ✅ Manutenibilidade
 
 - Código organizado
 - Fácil localizar funcionalidades
 - Mudanças isoladas
+- **v3.0**: 7 estratégias em módulos separados
 
 ### ✅ Escalabilidade
 
 - Adicionar features sem quebrar existentes
 - Trocar implementações facilmente
 - Paralelização natural (Use Cases independentes)
+- **v3.0**: Adicionar nova estratégia sem modificar existentes
 
 ### ✅ Independência de Framework
 
 - Migrar de FastAPI para Flask: só muda Presentation
 - Trocar Whisper por outro: só muda Infrastructure
+- **v3.0**: Trocar yt-dlp por outro downloader: só modifica estratégias
+
+### ✅ Resiliência (v3.0)
+
+- 5 camadas de proteção (DNS, multi-strategy, rate limiting, UA rotation, Tor)
+- Circuit Breaker previne bans
+- Auto-recovery após erros
+- Monitoramento completo (26 métricas)
 - Business logic (Domain) permanece intacta
 
 ---

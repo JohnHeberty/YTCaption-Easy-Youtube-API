@@ -144,5 +144,113 @@ Veja **[Troubleshooting](./08-TROUBLESHOOTING.md)** para soluções rápidas.
 
 ---
 
-**Versão**: 1.3.3+  
+## 🆕 YouTube Resilience v3.0
+
+**Desde outubro/2024, o sistema possui proteção avançada contra bloqueios do YouTube.**
+
+### Problemas Comuns e Soluções Rápidas
+
+#### ❌ HTTP 403 Forbidden
+
+**Erro mais comum** - YouTube detectou requisições automáticas.
+
+**Solução Rápida**:
+```bash
+# 1. Edite .env
+ENABLE_TOR_PROXY=true
+TOR_PROXY_URL=socks5h://torproxy:9050
+
+# 2. Restart
+docker-compose restart app
+
+# 3. Aguarde 30s (Tor estabelecendo circuito)
+sleep 30
+
+# 4. Tente novamente
+curl -X POST "http://localhost:8000/api/v1/transcribe" \
+  -H "Content-Type: application/json" \
+  -d '{"youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID"}'
+```
+
+---
+
+#### ❌ Network Unreachable
+
+**Tor offline ou DNS misconfigured**.
+
+**Solução**:
+```bash
+# Check Tor
+docker-compose ps torproxy
+
+# Restart se necessário
+docker-compose restart torproxy
+sleep 30
+```
+
+---
+
+#### ❌ All Strategies Failed
+
+**YouTube bloqueando IP/sessão ativamente**.
+
+**Solução**:
+```bash
+# Force Tor a trocar IP
+docker-compose exec torproxy pkill -HUP tor
+sleep 30
+
+# Tente novamente
+```
+
+---
+
+### Configurações Recomendadas (Produção)
+
+```bash
+# .env - Configuração robusta v3.0
+ENABLE_TOR_PROXY=true
+TOR_PROXY_URL=socks5h://torproxy:9050
+
+ENABLE_MULTI_STRATEGY=true
+ENABLE_USER_AGENT_ROTATION=true
+
+YOUTUBE_MAX_RETRIES=5
+YOUTUBE_RETRY_DELAY_MIN=5
+YOUTUBE_RETRY_DELAY_MAX=60
+
+YOUTUBE_REQUESTS_PER_MINUTE=10
+YOUTUBE_REQUESTS_PER_HOUR=100
+YOUTUBE_COOLDOWN_ON_ERROR=30
+
+YOUTUBE_CIRCUIT_BREAKER_THRESHOLD=10
+YOUTUBE_CIRCUIT_BREAKER_TIMEOUT=60
+```
+
+**Resultado esperado**: Taxa de sucesso >95% (antes era ~60%).
+
+---
+
+### Monitoramento
+
+**Grafana Dashboard**: http://localhost:3001  
+**Prometheus Metrics**: http://localhost:9090
+
+**Principais métricas**:
+- Download Success Rate (>90% = saudável)
+- 403 Forbidden Count (deve ser baixo)
+- Circuit Breaker Status (deve estar "Closed")
+- Active Strategies (quantas das 7 estratégias funcionam)
+
+---
+
+### Documentação Completa v3.0
+
+- **[Configuração Resilience](./03-CONFIGURATION.md#youtube-resilience-settings-v30)** - 12 env vars explicadas
+- **[Troubleshooting v3.0](./08-TROUBLESHOOTING.md#v30---youtube-resilience-system)** - Todos os erros possíveis
+- **[CHANGELOG v3.0.0](./CHANGELOG.md#v300---20241019)** - O que mudou
+
+---
+
+**Versão**: 3.0.0+  
 **Última atualização**: 19/10/2025
