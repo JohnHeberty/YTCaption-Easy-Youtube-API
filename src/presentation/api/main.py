@@ -1,14 +1,25 @@
 """
 FastAPI Application - Main Entry Point
 Configuração principal da API seguindo Clean Architecture e SOLID.
+
+v2.1: Logging melhorado, rate limiting, circuit breakers, timeout global.
 """
 import sys
+import uuid
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
+import time
+
+# Rate Limiting (v2.1)
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from src.config import settings
 from src.presentation.api.routes import transcription, system, video_info
@@ -38,6 +49,11 @@ file_cleanup_manager = None
 transcription_cache = None
 audio_validator = None
 ffmpeg_optimizer = None
+
+# ============= RATE LIMITER (v2.1) =============
+# Inicializar rate limiter ANTES da criação do app
+limiter = Limiter(key_func=get_remote_address)
+logger.info("Rate limiter initialized (key=IP address)")
 
 
 def get_worker_pool() -> PersistentWorkerPool:
@@ -81,12 +97,27 @@ def get_ffmpeg_optimizer_service():
     return ffmpeg_optimizer
 
 
-# Configurar logging
+# ============= LOGGING ESTRUTURADO MELHORADO (v2.1) =============
 logger.remove()
+
+# Formato estruturado para debugging detalhado
+detailed_format = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+    "<yellow>PID:{process}</yellow> | "
+    "<level>{message}</level> | "
+    "{extra}"
+)
+
+# Console logging (stderr)
 logger.add(
     sys.stderr,
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-    level=settings.log_level
+    format=detailed_format,
+    level=settings.log_level,
+    colorize=True,
+    backtrace=True,  # Mostra stack trace completo
+    diagnose=True    # Mostra variáveis locais em erros
 )
 
 # Criar diretório de logs antes de configurar o arquivo de log
@@ -98,18 +129,23 @@ if settings.log_file:
     except Exception as e:
         logger.warning(f"Could not create log directory: {e}")
 
+# File logging (persistente)
 if settings.log_file:
     try:
         logger.add(
             settings.log_file,
             rotation="100 MB",
-            retention="10 days",
+            retention="30 days",  # Aumentado de 10 para 30 dias
             level=settings.log_level,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}"
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | PID:{process} | {message}",
+            backtrace=True,
+            diagnose=True,
+            enqueue=True,  # Thread-safe async logging
+            serialize=False  # JSON format para parsing
         )
         logger.info(f"File logging configured: {settings.log_file}")
     except Exception as e:
-        logger.error(f"Failed to configure file logging: {e}")
+        logger.error(f"Failed to configure file logging: {e}", exc_info=True)
 
 
 @asynccontextmanager
@@ -323,7 +359,19 @@ app = FastAPI(
     }
 )
 
-# Configurar CORS
+# ============= RATE LIMITER CONFIGURATION (v2.1) =============
+# Adicionar rate limiter state ao app
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+logger.info("✅ Rate limiter configured and exception handler registered")
+
+# ============= MIDDLEWARES (v2.1 com melhorias) =============
+
+# 1. GZip Compression Middleware (comprime respostas >1KB)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+logger.info("GZip compression enabled (minimum_size=1KB)")
+
+# 2. CORS Middleware
 if settings.enable_cors:
     app.add_middleware(
         CORSMiddleware,
@@ -334,7 +382,86 @@ if settings.enable_cors:
     )
     logger.info(f"CORS enabled: {settings.get_cors_origins()}")
 
-# Adicionar middleware de logging
+# 3. Request ID + Enhanced Logging Middleware
+@app.middleware("http")
+async def add_request_id_and_log(request: Request, call_next):
+    """
+    Adiciona request_id único e logging detalhado para cada requisição.
+    CRÍTICO para debugging de erros 500.
+    """
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    
+    start_time = time.time()
+    
+    # Log inicial da request
+    logger.info(
+        f"⬇️  INCOMING REQUEST",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "query_params": str(request.query_params),
+            "client_ip": request.client.host if request.client else "unknown",
+            "user_agent": request.headers.get("user-agent", "unknown")
+        }
+    )
+    
+    try:
+        # Processar request
+        response = await call_next(request)
+        
+        # Calcular tempo de processamento
+        process_time = time.time() - start_time
+        
+        # Adicionar headers customizados
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Process-Time"] = f"{process_time:.3f}s"
+        
+        # Log de resposta
+        logger.info(
+            f"⬆️  OUTGOING RESPONSE",
+            extra={
+                "request_id": request_id,
+                "status_code": response.status_code,
+                "process_time": f"{process_time:.3f}s",
+                "path": request.url.path
+            }
+        )
+        
+        return response
+        
+    except Exception as e:
+        process_time = time.time() - start_time
+        
+        # Log CRÍTICO de exceção não capturada
+        logger.error(
+            f"❌ UNHANDLED EXCEPTION IN MIDDLEWARE",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "process_time": f"{process_time:.3f}s",
+                "exception_type": type(e).__name__,
+                "exception_message": str(e),
+                "traceback": traceback.format_exc()
+            },
+            exc_info=True
+        )
+        
+        # Retornar erro 500 estruturado
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "InternalServerError",
+                "message": f"An unexpected error occurred: {type(e).__name__}",
+                "request_id": request_id,
+                "details": str(e) if settings.app_environment == "development" else None
+            },
+            headers={"X-Request-ID": request_id}
+        )
+
+# 4. Legacy Logging Middleware (manter compatibilidade)
 app.add_middleware(LoggingMiddleware)
 
 # Registrar rotas
@@ -345,17 +472,44 @@ app.include_router(video_info.router)
 logger.info("Routes registered successfully")
 
 
-# Exception handlers
+# ============= EXCEPTION HANDLERS MELHORADOS (v2.1) =============
+
 @app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    """Handler global para exceções não tratadas."""
-    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Handler global MELHORADO para exceções não tratadas.
+    Captura TODAS as exceptions e loga com contexto completo.
+    """
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    
+    # Log CRÍTICO com stack trace completo
+    logger.critical(
+        f"🔥 GLOBAL EXCEPTION HANDLER TRIGGERED",
+        extra={
+            "request_id": request_id,
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc),
+            "path": request.url.path,
+            "method": request.method,
+            "client_ip": request.client.host if request.client else "unknown",
+            "traceback": traceback.format_exc(),
+            "request_headers": dict(request.headers),
+            "query_params": str(request.query_params)
+        },
+        exc_info=True
+    )
+    
+    # Retornar resposta estruturada
     return JSONResponse(
-        status_code=500,
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
-            "error": "InternalServerError",
-            "message": "An unexpected error occurred"
-        }
+            "error": type(exc).__name__,
+            "message": "An unexpected error occurred. Please check server logs.",
+            "request_id": request_id,
+            "details": str(exc) if settings.app_environment == "development" else None,
+            "path": request.url.path
+        },
+        headers={"X-Request-ID": request_id}
     )
 
 

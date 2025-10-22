@@ -4,9 +4,11 @@ Orquestra o processo completo de transcrição de vídeos do YouTube.
 Segue o princípio de Single Responsibility (SOLID).
 
 v2.0: Integrado com cache de transcrição e validação de áudio.
+v2.1: Timeout global, exceções granulares, logging melhorado.
 """
 import time
 import hashlib
+import asyncio
 from pathlib import Path
 from typing import Optional
 from loguru import logger
@@ -21,7 +23,11 @@ from src.domain.entities import Transcription, TranscriptionSegment
 from src.domain.exceptions import (
     VideoDownloadError,
     TranscriptionError,
-    ValidationError
+    ValidationError,
+    AudioTooLongError,
+    AudioCorruptedError,
+    OperationTimeoutError,
+    CacheError
 )
 from src.application.dtos import (
     TranscribeRequestDTO,
@@ -165,30 +171,65 @@ class TranscribeYouTubeVideoUseCase:
                 if not validation_result["valid"]:
                     error_msg = f"Invalid audio file: {', '.join(validation_result['errors'])}"
                     logger.error(f"❌ {error_msg}")
-                    raise ValidationError(error_msg)
+                    
+                    # v2.1: Usar exceção granular
+                    raise AudioCorruptedError(
+                        str(video_file.file_path),
+                        error_msg
+                    )
                 
                 validation_time = time.time() - validation_start
+                audio_duration = validation_result.get('duration', 0)
+                
                 logger.info(
                     f"✅ Audio validation passed in {validation_time:.2f}s "
-                    f"(duration={validation_result.get('duration', 0):.1f}s, "
+                    f"(duration={audio_duration:.1f}s, "
                     f"estimated_processing={validation_result.get('estimated_processing_time', 0):.1f}s)"
                 )
+            else:
+                # Estimar duração do vídeo se validator não disponível
+                audio_duration = getattr(video_file, 'duration', self.max_video_duration)
             
-            # 7. Transcrever vídeo com Whisper
-            logger.info("Starting Whisper transcription")
-            transcription = await self.transcription_service.transcribe(
-                video_file,
-                language=request.language if request.language != "auto" else None
+            # 7. v2.1: Transcrever vídeo com Whisper + TIMEOUT GLOBAL
+            logger.info("Starting Whisper transcription with timeout protection")
+            
+            # Estimar timeout baseado na duração do áudio
+            from src.config import settings
+            estimated_timeout = self._estimate_timeout(
+                audio_duration,
+                settings.whisper_model
             )
+            
+            logger.info(f"⏱️  Transcription timeout set to {estimated_timeout:.0f}s")
+            
+            try:
+                # Executar transcrição com timeout
+                transcription = await asyncio.wait_for(
+                    self.transcription_service.transcribe(
+                        video_file,
+                        language=request.language if request.language != "auto" else None
+                    ),
+                    timeout=estimated_timeout
+                )
+            except asyncio.TimeoutError as e:
+                logger.error(
+                    f"🔥 Transcription TIMED OUT after {estimated_timeout:.0f}s "
+                    f"(audio_duration={audio_duration:.1f}s)"
+                )
+                raise OperationTimeoutError(
+                    f"transcription of {youtube_url.video_id}",
+                    estimated_timeout
+                ) from e
             
             # Adicionar informações adicionais
             transcription.youtube_url = youtube_url
             transcription.processing_time = time.time() - start_time
             
             logger.info(
-                f"Transcription completed: {len(transcription.segments)} segments, "
+                f"✅ Transcription completed: {len(transcription.segments)} segments, "
                 f"language={transcription.language}, "
-                f"time={transcription.processing_time:.2f}s"
+                f"time={transcription.processing_time:.2f}s, "
+                f"timeout_used={estimated_timeout:.0f}s"
             )
             
             # 8. Criar DTO de resposta
@@ -209,14 +250,23 @@ class TranscribeYouTubeVideoUseCase:
                     logger.info(f"💾 Cached transcription for {youtube_url.video_id}")
                 except Exception as e:
                     logger.warning(f"Failed to cache result: {e}")
+                    # v2.1: Não lançar exceção, apenas logar
+                    # Cache failure não deve quebrar o fluxo
             
             return response
             
-        except (ValidationError, VideoDownloadError, TranscriptionError):
+        except (ValidationError, VideoDownloadError, TranscriptionError, OperationTimeoutError):
             raise
+        except asyncio.TimeoutError as e:
+            # Capturar timeout não tratado
+            logger.error("Transcription timeout at top level")
+            raise OperationTimeoutError("transcription", self.max_video_duration) from e
         except Exception as e:
-            logger.error(f"Unexpected error in transcription process: {str(e)}")
-            raise TranscriptionError(f"Unexpected error: {str(e)}")
+            logger.error(
+                f"🔥 Unexpected error in transcription process: {type(e).__name__}: {str(e)}",
+                exc_info=True
+            )
+            raise TranscriptionError(f"Unexpected error: {str(e)}") from e
         
         finally:
             # 10. Limpar arquivos temporários
@@ -358,4 +408,49 @@ class TranscribeYouTubeVideoUseCase:
         
         # Gerar hash MD5
         return hashlib.md5(cache_string.encode()).hexdigest()
+    
+    def _estimate_timeout(self, duration_seconds: float, model_name: str = "base") -> float:
+        """
+        Estima timeout baseado na duração do áudio e modelo.
+        
+        v2.1: Timeout dinâmico para evitar travamentos.
+        
+        Args:
+            duration_seconds: Duração do áudio
+            model_name: Modelo Whisper usado
+            
+        Returns:
+            Timeout estimado em segundos (com margem de segurança)
+        """
+        # Fatores de processamento (realtime factor)
+        factors = {
+            'tiny': 2.0,    # ~2x realtime
+            'base': 1.5,    # ~1.5x realtime
+            'small': 0.8,   # ~0.8x realtime
+            'medium': 0.4,  # ~0.4x realtime
+            'large': 0.2,   # ~0.2x realtime
+            'turbo': 1.0    # ~1x realtime
+        }
+        
+        factor = factors.get(model_name, 1.0)
+        
+        # Tempo base = duração / fator
+        base_time = duration_seconds / factor
+        
+        # Adicionar overhead (download, conversão, I/O) ~20%
+        overhead = base_time * 0.2
+        
+        # Adicionar margem de segurança (50%)
+        safety_margin = base_time * 0.5
+        
+        # Timeout mínimo: 60s
+        # Timeout máximo: 3600s (1 hora)
+        timeout = max(60, min(3600, base_time + overhead + safety_margin))
+        
+        logger.debug(
+            f"Estimated timeout: {timeout:.0f}s "
+            f"(duration={duration_seconds:.0f}s, model={model_name})"
+        )
+        
+        return timeout
 

@@ -1,11 +1,20 @@
 """
 YouTube Transcript Service.
 Serviço para baixar transcrições/legendas do YouTube com múltiplos fallbacks.
+
+v2.1: Retry logic para melhorar resiliência.
 """
 from typing import Optional, List, Dict
 import asyncio
 import yt_dlp
 from loguru import logger
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
     TranscriptsDisabled,
@@ -14,7 +23,7 @@ from youtube_transcript_api._errors import (
 )
 
 from src.domain.value_objects import YouTubeURL
-from src.domain.exceptions import VideoDownloadError
+from src.domain.exceptions import VideoDownloadError, NetworkError
 
 
 class YouTubeTranscriptService:
@@ -24,8 +33,14 @@ class YouTubeTranscriptService:
     
     def __init__(self):
         """Inicializa o serviço de transcrições."""
-        pass
+        # Não há configurações específicas neste serviço
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+        before_sleep=before_sleep_log(logger, logger.level("WARNING").no)
+    )
     async def get_transcript(
         self,
         url: YouTubeURL,
@@ -47,48 +62,75 @@ class YouTubeTranscriptService:
             VideoDownloadError: Se não conseguir obter transcrição
         """
         video_id = url.video_id
-        logger.info(f"Fetching transcript for video: {video_id}")
+        logger.info(
+            "Fetching transcript for video",
+            extra={
+                "video_id": video_id,
+                "language": language,
+                "prefer_manual": prefer_manual
+            }
+        )
         
         # Método 1: youtube-transcript-api (principal)
         try:
             result = await self._fetch_with_transcript_api(
                 video_id, language, prefer_manual
             )
-            logger.info(f"Successfully fetched transcript using Method 1")
+            logger.info("Successfully fetched transcript using Method 1 (transcript-api)")
             return result
-        except TranscriptsDisabled:
-            raise VideoDownloadError("Transcripts are disabled for this video")
-        except VideoUnavailable:
-            raise VideoDownloadError("Video is unavailable")
+        except TranscriptsDisabled as e:
+            raise VideoDownloadError("Transcripts are disabled for this video") from e
+        except VideoUnavailable as e:
+            raise VideoDownloadError("Video is unavailable") from e
         except NoTranscriptFound as e:
-            raise VideoDownloadError(f"No transcripts found: {str(e)}")
+            raise VideoDownloadError(f"No transcripts found: {str(e)}") from e
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Network error in Method 1: {e}", exc_info=True)
+            raise NetworkError("YouTube Transcript API", str(e)) from e
         except Exception as e:
-            logger.warning(f"Method 1 failed: {str(e)}")
-            # Fallback para método 2
-            pass
+            logger.warning(
+                "Method 1 failed, trying fallback",
+                extra={"error": str(e)},
+                exc_info=True
+            )
+            # Fallback para método 2 (continua execução)
         
         # Método 2: Tentativa alternativa com configurações mais permissivas
         try:
             logger.info("Trying alternative fetch method...")
             result = await self._fetch_alternative(video_id, language)
-            logger.info(f"Successfully fetched transcript using Method 2")
+            logger.info("Successfully fetched transcript using Method 2 (alternative)")
             return result
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Network error in Method 2: {e}", exc_info=True)
+            raise NetworkError("YouTube Transcript API (alternative)", str(e)) from e
         except Exception as e:
-            logger.error(f"Method 2 also failed: {str(e)}")
+            logger.warning(
+                "Method 2 also failed, trying yt-dlp",
+                extra={"error": str(e)},
+                exc_info=True
+            )
         
         # Método 3: Usar yt-dlp para baixar legendas diretamente
         try:
             logger.info("Trying yt-dlp method...")
             result = await self._fetch_with_ytdlp(video_id, language)
-            logger.info(f"Successfully fetched transcript using Method 3 (yt-dlp)")
+            logger.info("Successfully fetched transcript using Method 3 (yt-dlp)")
             return result
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"Network error in Method 3: {e}", exc_info=True)
+            raise NetworkError("yt-dlp subtitles", str(e)) from e
         except Exception as e:
-            logger.error(f"Method 3 also failed: {str(e)}")
+            logger.error(
+                "Method 3 also failed - all methods exhausted",
+                extra={"error": str(e)},
+                exc_info=True
+            )
         
         # Se todos os métodos falharam
         raise VideoDownloadError(
-            f"Failed to fetch transcript after trying all methods. "
-            f"Video may not have subtitles available or they are restricted."
+            "Failed to fetch transcript after trying all methods. "
+            "Video may not have subtitles available or they are restricted."
         )
     
     async def _fetch_with_transcript_api(

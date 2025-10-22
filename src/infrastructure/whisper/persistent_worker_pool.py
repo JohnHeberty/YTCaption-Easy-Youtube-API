@@ -1,6 +1,8 @@
 """
 Pool de workers persistentes para transcrição paralela com Whisper.
 Cada worker carrega o modelo UMA VEZ e fica aguardando tarefas via fila.
+
+v2.1: Melhorias de error handling e graceful degradation.
 """
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -9,6 +11,9 @@ from queue import Empty, Full
 import time
 
 from loguru import logger
+
+# v2.1: Importar exceções customizadas
+from src.domain.exceptions import WorkerPoolError
 
 
 class PersistentWorkerPool:
@@ -74,37 +79,101 @@ class PersistentWorkerPool:
         1. Carrega modelo Whisper
         2. Entra em loop aguardando tarefas
         3. Processa chunks e retorna resultados
+        
+        Raises:
+            WorkerPoolError: Se falhar ao iniciar workers
         """
         if self.running:
             logger.warning("Worker pool already running")
             return
         
-        logger.info(f"[WORKER POOL] Starting {self.num_workers} persistent workers...")
+        logger.info(
+            "[WORKER POOL] Starting persistent workers",
+            extra={
+                "num_workers": self.num_workers,
+                "model": self.model_name,
+                "device": self.device
+            }
+        )
         
-        # Criar filas (aumentada para suportar até 50 chunks em paralelo)
-        self.task_queue = mp.Queue(maxsize=50)  # Era num_workers * 10 = 20, agora 50
-        self.result_queue = mp.Queue()
-        
-        # Criar e iniciar workers
-        for worker_id in range(self.num_workers):
-            worker = mp.Process(
-                target=self._worker_loop,
-                args=(
-                    worker_id,
-                    self.model_name,
-                    self.device,
-                    self.task_queue,
-                    self.result_queue
-                ),
-                daemon=True,
-                name=f"WhisperWorker-{worker_id}"
+        try:
+            # Criar filas (aumentada para suportar até 50 chunks em paralelo)
+            self.task_queue = mp.Queue(maxsize=50)  # Era num_workers * 10 = 20, agora 50
+            self.result_queue = mp.Queue()
+            
+            # Criar e iniciar workers
+            successfully_started = 0
+            for worker_id in range(self.num_workers):
+                try:
+                    worker = mp.Process(
+                        target=self._worker_loop,
+                        args=(
+                            worker_id,
+                            self.model_name,
+                            self.device,
+                            self.task_queue,
+                            self.result_queue
+                        ),
+                        daemon=True,
+                        name=f"WhisperWorker-{worker_id}"
+                    )
+                    worker.start()
+                    self.workers.append(worker)
+                    successfully_started += 1
+                    logger.info(
+                        "[WORKER POOL] Started worker",
+                        extra={
+                            "worker_id": worker_id,
+                            "pid": worker.pid,
+                            "name": worker.name
+                        }
+                    )
+                except Exception as e:
+                    logger.error(
+                        "[WORKER POOL] Failed to start worker",
+                        extra={
+                            "worker_id": worker_id,
+                            "error": str(e)
+                        },
+                        exc_info=True
+                    )
+            
+            # v2.1: Graceful degradation - continuar se pelo menos 1 worker iniciou
+            if successfully_started == 0:
+                raise WorkerPoolError(
+                    "all",
+                    "Failed to start any workers - pool completely unavailable"
+                )
+            
+            if successfully_started < self.num_workers:
+                logger.warning(
+                    "[WORKER POOL] Started with reduced capacity",
+                    extra={
+                        "requested": self.num_workers,
+                        "started": successfully_started,
+                        "degraded_capacity": f"{(successfully_started/self.num_workers)*100:.1f}%"
+                    }
+                )
+            
+            self.running = True
+            logger.info(
+                "[WORKER POOL] Worker pool ready",
+                extra={
+                    "workers_running": successfully_started,
+                    "workers_requested": self.num_workers,
+                    "status": "degraded" if successfully_started < self.num_workers else "full"
+                }
             )
-            worker.start()
-            self.workers.append(worker)
-            logger.info(f"[WORKER POOL] Started worker {worker_id} (PID: {worker.pid})")
-        
-        self.running = True
-        logger.info(f"[WORKER POOL] All {self.num_workers} workers started and ready")
+            
+        except Exception as e:
+            logger.critical(
+                "[WORKER POOL] Fatal error during startup",
+                extra={"error": str(e)},
+                exc_info=True
+            )
+            # Limpar workers parcialmente iniciados
+            self.stop(timeout=5)
+            raise WorkerPoolError("startup", f"Failed to start worker pool: {str(e)}") from e
     
     def stop(self, timeout: int = 10):
         """
@@ -166,9 +235,20 @@ class PersistentWorkerPool:
             chunk_idx: Índice do chunk
             language: Idioma ou "auto"
             timeout: Timeout para adicionar à fila
+            
+        Raises:
+            WorkerPoolError: Se pool não estiver rodando ou fila cheia
         """
         if not self.running:
-            raise RuntimeError("Worker pool is not running")
+            raise WorkerPoolError("submit", "Worker pool is not running")
+        
+        # v2.1: Verificar se há workers vivos
+        alive_workers = sum(1 for w in self.workers if w.is_alive())
+        if alive_workers == 0:
+            raise WorkerPoolError(
+                "submit",
+                "No workers alive - pool is in failed state. Please restart the application."
+            )
         
         task = {
             "session_id": session_id,
@@ -185,29 +265,49 @@ class PersistentWorkerPool:
             try:
                 # Use a small per-attempt timeout so we can retry with backoff
                 self.task_queue.put(task, timeout=min(1, max(0.1, timeout)))
+                logger.debug(
+                    "[WORKER POOL] Task submitted",
+                    extra={
+                        "session_id": session_id,
+                        "chunk_idx": chunk_idx,
+                        "queue_size": self.task_queue.qsize(),
+                        "alive_workers": alive_workers
+                    }
+                )
                 return
-            except Full as e:
+            except Full:
                 elapsed = time.time() - start
-                # Log type and repr to avoid empty messages
                 logger.warning(
-                    f"Task queue full while submitting chunk {chunk_idx} for session {session_id}: "
-                    f"elapsed={elapsed:.2f}s, queue_size={self.task_queue.qsize() if self.task_queue else 'N/A'}, "
-                    f"exc={type(e).__name__}: {repr(e)}"
+                    "[WORKER POOL] Task queue full",
+                    extra={
+                        "session_id": session_id,
+                        "chunk_idx": chunk_idx,
+                        "elapsed": round(elapsed, 2),
+                        "queue_size": self.task_queue.qsize() if self.task_queue else 'N/A',
+                        "alive_workers": alive_workers
+                    }
                 )
                 if elapsed >= timeout:
-                    logger.error(
-                        f"Failed to submit task after {elapsed:.2f}s (timeout={timeout}s)."
-                    )
-                    raise
+                    raise WorkerPoolError(
+                        f"chunk_{chunk_idx}",
+                        f"Task queue full after {elapsed:.2f}s - workers may be overloaded"
+                    ) from Full()
                 # brief backoff before retrying
                 time.sleep(0.25)
             except Exception as e:
-                # Catch-all: log exception type and repr to avoid empty messages
                 logger.error(
-                    f"Failed to submit task (unexpected error) for chunk {chunk_idx} in session {session_id}: "
-                    f"{type(e).__name__}: {repr(e)}"
+                    "[WORKER POOL] Failed to submit task",
+                    extra={
+                        "session_id": session_id,
+                        "chunk_idx": chunk_idx,
+                        "error": str(e)
+                    },
+                    exc_info=True
                 )
-                raise
+                raise WorkerPoolError(
+                    f"chunk_{chunk_idx}",
+                    f"Failed to submit task: {str(e)}"
+                ) from e
     
     def get_result(self, timeout: int = 600) -> Dict[str, Any]:
         """
@@ -218,14 +318,42 @@ class PersistentWorkerPool:
             
         Returns:
             Dict com resultado do worker
+            
+        Raises:
+            WorkerPoolError: Se pool não estiver rodando
+            TimeoutError: Se não receber resultado dentro do timeout
         """
         if not self.running:
-            raise RuntimeError("Worker pool is not running")
+            raise WorkerPoolError("get_result", "Worker pool is not running")
         
         try:
-            return self.result_queue.get(timeout=timeout)
-        except Empty:
-            raise TimeoutError(f"No result received within {timeout}s")
+            result = self.result_queue.get(timeout=timeout)
+            
+            # v2.1: Verificar se resultado contém erro
+            if result.get("error"):
+                logger.error(
+                    "[WORKER POOL] Chunk processing failed",
+                    extra={
+                        "session_id": result.get("session_id"),
+                        "chunk_idx": result.get("chunk_idx"),
+                        "worker_id": result.get("worker_id"),
+                        "error": result.get("error")
+                    }
+                )
+            
+            return result
+        except Empty as e:
+            # v2.1: Verificar se workers ainda estão vivos
+            alive_workers = sum(1 for w in self.workers if w.is_alive())
+            if alive_workers == 0:
+                raise WorkerPoolError(
+                    "get_result",
+                    "No workers alive - pool has failed. Please restart the application."
+                ) from e
+            raise TimeoutError(
+                f"No result received within {timeout}s "
+                f"(workers alive: {alive_workers}/{len(self.workers)})"
+            ) from e
     
     @staticmethod
     def _worker_loop(
@@ -255,28 +383,64 @@ class PersistentWorkerPool:
             f"logs/worker_{worker_id}.log",
             rotation="10 MB",
             retention="7 days",
-            level="INFO"
+            level="INFO",
+            backtrace=True,  # v2.1: Adicionar backtrace para debugging
+            diagnose=True    # v2.1: Adicionar diagnose para debugging
         )
         
-        logger.info(f"[WORKER {worker_id}] Process started (PID: {mp.current_process().pid})")
+        logger.info(
+            "[WORKER] Process started",
+            extra={
+                "worker_id": worker_id,
+                "pid": mp.current_process().pid,
+                "model": model_name,
+                "device": device
+            }
+        )
         
         # ===== CARREGAR MODELO UMA ÚNICA VEZ =====
-        logger.info(f"[WORKER {worker_id}] Loading Whisper model '{model_name}' on {device}...")
+        logger.info(f"[WORKER {worker_id}] Loading Whisper model...")
         start_load = time.time()
         
         try:
             model = whisper.load_model(model_name, device=device)
             load_time = time.time() - start_load
             logger.info(
-                f"[WORKER {worker_id}] Model loaded successfully in {load_time:.2f}s. "
-                f"Ready to process chunks!"
+                "[WORKER] Model loaded successfully",
+                extra={
+                    "worker_id": worker_id,
+                    "model": model_name,
+                    "device": device,
+                    "load_time": round(load_time, 2)
+                }
             )
         except Exception as e:
-            logger.error(f"[WORKER {worker_id}] FATAL: Failed to load model: {e}")
+            logger.critical(
+                "[WORKER] FATAL - Failed to load model",
+                extra={
+                    "worker_id": worker_id,
+                    "model": model_name,
+                    "device": device,
+                    "error": str(e)
+                },
+                exc_info=True
+            )
+            # v2.1: Enviar erro para fila de resultados antes de morrer
+            result_queue.put({
+                "session_id": "startup_error",
+                "chunk_idx": -1,
+                "segments": [],
+                "language": None,
+                "processing_time": 0,
+                "error": f"Worker {worker_id} failed to load model: {str(e)}",
+                "worker_id": worker_id,
+                "fatal": True
+            })
             return
         
         # ===== LOOP INFINITO PROCESSANDO TAREFAS =====
         processed_count = 0
+        error_count = 0  # v2.1: Contar erros
         
         while True:
             try:
@@ -285,7 +449,14 @@ class PersistentWorkerPool:
                 
                 # Sinal de parada
                 if task is None:
-                    logger.info(f"[WORKER {worker_id}] Received stop signal. Exiting...")
+                    logger.info(
+                        "[WORKER] Received stop signal - shutting down",
+                        extra={
+                            "worker_id": worker_id,
+                            "processed_count": processed_count,
+                            "error_count": error_count
+                        }
+                    )
                     break
                 
                 # Processar chunk
@@ -295,13 +466,22 @@ class PersistentWorkerPool:
                 language = task["language"]
                 
                 logger.info(
-                    f"[WORKER {worker_id}] Processing chunk {chunk_idx} "
-                    f"for session {session_id} ({chunk_path.name})"
+                    "[WORKER] Processing chunk",
+                    extra={
+                        "worker_id": worker_id,
+                        "session_id": session_id,
+                        "chunk_idx": chunk_idx,
+                        "chunk_file": chunk_path.name
+                    }
                 )
                 
                 start_time = time.time()
                 
                 try:
+                    # v2.1: Verificar se arquivo existe
+                    if not chunk_path.exists():
+                        raise FileNotFoundError(f"Chunk file not found: {chunk_path}")
+                    
                     # Transcrever chunk (modelo JÁ ESTÁ CARREGADO!)
                     result = model.transcribe(
                         str(chunk_path),
@@ -313,12 +493,15 @@ class PersistentWorkerPool:
                     processing_time = time.time() - start_time
                     processed_count += 1
                     
-                    # Ajustar timestamps dos segmentos (relativo ao chunk)
-                    # Nota: timestamps já vêm corretos do Whisper
-                    
                     logger.info(
-                        f"[WORKER {worker_id}] Chunk {chunk_idx} completed in {processing_time:.2f}s "
-                        f"({len(result['segments'])} segments, lang={result.get('language')})"
+                        "[WORKER] Chunk completed",
+                        extra={
+                            "worker_id": worker_id,
+                            "chunk_idx": chunk_idx,
+                            "processing_time": round(processing_time, 2),
+                            "segments_count": len(result['segments']),
+                            "detected_language": result.get('language')
+                        }
                     )
                     
                     # Retornar resultado
@@ -334,10 +517,18 @@ class PersistentWorkerPool:
                 
                 except Exception as e:
                     processing_time = time.time() - start_time
+                    error_count += 1
                     
                     logger.error(
-                        f"[WORKER {worker_id}] Failed to process chunk {chunk_idx} "
-                        f"for session {session_id}: {e}"
+                        "[WORKER] Failed to process chunk",
+                        extra={
+                            "worker_id": worker_id,
+                            "session_id": session_id,
+                            "chunk_idx": chunk_idx,
+                            "processing_time": round(processing_time, 2),
+                            "error": str(e)
+                        },
+                        exc_info=True
                     )
                     
                     # Retornar erro
@@ -355,12 +546,34 @@ class PersistentWorkerPool:
                 # Timeout normal, continuar aguardando
                 continue
             
+            except KeyboardInterrupt:
+                logger.info(
+                    "[WORKER] Keyboard interrupt - shutting down",
+                    extra={"worker_id": worker_id}
+                )
+                break
+            
             except Exception as e:
-                logger.error(f"[WORKER {worker_id}] Unexpected error in loop: {e}")
+                logger.error(
+                    "[WORKER] Unexpected error in loop",
+                    extra={
+                        "worker_id": worker_id,
+                        "error": str(e)
+                    },
+                    exc_info=True
+                )
+                # v2.1: Não quebrar o loop - continuar processando
+                error_count += 1
+                time.sleep(1)  # Backoff após erro
         
         logger.info(
-            f"[WORKER {worker_id}] Shutting down. "
-            f"Processed {processed_count} chunks total."
+            "[WORKER] Shutdown complete",
+            extra={
+                "worker_id": worker_id,
+                "total_processed": processed_count,
+                "total_errors": error_count,
+                "success_rate": f"{((processed_count/(processed_count+error_count))*100):.1f}%" if (processed_count + error_count) > 0 else "N/A"
+            }
         )
     
     def get_stats(self) -> Dict[str, Any]:

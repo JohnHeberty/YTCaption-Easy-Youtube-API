@@ -1,21 +1,30 @@
 """
 Video Info Routes - Endpoint para obter informações do vídeo antes de transcrever.
+
+v2.1: Rate limiting e melhorias de exception handling.
 """
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from loguru import logger
 
 from src.application.dtos import TranscribeRequestDTO
 from src.domain.value_objects import YouTubeURL
-from src.domain.exceptions import VideoDownloadError, ValidationError
+from src.domain.exceptions import VideoDownloadError, NetworkError
 from src.domain.interfaces import IVideoDownloader
 from src.presentation.api.dependencies import Container
 
 
 router = APIRouter(prefix="/api/v1", tags=["video-info"])
 
+# Rate limiter instance
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.post("/video/info")
+@limiter.limit("10/minute")  # v2.1: Rate limiting
 async def get_video_info(
+    request_obj: Request,  # Renomeado para evitar conflito
     request: TranscribeRequestDTO,
     downloader: IVideoDownloader = Depends(Container.get_video_downloader)
 ):
@@ -36,20 +45,38 @@ async def get_video_info(
     Raises:
         HTTPException: Se houver erro ao obter informações
     """
+    request_id = getattr(request_obj.state, "request_id", "unknown")
+    
     try:
-        logger.info(f"Getting video info: {request.youtube_url}")
+        logger.info(
+            "Getting video info",
+            extra={
+                "request_id": request_id,
+                "youtube_url": request.youtube_url,
+                "client_ip": request_obj.client.host if request_obj.client else "unknown"
+            }
+        )
         
         # Validar URL
         try:
             youtube_url = YouTubeURL.create(request.youtube_url)
         except ValueError as e:
+            logger.warning(
+                "Invalid YouTube URL",
+                extra={
+                    "request_id": request_id,
+                    "url": request.youtube_url,
+                    "error": str(e)
+                }
+            )
             raise HTTPException(
                 status_code=400,
                 detail={
                     "error": "ValidationError",
-                    "message": f"Invalid YouTube URL: {str(e)}"
+                    "message": f"Invalid YouTube URL: {str(e)}",
+                    "request_id": request_id
                 }
-            )
+            ) from e
         
         # Obter informações completas com detecção de idioma
         info = await downloader.get_video_info_with_language(youtube_url)
@@ -118,31 +145,57 @@ async def get_video_info(
                 )
         
         logger.info(
-            f"Video info retrieved: {youtube_url.video_id}, "
-            f"duration={duration}s, "
-            f"detected_lang={info.get('language_detection', {}).get('detected_language')}, "
-            f"subtitles={subtitles_info['total']}"
+            "Video info retrieved successfully",
+            extra={
+                "request_id": request_id,
+                "video_id": youtube_url.video_id,
+                "duration": duration,
+                "detected_lang": info.get('language_detection', {}).get('detected_language'),
+                "subtitles_count": subtitles_info['total']
+            }
         )
         
         return response
-        
-    except VideoDownloadError as e:
-        logger.error(f"Failed to get video info: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "VideoDownloadError",
-                "message": str(e)
-            }
-        )
+    
     except HTTPException:
         raise
+    
+    except (VideoDownloadError, NetworkError) as e:
+        logger.error(
+            "Failed to get video info",
+            extra={
+                "request_id": request_id,
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "url": request.youtube_url
+            },
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": type(e).__name__,
+                "message": str(e),
+                "request_id": request_id
+            }
+        ) from e
+    
     except Exception as e:
-        logger.error(f"Unexpected error getting video info: {str(e)}")
+        logger.critical(
+            "Unexpected error getting video info",
+            extra={
+                "request_id": request_id,
+                "error_type": type(e).__name__,
+                "error": str(e),
+                "url": request.youtube_url
+            },
+            exc_info=True
+        )
         raise HTTPException(
             status_code=500,
             detail={
                 "error": "InternalServerError",
-                "message": "Failed to get video information"
+                "message": "Failed to get video information",
+                "request_id": request_id
             }
-        )
+        ) from e

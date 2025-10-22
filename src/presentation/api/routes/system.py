@@ -1,10 +1,16 @@
 """
 Rotas de sistema.
 Health check e informações da API.
+
+v2.1: Rate limiting e melhorias de logging.
 """
 import time
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from loguru import logger
+
 from src.config import settings
 from src.domain.interfaces import IStorageService
 from src.application.dtos import HealthCheckDTO
@@ -15,6 +21,9 @@ router = APIRouter(tags=["System"])
 # Tempo de início da aplicação
 _start_time = time.time()
 
+# Rate limiter instance
+limiter = Limiter(key_func=get_remote_address)
+
 
 @router.get(
     "/health",
@@ -22,7 +31,9 @@ _start_time = time.time()
     summary="Health check",
     description="Returns the API health status and system information"
 )
+@limiter.limit("30/minute")  # v2.1: Rate limiting para health check
 async def health_check(
+    request: Request,
     storage: IStorageService = Depends(get_storage_service)
 ) -> HealthCheckDTO:
     """
@@ -35,15 +46,44 @@ async def health_check(
     - Uso de armazenamento
     - Tempo de atividade
     """
-    storage_usage = await storage.get_storage_usage()
+    request_id = getattr(request.state, "request_id", "unknown")
     
-    return HealthCheckDTO(
-        status="healthy",
-        version=settings.app_version,
-        whisper_model=settings.whisper_model,
-        storage_usage=storage_usage,
-        uptime_seconds=round(time.time() - _start_time, 2)
-    )
+    try:
+        storage_usage = await storage.get_storage_usage()
+        
+        logger.debug(
+            "Health check performed",
+            extra={
+                "request_id": request_id,
+                "uptime": round(time.time() - _start_time, 2),
+                "storage_usage": storage_usage
+            }
+        )
+        
+        return HealthCheckDTO(
+            status="healthy",
+            version=settings.app_version,
+            whisper_model=settings.whisper_model,
+            storage_usage=storage_usage,
+            uptime_seconds=round(time.time() - _start_time, 2)
+        )
+    except Exception as e:
+        logger.error(
+            "Health check failed",
+            extra={
+                "request_id": request_id,
+                "error": str(e)
+            },
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "HealthCheckError",
+                "message": "Health check failed",
+                "request_id": request_id
+            }
+        ) from e
 
 
 @router.get(
@@ -69,7 +109,8 @@ async def root():
     summary="Sistema metrics",
     description="Retorna métricas detalhadas do sistema (cache, performance, etc)"
 )
-async def get_metrics():
+@limiter.limit("20/minute")  # v2.1: Rate limiting para metrics
+async def get_metrics(request: Request):
     """
     Retorna métricas completas do sistema.
     
@@ -88,63 +129,89 @@ async def get_metrics():
         worker_pool
     )
     
-    metrics = {
-        "timestamp": datetime.now().isoformat(),
-        "uptime_seconds": round(time.time() - _start_time, 2),
-        "optimizations_version": "2.0",
-        "model_cache": None,
-        "transcription_cache": None,
-        "file_cleanup": None,
-        "ffmpeg": None,
-        "worker_pool": None
-    }
+    request_id = getattr(request.state, "request_id", "unknown")
     
-    # Cache de modelos Whisper
-    if model_cache:
-        try:
-            metrics["model_cache"] = model_cache.get_cache_stats()
-        except Exception as e:
-            metrics["model_cache"] = {"error": str(e)}
+    try:
+        metrics = {
+            "timestamp": datetime.now().isoformat(),
+            "request_id": request_id,
+            "uptime_seconds": round(time.time() - _start_time, 2),
+            "optimizations_version": "2.0",
+            "model_cache": None,
+            "transcription_cache": None,
+            "file_cleanup": None,
+            "ffmpeg": None,
+            "worker_pool": None
+        }
+        
+        # Cache de modelos Whisper
+        if model_cache:
+            try:
+                metrics["model_cache"] = model_cache.get_cache_stats()
+            except Exception as e:
+                logger.error(f"Failed to get model cache stats: {e}", exc_info=True)
+                metrics["model_cache"] = {"error": str(e)}
+        
+        # Cache de transcrições
+        if transcription_cache:
+            try:
+                metrics["transcription_cache"] = transcription_cache.get_stats()
+            except Exception as e:
+                logger.error(f"Failed to get transcription cache stats: {e}", exc_info=True)
+                metrics["transcription_cache"] = {"error": str(e)}
+        
+        # Cleanup manager
+        if file_cleanup_manager:
+            try:
+                metrics["file_cleanup"] = file_cleanup_manager.get_stats()
+            except Exception as e:
+                logger.error(f"Failed to get cleanup stats: {e}", exc_info=True)
+                metrics["file_cleanup"] = {"error": str(e)}
+        
+        # FFmpeg capabilities
+        if ffmpeg_optimizer:
+            try:
+                capabilities = ffmpeg_optimizer.get_capabilities()
+                metrics["ffmpeg"] = {
+                    "version": capabilities.version,
+                    "has_hw_acceleration": capabilities.has_hw_acceleration,
+                    "has_cuda": capabilities.has_cuda,
+                    "has_nvenc": capabilities.has_nvenc,
+                    "has_nvdec": capabilities.has_nvdec,
+                    "has_vaapi": capabilities.has_vaapi,
+                    "has_videotoolbox": capabilities.has_videotoolbox,
+                    "has_amf": capabilities.has_amf
+                }
+            except Exception as e:
+                logger.error(f"Failed to get ffmpeg capabilities: {e}", exc_info=True)
+                metrics["ffmpeg"] = {"error": str(e)}
+        
+        # Worker pool
+        if worker_pool:
+            try:
+                metrics["worker_pool"] = worker_pool.get_stats()
+            except Exception as e:
+                logger.error(f"Failed to get worker pool stats: {e}", exc_info=True)
+                metrics["worker_pool"] = {"error": str(e)}
+        
+        logger.debug("Metrics retrieved", extra={"request_id": request_id})
+        
+        return metrics
     
-    # Cache de transcrições
-    if transcription_cache:
-        try:
-            metrics["transcription_cache"] = transcription_cache.get_stats()
-        except Exception as e:
-            metrics["transcription_cache"] = {"error": str(e)}
-    
-    # Cleanup manager
-    if file_cleanup_manager:
-        try:
-            metrics["file_cleanup"] = file_cleanup_manager.get_stats()
-        except Exception as e:
-            metrics["file_cleanup"] = {"error": str(e)}
-    
-    # FFmpeg capabilities
-    if ffmpeg_optimizer:
-        try:
-            capabilities = ffmpeg_optimizer.get_capabilities()
-            metrics["ffmpeg"] = {
-                "version": capabilities.version,
-                "has_hw_acceleration": capabilities.has_hw_acceleration,
-                "has_cuda": capabilities.has_cuda,
-                "has_nvenc": capabilities.has_nvenc,
-                "has_nvdec": capabilities.has_nvdec,
-                "has_vaapi": capabilities.has_vaapi,
-                "has_videotoolbox": capabilities.has_videotoolbox,
-                "has_amf": capabilities.has_amf
+    except Exception as e:
+        logger.error(
+            "Failed to get metrics",
+            extra={"request_id": request_id, "error": str(e)},
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "MetricsError",
+                "message": "Failed to retrieve metrics",
+                "request_id": request_id
             }
-        except Exception as e:
-            metrics["ffmpeg"] = {"error": str(e)}
-    
-    # Worker pool
-    if worker_pool:
-        try:
-            metrics["worker_pool"] = worker_pool.get_stats()
-        except Exception as e:
-            metrics["worker_pool"] = {"error": str(e)}
-    
-    return metrics
+        ) from e
 
 
 @router.post(

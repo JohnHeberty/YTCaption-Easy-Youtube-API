@@ -1,6 +1,8 @@
 """
 YouTube Downloader Implementation using yt-dlp.
 Implementação concreta da interface IVideoDownloader.
+
+v2.1: Retry logic com exponential backoff e circuit breaker.
 """
 import asyncio
 import re
@@ -8,11 +10,19 @@ from pathlib import Path
 from typing import Optional, Dict, Tuple
 import yt_dlp
 from loguru import logger
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
+from circuitbreaker import circuit
 
 from src.domain.interfaces import IVideoDownloader
 from src.domain.value_objects import YouTubeURL
 from src.domain.entities import VideoFile
-from src.domain.exceptions import VideoDownloadError
+from src.domain.exceptions import VideoDownloadError, NetworkError, AudioTooLongError
 
 
 class YouTubeDownloader(IVideoDownloader):
@@ -90,6 +100,14 @@ class YouTubeDownloader(IVideoDownloader):
         self.max_filesize = max_filesize
         self.timeout = timeout
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=30),
+        retry=retry_if_exception_type((yt_dlp.utils.DownloadError, ConnectionError, TimeoutError)),
+        before_sleep=before_sleep_log(logger, logger.level("WARNING").no),
+        reraise=True
+    )
+    @circuit(failure_threshold=5, recovery_timeout=60, name="youtube_download")
     async def download(
         self, 
         url: YouTubeURL, 
@@ -99,6 +117,8 @@ class YouTubeDownloader(IVideoDownloader):
     ) -> VideoFile:
         """
         Baixa vídeo do YouTube na pior qualidade (focado em áudio).
+        
+        v2.1: Com retry (3 tentativas) e circuit breaker (5 falhas = 60s cooldown).
         
         Args:
             url: URL do YouTube
@@ -111,9 +131,10 @@ class YouTubeDownloader(IVideoDownloader):
             
         Raises:
             VideoDownloadError: Se houver erro no download
+            AudioTooLongError: Se vídeo exceder duração máxima
         """
         try:
-            logger.info(f"Starting download: {url.video_id}")
+            logger.info(f"🔽 Starting download: {url.video_id}")
             
             # Validar duração antes de baixar (para vídeos longos)
             if validate_duration:
@@ -122,19 +143,20 @@ class YouTubeDownloader(IVideoDownloader):
                 
                 if duration > 0:
                     duration_formatted = f"{duration//3600}h {(duration%3600)//60}m {duration%60}s"
-                    logger.info(f"Video duration: {duration}s (~{duration_formatted})")
+                    logger.info(f"📹 Video duration: {duration}s (~{duration_formatted})")
                     
                     if max_duration and duration > max_duration:
                         max_formatted = f"{max_duration//3600}h {(max_duration%3600)//60}m"
-                        raise VideoDownloadError(
-                            f"Video too long: {duration_formatted} "
-                            f"(maximum allowed: {max_formatted})"
+                        logger.error(
+                            f"❌ Video too long: {duration}s > {max_duration}s"
                         )
+                        # v2.1: Usar exceção granular
+                        raise AudioTooLongError(duration, max_duration)
                     
                     # Estimar tempo de processamento
                     estimated_processing = duration * 0.5  # Base model ~0.5x realtime
                     est_formatted = f"{int(estimated_processing//60)}m {int(estimated_processing%60)}s"
-                    logger.info(f"Estimated processing time: ~{est_formatted}")
+                    logger.info(f"⏱️  Estimated processing time: ~{est_formatted}")
             
             # Garantir que o diretório existe
             output_path.mkdir(parents=True, exist_ok=True)
@@ -183,12 +205,18 @@ class YouTubeDownloader(IVideoDownloader):
             
             return video_file
             
+        except AudioTooLongError:
+            # Re-raise sem wrapper
+            raise
         except yt_dlp.utils.DownloadError as e:
-            logger.error(f"yt-dlp download error: {str(e)}")
-            raise VideoDownloadError(f"Failed to download video: {str(e)}")
+            logger.error(f"🔥 yt-dlp download error: {str(e)}", exc_info=True)
+            raise VideoDownloadError(f"Failed to download video: {str(e)}") from e
+        except (ConnectionError, TimeoutError) as e:
+            logger.error(f"🔥 Network error during download: {str(e)}", exc_info=True)
+            raise NetworkError("YouTube", str(e)) from e
         except Exception as e:
-            logger.error(f"Unexpected download error: {str(e)}")
-            raise VideoDownloadError(f"Unexpected error during download: {str(e)}")
+            logger.error(f"🔥 Unexpected download error: {type(e).__name__}: {str(e)}", exc_info=True)
+            raise VideoDownloadError(f"Unexpected error during download: {str(e)}") from e
     
     def _download_sync(self, url: str, ydl_opts: dict) -> dict:
         """
@@ -217,9 +245,19 @@ class YouTubeDownloader(IVideoDownloader):
                 'duration': info.get('duration', 0)
             }
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((yt_dlp.utils.DownloadError, ConnectionError, TimeoutError)),
+        before_sleep=before_sleep_log(logger, logger.level("WARNING").no),
+        reraise=True
+    )
+    @circuit(failure_threshold=5, recovery_timeout=60, name="youtube_info")
     async def get_video_info(self, url: YouTubeURL) -> dict:
         """
         Obtém informações do vídeo sem baixar.
+        
+        v2.1: Com retry (3 tentativas) e circuit breaker.
         
         Args:
             url: URL do YouTube
