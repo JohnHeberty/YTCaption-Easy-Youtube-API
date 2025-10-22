@@ -16,8 +16,8 @@ from loguru import logger
 
 from src.config import settings
 from src.domain.interfaces import IStorageService
-from src.application.dtos import HealthCheckDTO
-from src.presentation.api.dependencies import get_storage_service
+from src.application.dtos import HealthCheckDTO, ReadinessCheckDTO, ErrorResponseDTO
+from src.presentation.api.dependencies import get_storage_service, raise_error
 
 router = APIRouter(tags=["System"])
 
@@ -31,10 +31,42 @@ limiter = Limiter(key_func=get_remote_address)
 @router.get(
     "/health",
     response_model=HealthCheckDTO,
+    status_code=status.HTTP_200_OK,
     summary="Health check",
-    description="Returns the API health status and system information"
+    description="""
+    Returns the API health status and system information.
+    
+    **⚡ Rate Limit:** 30 requests per minute per IP address
+    
+    Provides:
+    - API status
+    - Version information
+    - Whisper model in use
+    - Storage usage statistics
+    - Uptime
+    """,
+    responses={
+        200: {
+            "description": "API is healthy",
+            "model": HealthCheckDTO,
+            "headers": {
+                "X-Request-ID": {
+                    "description": "Request identifier",
+                    "schema": {"type": "string"}
+                },
+                "X-Process-Time": {
+                    "description": "Processing time",
+                    "schema": {"type": "string"}
+                }
+            }
+        },
+        500: {
+            "description": "Health check failed",
+            "model": ErrorResponseDTO
+        }
+    }
 )
-@limiter.limit("30/minute")  # v2.1: Rate limiting para health check
+@limiter.limit("30/minute")
 async def health_check(
     request: Request,
     storage: IStorageService = Depends(get_storage_service)
@@ -79,23 +111,58 @@ async def health_check(
             },
             exc_info=True
         )
-        raise HTTPException(
+        raise_error(
             status_code=500,
-            detail={
-                "error": "HealthCheckError",
-                "message": "Health check failed",
-                "request_id": request_id
-            }
-        ) from e
+            error_type="HealthCheckError",
+            message="Health check failed",
+            request_id=request_id,
+            details={"error": str(e)}
+        )
 
 
 @router.get(
     "/health/ready",
+    response_model=ReadinessCheckDTO,
+    status_code=status.HTTP_200_OK,
     summary="Readiness check",
-    description="Kubernetes/Docker readiness probe - validates all critical components"
+    description="""
+    Kubernetes/Docker readiness probe - validates all critical components.
+    
+    **⚡ Rate Limit:** 60 requests per minute per IP address
+    
+    Checks:
+    - Model cache
+    - Transcription cache  
+    - FFmpeg availability
+    - Whisper library
+    - Storage service
+    - File cleanup manager
+    
+    Returns 503 if any component is unhealthy.
+    """,
+    responses={
+        200: {
+            "description": "All components ready",
+            "model": ReadinessCheckDTO,
+            "headers": {
+                "X-Request-ID": {
+                    "description": "Request identifier",
+                    "schema": {"type": "string"}
+                },
+                "X-Process-Time": {
+                    "description": "Processing time",
+                    "schema": {"type": "string"}
+                }
+            }
+        },
+        503: {
+            "description": "One or more components not ready",
+            "model": ErrorResponseDTO
+        }
+    }
 )
-@limiter.limit("60/minute")  # Mais permissivo para health checks automáticos
-async def readiness_check(request: Request) -> Dict[str, Any]:
+@limiter.limit("60/minute")
+async def readiness_check(request: Request) -> ReadinessCheckDTO:
     """
     Readiness probe detalhado para Kubernetes/Docker.
     
@@ -253,13 +320,13 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
         }
     
     # Verificar se todos estão saudáveis
-    all_healthy = all(
-        check.get("status") == "healthy" 
-        for check in checks.values()
-    )
+    checks_status = {
+        k: (v.get("status") == "healthy")
+        for k, v in checks.items()
+    }
     
+    all_healthy = all(checks_status.values())
     overall_status = "ready" if all_healthy else "not_ready"
-    http_status = status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
     
     logger.info(
         f"Readiness check: {overall_status}",
@@ -270,17 +337,27 @@ async def readiness_check(request: Request) -> Dict[str, Any]:
         }
     )
     
-    return {
-        "status": overall_status,
-        "timestamp": datetime.utcnow().isoformat(),
-        "checks": checks,
-        "summary": {
-            "total_checks": len(checks),
-            "healthy": sum(1 for c in checks.values() if c.get("status") == "healthy"),
-            "unhealthy": sum(1 for c in checks.values() if c.get("status") == "unhealthy"),
-            "unknown": sum(1 for c in checks.values() if c.get("status") == "unknown")
-        }
-    }, http_status
+    # Retornar DTO
+    if not all_healthy:
+        # Se não está ready, lançar erro 503
+        unhealthy_components = [k for k, v in checks.items() if v.get("status") != "healthy"]
+        raise_error(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            error_type="ServiceNotReady",
+            message=f"Service not ready. Unhealthy components: {', '.join(unhealthy_components)}",
+            request_id=request_id,
+            details={
+                "checks": checks,
+                "unhealthy_components": unhealthy_components
+            }
+        )
+    
+    return ReadinessCheckDTO(
+        status=overall_status,
+        checks=checks_status,
+        message="All systems operational",
+        timestamp=time.time()
+    )
 
 
 @router.get(
