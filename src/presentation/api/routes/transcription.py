@@ -77,8 +77,8 @@ limiter = Limiter(key_func=get_remote_address)
 )
 @limiter.limit("5/minute")  # v2.1: Rate limiting
 async def transcribe_video(
-    request_obj: Request,  # Renomeado para evitar conflito
-    request: TranscribeRequestDTO,
+    request: Request,  # ✅ CORRIGIDO: Primeiro parâmetro deve ser Request
+    request_dto: TranscribeRequestDTO,  # ✅ Renomeado para request_dto
     use_case: TranscribeYouTubeVideoUseCase = Depends(get_transcribe_use_case)
 ) -> TranscribeResponseDTO:
     """
@@ -89,20 +89,20 @@ async def transcribe_video(
     
     Retorna a transcrição completa com segmentos timestampados.
     """
-    request_id = getattr(request_obj.state, "request_id", "unknown")
+    request_id = getattr(request.state, "request_id", "unknown")
     
     try:
         logger.info(
             "📝 Transcription request received",
             extra={
                 "request_id": request_id,
-                "youtube_url": request.youtube_url,
-                "language": request.language,
-                "client_ip": request_obj.client.host if request_obj.client else "unknown"
+                "youtube_url": request_dto.youtube_url,
+                "language": request_dto.language,
+                "client_ip": request.client.host if request.client else "unknown"
             }
         )
         
-        response = await use_case.execute(request)
+        response = await use_case.execute(request_dto)
         
         logger.info(
             "✅ Transcription successful",
@@ -124,7 +124,7 @@ async def transcribe_video(
                 "request_id": request_id,
                 "duration": e.duration,
                 "max_duration": e.max_duration,
-                "url": request.youtube_url
+                "url": request_dto.youtube_url
             }
         )
         raise HTTPException(
@@ -164,7 +164,7 @@ async def transcribe_video(
             extra={
                 "request_id": request_id,
                 "error": str(e),
-                "url": request.youtube_url
+                "url": request_dto.youtube_url
             }
         )
         raise HTTPException(
@@ -173,7 +173,7 @@ async def transcribe_video(
                 "error": "ValidationError",
                 "message": str(e),
                 "request_id": request_id,
-                "details": {"url": request.youtube_url}
+                "details": {"url": request_dto.youtube_url}
             }
         ) from e
     
@@ -206,7 +206,7 @@ async def transcribe_video(
                 "request_id": request_id,
                 "error_type": type(e).__name__,
                 "error": str(e),
-                "url": request.youtube_url
+                "url": request_dto.youtube_url
             }
         )
         raise HTTPException(
@@ -215,7 +215,7 @@ async def transcribe_video(
                 "error": type(e).__name__,
                 "message": str(e),
                 "request_id": request_id,
-                "details": {"url": request.youtube_url}
+                "details": {"url": request_dto.youtube_url}
             }
         ) from e
     
@@ -244,7 +244,7 @@ async def transcribe_video(
                 "request_id": request_id,
                 "error_type": type(e).__name__,
                 "error": str(e),
-                "url": request.youtube_url
+                "url": request_dto.youtube_url
             },
             exc_info=True
         )

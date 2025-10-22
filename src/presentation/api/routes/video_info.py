@@ -24,8 +24,8 @@ limiter = Limiter(key_func=get_remote_address)
 @router.post("/video/info")
 @limiter.limit("10/minute")  # v2.1: Rate limiting
 async def get_video_info(
-    request_obj: Request,  # Renomeado para evitar conflito
-    request: TranscribeRequestDTO,
+    request: Request,  # ✅ CORRIGIDO: Primeiro parâmetro Request
+    request_dto: TranscribeRequestDTO,  # ✅ Renomeado para request_dto
     downloader: IVideoDownloader = Depends(Container.get_video_downloader)
 ):
     """
@@ -33,7 +33,7 @@ async def get_video_info(
     Inclui detecção de idioma e legendas disponíveis.
     
     Args:
-        request: Requisição com URL do YouTube
+        request_dto: Requisição com URL do YouTube
         
     Returns:
         Informações completas do vídeo incluindo:
@@ -45,27 +45,27 @@ async def get_video_info(
     Raises:
         HTTPException: Se houver erro ao obter informações
     """
-    request_id = getattr(request_obj.state, "request_id", "unknown")
+    request_id = getattr(request.state, "request_id", "unknown")
     
     try:
         logger.info(
             "Getting video info",
             extra={
                 "request_id": request_id,
-                "youtube_url": request.youtube_url,
-                "client_ip": request_obj.client.host if request_obj.client else "unknown"
+                "youtube_url": request_dto.youtube_url,
+                "client_ip": request.client.host if request.client else "unknown"
             }
         )
         
         # Validar URL
         try:
-            youtube_url = YouTubeURL.create(request.youtube_url)
+            youtube_url = YouTubeURL.create(request_dto.youtube_url)
         except ValueError as e:
             logger.warning(
                 "Invalid YouTube URL",
                 extra={
                     "request_id": request_id,
-                    "url": request.youtube_url,
+                    "url": request_dto.youtube_url,
                     "error": str(e)
                 }
             )
@@ -167,7 +167,7 @@ async def get_video_info(
                 "request_id": request_id,
                 "error_type": type(e).__name__,
                 "error": str(e),
-                "url": request.youtube_url
+                "url": request_dto.youtube_url
             },
             exc_info=True
         )
@@ -187,7 +187,7 @@ async def get_video_info(
                 "request_id": request_id,
                 "error_type": type(e).__name__,
                 "error": str(e),
-                "url": request.youtube_url
+                "url": request_dto.youtube_url
             },
             exc_info=True
         )
