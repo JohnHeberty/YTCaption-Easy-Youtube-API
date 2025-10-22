@@ -1,47 +1,47 @@
 # YouTube Module v3.0 - Resilience System
 
-Sistema robusto de download de vídeos do YouTube com resiliência.
+Robust YouTube video download system with resilience.
 
 ---
 
-## Visão Geral
+## Overview
 
-O **YouTube Resilience System v3.0** implementa download inteligente com:
-- **7 estratégias progressivas** (Standard → Tor)
-- **Rate limiting adaptativo**
+The **YouTube Resilience System v3.0** implements intelligent download with:
+- **7 progressive strategies** (Standard → Tor)
+- **Adaptive rate limiting**
 - **User-agent rotation**
 - **Proxy support** (HTTP/SOCKS5)
 - **Circuit breaker pattern**
-- **Retry exponencial** com jitter
+- **Exponential retry** with jitter
 
 ---
 
-## Estratégias de Download
+## Download Strategies
 
-1. **Standard**: Download direto com yt-dlp
-2. **Format Fallback**: Tenta formatos alternativos
-3. **Slow Mode**: Rate limiting agressivo
-4. **Proxy**: Usa proxy HTTP/SOCKS5
-5. **User-Agent Rotation**: Rotaciona headers
-6. **Cookies**: Usa cookies do navegador
-7. **Tor Network**: Último recurso via Tor
+1. **Standard**: Direct download with yt-dlp
+2. **Format Fallback**: Tries alternative formats
+3. **Slow Mode**: Aggressive rate limiting
+4. **Proxy**: Uses HTTP/SOCKS5 proxy
+5. **User-Agent Rotation**: Rotates headers
+6. **Cookies**: Uses browser cookies
+7. **Tor Network**: Last resort via Tor
 
-**Fallback automático**: Se uma estratégia falha, tenta a próxima automaticamente.
+**Automatic fallback**: If one strategy fails, automatically tries the next.
 
 ---
 
-## Componentes
+## Components
 
 ### YouTubeDownloader
-- Implementa `IVideoDownloader`
-- Orquestra estratégias de download
-- Circuit breaker (falhas > threshold = OPEN)
-- Métricas de sucesso/falha por estratégia
+- Implements `IVideoDownloader`
+- Orchestrates download strategies
+- Circuit breaker (failures > threshold = OPEN)
+- Success/failure metrics per strategy
 
 ### DownloadConfig
-- Configuração de timeouts
-- Limites de rate limiting
-- Preferências de formato/qualidade
+- Timeout configuration
+- Rate limiting limits
+- Format/quality preferences
 - Retry settings
 
 ### RateLimiter
@@ -50,52 +50,52 @@ O **YouTube Resilience System v3.0** implementa download inteligente com:
 - Per-domain limits
 
 ### UserAgentRotator
-- Pool de 20+ user agents
-- Rotação aleatória
-- Headers realistas
+- Pool of 20+ user agents
+- Random rotation
+- Realistic headers
 
 ### ProxyManager
-- Lista de proxies gratuitos/pagos
-- Health check automático
-- Fallback quando proxy falha
+- List of free/paid proxies
+- Automatic health check
+- Fallback when proxy fails
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.infrastructure.youtube import YouTubeDownloader
 from src.domain.value_objects import YouTubeURL
 
-# Criar downloader
+# Create downloader
 downloader = YouTubeDownloader(
     max_retries=3,
     enable_tor=True,
     proxy_list=["http://proxy1:8080", "socks5://proxy2:1080"]
 )
 
-# Download com fallback automático
+# Download with automatic fallback
 url = YouTubeURL.create("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 video = await downloader.download(url, Path("temp/video.mp4"))
 
-# Métricas
+# Metrics
 stats = downloader.get_stats()
-print(f"Sucesso: {stats['success_rate']}%")
-print(f"Estratégia mais usada: {stats['most_used_strategy']}")
+print(f"Success: {stats['success_rate']}%")
+print(f"Most used strategy: {stats['most_used_strategy']}")
 ```
 
 ---
 
-##Métricas
+## Metrics
 
 - Total downloads: 10,250
-- Taxa de sucesso: 94.2%
-- Estratégia Standard: 85% sucesso
-- Fallback para Tor: 3% dos casos
-- Tempo médio: 12.5s
+- Success rate: 94.2%
+- Standard strategy: 85% success
+- Fallback to Tor: 3% of cases
+- Average time: 12.5s
 
 ---
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
