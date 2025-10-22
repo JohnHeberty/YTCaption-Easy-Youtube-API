@@ -14,7 +14,7 @@ import json
 import threading
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from collections import OrderedDict
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta

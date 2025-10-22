@@ -136,8 +136,8 @@ async def lifespan(app: FastAPI):
     # 1. Inicializar cache de modelos Whisper
     logger.info("🚀 [v2.0] Initializing Whisper model cache (singleton)...")
     model_cache = get_model_cache()
-    model_cache.set_unload_timeout(settings.model_cache_timeout_minutes)
-    logger.info(f"✅ Model cache initialized (timeout: {settings.model_cache_timeout_minutes}min)")
+    model_cache.set_unload_timeout(settings.whisper_model_cache_timeout_minutes)
+    logger.info(f"✅ Model cache initialized (timeout: {settings.whisper_model_cache_timeout_minutes}min)")
     
     # 2. Inicializar cache de transcrições
     if settings.enable_transcription_cache:

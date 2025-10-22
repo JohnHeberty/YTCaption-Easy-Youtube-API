@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     cache_ttl_hours: int = Field(default=24, alias="CACHE_TTL_HOURS")
     
     # Model Cache (NOVO - v2.0)
-    model_cache_timeout_minutes: int = Field(default=30, alias="MODEL_CACHE_TIMEOUT_MINUTES")
+    whisper_model_cache_timeout_minutes: int = Field(default=30, alias="MODEL_CACHE_TIMEOUT_MINUTES")
     
     # FFmpeg Optimization (NOVO - v2.0)
     enable_ffmpeg_hw_accel: bool = Field(default=True, alias="ENABLE_FFMPEG_HW_ACCEL")
@@ -78,7 +78,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
+        protected_namespaces=()  # Desabilita proteção de namespace 'model_'
     )
     
     @validator("whisper_model")
