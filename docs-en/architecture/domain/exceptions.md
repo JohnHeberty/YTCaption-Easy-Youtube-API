@@ -1,21 +1,21 @@
 # Domain Exceptions
 
-Hierarquia de exceções customizadas do domínio.
+Custom domain exception hierarchy.
 
 ---
 
-## Visão Geral
+## Overview
 
-O domínio define uma hierarquia de exceções para representar erros de negócio:
-- **Granularidade**: Exceções específicas para debugging preciso
-- **Herança**: Todas derivam de `DomainException`
-- **Context**: Exceções carregam informações relevantes (arquivo, timeout, etc.)
+The domain defines an exception hierarchy to represent business errors:
+- **Granularity**: Specific exceptions for precise debugging
+- **Inheritance**: All derive from `DomainException`
+- **Context**: Exceptions carry relevant information (file, timeout, etc.)
 
-**Arquivo**: `src/domain/exceptions.py`
+**File**: `src/domain/exceptions.py`
 
 ---
 
-## Hierarquia
+## Hierarchy
 
 ```
 DomainException (base)
@@ -40,147 +40,147 @@ DomainException (base)
 
 ---
 
-## Exceções Base
+## Base Exceptions
 
 ### `DomainException`
-Exceção raiz para todos os erros de domínio.
+Root exception for all domain errors.
 
 ```python
 try:
     await service.transcribe(video)
 except DomainException as e:
-    # Captura QUALQUER erro de domínio
-    log.error(f"Erro de domínio: {e}")
+    # Catch ANY domain error
+    log.error(f"Domain error: {e}")
 ```
 
 ### `VideoDownloadError`
-Erro ao baixar vídeo do YouTube.
+Error downloading video from YouTube.
 
 ```python
 try:
     video = await downloader.download(url, path)
 except VideoDownloadError as e:
-    print(f"Falha no download: {e}")
+    print(f"Download failed: {e}")
 ```
 
 ### `TranscriptionError`
-Erro ao transcrever áudio.
+Error transcribing audio.
 
 ```python
 try:
     transcription = await service.transcribe(video)
 except TranscriptionError as e:
-    print(f"Falha na transcrição: {e}")
+    print(f"Transcription failed: {e}")
 ```
 
 ---
 
-## Exceções Granulares (v2.1)
+## Granular Exceptions (v2.1)
 
 ### `AudioTooLongError`
-Áudio excede duração máxima permitida.
+Audio exceeds maximum allowed duration.
 
 ```python
 try:
     validate_audio_duration(video, max_duration=3600)
 except AudioTooLongError as e:
-    print(f"Áudio muito longo: {e.duration}s (máx: {e.max_duration}s)")
+    print(f"Audio too long: {e.duration}s (max: {e.max_duration}s)")
 ```
 
-**Atributos**:
-- `duration: float` - Duração real do áudio
-- `max_duration: float` - Duração máxima permitida
+**Attributes**:
+- `duration: float` - Actual audio duration
+- `max_duration: float` - Maximum allowed duration
 
 ### `AudioCorruptedError`
-Arquivo de áudio corrompido ou ilegível.
+Audio file corrupted or unreadable.
 
 ```python
 try:
     await service.transcribe(video)
 except AudioCorruptedError as e:
-    print(f"Arquivo corrompido: {e.file_path}")
-    print(f"Razão: {e.reason}")
+    print(f"Corrupted file: {e.file_path}")
+    print(f"Reason: {e.reason}")
 ```
 
-**Atributos**:
-- `file_path: str` - Caminho do arquivo
-- `reason: str` - Motivo da corrupção
+**Attributes**:
+- `file_path: str` - File path
+- `reason: str` - Corruption reason
 
 ### `ModelLoadError`
-Erro ao carregar modelo Whisper.
+Error loading Whisper model.
 
 ```python
 try:
     service = WhisperService(model="large")
 except ModelLoadError as e:
-    print(f"Falha ao carregar '{e.model_name}': {e.reason}")
+    print(f"Failed to load '{e.model_name}': {e.reason}")
 ```
 
-**Atributos**:
-- `model_name: str` - Nome do modelo (tiny, base, etc.)
-- `reason: str` - Motivo do erro
+**Attributes**:
+- `model_name: str` - Model name (tiny, base, etc.)
+- `reason: str` - Error reason
 
 ### `WorkerPoolError`
-Erro no pool de workers de transcrição.
+Error in transcription worker pool.
 
 ```python
 try:
     result = await parallel_service.transcribe(video)
 except WorkerPoolError as e:
-    print(f"Worker {e.worker_id} falhou: {e.reason}")
+    print(f"Worker {e.worker_id} failed: {e.reason}")
 ```
 
-**Atributos**:
-- `worker_id: int` - ID do worker (opcional)
-- `reason: str` - Motivo do erro
+**Attributes**:
+- `worker_id: int` - Worker ID (optional)
+- `reason: str` - Error reason
 
 ### `FFmpegError`
-Erro ao executar FFmpeg.
+Error executing FFmpeg.
 
 ```python
 try:
     await ffmpeg_optimizer.optimize(audio_path)
 except FFmpegError as e:
-    print(f"Comando: {e.command}")
-    print(f"Erro: {e.stderr[:200]}")
+    print(f"Command: {e.command}")
+    print(f"Error: {e.stderr[:200]}")
 ```
 
-**Atributos**:
-- `command: str` - Comando FFmpeg executado
-- `stderr: str` - Saída de erro (stderr)
+**Attributes**:
+- `command: str` - FFmpeg command executed
+- `stderr: str` - Error output (stderr)
 
 ### `OperationTimeoutError`
-Operação excedeu tempo limite.
+Operation exceeded time limit.
 
 ```python
 try:
     video = await downloader.download(url, timeout=300)
 except OperationTimeoutError as e:
-    print(f"Operação '{e.operation}' timeout após {e.timeout}s")
+    print(f"Operation '{e.operation}' timeout after {e.timeout}s")
 ```
 
-**Atributos**:
-- `operation: str` - Nome da operação
-- `timeout: float` - Tempo limite em segundos
+**Attributes**:
+- `operation: str` - Operation name
+- `timeout: float` - Time limit in seconds
 
 ### `QuotaExceededError`
-Quota/limite de uso excedido.
+Usage quota/limit exceeded.
 
 ```python
 try:
     await rate_limiter.acquire()
 except QuotaExceededError as e:
-    print(f"Quota excedida: {e.current}/{e.limit} {e.resource}")
+    print(f"Quota exceeded: {e.current}/{e.limit} {e.resource}")
 ```
 
-**Atributos**:
-- `resource: str` - Recurso limitado
-- `limit: int` - Limite máximo
-- `current: int` - Uso atual
+**Attributes**:
+- `resource: str` - Limited resource
+- `limit: int` - Maximum limit
+- `current: int` - Current usage
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.domain.exceptions import (
@@ -192,14 +192,14 @@ from src.domain.exceptions import (
 
 async def transcribe_video(video: VideoFile):
     try:
-        # Validar duração
+        # Validate duration
         if video.duration > 3600:
             raise AudioTooLongError(
                 duration=video.duration,
                 max_duration=3600
             )
         
-        # Carregar modelo
+        # Load model
         try:
             service = WhisperService(model="large")
         except Exception as e:
@@ -208,31 +208,31 @@ async def transcribe_video(video: VideoFile):
                 reason=str(e)
             )
         
-        # Transcrever
+        # Transcribe
         return await service.transcribe(video)
     
     except AudioTooLongError as e:
-        log.warning(f"Áudio muito longo: {e.duration}s")
+        log.warning(f"Audio too long: {e.duration}s")
         raise
     
     except ModelLoadError as e:
-        log.error(f"Erro ao carregar modelo: {e.reason}")
-        # Fallback para modelo menor
+        log.error(f"Error loading model: {e.reason}")
+        # Fallback to smaller model
         service = WhisperService(model="base")
         return await service.transcribe(video)
     
     except TranscriptionError as e:
-        log.error(f"Erro na transcrição: {e}")
+        log.error(f"Transcription error: {e}")
         raise
     
     except DomainException as e:
-        log.error(f"Erro de domínio: {e}")
+        log.error(f"Domain error: {e}")
         raise
 ```
 
 ---
 
-## Testes
+## Tests
 
 ```python
 def test_audio_too_long_error():
@@ -258,6 +258,6 @@ def test_ffmpeg_error():
 
 ---
 
-[⬅️ Voltar](README.md)
+[⬅️ Back](README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
