@@ -1,154 +1,154 @@
-# Domain Layer - Camada de Domínio
+# Domain Layer
 
-Documentação completa da camada Domain (regras de negócio puras).
+Complete documentation of the Domain layer (pure business rules).
 
 ---
 
-## 📋 Índice
+## 📋 Table of Contents
 
-### Entities (Entidades)
-- [Transcription](./entities/transcription.md) - Entidade principal de transcrição
-- [VideoFile](./entities/video-file.md) - Entidade de arquivo de vídeo
+### Entities
+- [Transcription](./entities/transcription.md) - Main transcription entity
+- [VideoFile](./entities/video-file.md) - Video file entity
 
-### Value Objects (Objetos de Valor)
-- [YouTubeURL](./value-objects/youtube-url.md) - URL validada do YouTube
-- [TranscriptionSegment](./value-objects/transcription-segment.md) - Segmento de transcrição com timestamp
+### Value Objects
+- [YouTubeURL](./value-objects/youtube-url.md) - Validated YouTube URL
+- [TranscriptionSegment](./value-objects/transcription-segment.md) - Transcription segment with timestamp
 
-### Interfaces (Contratos)
-- [IVideoDownloader](./interfaces/downloader.md) - Interface para download de vídeos
-- [ITranscriptionService](./interfaces/transcription-service.md) - Interface para serviço de transcrição
-- [IStorageService](./interfaces/storage-service.md) - Interface para gerenciamento de armazenamento
+### Interfaces (Contracts)
+- [IVideoDownloader](./interfaces/downloader.md) - Interface for video download
+- [ITranscriptionService](./interfaces/transcription-service.md) - Interface for transcription service
+- [IStorageService](./interfaces/storage-service.md) - Interface for storage management
 
 ### Exceptions
-- [Domain Exceptions](./exceptions.md) - Exceções específicas do domínio
+- [Domain Exceptions](./exceptions.md) - Domain-specific exceptions
 
 ---
 
-## Visão Geral
+## Overview
 
-A **Domain Layer** é o coração da aplicação, contendo toda a lógica de negócio pura, sem dependências externas.
+The **Domain Layer** is the heart of the application, containing all pure business logic without external dependencies.
 
-### Princípios
+### Principles
 
-1. **Zero Dependências Externas**
-   - Sem frameworks (FastAPI, Whisper, yt-dlp)
-   - Sem I/O (file system, network, database)
-   - Apenas Python puro
+1. **Zero External Dependencies**
+   - No frameworks (FastAPI, Whisper, yt-dlp)
+   - No I/O (file system, network, database)
+   - Pure Python only
 
-2. **Imutabilidade**
-   - Value Objects são imutáveis (`frozen=True`)
-   - Entities têm estado mutável controlado
+2. **Immutability**
+   - Value Objects are immutable (`frozen=True`)
+   - Entities have controlled mutable state
 
-3. **Validação no Construtor**
-   - Objetos sempre válidos após criação
-   - Exceções levantadas em `__post_init__`
+3. **Constructor Validation**
+   - Objects always valid after creation
+   - Exceptions raised in `__post_init__`
 
 4. **Rich Domain Model**
-   - Métodos de negócio nas entidades
-   - Comportamento encapsulado
+   - Business methods in entities
+   - Encapsulated behavior
 
 ---
 
-## Estrutura
+## Structure
 
 ```
 src/domain/
-├── entities/               # Objetos com identidade
-│   ├── transcription.py    # Transcrição completa com ID
-│   └── video_file.py       # Arquivo de vídeo com ID
+├── entities/               # Objects with identity
+│   ├── transcription.py    # Complete transcription with ID
+│   └── video_file.py       # Video file with ID
 │
-├── value_objects/          # Objetos imutáveis
-│   ├── youtube_url.py      # URL validada (frozen)
-│   └── transcription_segment.py  # Segmento (frozen)
+├── value_objects/          # Immutable objects
+│   ├── youtube_url.py      # Validated URL (frozen)
+│   └── transcription_segment.py  # Segment (frozen)
 │
-├── interfaces/             # Contratos (ABCs)
+├── interfaces/             # Contracts (ABCs)
 │   ├── video_downloader.py
 │   ├── transcription_service.py
 │   └── storage_service.py
 │
-└── exceptions.py           # Exceções de domínio
+└── exceptions.py           # Domain exceptions
 ```
 
 ---
 
-## Diferença: Entity vs Value Object
+## Difference: Entity vs Value Object
 
-### Entity (Entidade)
+### Entity
 
-**Características**:
-- Tem identidade única (ID)
-- Mutável (estado pode mudar)
-- Comparação por ID
-- Tem ciclo de vida
+**Characteristics**:
+- Has unique identity (ID)
+- Mutable (state can change)
+- Comparison by ID
+- Has lifecycle
 
-**Exemplo**: `Transcription`
+**Example**: `Transcription`
 ```python
 transcription1 = Transcription(id="123")
 transcription2 = Transcription(id="123")
-transcription1 == transcription2  # True (mesmo ID)
+transcription1 == transcription2  # True (same ID)
 
-transcription1.add_segment(segment)  # Mutável
+transcription1.add_segment(segment)  # Mutable
 ```
 
-### Value Object (Objeto de Valor)
+### Value Object
 
-**Características**:
-- Sem identidade (sem ID)
-- Imutável (`frozen=True`)
-- Comparação por valor
-- Sem ciclo de vida
+**Characteristics**:
+- No identity (no ID)
+- Immutable (`frozen=True`)
+- Comparison by value
+- No lifecycle
 
-**Exemplo**: `YouTubeURL`
+**Example**: `YouTubeURL`
 ```python
 url1 = YouTubeURL("https://youtube.com/watch?v=123")
 url2 = YouTubeURL("https://youtube.com/watch?v=123")
-url1 == url2  # True (mesmo valor)
+url1 == url2  # True (same value)
 
-url1.url = "outro"  # ERRO! Imutável
+url1.url = "other"  # ERROR! Immutable
 ```
 
 ---
 
-## Regras de Negócio
+## Business Rules
 
 ### YouTubeURL
-- ✅ Aceita: `youtube.com`, `youtu.be`, `m.youtube.com`
-- ✅ Extrai video ID automaticamente
-- ❌ Rejeita: URLs de outros sites
+- ✅ Accepts: `youtube.com`, `youtu.be`, `m.youtube.com`
+- ✅ Extracts video ID automatically
+- ❌ Rejects: URLs from other sites
 
 ### TranscriptionSegment
-- ✅ `start >= 0` (não negativo)
-- ✅ `end >= start` (fim após início)
-- ✅ `text` não vazio
-- ✅ Duração calculada: `end - start`
+- ✅ `start >= 0` (non-negative)
+- ✅ `end >= start` (end after start)
+- ✅ `text` not empty
+- ✅ Duration calculated: `end - start`
 
 ### Transcription
-- ✅ Gera ID único (UUID4)
-- ✅ Agregar segmentos (`add_segment`)
-- ✅ Exportar formatos: SRT, VTT, dict
-- ✅ Calcular duração total
-- ✅ Validar completude
+- ✅ Generates unique ID (UUID4)
+- ✅ Aggregate segments (`add_segment`)
+- ✅ Export formats: SRT, VTT, dict
+- ✅ Calculate total duration
+- ✅ Validate completeness
 
 ---
 
-## Exemplos de Uso
+## Usage Examples
 
-### Criando Transcrição
+### Creating Transcription
 
 ```python
 from src.domain.entities import Transcription
 from src.domain.value_objects import TranscriptionSegment, YouTubeURL
 
-# 1. Criar URL validada
+# 1. Create validated URL
 url = YouTubeURL.create("https://youtube.com/watch?v=dQw4w9WgXcQ")
 
-# 2. Criar transcrição
+# 2. Create transcription
 transcription = Transcription(
     youtube_url=url,
     language="en"
 )
 
-# 3. Adicionar segmentos
+# 3. Add segments
 segment1 = TranscriptionSegment(
     text="Hello, world!",
     start=0.0,
@@ -156,38 +156,38 @@ segment1 = TranscriptionSegment(
 )
 transcription.add_segment(segment1)
 
-# 4. Obter texto completo
+# 4. Get full text
 full_text = transcription.get_full_text()  # "Hello, world!"
 
-# 5. Exportar para SRT
+# 5. Export to SRT
 srt_content = transcription.to_srt()
 ```
 
-### Validação Automática
+### Automatic Validation
 
 ```python
-# ❌ URL inválida
+# ❌ Invalid URL
 try:
     url = YouTubeURL.create("https://vimeo.com/123")
 except ValueError as e:
     print(e)  # "Invalid YouTube URL"
 
-# ❌ Segmento inválido
+# ❌ Invalid segment
 try:
     segment = TranscriptionSegment(
-        text="",  # Vazio!
+        text="",  # Empty!
         start=0.0,
         end=2.0
     )
 except ValueError as e:
     print(e)  # "Text cannot be empty"
 
-# ❌ Tempo inválido
+# ❌ Invalid time
 try:
     segment = TranscriptionSegment(
         text="Hello",
         start=5.0,
-        end=2.0  # Fim antes do início!
+        end=2.0  # End before start!
     )
 except ValueError as e:
     print(e)  # "End time must be greater than or equal to start time"
@@ -195,43 +195,43 @@ except ValueError as e:
 
 ---
 
-## Interfaces (Contratos)
+## Interfaces (Contracts)
 
-Interfaces definem **contratos** que a Infrastructure Layer deve implementar.
+Interfaces define **contracts** that the Infrastructure Layer must implement.
 
-### Por que Interfaces?
+### Why Interfaces?
 
 **Dependency Inversion Principle (SOLID)**:
-- Domain depende de **abstrações** (interfaces)
-- Infrastructure implementa as interfaces
-- Fácil de mockar em testes
-- Fácil de trocar implementações
+- Domain depends on **abstractions** (interfaces)
+- Infrastructure implements the interfaces
+- Easy to mock in tests
+- Easy to swap implementations
 
-**Exemplo**:
+**Example**:
 ```python
-# Domain define a interface
+# Domain defines the interface
 class ITranscriptionService(ABC):
     @abstractmethod
     def transcribe(self, audio_path: Path) -> Transcription:
         ...
 
-# Infrastructure implementa
+# Infrastructure implements
 class WhisperTranscriptionService(ITranscriptionService):
     def transcribe(self, audio_path: Path) -> Transcription:
-        # Implementação real com Whisper
+        # Real implementation with Whisper
         pass
 
-# Application usa a interface
+# Application uses the interface
 class TranscribeVideoUseCase:
     def __init__(self, transcriber: ITranscriptionService):
-        self._transcriber = transcriber  # Depende da interface!
+        self._transcriber = transcriber  # Depends on interface!
 ```
 
 ---
 
-## Exceções de Domínio
+## Domain Exceptions
 
-Exceções específicas para erros de negócio:
+Specific exceptions for business errors:
 
 ```python
 # src/domain/exceptions.py
@@ -248,7 +248,7 @@ class InvalidTranscriptionSegmentError(DomainException):
     pass
 ```
 
-**Uso**:
+**Usage**:
 ```python
 if not self._is_valid_youtube_url(url):
     raise InvalidYouTubeURLError(f"Invalid URL: {url}")
@@ -256,9 +256,9 @@ if not self._is_valid_youtube_url(url):
 
 ---
 
-## Testes de Domain Layer
+## Domain Layer Tests
 
-Domain Layer é **100% testável** sem mocks:
+Domain Layer is **100% testable** without mocks:
 
 ```python
 # tests/unit/domain/test_youtube_url.py
@@ -279,24 +279,24 @@ def test_transcription_segment_duration():
     assert segment.duration == 2.5
 ```
 
-**Vantagens**:
-- Testes rápidos (<1ms)
-- Sem dependências externas
-- Sem mocks necessários
-- Alta cobertura (>90%)
+**Advantages**:
+- Fast tests (<1ms)
+- No external dependencies
+- No mocks needed
+- High coverage (>90%)
 
 ---
 
-## Próximos Passos
+## Next Steps
 
-- [Transcription Entity](./entities/transcription.md) - Entidade principal
-- [YouTubeURL Value Object](./value-objects/youtube-url.md) - URL validada
-- [Application Layer](../application/README.md) - Casos de uso
+- [Transcription Entity](./entities/transcription.md) - Main entity
+- [YouTubeURL Value Object](./value-objects/youtube-url.md) - Validated URL
+- [Application Layer](../application/README.md) - Use cases
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0  
+**Version**: 3.0.0  
 **Última Atualização**: 22 de outubro de 2025  
 **Mantido por**: YTCaption Team
