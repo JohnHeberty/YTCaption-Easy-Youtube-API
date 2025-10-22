@@ -1,46 +1,46 @@
 # Transcription Entity
 
-Entidade principal que representa uma transcrição completa de vídeo.
+Main entity representing a complete video transcription.
 
 ---
 
-## Visão Geral
+## Overview
 
-`Transcription` é uma **Entity** do Domain-Driven Design (DDD), representando uma transcrição completa com:
-- Identidade única (UUID)
-- Estado mutável (pode adicionar segmentos)
-- Ciclo de vida (criação → processamento → finalização)
-- Regras de negócio encapsuladas
+`Transcription` is a **Entity** from Domain-Driven Design (DDD), representing a complete transcription with:
+- Unique identity (UUID)
+- Mutable state (can add segments)
+- Lifecycle (creation → processing → finalization)
+- Encapsulated business rules
 
-**Arquivo**: `src/domain/entities/transcription.py`
+**File**: `src/domain/entities/transcription.py`
 
 ---
 
-## Estrutura
+## Structure
 
 ```python
 @dataclass
 class Transcription:
-    id: str                                    # UUID único
-    youtube_url: Optional[YouTubeURL]          # URL do vídeo
-    segments: List[TranscriptionSegment]       # Segmentos com timestamp
-    language: Optional[str]                    # Idioma ("en", "pt", etc.)
-    created_at: datetime                       # Data de criação
-    processing_time: Optional[float]           # Tempo de processamento (segundos)
+    id: str                                    # Unique UUID
+    youtube_url: Optional[YouTubeURL]          # Video URL
+    segments: List[TranscriptionSegment]       # Segments with timestamp
+    language: Optional[str]                    # Language ("en", "pt", etc.)
+    created_at: datetime                       # Creation date
+    processing_time: Optional[float]           # Processing time (seconds)
 ```
 
 ---
 
-## Propriedades
+## Properties
 
 ### `duration` (readonly)
-Retorna a duração total da transcrição em segundos.
+Returns total transcription duration in seconds.
 
 ```python
-transcription.duration  # 125.5 (em segundos)
+transcription.duration  # 125.5 (in seconds)
 ```
 
-**Implementação**:
+**Implementation**:
 ```python
 @property
 def duration(self) -> float:
@@ -50,13 +50,13 @@ def duration(self) -> float:
 ```
 
 ### `is_complete` (readonly)
-Verifica se a transcrição está completa (tem segmentos e idioma).
+Checks if transcription is complete (has segments and language).
 
 ```python
-transcription.is_complete  # True ou False
+transcription.is_complete  # True or False
 ```
 
-**Implementação**:
+**Implementation**:
 ```python
 @property
 def is_complete(self) -> bool:
@@ -65,10 +65,10 @@ def is_complete(self) -> bool:
 
 ---
 
-## Métodos
+## Methods
 
 ### `add_segment(segment: TranscriptionSegment) -> None`
-Adiciona um segmento de transcrição.
+Adds a transcription segment.
 
 ```python
 segment = TranscriptionSegment(
@@ -82,14 +82,14 @@ transcription.add_segment(segment)
 ---
 
 ### `get_full_text() -> str`
-Retorna o texto completo concatenando todos os segmentos.
+Returns full text by concatenating all segments.
 
 ```python
 text = transcription.get_full_text()
 # "Hello, world! This is a test. Goodbye!"
 ```
 
-**Implementação**:
+**Implementation**:
 ```python
 def get_full_text(self) -> str:
     return " ".join(segment.text for segment in self.segments)
@@ -98,9 +98,9 @@ def get_full_text(self) -> str:
 ---
 
 ### `to_srt() -> str`
-Converte transcrição para formato SRT (legendas).
+Converts transcription to SRT format (subtitles).
 
-**Exemplo de saída**:
+**Example output**:
 ```srt
 1
 00:00:00,000 --> 00:00:02,500
@@ -111,7 +111,7 @@ Hello, world!
 This is a test.
 ```
 
-**Uso**:
+**Usage**:
 ```python
 srt_content = transcription.to_srt()
 with open("subtitles.srt", "w") as f:
@@ -121,9 +121,9 @@ with open("subtitles.srt", "w") as f:
 ---
 
 ### `to_vtt() -> str`
-Converte transcrição para formato WebVTT (legendas web).
+Converts transcription to WebVTT format (web subtitles).
 
-**Exemplo de saída**:
+**Example output**:
 ```vtt
 WEBVTT
 
@@ -134,7 +134,7 @@ Hello, world!
 This is a test.
 ```
 
-**Uso**:
+**Usage**:
 ```python
 vtt_content = transcription.to_vtt()
 with open("subtitles.vtt", "w") as f:
@@ -144,9 +144,9 @@ with open("subtitles.vtt", "w") as f:
 ---
 
 ### `to_dict() -> dict`
-Converte transcrição para dicionário (serialização).
+Converts transcription to dictionary (serialization).
 
-**Saída**:
+**Output**:
 ```python
 {
     "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -174,7 +174,7 @@ Converte transcrição para dicionário (serialização).
 }
 ```
 
-**Uso**:
+**Usage**:
 ```python
 data = transcription.to_dict()
 import json
@@ -183,9 +183,9 @@ json_str = json.dumps(data, indent=2)
 
 ---
 
-## Criação
+## Creation
 
-### Método 1: Construtor padrão
+### Method 1: Default constructor
 ```python
 from src.domain.entities import Transcription
 from src.domain.value_objects import YouTubeURL
@@ -196,12 +196,12 @@ transcription = Transcription(
     youtube_url=url,
     language="en"
 )
-# ID gerado automaticamente (UUID4)
-# created_at definido automaticamente (agora)
-# segments inicializado como lista vazia
+# ID automatically generated (UUID4)
+# created_at automatically set (now)
+# segments initialized as empty list
 ```
 
-### Método 2: Com ID específico (reconstrução)
+### Method 2: With specific ID (reconstruction)
 ```python
 transcription = Transcription(
     id="550e8400-e29b-41d4-a716-446655440000",
@@ -212,20 +212,20 @@ transcription = Transcription(
 
 ---
 
-## Exemplo Completo
+## Complete Example
 
 ```python
 from src.domain.entities import Transcription
 from src.domain.value_objects import TranscriptionSegment, YouTubeURL
 
-# 1. Criar transcrição
+# 1. Create transcription
 url = YouTubeURL.create("https://youtube.com/watch?v=dQw4w9WgXcQ")
 transcription = Transcription(
     youtube_url=url,
     language="en"
 )
 
-# 2. Adicionar segmentos
+# 2. Add segments
 segments_data = [
     {"text": "Never gonna give you up", "start": 0.0, "end": 2.5},
     {"text": "Never gonna let you down", "start": 2.5, "end": 5.0},
@@ -236,22 +236,22 @@ for seg_data in segments_data:
     segment = TranscriptionSegment(**seg_data)
     transcription.add_segment(segment)
 
-# 3. Verificar estado
+# 3. Check state
 print(f"Complete: {transcription.is_complete}")      # True
 print(f"Duration: {transcription.duration}s")        # 7.5
 print(f"Segments: {len(transcription.segments)}")    # 3
 
-# 4. Obter texto completo
+# 4. Get full text
 full_text = transcription.get_full_text()
 print(full_text)
 # "Never gonna give you up Never gonna let you down Never gonna run around"
 
-# 5. Exportar para SRT
+# 5. Export to SRT
 srt_content = transcription.to_srt()
 with open("rickroll.srt", "w", encoding="utf-8") as f:
     f.write(srt_content)
 
-# 6. Serializar para JSON
+# 6. Serialize to JSON
 import json
 data = transcription.to_dict()
 with open("transcription.json", "w", encoding="utf-8") as f:
@@ -260,17 +260,17 @@ with open("transcription.json", "w", encoding="utf-8") as f:
 
 ---
 
-## Regras de Negócio
+## Business Rules
 
-1. **ID Único**: Sempre gerado como UUID4 se não especificado
-2. **Segmentos Ordenados**: Segmentos devem ser adicionados em ordem cronológica
-3. **Completude**: Transcrição completa = tem segmentos + tem idioma
-4. **Duração**: Calculada a partir do último segmento (`max(segment.end)`)
-5. **Idioma**: Código ISO 639-1 (2 letras: "en", "pt", "es", etc.)
+1. **Unique ID**: Always generated as UUID4 if not specified
+2. **Ordered Segments**: Segments must be added in chronological order
+3. **Completeness**: Complete transcription = has segments + has language
+4. **Duration**: Calculated from last segment (`max(segment.end)`)
+5. **Language**: ISO 639-1 code (2 letters: "en", "pt", "es", etc.)
 
 ---
 
-## Testes
+## Tests
 
 ```python
 # tests/unit/domain/entities/test_transcription.py
@@ -282,7 +282,7 @@ def test_create_transcription():
     url = YouTubeURL.create("https://youtube.com/watch?v=123")
     transcription = Transcription(youtube_url=url, language="en")
     
-    assert transcription.id  # UUID gerado
+    assert transcription.id  # UUID generated
     assert transcription.youtube_url == url
     assert transcription.language == "en"
     assert len(transcription.segments) == 0
@@ -312,13 +312,13 @@ def test_duration():
 
 def test_is_complete():
     transcription = Transcription()
-    assert not transcription.is_complete  # Sem segmentos, sem idioma
+    assert not transcription.is_complete  # No segments, no language
     
     transcription.language = "en"
-    assert not transcription.is_complete  # Tem idioma, mas sem segmentos
+    assert not transcription.is_complete  # Has language, but no segments
     
     transcription.add_segment(TranscriptionSegment(text="A", start=0.0, end=1.0))
-    assert transcription.is_complete  # Tem ambos!
+    assert transcription.is_complete  # Has both!
 
 def test_to_srt():
     transcription = Transcription(language="en")
@@ -358,15 +358,15 @@ def test_to_dict():
 
 ---
 
-## Próximos Passos
+## Next Steps
 
-- [VideoFile Entity](./video-file.md) - Entidade de arquivo de vídeo
-- [TranscriptionSegment Value Object](../value-objects/transcription-segment.md) - Segmento de transcrição
-- [YouTubeURL Value Object](../value-objects/youtube-url.md) - URL validada
+- [VideoFile Entity](./video-file.md) - Video file entity
+- [TranscriptionSegment Value Object](../value-objects/transcription-segment.md) - Transcription segment
+- [YouTubeURL Value Object](../value-objects/youtube-url.md) - Validated URL
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0  
-**Última Atualização**: 22 de outubro de 2025
+**Version**: 3.0.0  
+**Last Updated**: October 22, 2025

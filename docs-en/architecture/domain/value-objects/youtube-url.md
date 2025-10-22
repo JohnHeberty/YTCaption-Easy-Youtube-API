@@ -1,59 +1,59 @@
 # YouTubeURL Value Object
 
-Value Object que representa URLs validadas do YouTube.
+Value Object representing validated YouTube URLs.
 
 ---
 
-## Visão Geral
+## Overview
 
-`YouTubeURL` é um **Value Object** imutável que encapsula:
-- URL validada do YouTube
-- Video ID extraído
-- Validação automática via regex
+`YouTubeURL` is an immutable **Value Object** that encapsulates:
+- Validated YouTube URL
+- Extracted video ID
+- Automatic validation via regex
 
-**Arquivo**: `src/domain/value_objects/youtube_url.py`
+**File**: `src/domain/value_objects/youtube_url.py`
 
 ---
 
-## Estrutura
+## Structure
 
 ```python
-@dataclass(frozen=True)  # Imutável
+@dataclass(frozen=True)  # Immutable
 class YouTubeURL:
-    url: str       # URL completa
-    video_id: str  # ID do vídeo (ex: "dQw4w9WgXcQ")
+    url: str       # Full URL
+    video_id: str  # Video ID (e.g., "dQw4w9WgXcQ")
 ```
 
 ---
 
-## Criação
+## Creation
 
 ### `create(url: str) -> YouTubeURL`
-Factory method para criar instâncias validadas.
+Factory method to create validated instances.
 
 ```python
 from src.domain.value_objects import YouTubeURL
 
-# URLs válidas
+# Valid URLs
 url1 = YouTubeURL.create("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 url2 = YouTubeURL.create("https://youtu.be/dQw4w9WgXcQ")
 url3 = YouTubeURL.create("https://m.youtube.com/watch?v=dQw4w9WgXcQ")
 
 print(url1.video_id)  # "dQw4w9WgXcQ"
 
-# URL inválida lança exceção
+# Invalid URL raises exception
 try:
     invalid = YouTubeURL.create("https://vimeo.com/123456")
 except ValueError as e:
-    print(e)  # "URL inválida do YouTube"
+    print(e)  # "Invalid YouTube URL"
 ```
 
 ---
 
-## Formatos Suportados
+## Supported Formats
 
-| Formato | Exemplo |
-|---------|---------|
+| Format | Example |
+|--------|---------|
 | Standard | `https://www.youtube.com/watch?v=VIDEO_ID` |
 | Short | `https://youtu.be/VIDEO_ID` |
 | Mobile | `https://m.youtube.com/watch?v=VIDEO_ID` |
@@ -61,9 +61,9 @@ except ValueError as e:
 
 ---
 
-## Validação
+## Validation
 
-Regex usado:
+Regex used:
 ```python
 _YOUTUBE_REGEX = re.compile(
     r'(https?://)?(www\.|m\.)?'
@@ -72,47 +72,47 @@ _YOUTUBE_REGEX = re.compile(
 )
 ```
 
-**Regras**:
-- Protocol: http ou https (opcional)
+**Rules**:
+- Protocol: http or https (optional)
 - Domain: youtube.com, youtu.be, m.youtube.com
-- Video ID: 11 caracteres alfanuméricos + `-_`
+- Video ID: 11 alphanumeric characters + `-_`
 
 ---
 
-## Exemplo Completo
+## Complete Example
 
 ```python
 from src.domain.value_objects import YouTubeURL
 
-# Criar URL validada
+# Create validated URL
 url = YouTubeURL.create("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
-# Acessar propriedades (readonly)
+# Access properties (readonly)
 print(f"URL: {url.url}")
 print(f"Video ID: {url.video_id}")
 
-# Passar para serviços
+# Pass to services
 downloader.download(url)
 transcriber.transcribe(url)
 
-# Comparação (value equality)
+# Comparison (value equality)
 url1 = YouTubeURL.create("https://youtu.be/dQw4w9WgXcQ")
 url2 = YouTubeURL.create("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-print(url1.video_id == url2.video_id)  # True (mesmo vídeo)
+print(url1.video_id == url2.video_id)  # True (same video)
 ```
 
 ---
 
-## Regras de Negócio
+## Business Rules
 
-1. **Imutabilidade**: `frozen=True` impede modificações
-2. **Validação**: Lança `ValueError` para URLs inválidas
-3. **Video ID**: Sempre 11 caracteres
-4. **Factory Pattern**: Use `create()`, não construtor direto
+1. **Immutability**: `frozen=True` prevents modifications
+2. **Validation**: Raises `ValueError` for invalid URLs
+3. **Video ID**: Always 11 characters
+4. **Factory Pattern**: Use `create()`, not direct constructor
 
 ---
 
-## Testes
+## Tests
 
 ```python
 def test_youtube_url_valid():
@@ -135,6 +135,6 @@ def test_youtube_url_immutable():
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0

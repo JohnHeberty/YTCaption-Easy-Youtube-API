@@ -1,56 +1,56 @@
 # VideoFile Entity
 
-Entidade que representa um arquivo de vídeo baixado.
+Entity representing a downloaded video file.
 
 ---
 
-## Visão Geral
+## Overview
 
-`VideoFile` é uma **Entity** que encapsula informações sobre arquivos de vídeo:
-- Identidade única (UUID)
-- Caminho do arquivo
-- Metadata (tamanho, formato, URL original)
-- Operações (verificar existência, deletar)
+`VideoFile` is an **Entity** that encapsulates video file information:
+- Unique identity (UUID)
+- File path
+- Metadata (size, format, original URL)
+- Operations (check existence, delete)
 
-**Arquivo**: `src/domain/entities/video_file.py`
+**File**: `src/domain/entities/video_file.py`
 
 ---
 
-## Estrutura
+## Structure
 
 ```python
 @dataclass
 class VideoFile:
-    id: str                      # UUID único
-    file_path: Path              # Caminho do arquivo
-    original_url: Optional[str]  # URL original do vídeo
-    file_size_bytes: int         # Tamanho em bytes
-    format: Optional[str]        # Formato (mp4, webm, etc.)
-    created_at: datetime         # Data de criação
+    id: str                      # Unique UUID
+    file_path: Path              # File path
+    original_url: Optional[str]  # Original video URL
+    file_size_bytes: int         # Size in bytes
+    format: Optional[str]        # Format (mp4, webm, etc.)
+    created_at: datetime         # Creation date
 ```
 
 ---
 
-## Propriedades
+## Properties
 
 ### `exists` (readonly)
-Verifica se o arquivo existe no disco.
+Checks if file exists on disk.
 
 ```python
 video = VideoFile(file_path=Path("video.mp4"))
 if video.exists:
-    print("Arquivo encontrado!")
+    print("File found!")
 ```
 
 ### `file_size_mb` (readonly)
-Retorna o tamanho do arquivo em megabytes.
+Returns file size in megabytes.
 
 ```python
-print(f"Tamanho: {video.file_size_mb:.2f} MB")  # "Tamanho: 45.67 MB"
+print(f"Size: {video.file_size_mb:.2f} MB")  # "Size: 45.67 MB"
 ```
 
 ### `extension` (readonly)
-Retorna a extensão do arquivo.
+Returns file extension.
 
 ```python
 print(video.extension)  # ".mp4"
@@ -58,22 +58,22 @@ print(video.extension)  # ".mp4"
 
 ---
 
-## Métodos
+## Methods
 
 ### `delete() -> bool`
-Remove o arquivo do disco.
+Removes file from disk.
 
-**Retorno**: `True` se deletado com sucesso, `False` caso contrário.
+**Returns**: `True` if deleted successfully, `False` otherwise.
 
 ```python
 if video.delete():
-    print("Arquivo removido!")
+    print("File removed!")
 else:
-    print("Falha ao remover")
+    print("Failed to remove")
 ```
 
 ### `to_dict() -> dict`
-Serializa para dicionário.
+Serializes to dictionary.
 
 ```python
 data = video.to_dict()
@@ -90,13 +90,13 @@ data = video.to_dict()
 
 ---
 
-## Exemplo Completo
+## Complete Example
 
 ```python
 from pathlib import Path
 from src.domain.entities import VideoFile
 
-# Criar VideoFile
+# Create VideoFile
 video = VideoFile(
     file_path=Path("temp/video_123.mp4"),
     original_url="https://youtube.com/watch?v=dQw4w9WgXcQ",
@@ -104,32 +104,32 @@ video = VideoFile(
     format="mp4"
 )
 
-# Verificar informações
+# Check information
 print(f"ID: {video.id}")
-print(f"Existe: {video.exists}")
-print(f"Tamanho: {video.file_size_mb:.2f} MB")
-print(f"Extensão: {video.extension}")
+print(f"Exists: {video.exists}")
+print(f"Size: {video.file_size_mb:.2f} MB")
+print(f"Extension: {video.extension}")
 
-# Processar vídeo...
-# (transcrição, etc.)
+# Process video...
+# (transcription, etc.)
 
-# Limpar após uso
+# Clean up after use
 if video.delete():
-    print("Arquivo temporário removido")
+    print("Temporary file removed")
 ```
 
 ---
 
-## Regras de Negócio
+## Business Rules
 
-1. **ID Único**: UUID4 gerado automaticamente
-2. **Path Conversion**: Strings são convertidas para `Path` automaticamente
-3. **Safe Delete**: `delete()` não lança exceção se arquivo não existe
-4. **Size Calculation**: Tamanho em MB calculado a partir de bytes
+1. **Unique ID**: UUID4 automatically generated
+2. **Path Conversion**: Strings are automatically converted to `Path`
+3. **Safe Delete**: `delete()` doesn't raise exception if file doesn't exist
+4. **Size Calculation**: MB size calculated from bytes
 
 ---
 
-## Testes
+## Tests
 
 ```python
 def test_video_file_creation(tmp_path):
@@ -161,6 +161,6 @@ def test_delete_video_file(tmp_path):
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
