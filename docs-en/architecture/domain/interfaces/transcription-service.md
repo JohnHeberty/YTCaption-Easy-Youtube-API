@@ -1,32 +1,32 @@
 # ITranscriptionService Interface
 
-Interface (ABC) que define o contrato para serviços de transcrição.
+Interface (ABC) that defines the contract for transcription services.
 
 ---
 
-## Visão Geral
+## Overview
 
-`ITranscriptionService` é uma **Interface** que:
-- Define o contrato para transcrição de áudio/vídeo
-- Segue o **Dependency Inversion Principle** (SOLID)
-- Permite múltiplas implementações (Whisper, OpenAI API, etc.)
+`ITranscriptionService` is an **Interface** that:
+- Defines the contract for audio/video transcription
+- Follows the **Dependency Inversion Principle** (SOLID)
+- Allows multiple implementations (Whisper, OpenAI API, etc.)
 
-**Arquivo**: `src/domain/interfaces/transcription_service.py`
+**File**: `src/domain/interfaces/transcription_service.py`
 
 ---
 
-## Métodos
+## Methods
 
 ### `transcribe(video_file, language="auto") -> Transcription`
-Transcreve um arquivo de vídeo.
+Transcribes a video file.
 
-**Parâmetros**:
-- `video_file: VideoFile` - Arquivo de vídeo para transcrever
-- `language: str` - Idioma do vídeo (`"auto"` para detecção automática)
+**Parameters**:
+- `video_file: VideoFile` - Video file to transcribe
+- `language: str` - Video language (`"auto"` for automatic detection)
 
-**Retorno**: `Transcription` - Entidade com a transcrição completa
+**Returns**: `Transcription` - Entity with the complete transcription
 
-**Exceções**: `TranscriptionError` - Erro na transcrição
+**Exceptions**: `TranscriptionError` - Transcription error
 
 ```python
 service: ITranscriptionService = WhisperService()
@@ -35,49 +35,49 @@ print(transcription.get_full_text())
 ```
 
 ### `detect_language(video_file) -> str`
-Detecta o idioma do áudio.
+Detects the audio language.
 
-**Parâmetros**:
-- `video_file: VideoFile` - Arquivo de vídeo
+**Parameters**:
+- `video_file: VideoFile` - Video file
 
-**Retorno**: `str` - Código do idioma detectado (ISO 639-1)
+**Returns**: `str` - Detected language code (ISO 639-1)
 
-**Exceções**: `TranscriptionError` - Erro na detecção
+**Exceptions**: `TranscriptionError` - Detection error
 
 ```python
 language = await service.detect_language(video_file)
-print(f"Idioma detectado: {language}")  # "pt"
+print(f"Detected language: {language}")  # "pt"
 ```
 
 ---
 
-## Implementações
+## Implementations
 
 ### `WhisperTranscriptionService` (Infrastructure)
-Implementação usando **OpenAI Whisper** (v2.0 com Parallel Processing).
+Implementation using **OpenAI Whisper** (v2.0 with Parallel Processing).
 
-**Localização**: `src/infrastructure/whisper/transcription_service.py`
+**Location**: `src/infrastructure/whisper/transcription_service.py`
 
-**Características**:
-- Modelos: tiny, base, small, medium, large
-- Detecção automática de idioma
-- Chunking inteligente de áudio
+**Features**:
+- Models: tiny, base, small, medium, large
+- Automatic language detection
+- Intelligent audio chunking
 - GPU acceleration (CUDA/CPU fallback)
 
 ### `ParallelWhisperService` (v2.0+)
-Implementação com **processamento paralelo**.
+Implementation with **parallel processing**.
 
-**Localização**: `src/infrastructure/whisper/parallel_transcription_service.py`
+**Location**: `src/infrastructure/whisper/parallel_transcription_service.py`
 
-**Características**:
-- Worker pool persistente
-- Processamento de chunks paralelos
-- 7-10x speedup (vs sequencial)
+**Features**:
+- Persistent worker pool
+- Parallel chunk processing
+- 7-10x speedup (vs sequential)
 - Memory-efficient chunking
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.domain.interfaces import ITranscriptionService
@@ -87,20 +87,20 @@ async def transcribe_video(
     service: ITranscriptionService,
     video_file: VideoFile
 ):
-    # Detectar idioma
+    # Detect language
     language = await service.detect_language(video_file)
-    print(f"Idioma: {language}")
+    print(f"Language: {language}")
     
-    # Transcrever
+    # Transcribe
     transcription = await service.transcribe(video_file, language)
     
-    # Exportar SRT
+    # Export SRT
     srt_path = Path("output.srt")
     srt_path.write_text(transcription.to_srt())
     
     return transcription
 
-# Injetar implementação
+# Inject implementation
 service = ParallelWhisperService(model="base", num_workers=4)
 result = await transcribe_video(service, video_file)
 ```
@@ -110,29 +110,29 @@ result = await transcribe_video(service, video_file)
 ## Dependency Inversion
 
 ```python
-# ❌ ERRADO: Depender de implementação concreta
+# ❌ WRONG: Depend on concrete implementation
 from src.infrastructure.whisper import WhisperTranscriptionService
 
 class TranscribeUseCase:
     def __init__(self):
-        self.service = WhisperTranscriptionService()  # Acoplamento
+        self.service = WhisperTranscriptionService()  # Coupling
 
-# ✅ CORRETO: Depender de abstração
+# ✅ CORRECT: Depend on abstraction
 from src.domain.interfaces import ITranscriptionService
 
 class TranscribeUseCase:
     def __init__(self, service: ITranscriptionService):
-        self.service = service  # Flexível
+        self.service = service  # Flexible
 ```
 
-**Benefícios**:
-- Testar com mock (sem carregar Whisper)
-- Trocar implementação (Whisper → OpenAI API)
-- Domínio desacoplado de infraestrutura
+**Benefits**:
+- Test with mock (without loading Whisper)
+- Switch implementation (Whisper → OpenAI API)
+- Domain decoupled from infrastructure
 
 ---
 
-## Testes
+## Tests
 
 ```python
 class MockTranscriptionService(ITranscriptionService):
@@ -148,7 +148,7 @@ class MockTranscriptionService(ITranscriptionService):
     async def detect_language(self, video_file):
         return "en"
 
-# Usar mock nos testes
+# Use mock in tests
 async def test_transcribe_use_case():
     mock_service = MockTranscriptionService()
     use_case = TranscribeUseCase(service=mock_service)
@@ -159,6 +159,6 @@ async def test_transcribe_use_case():
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0

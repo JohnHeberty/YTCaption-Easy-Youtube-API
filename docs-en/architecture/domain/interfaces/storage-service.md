@@ -1,64 +1,64 @@
 # IStorageService Interface
 
-Interface (ABC) que define o contrato para gerenciamento de armazenamento.
+Interface (ABC) that defines the contract for storage management.
 
 ---
 
-## Visão Geral
+## Overview
 
-`IStorageService` é uma **Interface** que:
-- Define o contrato para gerenciamento de arquivos temporários
-- Segue o **Dependency Inversion Principle** (SOLID)
-- Permite múltiplas implementações (local, cloud, etc.)
+`IStorageService` is an **Interface** that:
+- Defines the contract for temporary file management
+- Follows the **Dependency Inversion Principle** (SOLID)
+- Allows multiple implementations (local, cloud, etc.)
 
-**Arquivo**: `src/domain/interfaces/storage_service.py`
+**File**: `src/domain/interfaces/storage_service.py`
 
 ---
 
-## Métodos
+## Methods
 
 ### `create_temp_directory() -> Path`
-Cria um diretório temporário.
+Creates a temporary directory.
 
-**Retorno**: `Path` - Caminho do diretório criado
+**Returns**: `Path` - Path of the created directory
 
 ```python
 storage: IStorageService = LocalStorageService()
 temp_dir = await storage.create_temp_directory()
-print(f"Diretório: {temp_dir}")  # "temp/session_abc123"
+print(f"Directory: {temp_dir}")  # "temp/session_abc123"
 ```
 
 ### `cleanup_old_files(max_age_hours=24) -> int`
-Remove arquivos antigos do armazenamento temporário.
+Removes old files from temporary storage.
 
-**Parâmetros**:
-- `max_age_hours: int` - Idade máxima dos arquivos em horas (padrão: 24h)
+**Parameters**:
+- `max_age_hours: int` - Maximum age of files in hours (default: 24h)
 
-**Retorno**: `int` - Número de arquivos removidos
+**Returns**: `int` - Number of files removed
 
 ```python
 removed = await storage.cleanup_old_files(max_age_hours=12)
-print(f"Removidos: {removed} arquivos")
+print(f"Removed: {removed} files")
 ```
 
 ### `cleanup_directory(directory) -> bool`
-Remove um diretório e todo seu conteúdo.
+Removes a directory and all its contents.
 
-**Parâmetros**:
-- `directory: Path` - Diretório a ser removido
+**Parameters**:
+- `directory: Path` - Directory to be removed
 
-**Retorno**: `bool` - `True` se removido com sucesso
+**Returns**: `bool` - `True` if successfully removed
 
 ```python
 success = await storage.cleanup_directory(temp_dir)
 if success:
-    print("Diretório limpo!")
+    print("Directory cleaned!")
 ```
 
 ### `get_temp_files() -> List[Path]`
-Lista todos os arquivos temporários.
+Lists all temporary files.
 
-**Retorno**: `List[Path]` - Lista de caminhos dos arquivos
+**Returns**: `List[Path]` - List of file paths
 
 ```python
 files = await storage.get_temp_files()
@@ -67,59 +67,59 @@ for file in files:
 ```
 
 ### `get_storage_usage() -> dict`
-Obtém informações sobre uso de armazenamento.
+Gets storage usage information.
 
-**Retorno**: `dict` - Informações de uso (total, usado, livre)
+**Returns**: `dict` - Usage information (total, used, free)
 
 ```python
 usage = await storage.get_storage_usage()
 print(f"Total: {usage['total_gb']:.2f} GB")
-print(f"Usado: {usage['used_gb']:.2f} GB")
-print(f"Livre: {usage['free_gb']:.2f} GB")
+print(f"Used: {usage['used_gb']:.2f} GB")
+print(f"Free: {usage['free_gb']:.2f} GB")
 ```
 
 ---
 
-## Implementações
+## Implementations
 
 ### `LocalStorageService` (Infrastructure)
-Implementação para armazenamento local.
+Implementation for local storage.
 
-**Localização**: `src/infrastructure/storage/local_storage.py`
+**Location**: `src/infrastructure/storage/local_storage.py`
 
-**Características**:
-- Gerencia diretório `temp/` na raiz do projeto
-- Cleanup automático de arquivos antigos
+**Features**:
+- Manages `temp/` directory at project root
+- Automatic cleanup of old files
 - Thread-safe (async locks)
-- Tratamento robusto de erros
+- Robust error handling
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.domain.interfaces import IStorageService
 from src.infrastructure.storage import LocalStorageService
 
 async def process_video(storage: IStorageService, video_url: str):
-    # Criar diretório temporário
+    # Create temporary directory
     temp_dir = await storage.create_temp_directory()
     
     try:
-        # Baixar vídeo
+        # Download video
         video_path = temp_dir / "video.mp4"
         await downloader.download(video_url, video_path)
         
-        # Processar...
+        # Process...
         transcription = await transcribe(video_path)
         
         return transcription
     
     finally:
-        # Limpar diretório
+        # Clean directory
         await storage.cleanup_directory(temp_dir)
 
-# Injetar implementação
+# Inject implementation
 storage = LocalStorageService(base_dir=Path("temp"))
 result = await process_video(storage, "https://youtu.be/123")
 ```
@@ -129,29 +129,29 @@ result = await process_video(storage, "https://youtu.be/123")
 ## Dependency Inversion
 
 ```python
-# ❌ ERRADO: Depender de implementação concreta
+# ❌ WRONG: Depend on concrete implementation
 from src.infrastructure.storage import LocalStorageService
 
 class TranscribeUseCase:
     def __init__(self):
-        self.storage = LocalStorageService()  # Acoplamento
+        self.storage = LocalStorageService()  # Coupling
 
-# ✅ CORRETO: Depender de abstração
+# ✅ CORRECT: Depend on abstraction
 from src.domain.interfaces import IStorageService
 
 class TranscribeUseCase:
     def __init__(self, storage: IStorageService):
-        self.storage = storage  # Flexível
+        self.storage = storage  # Flexible
 ```
 
-**Benefícios**:
-- Testar com mock (sem I/O)
-- Trocar implementação (local → S3)
-- Domínio desacoplado de infraestrutura
+**Benefits**:
+- Test with mock (no I/O)
+- Switch implementation (local → S3)
+- Domain decoupled from infrastructure
 
 ---
 
-## Testes
+## Tests
 
 ```python
 class MockStorageService(IStorageService):
@@ -170,7 +170,7 @@ class MockStorageService(IStorageService):
     async def get_storage_usage(self):
         return {"total_gb": 100, "used_gb": 50, "free_gb": 50}
 
-# Usar mock nos testes
+# Use mock in tests
 async def test_transcribe_use_case():
     mock_storage = MockStorageService()
     use_case = TranscribeUseCase(storage=mock_storage)
@@ -181,6 +181,6 @@ async def test_transcribe_use_case():
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0

@@ -1,96 +1,96 @@
 # IVideoDownloader Interface
 
-Interface (ABC) que define o contrato para downloaders de vídeo.
+Interface (ABC) that defines the contract for video downloaders.
 
 ---
 
-## Visão Geral
+## Overview
 
-`IVideoDownloader` é uma **Interface** (Abstract Base Class) que:
-- Define o contrato para download de vídeos do YouTube
-- Segue o **Dependency Inversion Principle** (SOLID)
-- Permite múltiplas implementações (yt-dlp, youtube-dl, etc.)
+`IVideoDownloader` is an **Interface** (Abstract Base Class) that:
+- Defines the contract for YouTube video downloads
+- Follows **Dependency Inversion Principle** (SOLID)
+- Allows multiple implementations (yt-dlp, youtube-dl, etc.)
 
-**Arquivo**: `src/domain/interfaces/video_downloader.py`
+**File**: `src/domain/interfaces/video_downloader.py`
 
 ---
 
-## Métodos
+## Methods
 
 ### `download(url, output_path) -> VideoFile`
-Baixa um vídeo do YouTube.
+Downloads a YouTube video.
 
-**Parâmetros**:
-- `url: YouTubeURL` - URL validada do vídeo
-- `output_path: Path` - Caminho onde salvar o arquivo
+**Parameters**:
+- `url: YouTubeURL` - Validated video URL
+- `output_path: Path` - Path where to save the file
 
-**Retorno**: `VideoFile` - Entidade representando o arquivo baixado
+**Returns**: `VideoFile` - Entity representing the downloaded file
 
-**Exceções**: `VideoDownloadError` - Erro no download
+**Exceptions**: `VideoDownloadError` - Download error
 
 ```python
 downloader: IVideoDownloader = YouTubeDownloader()
 url = YouTubeURL.create("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 video = await downloader.download(url, Path("temp/video.mp4"))
-print(f"Baixado: {video.file_size_mb:.2f} MB")
+print(f"Downloaded: {video.file_size_mb:.2f} MB")
 ```
 
 ### `get_video_info(url) -> dict`
-Obtém informações sobre o vídeo sem baixá-lo.
+Gets video information without downloading it.
 
-**Parâmetros**:
-- `url: YouTubeURL` - URL do vídeo
+**Parameters**:
+- `url: YouTubeURL` - Video URL
 
-**Retorno**: `dict` - Informações do vídeo (título, duração, formato, etc.)
+**Returns**: `dict` - Video information (title, duration, format, etc.)
 
-**Exceções**: `VideoDownloadError` - Erro ao obter informações
+**Exceptions**: `VideoDownloadError` - Error getting information
 
 ```python
 info = await downloader.get_video_info(url)
-print(f"Título: {info['title']}")
-print(f"Duração: {info['duration']}s")
+print(f"Title: {info['title']}")
+print(f"Duration: {info['duration']}s")
 ```
 
 ---
 
-## Implementações
+## Implementations
 
 ### `YouTubeDownloader` (Infrastructure)
-Implementação usando **yt-dlp** (v3.0 com Resilience System).
+Implementation using **yt-dlp** (v3.0 with Resilience System).
 
-**Localização**: `src/infrastructure/youtube/downloader.py`
+**Location**: `src/infrastructure/youtube/downloader.py`
 
-**Características**:
-- 7 estratégias de download (Standard → Tor)
-- Rate limiting adaptativo
+**Features**:
+- 7 download strategies (Standard → Tor)
+- Adaptive rate limiting
 - User-agent rotation
 - Proxy support
 - Circuit breaker pattern
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.domain.interfaces import IVideoDownloader
 from src.domain.value_objects import YouTubeURL
 from src.infrastructure.youtube import YouTubeDownloader
 
-# Usar interface (não implementação direta)
+# Use interface (not direct implementation)
 async def download_video(downloader: IVideoDownloader, url_str: str):
     url = YouTubeURL.create(url_str)
     
-    # Obter informações
+    # Get information
     info = await downloader.get_video_info(url)
-    print(f"Baixando: {info['title']}")
+    print(f"Downloading: {info['title']}")
     
-    # Fazer download
+    # Download
     video = await downloader.download(url, Path("temp/video.mp4"))
-    print(f"Sucesso: {video.file_size_mb:.2f} MB")
+    print(f"Success: {video.file_size_mb:.2f} MB")
     
     return video
 
-# Injetar implementação
+# Inject implementation
 downloader = YouTubeDownloader()
 video = await download_video(downloader, "https://youtu.be/dQw4w9WgXcQ")
 ```
@@ -100,29 +100,29 @@ video = await download_video(downloader, "https://youtu.be/dQw4w9WgXcQ")
 ## Dependency Inversion
 
 ```python
-# ❌ ERRADO: Depender de implementação concreta
+# ❌ WRONG: Depend on concrete implementation
 from src.infrastructure.youtube import YouTubeDownloader
 
 class TranscribeVideoUseCase:
     def __init__(self):
-        self.downloader = YouTubeDownloader()  # Acoplamento forte
+        self.downloader = YouTubeDownloader()  # Tight coupling
 
-# ✅ CORRETO: Depender de abstração
+# ✅ CORRECT: Depend on abstraction
 from src.domain.interfaces import IVideoDownloader
 
 class TranscribeVideoUseCase:
     def __init__(self, downloader: IVideoDownloader):
-        self.downloader = downloader  # Flexível
+        self.downloader = downloader  # Flexible
 ```
 
-**Benefícios**:
-- Testabilidade (mock da interface)
-- Flexibilidade (trocar implementação)
-- Desacoplamento (domínio não conhece infraestrutura)
+**Benefits**:
+- Testability (mock the interface)
+- Flexibility (swap implementation)
+- Decoupling (domain doesn't know infrastructure)
 
 ---
 
-## Testes
+## Tests
 
 ```python
 from unittest.mock import AsyncMock
@@ -134,7 +134,7 @@ class MockVideoDownloader(IVideoDownloader):
     async def get_video_info(self, url):
         return {"title": "Test Video", "duration": 120}
 
-# Usar mock nos testes
+# Use mock in tests
 async def test_transcribe_use_case():
     mock_downloader = MockVideoDownloader()
     use_case = TranscribeVideoUseCase(downloader=mock_downloader)
@@ -145,6 +145,6 @@ async def test_transcribe_use_case():
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
