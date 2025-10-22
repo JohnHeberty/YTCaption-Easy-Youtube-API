@@ -5,9 +5,9 @@ Segue o princípio de Single Responsibility (SOLID).
 
 v2.0: Integrado com cache de transcrição e validação de áudio.
 v2.1: Timeout global, exceções granulares, logging melhorado.
+v2.2.1: Cache reimplementado com file_hash após download.
 """
 import time
-import hashlib
 import asyncio
 from pathlib import Path
 from typing import Optional
@@ -125,32 +125,11 @@ class TranscribeYouTubeVideoUseCase:
                     start_time
                 )
             
-            # 3. DESABILITADO: Cache de transcrição precisa ser reimplementado
-            # O cache atual usa file_hash (hash do arquivo de áudio), não URL
-            # Não é possível verificar cache antes de baixar o vídeo
-            # TODO: Implementar cache baseado em video_id + model + language
-            if False and self.transcription_cache:  # Temporariamente desabilitado
-                cache_key = self._create_cache_key(
-                    youtube_url.url,
-                    request.language
-                )
-                
-                # Verificar cache
-                cached_result = self.transcription_cache.get(cache_key)
-                if cached_result:
-                    logger.info(f"✅ Cache hit for {youtube_url.video_id}")
-                    response = cached_result.copy()
-                    response["cache_hit"] = True
-                    response["processing_time"] = time.time() - start_time
-                    return TranscribeResponseDTO(**response)
-                else:
-                    logger.info(f"❌ Cache miss for {youtube_url.video_id}")
-            
-            # 4. Criar diretório temporário
+            # 3. Criar diretório temporário
             temp_dir = await self.storage_service.create_temp_directory()
             logger.debug(f"Created temp directory: {temp_dir}")
             
-            # 5. Baixar vídeo (com validação de duração)
+            # 4. Baixar vídeo (com validação de duração)
             logger.info(f"Downloading video: {youtube_url.video_id}")
             video_file = await self.video_downloader.download(
                 youtube_url, 
@@ -161,6 +140,43 @@ class TranscribeYouTubeVideoUseCase:
             logger.info(
                 f"Video downloaded: {video_file.file_size_mb:.2f} MB"
             )
+            
+            # 5. v2.2.1: Verificar cache APÓS download (usando file_hash)
+            file_hash = None
+            if self.transcription_cache and video_file.file_path:
+                logger.info("🔍 Computing file hash for cache lookup...")
+                file_hash = self.transcription_cache.compute_file_hash(
+                    Path(video_file.file_path)
+                )
+                
+                # Obter model_name e language para cache lookup
+                model_name = getattr(self.transcription_service, 'model_name', 'base')
+                language = request.language if request.language != "auto" else "auto"
+                
+                # Verificar cache
+                cached_result = self.transcription_cache.get(
+                    file_hash=file_hash,
+                    model_name=model_name,
+                    language=language
+                )
+                
+                if cached_result:
+                    logger.info(
+                        f"✅ Cache HIT for {youtube_url.video_id} "
+                        f"(hash={file_hash[:16]}..., model={model_name}, lang={language})"
+                    )
+                    
+                    # Adicionar informações adicionais
+                    cached_result["youtube_url"] = str(youtube_url)
+                    cached_result["video_id"] = youtube_url.video_id
+                    cached_result["processing_time"] = time.time() - start_time
+                    
+                    return TranscribeResponseDTO(**cached_result)
+                else:
+                    logger.info(
+                        f"❌ Cache MISS for {youtube_url.video_id} "
+                        f"(hash={file_hash[:16]}..., model={model_name}, lang={language})"
+                    )
             
             # 6. v2.0: Validar áudio antes de processar
             if self.audio_validator and video_file.file_path:
@@ -246,21 +262,31 @@ class TranscribeYouTubeVideoUseCase:
             # 8. Criar DTO de resposta
             response = self._create_response_dto(transcription, source="whisper")
             
-            # 9. DESABILITADO: Salvar no cache
-            # Cache desabilitado temporariamente - precisa ser reimplementado
-            # para usar file_hash do arquivo de áudio após download
-            if False and self.transcription_cache and cache_key:
+            # 9. v2.2.1: Salvar no cache COM file_hash correto
+            if self.transcription_cache and file_hash and video_file.file_path:
                 try:
                     # Converter para dict para cachear
                     cache_data = response.model_dump()
-                    cache_data["cache_hit"] = False
+                    
+                    # Obter model_name e language
+                    model_name = getattr(self.transcription_service, 'model_name', 'base')
+                    language = transcription.language or request.language or "auto"
+                    
+                    # Obter tamanho do arquivo
+                    file_size_bytes = Path(video_file.file_path).stat().st_size
                     
                     self.transcription_cache.put(
-                        cache_key,
-                        cache_data,
-                        size_bytes=len(str(cache_data))
+                        file_hash=file_hash,
+                        transcription_data=cache_data,
+                        model_name=model_name,
+                        language=language,
+                        file_size_bytes=file_size_bytes
                     )
-                    logger.info(f"💾 Cached transcription for {youtube_url.video_id}")
+                    
+                    logger.info(
+                        f"💾 Cached transcription for {youtube_url.video_id} "
+                        f"(hash={file_hash[:16]}..., model={model_name}, lang={language})"
+                    )
                 except Exception as e:
                     logger.warning(f"Failed to cache result: {e}")
                     # v2.1: Não lançar exceção, apenas logar
@@ -401,26 +427,6 @@ class TranscribeYouTubeVideoUseCase:
             source=source,
             transcript_type=transcript_type
         )
-    
-    def _create_cache_key(self, youtube_url: str, language: Optional[str]) -> str:
-        """
-        Cria chave de cache baseada em URL + parâmetros.
-        
-        Args:
-            youtube_url: URL do YouTube
-            language: Idioma solicitado
-            
-        Returns:
-            str: Hash MD5 da combinação URL + parâmetros
-        """
-        # Normalizar language (None ou "auto" = "auto")
-        lang = language if language else "auto"
-        
-        # Criar string combinada
-        cache_string = f"{youtube_url}|{lang}"
-        
-        # Gerar hash MD5
-        return hashlib.md5(cache_string.encode()).hexdigest()
     
     def _estimate_timeout(self, duration_seconds: float, model_name: str = "base") -> float:
         """
