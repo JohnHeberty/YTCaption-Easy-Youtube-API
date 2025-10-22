@@ -4,72 +4,72 @@
 
 ---
 
-## 📋 Visão Geral
+## 📋 Overview
 
-**Responsabilidade**: Orquestrador principal do download de vídeos do YouTube (Facade Pattern)
+**Responsibility**: Main orchestrator for YouTube video downloads (Facade Pattern)
 
-**Camada**: Infrastructure Layer
+**Layer**: Infrastructure Layer
 
-**Versão**: v3.0 (YouTube Resilience System)
+**Version**: v3.0 (YouTube Resilience System)
 
-**Dependências**:
-- `DownloadConfig` - Configurações centralizadas
-- `StrategyManager` - Gerencia 7 estratégias de download
+**Dependencies**:
+- `DownloadConfig` - Centralized configurations
+- `StrategyManager` - Manages 7 download strategies
 - `RateLimiter` - Rate limiting + Circuit Breaker
-- `UserAgentRotator` - Rotaciona 17 User-Agents
-- `ProxyManager` - Gerencia Tor proxy (SOCKS5)
-- `YouTubeMetrics` - Registra 26 métricas Prometheus
+- `UserAgentRotator` - Rotates 17 User-Agents
+- `ProxyManager` - Manages Tor proxy (SOCKS5)
+- `YouTubeMetrics` - Records 26 Prometheus metrics
 
 ---
 
-## 🎯 Propósito
+## 🎯 Purpose
 
-Coordenar todas as **5 camadas de resiliência** para garantir taxa de sucesso de 95% em downloads do YouTube:
+Coordinate all **5 resilience layers** to ensure 95% success rate for YouTube downloads:
 
 1. **DNS Resilience** - Google DNS + Cloudflare
-2. **Multi-Strategy Download** - 7 estratégias sequenciais
-3. **Rate Limiting** - Controle de requests/min + Circuit Breaker
-4. **User-Agent Rotation** - 17 UAs diferentes
-5. **Tor Proxy** - Anonimização de IP
+2. **Multi-Strategy Download** - 7 sequential strategies
+3. **Rate Limiting** - Requests/min control + Circuit Breaker
+4. **User-Agent Rotation** - 17 different UAs
+5. **Tor Proxy** - IP anonymization
 
 ---
 
-## 🏗️ Arquitetura
+## 🏗️ Architecture
 
-### Padrões Aplicados
+### Applied Patterns
 
-| Padrão | Aplicação |
-|--------|-----------|
-| **Facade** | Simplifica acesso aos 5 subsistemas de resiliência |
-| **Dependency Injection** | Recebe `DownloadConfig` via constructor |
+| Pattern | Application |
+|---------|-------------|
+| **Facade** | Simplifies access to 5 resilience subsystems |
+| **Dependency Injection** | Receives `DownloadConfig` via constructor |
 | **Retry with Exponential Backoff** | `delay = min(min_delay * 2^attempt, max_delay)` |
-| **Circuit Breaker** | Para após N falhas, aguarda timeout |
+| **Circuit Breaker** | Stops after N failures, waits timeout |
 
 ---
 
-## 📚 Interface Pública
+## 📚 Public Interface
 
 ### `download(youtube_url: str) -> str`
 
-**Descrição**: Faz download do áudio de um vídeo do YouTube
+**Description**: Downloads audio from a YouTube video
 
-**Parâmetros**:
-- `youtube_url` (str): URL do vídeo (`https://youtube.com/watch?v=VIDEO_ID`)
+**Parameters**:
+- `youtube_url` (str): Video URL (`https://youtube.com/watch?v=VIDEO_ID`)
 
-**Retorna**:
-- `str`: Path absoluto do arquivo de áudio baixado (`.m4a` ou `.webm`)
+**Returns**:
+- `str`: Absolute path of downloaded audio file (`.m4a` or `.webm`)
 
-**Exceções**:
-| Exceção | Quando | Solução |
-|---------|--------|---------|
-| `AllStrategiesFailedError` | Todas as 7 estratégias falharam | Habilitar Tor, reduzir rate limit |
-| `CircuitBreakerOpenError` | Circuit breaker aberto (muitas falhas) | Aguardar timeout (60s padrão) |
-| `RateLimitExceededError` | Limite de requests/min atingido | Aguardar cooldown |
-| `NetworkUnreachableError` | Tor offline ou DNS falhou | Verificar Tor, testar DNS |
+**Exceptions**:
+| Exception | When | Solution |
+|-----------|------|----------|
+| `AllStrategiesFailedError` | All 7 strategies failed | Enable Tor, reduce rate limit |
+| `CircuitBreakerOpenError` | Circuit breaker open (too many failures) | Wait timeout (60s default) |
+| `RateLimitExceededError` | Requests/min limit reached | Wait cooldown |
+| `NetworkUnreachableError` | Tor offline or DNS failed | Check Tor, test DNS |
 
 ---
 
-## 🔄 Fluxo de Execução
+## 🔄 Execution Flow
 
 ```
 ┌─────────────────────────────────────────┐
@@ -79,31 +79,31 @@ Coordenar todas as **5 camadas de resiliência** para garantir taxa de sucesso d
              ↓
 ┌─────────────────────────────────────────┐
 │ 1. RateLimiter.check()                  │
-│    • Verifica requests/min              │
-│    • Verifica circuit breaker status    │
-│    • Se OPEN: raise CircuitBreakerOpen  │
+│    • Check requests/min                 │
+│    • Check circuit breaker status       │
+│    • If OPEN: raise CircuitBreakerOpen  │
 └────────────┬────────────────────────────┘
              │ OK
              ↓
 ┌─────────────────────────────────────────┐
 │ 2. UserAgentRotator.get_random()        │
-│    • Seleciona 1 de 17 UAs              │
+│    • Select 1 of 17 UAs                 │
 │    • Chrome/Firefox/Safari/Edge         │
 └────────────┬────────────────────────────┘
              │
              ↓
 ┌─────────────────────────────────────────┐
 │ 3. ProxyManager.configure()             │
-│    • Se ENABLE_TOR_PROXY=true           │
-│    • Configura SOCKS5: tor-proxy:9050   │
+│    • If ENABLE_TOR_PROXY=true           │
+│    • Configure SOCKS5: tor-proxy:9050   │
 └────────────┬────────────────────────────┘
              │
              ↓
 ┌─────────────────────────────────────────┐
 │ 4. StrategyManager.try_all()            │
-│    • Tenta estratégias 1-7 sequencial   │
-│    • Strategy 1: Direct (sem cookies)   │
-│    • Strategy 2: Cookies (navegador)    │
+│    • Try strategies 1-7 sequentially    │
+│    • Strategy 1: Direct (no cookies)    │
+│    • Strategy 2: Cookies (browser)      │
 │    • Strategy 3: Mobile UA              │
 │    • Strategy 4: Referer header         │
 │    • Strategy 5: Extract format         │
@@ -122,7 +122,7 @@ Coordenar todas as **5 camadas de resiliência** para garantir taxa de sucesso d
 │ Return      │            │
 │ audio_path  │            ↓
 └─────────────┘  ┌─────────────────────────┐
-                 │ 6. Retry (até MAX)      │
+                 │ 6. Retry (up to MAX)    │
                  │    attempt += 1         │
                  │    if attempt < MAX:    │
                  │        goto step 4      │
@@ -138,82 +138,82 @@ Coordenar todas as **5 camadas de resiliência** para garantir taxa de sucesso d
 
 ---
 
-## 📊 Métricas Emitidas
+## 📊 Emitted Metrics
 
-### Contadores
+### Counters
 
-- `youtube_download_success_total` - Total de downloads bem-sucedidos
-- `youtube_download_failure_total` - Total de falhas (todas estratégias)
-- `youtube_403_forbidden_total` - Erros HTTP 403 Forbidden
-- `youtube_network_error_total` - Erros de rede (Tor offline, DNS)
-- `youtube_strategy_success_total{strategy="1-7"}` - Sucessos por estratégia
+- `youtube_download_success_total` - Total successful downloads
+- `youtube_download_failure_total` - Total failures (all strategies)
+- `youtube_403_forbidden_total` - HTTP 403 Forbidden errors
+- `youtube_network_error_total` - Network errors (Tor offline, DNS)
+- `youtube_strategy_success_total{strategy="1-7"}` - Successes per strategy
 
 ### Gauges
 
-- `youtube_circuit_breaker_open` - 1 se aberto, 0 se fechado
-- `youtube_cooldown_active` - 1 se em cooldown, 0 caso contrário
-- `youtube_retries_before_success` - Número de retries até sucesso
+- `youtube_circuit_breaker_open` - 1 if open, 0 if closed
+- `youtube_cooldown_active` - 1 if in cooldown, 0 otherwise
+- `youtube_retries_before_success` - Number of retries until success
 
-### Histogramas
+### Histograms
 
-- `youtube_request_duration_seconds` - Tempo de download (p50, p95, p99)
+- `youtube_request_duration_seconds` - Download time (p50, p95, p99)
 
 ---
 
-## 🧪 Exemplo de Uso
+## 🧪 Usage Example
 
 ```python
 from src.infrastructure.youtube.downloader import YouTubeDownloader
 from src.infrastructure.youtube.download_config import DownloadConfig
 
-# Carregar configurações do .env
+# Load configurations from .env
 config = DownloadConfig.from_env()
 
-# Instanciar downloader
+# Instantiate downloader
 downloader = YouTubeDownloader(config)
 
 try:
-    # Fazer download
+    # Download
     audio_path = downloader.download(
         "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     )
     
-    print(f"✅ Download sucesso: {audio_path}")
+    print(f"✅ Download success: {audio_path}")
     # Output: /app/temp/dQw4w9WgXcQ.m4a
     
 except AllStrategiesFailedError as e:
-    print(f"❌ Todas as 7 estratégias falharam: {e}")
-    print("Solução: Habilite Tor ou reduza rate limit")
+    print(f"❌ All 7 strategies failed: {e}")
+    print("Solution: Enable Tor or reduce rate limit")
     
 except CircuitBreakerOpenError:
-    print("⚠️ Circuit breaker aberto (muitas falhas)")
-    print("Aguarde 60s (CIRCUIT_BREAKER_TIMEOUT)")
+    print("⚠️ Circuit breaker open (too many failures)")
+    print("Wait 60s (CIRCUIT_BREAKER_TIMEOUT)")
     
 except RateLimitExceededError as e:
-    print(f"⏱️ Rate limit atingido: {e}")
-    print("Aguarde cooldown ou aumente limites no .env")
+    print(f"⏱️ Rate limit reached: {e}")
+    print("Wait cooldown or increase limits in .env")
 ```
 
 ---
 
-## 🔗 Relacionamentos
+## 🔗 Relationships
 
-### Usa (Composição)
+### Uses (Composition)
 
-| Módulo | Propósito |
-|--------|-----------|
-| [DownloadConfig](./download-config.md) | Configurações (retries, timeouts, rate limits) |
-| [StrategyManager](./download-strategies.md) | Gerencia 7 estratégias de download |
+| Module | Purpose |
+|--------|---------|
+| [DownloadConfig](./download-config.md) | Configurations (retries, timeouts, rate limits) |
+| [StrategyManager](./download-strategies.md) | Manages 7 download strategies |
 | [RateLimiter](./rate-limiter.md) | Rate limiting + Circuit Breaker |
-| [UserAgentRotator](./user-agent-rotator.md) | Rotaciona 17 User-Agents |
-| [ProxyManager](./proxy-manager.md) | Gerencia Tor proxy (SOCKS5) |
-| [YouTubeMetrics](./metrics.md) | Registra 26 métricas Prometheus |
+| [UserAgentRotator](./user-agent-rotator.md) | Rotates 17 User-Agents |
+| [ProxyManager](./proxy-manager.md) | Manages Tor proxy (SOCKS5) |
+| [YouTubeMetrics](./metrics.md) | Records 26 Prometheus metrics |
 
-### Usado Por
+### Used By
 
 - `TranscribeVideoUseCase` ([Application Layer](../../application/use-cases.md))
 
-### Implementa
+### Implements
 
 - `IVideoDownloader` ([Domain Layer](../../domain/interfaces.md))
 
@@ -221,21 +221,21 @@ except RateLimitExceededError as e:
 
 ## 🐛 Debugging
 
-### Habilitar logs detalhados
+### Enable detailed logs
 
 ```bash
 # .env
 LOG_LEVEL=DEBUG
 
-# Logs mostram:
-# - Estratégia sendo tentada
-# - User-Agent selecionado
-# - Proxy configurado (Tor)
-# - Tempo de cada tentativa
-# - Razão de falha de cada estratégia
+# Logs show:
+# - Strategy being tried
+# - Selected User-Agent
+# - Configured proxy (Tor)
+# - Time for each attempt
+# - Failure reason for each strategy
 ```
 
-### Ver métricas em tempo real
+### View real-time metrics
 
 ```bash
 # Grafana
@@ -249,18 +249,18 @@ Query: rate(youtube_download_success_total[5m])
 
 ---
 
-## 📖 Referências
+## 📖 References
 
-### Diagramas
+### Diagrams
 
 - [YouTube Resilience Flow](../../../diagrams/youtube-resilience-flow.md)
 - [Design Patterns - Facade](../../../diagrams/design-patterns.md#facade)
 - [Design Patterns - Circuit Breaker](../../../diagrams/design-patterns.md#circuit-breaker)
 
-### Módulos Relacionados
+### Related Modules
 
-- [DownloadConfig](./download-config.md) - Configurações
-- [DownloadStrategies](./download-strategies.md) - 7 estratégias
+- [DownloadConfig](./download-config.md) - Configurations
+- [DownloadStrategies](./download-strategies.md) - 7 strategies
 - [RateLimiter](./rate-limiter.md) - Rate limiting
 - [Metrics](./metrics.md) - Prometheus
 
@@ -272,10 +272,10 @@ Query: rate(youtube_download_success_total[5m])
 
 ---
 
-**Versão**: 3.0.0  
-**Última atualização**: 22/10/2025  
-**Autor**: [@JohnHeberty](https://github.com/JohnHeberty)
+**Version**: 3.0.0  
+**Last updated**: 22/10/2025  
+**Author**: [@JohnHeberty](https://github.com/JohnHeberty)
 
 ---
 
-**[← Voltar para YouTube Module](./README.md)** | **[Próximo: DownloadConfig →](./download-config.md)**
+**[← Back to YouTube Module](./README.md)** | **[Next: DownloadConfig →](./download-config.md)**
