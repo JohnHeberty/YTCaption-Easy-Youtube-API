@@ -1,57 +1,57 @@
 # ⚡ Quick Start
 
-**Da instalação à primeira transcrição em 5 minutos**
+**From installation to first transcription in 5 minutes**
 
 ---
 
-## 🎯 Objetivo
+## 🎯 Objective
 
-Ao final deste guia você terá:
-- ✅ YTCaption rodando localmente
-- ✅ Primeira transcrição completa
-- ✅ Acesso aos dashboards de monitoramento
+By the end of this guide you will have:
+- ✅ YTCaption running locally
+- ✅ First complete transcription
+- ✅ Access to monitoring dashboards
 
-**Tempo estimado**: 5 minutos
+**Estimated time**: 5 minutes
 
 ---
 
-## 🚀 Passo 1: Clone e Configure
+## 🚀 Step 1: Clone and Configure
 
 ```bash
-# 1. Clone o repositório
+# 1. Clone the repository
 git clone https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API.git
 cd YTCaption-Easy-Youtube-API
 
-# 2. Copie o arquivo de configuração
+# 2. Copy the configuration file
 cp .env.example .env
 
-# 3. (Opcional) Edite configurações
+# 3. (Optional) Edit settings
 nano .env
 ```
 
-**Configuração mínima** (já vem no `.env.example`):
+**Minimum configuration** (already in `.env.example`):
 ```bash
 WHISPER_MODEL=base
-ENABLE_TOR_PROXY=false  # Mude para true se YouTube bloquear
+ENABLE_TOR_PROXY=false  # Change to true if YouTube blocks
 ```
 
 ---
 
-## 🐳 Passo 2: Inicie com Docker
+## 🐳 Step 2: Start with Docker
 
 ```bash
 docker-compose up -d
 ```
 
-**Aguarde** ~30 segundos para containers iniciarem.
+**Wait** ~30 seconds for containers to start.
 
-### Verifique se está rodando
+### Check if it's running
 
 ```bash
 docker-compose ps
 ```
 
-**Esperado**:
+**Expected**:
 ```
 NAME                        STATUS
 whisper-transcription-api   Up (healthy)
@@ -62,7 +62,7 @@ whisper-tor-proxy           Up
 
 ---
 
-## 🧪 Passo 3: Teste a API
+## 🧪 Step 3: Test the API
 
 ### Health Check
 
@@ -70,7 +70,7 @@ whisper-tor-proxy           Up
 curl http://localhost:8000/health
 ```
 
-**Esperado**:
+**Expected**:
 ```json
 {
   "status": "healthy",
@@ -81,9 +81,9 @@ curl http://localhost:8000/health
 
 ---
 
-## 🎬 Passo 4: Primeira Transcrição
+## 🎬 Step 4: First Transcription
 
-### Opção 1: Legendas Nativas (RÁPIDO - 1-2s)
+### Option 1: Native Subtitles (FAST - 1-2s)
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/transcribe" \
@@ -94,7 +94,7 @@ curl -X POST "http://localhost:8000/api/v1/transcribe" \
   }'
 ```
 
-### Opção 2: Whisper AI (PRECISO - 30s-2min)
+### Option 2: Whisper AI (ACCURATE - 30s-2min)
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/transcribe" \
@@ -106,7 +106,7 @@ curl -X POST "http://localhost:8000/api/v1/transcribe" \
   }'
 ```
 
-### Resposta Esperada
+### Expected Response
 
 ```json
 {
@@ -136,41 +136,41 @@ curl -X POST "http://localhost:8000/api/v1/transcribe" \
 
 ---
 
-## 📊 Passo 5: Acesse os Dashboards
+## 📊 Step 5: Access Dashboards
 
-### Swagger UI (Documentação Interativa)
+### Swagger UI (Interactive Documentation)
 ```
 http://localhost:8000/docs
 ```
 
-### Grafana (Monitoramento)
+### Grafana (Monitoring)
 ```
 http://localhost:3000
 Login: admin / whisper2024
 ```
 
-**Dashboards disponíveis**:
+**Available dashboards**:
 - YouTube Resilience v3.0 (download metrics)
 - System Performance (API, Whisper, resources)
 
-### Prometheus (Métricas Brutes)
+### Prometheus (Raw Metrics)
 ```
 http://localhost:9090
 ```
 
 ---
 
-## ❌ Problemas Comuns
+## ❌ Common Issues
 
-### Erro: "Connection refused"
+### Error: "Connection refused"
 
-**Causa**: Containers não iniciaram
+**Cause**: Containers didn't start
 
-**Solução**:
+**Solution**:
 ```bash
 docker-compose logs -f
 
-# Se necessário, rebuild:
+# If necessary, rebuild:
 docker-compose down
 docker-compose build
 docker-compose up -d
@@ -178,56 +178,56 @@ docker-compose up -d
 
 ---
 
-### Erro: "HTTP 403 Forbidden" (YouTube)
+### Error: "HTTP 403 Forbidden" (YouTube)
 
-**Causa**: YouTube detectou requisições automáticas
+**Cause**: YouTube detected automated requests
 
-**Solução Rápida**:
+**Quick Solution**:
 ```bash
-# 1. Edite .env
+# 1. Edit .env
 nano .env
 
-# 2. Habilite Tor
+# 2. Enable Tor
 ENABLE_TOR_PROXY=true
 
 # 3. Restart
 docker-compose restart whisper-api
 
-# 4. Aguarde Tor (30s)
+# 4. Wait for Tor (30s)
 docker-compose logs tor-proxy | grep "Bootstrapped 100%"
 
-# 5. Tente novamente
+# 5. Try again
 ```
 
-📖 [Troubleshooting completo](./05-troubleshooting.md#http-403-forbidden)
+📖 [Complete troubleshooting](./05-troubleshooting.md#http-403-forbidden)
 
 ---
 
-### Erro: "Out of Memory"
+### Error: "Out of Memory"
 
-**Causa**: Modelo Whisper muito grande para RAM disponível
+**Cause**: Whisper model too large for available RAM
 
-**Solução**:
+**Solution**:
 ```bash
-# .env - Use modelo menor
-WHISPER_MODEL=tiny  # Era base
+# .env - Use smaller model
+WHISPER_MODEL=tiny  # Was base
 
 docker-compose restart whisper-api
 ```
 
 ---
 
-## 🎓 Próximos Passos
+## 🎓 Next Steps
 
-Agora que você tem o YTCaption rodando:
+Now that you have YTCaption running:
 
-1. **Configure para suas necessidades**  
+1. **Configure for your needs**  
    → [Configuration Guide](./03-configuration.md)
 
-2. **Entenda todos os endpoints da API**  
+2. **Understand all API endpoints**  
    → [API Usage](./04-api-usage.md)
 
-3. **Prepare para produção**  
+3. **Prepare for production**  
    → [Deployment Guide](./06-deployment.md)
 
 4. **Configure YouTube Resilience v3.0**  
@@ -235,24 +235,24 @@ Agora que você tem o YTCaption rodando:
 
 ---
 
-## 🆘 Precisa de Ajuda?
+## 🆘 Need Help?
 
-- **Problemas técnicos**: [Troubleshooting](./05-troubleshooting.md)
-- **Dúvidas sobre configuração**: [Configuration](./03-configuration.md)
-- **Issue no GitHub**: [Abrir issue](https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API/issues)
-
----
-
-## ✅ Checklist de Sucesso
-
-- [ ] Docker Compose rodando (`docker-compose ps` mostra 4 containers Up)
-- [ ] Health check retorna `"status": "healthy"`
-- [ ] Primeira transcrição completa (Whisper ou YouTube Transcript)
-- [ ] Grafana acessível em http://localhost:3000
-- [ ] Swagger UI acessível em http://localhost:8000/docs
-
-**Tudo funcionando?** 🎉 Parabéns! Você está pronto para usar o YTCaption!
+- **Technical issues**: [Troubleshooting](./05-troubleshooting.md)
+- **Configuration questions**: [Configuration](./03-configuration.md)
+- **GitHub issue**: [Open issue](https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API/issues)
 
 ---
 
-**[← Voltar para User Guide](./README.md)** | **[Próximo: Installation →](./02-installation.md)**
+## ✅ Success Checklist
+
+- [ ] Docker Compose running (`docker-compose ps` shows 4 containers Up)
+- [ ] Health check returns `"status": "healthy"`
+- [ ] First transcription complete (Whisper or YouTube Transcript)
+- [ ] Grafana accessible at http://localhost:3000
+- [ ] Swagger UI accessible at http://localhost:8000/docs
+
+**Everything working?** 🎉 Congratulations! You're ready to use YTCaption!
+
+---
+
+**[← Back to User Guide](./README.md)** | **[Next: Installation →](./02-installation.md)**
