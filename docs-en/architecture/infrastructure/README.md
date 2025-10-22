@@ -1,75 +1,75 @@
 # Infrastructure Layer
 
-Camada de infraestrutura - Implementações concretas dos serviços.
+Infrastructure layer - Concrete service implementations.
 
 ---
 
-## Visão Geral
+## Overview
 
-A **Infrastructure Layer** implementa as interfaces definidas no domínio:
-- **Storage**: Gerenciamento de arquivos temporários
-- **Cache**: Cache LRU para transcrições
-- **Validators**: Validação de áudio/vídeo
-- **Utils**: Utilitários (FFmpeg optimizer)
-- **YouTube**: Download resiliente de vídeos (v3.0)
-- **Whisper**: Transcrição paralela (v2.0)
+The **Infrastructure Layer** implements interfaces defined in the domain:
+- **Storage**: Temporary file management
+- **Cache**: LRU cache for transcriptions
+- **Validators**: Audio/video validation
+- **Utils**: Utilities (FFmpeg optimizer)
+- **YouTube**: Resilient video download (v3.0)
+- **Whisper**: Parallel transcription (v2.0)
 
 ---
 
-## Módulos Principais
+## Main Modules
 
 ### Storage (`infrastructure/storage/`)
-- **LocalStorageService**: Armazenamento local com limpeza automática
-- **FileCleanupManager**: Context managers, cleanup periódico, TTL configurável
+- **LocalStorageService**: Local storage with automatic cleanup
+- **FileCleanupManager**: Context managers, periodic cleanup, configurable TTL
 
 ### Cache (`infrastructure/cache/`)
-- **TranscriptionCache**: Cache LRU com hash de arquivos, TTL 24h, redução de 40-60% carga GPU
+- **TranscriptionCache**: LRU cache with file hash, 24h TTL, 40-60% GPU load reduction
 
 ### Validators (`infrastructure/validators/`)
-- **AudioValidator**: Validação com FFprobe, detecção de corrupção, estimativa de tempo
+- **AudioValidator**: FFprobe validation, corruption detection, time estimation
 
 ### Utils (`infrastructure/utils/`)
-- **FFmpegOptimizer**: Hardware acceleration (CUDA/NVENC), flags otimizadas, 2-3x speedup
+- **FFmpegOptimizer**: Hardware acceleration (CUDA/NVENC), optimized flags, 2-3x speedup
 
 ### YouTube (`infrastructure/youtube/`)
-- **YouTubeDownloader** (v3.0): 7 estratégias de download, rate limiting, proxy support, Tor
-- **TranscriptService**: Extração de legendas nativas do YouTube
+- **YouTubeDownloader** (v3.0): 7 download strategies, rate limiting, proxy support, Tor
+- **TranscriptService**: Native YouTube subtitle extraction
 
 ### Whisper (`infrastructure/whisper/`)
-- **WhisperTranscriptionService**: Transcrição sequencial com Whisper
-- **ParallelWhisperService** (v2.0): Worker pool persistente, processamento paralelo, 7-10x speedup
-- **ModelCache**: Cache de modelos Whisper carregados
-- **ChunkPreparationService**: Chunking inteligente de áudio
+- **WhisperTranscriptionService**: Sequential transcription with Whisper
+- **ParallelWhisperService** (v2.0): Persistent worker pool, parallel processing, 7-10x speedup
+- **ModelCache**: Cache for loaded Whisper models
+- **ChunkPreparationService**: Smart audio chunking
 
 ---
 
-## Características
+## Features
 
 **Storage**:
-- Diretórios temporários com timestamp único
-- Cleanup automático de arquivos antigos (>24h)
-- Thread-safe com asyncio
+- Temporary directories with unique timestamp
+- Automatic cleanup of old files (>24h)
+- Thread-safe with asyncio
 
 **Cache**:
-- Hash MD5/SHA256 de arquivos
-- LRU eviction quando cache cheio
-- Expiração por TTL
+- MD5/SHA256 file hash
+- LRU eviction when cache full
+- TTL expiration
 - Thread-safe
 
 **Validator**:
-- FFprobe para metadados rápidos
-- Suporta 10+ codecs de áudio
-- Estimativa de tempo de processamento
-- Detecção de corrupção
+- FFprobe for fast metadata
+- Supports 10+ audio codecs
+- Processing time estimation
+- Corruption detection
 
 **FFmpeg Optimizer**:
-- Detecção automática de hardware (CUDA, VAAPI, VideoToolbox)
-- Flags de otimização adaptativas
-- Conversão 2-3x mais rápida
+- Automatic hardware detection (CUDA, VAAPI, VideoToolbox)
+- Adaptive optimization flags
+- 2-3x faster conversion
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.infrastructure.storage import LocalStorageService
@@ -97,6 +97,6 @@ if metadata.is_valid:
 
 ---
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
