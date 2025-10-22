@@ -1,33 +1,33 @@
 # Transcription DTOs
 
-Data Transfer Objects para transcrição de vídeos.
+Data Transfer Objects for video transcription.
 
 ---
 
-## Visão Geral
+## Overview
 
-DTOs são objetos imutáveis validados com **Pydantic** que transferem dados entre camadas.
+DTOs are immutable objects validated with **Pydantic** that transfer data between layers.
 
-**Arquivo**: `src/application/dtos/transcription_dtos.py`
+**File**: `src/application/dtos/transcription_dtos.py`
 
 ---
 
 ## Request DTOs
 
 ### TranscribeRequestDTO
-DTO para requisição de transcrição.
+DTO for transcription request.
 
 ```python
 class TranscribeRequestDTO(BaseModel):
-    youtube_url: str                       # URL do YouTube
-    language: Optional[str] = "auto"       # Idioma (auto detecção)
-    use_youtube_transcript: bool = False   # Usar legendas do YouTube
-    prefer_manual_subtitles: bool = True   # Preferir legendas manuais
+    youtube_url: str                       # YouTube URL
+    language: Optional[str] = "auto"       # Language (auto detection)
+    use_youtube_transcript: bool = False   # Use YouTube captions
+    prefer_manual_subtitles: bool = True   # Prefer manual subtitles
 ```
 
-**Validação**: URL deve conter "youtube.com" ou "youtu.be"
+**Validation**: URL must contain "youtube.com" or "youtu.be"
 
-**Exemplo**:
+**Example**:
 ```python
 request = TranscribeRequestDTO(
     youtube_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -36,7 +36,7 @@ request = TranscribeRequestDTO(
 ```
 
 ### ExportCaptionsRequestDTO
-DTO para exportação de legendas.
+DTO for caption export.
 
 ```python
 class ExportCaptionsRequestDTO(BaseModel):
@@ -48,24 +48,24 @@ class ExportCaptionsRequestDTO(BaseModel):
 ## Response DTOs
 
 ### TranscribeResponseDTO
-DTO para resposta de transcrição.
+DTO for transcription response.
 
 ```python
 class TranscribeResponseDTO(BaseModel):
-    transcription_id: str              # UUID único
-    youtube_url: str                   # URL do vídeo
-    video_id: str                      # ID do vídeo
-    language: str                      # Idioma detectado
-    full_text: str                     # Texto completo
-    segments: List[TranscriptionSegmentDTO]  # Segmentos
-    total_segments: int                # Número de segmentos
-    duration: float                    # Duração (segundos)
-    processing_time: Optional[float]   # Tempo de processamento
-    source: str                        # "whisper" ou "youtube_transcript"
-    transcript_type: Optional[str]     # "manual" ou "auto" (YouTube)
+    transcription_id: str              # Unique UUID
+    youtube_url: str                   # Video URL
+    video_id: str                      # Video ID
+    language: str                      # Detected language
+    full_text: str                     # Full text
+    segments: List[TranscriptionSegmentDTO]  # Segments
+    total_segments: int                # Number of segments
+    duration: float                    # Duration (seconds)
+    processing_time: Optional[float]   # Processing time
+    source: str                        # "whisper" or "youtube_transcript"
+    transcript_type: Optional[str]     # "manual" or "auto" (YouTube)
 ```
 
-**Exemplo**:
+**Example**:
 ```json
 {
   "transcription_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -82,7 +82,7 @@ class TranscribeResponseDTO(BaseModel):
 ```
 
 ### VideoInfoResponseDTO
-DTO para informações do vídeo.
+DTO for video information.
 
 ```python
 class VideoInfoResponseDTO(BaseModel):
@@ -101,29 +101,29 @@ class VideoInfoResponseDTO(BaseModel):
 ```
 
 ### HealthCheckDTO
-DTO para health check da API.
+DTO for API health check.
 
 ```python
 class HealthCheckDTO(BaseModel):
-    status: str                  # "healthy" ou "unhealthy"
+    status: str                  # "healthy" or "unhealthy"
     version: str                 # "3.0.0"
     whisper_model: str           # "base"
-    storage_usage: dict          # Uso de armazenamento
-    uptime_seconds: float        # Tempo ativo
+    storage_usage: dict          # Storage usage
+    uptime_seconds: float        # Uptime
 ```
 
 ### ErrorResponseDTO
-DTO padronizado para erros.
+Standardized DTO for errors.
 
 ```python
 class ErrorResponseDTO(BaseModel):
-    error: str               # Tipo do erro
-    message: str             # Mensagem legível
-    request_id: str          # ID da requisição
-    details: Optional[Dict[str, Any]]  # Detalhes extras
+    error: str               # Error type
+    message: str             # Human-readable message
+    request_id: str          # Request ID
+    details: Optional[Dict[str, Any]]  # Extra details
 ```
 
-**Exemplo**:
+**Example**:
 ```json
 {
   "error": "AudioTooLongError",
@@ -141,29 +141,29 @@ class ErrorResponseDTO(BaseModel):
 ## Auxiliary DTOs
 
 ### TranscriptionSegmentDTO
-Segmento individual de transcrição.
+Individual transcription segment.
 
 ```python
 class TranscriptionSegmentDTO(BaseModel):
-    text: str        # Texto do segmento
-    start: float     # Tempo inicial (segundos)
-    end: float       # Tempo final (segundos)
-    duration: float  # Duração (segundos)
+    text: str        # Segment text
+    start: float     # Start time (seconds)
+    end: float       # End time (seconds)
+    duration: float  # Duration (seconds)
 ```
 
 ### SubtitlesInfoDTO
-Informações sobre legendas disponíveis.
+Information about available subtitles.
 
 ```python
 class SubtitlesInfoDTO(BaseModel):
-    available: List[str]        # Todas as legendas
-    manual_languages: List[str] # Idiomas com legendas manuais
-    auto_languages: List[str]   # Idiomas com legendas automáticas
-    total: int                  # Total de legendas
+    available: List[str]        # All subtitles
+    manual_languages: List[str] # Languages with manual subtitles
+    auto_languages: List[str]   # Languages with auto subtitles
+    total: int                  # Total subtitles
 ```
 
 ### WhisperRecommendationDTO
-Recomendação sobre usar Whisper ou YouTube.
+Recommendation about using Whisper or YouTube.
 
 ```python
 class WhisperRecommendationDTO(BaseModel):
@@ -174,45 +174,45 @@ class WhisperRecommendationDTO(BaseModel):
 ```
 
 ### LanguageDetectionDTO
-Resultado da detecção de idioma.
+Language detection result.
 
 ```python
 class LanguageDetectionDTO(BaseModel):
-    detected_language: Optional[str]  # Código ISO 639-1
+    detected_language: Optional[str]  # ISO 639-1 code
     confidence: Optional[float]       # 0-1
     method: Optional[str]             # "metadata", "whisper", etc.
 ```
 
 ### ReadinessCheckDTO
-Verificação de prontidão da API.
+API readiness check.
 
 ```python
 class ReadinessCheckDTO(BaseModel):
-    status: str                  # "ready" ou "not_ready"
-    checks: Dict[str, bool]      # Status de cada componente
+    status: str                  # "ready" or "not_ready"
+    checks: Dict[str, bool]      # Status of each component
     message: Optional[str]
     timestamp: float
 ```
 
 ---
 
-## Validação Automática
+## Automatic Validation
 
-Pydantic valida automaticamente tipos e restrições:
+Pydantic automatically validates types and constraints:
 
 ```python
-# ✅ Válido
+# ✅ Valid
 dto = TranscribeRequestDTO(
     youtube_url="https://www.youtube.com/watch?v=123",
     language="en"
 )
 
-# ❌ Inválido: URL sem YouTube
+# ❌ Invalid: URL without YouTube
 dto = TranscribeRequestDTO(
     youtube_url="https://vimeo.com/123"  # ValueError!
 )
 
-# ❌ Inválido: tipo incorreto
+# ❌ Invalid: incorrect type
 dto = TranscribeRequestDTO(
     youtube_url=123  # ValidationError!
 )
@@ -220,22 +220,22 @@ dto = TranscribeRequestDTO(
 
 ---
 
-## Serialização
+## Serialization
 
 ```python
-# Para JSON
+# To JSON
 response_json = response.model_dump()
-# ou
+# or
 response_json = response.model_dump_json()
 
-# De JSON
+# From JSON
 response = TranscribeResponseDTO.model_validate(json_data)
-# ou
+# or
 response = TranscribeResponseDTO.model_validate_json(json_string)
 ```
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
