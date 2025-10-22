@@ -1,45 +1,45 @@
 # Application Layer
 
-Camada de aplicação - Orquestração de casos de uso (Use Cases).
+Application layer - Use Case orchestration.
 
 ---
 
-## Índice
+## Table of Contents
 
 **Use Cases**:
-- [Transcribe Video](use-cases/transcribe-video.md) - Orquestra download + transcrição
-- [Cleanup Files](use-cases/cleanup-files.md) - Remove arquivos temporários antigos
+- [Transcribe Video](use-cases/transcribe-video.md) - Orchestrates download + transcription
+- [Cleanup Files](use-cases/cleanup-files.md) - Removes old temporary files
 
 **DTOs** (Data Transfer Objects):
 - [Transcription DTOs](dtos/transcription-dtos.md) - Request/Response DTOs
 
 ---
 
-## Visão Geral
+## Overview
 
-A **Application Layer** é responsável por:
-- Orquestrar fluxos de negócio (Use Cases)
-- Coordenar múltiplos serviços de domínio
-- Transformar dados entre camadas (DTOs)
-- Gerenciar transações e rollbacks
+The **Application Layer** is responsible for:
+- Orchestrating business flows (Use Cases)
+- Coordinating multiple domain services
+- Transforming data between layers (DTOs)
+- Managing transactions and rollbacks
 
-**Princípios**:
-- ✅ **Single Responsibility**: Cada Use Case tem uma responsabilidade específica
-- ✅ **Dependency Inversion**: Depende de interfaces do domínio, não implementações
-- ✅ **Separation of Concerns**: Lógica de orquestração separada de lógica de negócio
-- ✅ **Testabilidade**: Fácil de testar com mocks das interfaces
+**Principles**:
+- ✅ **Single Responsibility**: Each Use Case has a specific responsibility
+- ✅ **Dependency Inversion**: Depends on domain interfaces, not implementations
+- ✅ **Separation of Concerns**: Orchestration logic separated from business logic
+- ✅ **Testability**: Easy to test with interface mocks
 
 ---
 
-## Estrutura
+## Structure
 
 ```
 src/application/
-├── use_cases/              # Casos de uso
-│   ├── transcribe_video.py   # Use Case principal
-│   └── cleanup_files.py       # Limpeza de arquivos
+├── use_cases/              # Use cases
+│   ├── transcribe_video.py   # Main Use Case
+│   └── cleanup_files.py       # File cleanup
 └── dtos/                   # Data Transfer Objects
-    └── transcription_dtos.py  # DTOs de transcrição
+    └── transcription_dtos.py  # Transcription DTOs
 ```
 
 ---
@@ -47,98 +47,98 @@ src/application/
 ## Use Cases
 
 ### TranscribeYouTubeVideoUseCase
-**Responsabilidade**: Orquestrar o processo completo de transcrição.
+**Responsibility**: Orchestrate the complete transcription process.
 
-**Fluxo**:
-1. Validar URL do YouTube
-2. Verificar cache (v2.2.1)
-3. Criar diretório temporário
-4. Baixar vídeo
-5. Validar áudio (v2.0)
-6. Transcrever com Whisper (com timeout v2.1)
-7. Salvar no cache
-8. Limpar arquivos temporários
-9. Retornar resposta
+**Flow**:
+1. Validate YouTube URL
+2. Check cache (v2.2.1)
+3. Create temporary directory
+4. Download video
+5. Validate audio (v2.0)
+6. Transcribe with Whisper (with timeout v2.1)
+7. Save to cache
+8. Clean temporary files
+9. Return response
 
-**Exceções Tratadas**:
-- `ValidationError` - URL inválida ou áudio corrompido
-- `VideoDownloadError` - Falha no download
-- `TranscriptionError` - Falha na transcrição
-- `OperationTimeoutError` - Timeout na transcrição (v2.1)
+**Handled Exceptions**:
+- `ValidationError` - Invalid URL or corrupted audio
+- `VideoDownloadError` - Download failure
+- `TranscriptionError` - Transcription failure
+- `OperationTimeoutError` - Transcription timeout (v2.1)
 
 ### CleanupOldFilesUseCase
-**Responsabilidade**: Remover arquivos temporários antigos.
+**Responsibility**: Remove old temporary files.
 
-**Fluxo**:
-1. Obter uso de armazenamento (antes)
-2. Remover arquivos com idade > max_age_hours
-3. Obter uso de armazenamento (depois)
-4. Retornar estatísticas
+**Flow**:
+1. Get storage usage (before)
+2. Remove files older than max_age_hours
+3. Get storage usage (after)
+4. Return statistics
 
 ---
 
 ## DTOs (Data Transfer Objects)
 
-DTOs são objetos imutáveis que transferem dados entre camadas:
+DTOs are immutable objects that transfer data between layers:
 
 ### Request DTOs
-- `TranscribeRequestDTO` - Requisição de transcrição
-- `ExportCaptionsRequestDTO` - Exportação de legendas
+- `TranscribeRequestDTO` - Transcription request
+- `ExportCaptionsRequestDTO` - Caption export
 
 ### Response DTOs
-- `TranscribeResponseDTO` - Resposta com transcrição completa
-- `VideoInfoResponseDTO` - Informações do vídeo
-- `HealthCheckDTO` - Status da API
-- `ErrorResponseDTO` - Resposta de erro padronizada
+- `TranscribeResponseDTO` - Response with complete transcription
+- `VideoInfoResponseDTO` - Video information
+- `HealthCheckDTO` - API status
+- `ErrorResponseDTO` - Standardized error response
 
 ### Auxiliary DTOs
-- `TranscriptionSegmentDTO` - Segmento individual
-- `SubtitlesInfoDTO` - Informações de legendas
-- `WhisperRecommendationDTO` - Recomendação Whisper vs YouTube
+- `TranscriptionSegmentDTO` - Individual segment
+- `SubtitlesInfoDTO` - Subtitle information
+- `WhisperRecommendationDTO` - Whisper vs YouTube recommendation
 
-**Validação**: DTOs usam Pydantic para validação automática de dados.
+**Validation**: DTOs use Pydantic for automatic data validation.
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.application.use_cases import TranscribeYouTubeVideoUseCase
 from src.application.dtos import TranscribeRequestDTO
 
-# Criar Use Case (injetar dependências)
+# Create Use Case (inject dependencies)
 use_case = TranscribeYouTubeVideoUseCase(
     video_downloader=downloader,
     transcription_service=whisper_service,
     storage_service=storage,
     cleanup_after_processing=True,
-    max_video_duration=10800  # 3 horas
+    max_video_duration=10800  # 3 hours
 )
 
-# Criar requisição
+# Create request
 request = TranscribeRequestDTO(
     youtube_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     language="auto"
 )
 
-# Executar Use Case
+# Execute Use Case
 try:
     response = await use_case.execute(request)
-    print(f"Transcrição ID: {response.transcription_id}")
-    print(f"Idioma: {response.language}")
-    print(f"Tempo: {response.processing_time:.2f}s")
-    print(f"Texto: {response.full_text}")
+    print(f"Transcription ID: {response.transcription_id}")
+    print(f"Language: {response.language}")
+    print(f"Time: {response.processing_time:.2f}s")
+    print(f"Text: {response.full_text}")
 except ValidationError as e:
-    print(f"Dados inválidos: {e}")
+    print(f"Invalid data: {e}")
 except TranscriptionError as e:
-    print(f"Erro na transcrição: {e}")
+    print(f"Transcription error: {e}")
 ```
 
 ---
 
 ## Dependency Injection
 
-Use Cases recebem **interfaces** como dependências:
+Use Cases receive **interfaces** as dependencies:
 
 ```python
 class TranscribeYouTubeVideoUseCase:
@@ -154,18 +154,18 @@ class TranscribeYouTubeVideoUseCase:
         self.storage_service = storage_service
 ```
 
-**Benefícios**:
-- Testabilidade (usar mocks)
-- Flexibilidade (trocar implementações)
-- Desacoplamento (Application não conhece Infrastructure)
+**Benefits**:
+- Testability (use mocks)
+- Flexibility (swap implementations)
+- Decoupling (Application doesn't know Infrastructure)
 
 ---
 
-## Testes
+## Tests
 
 ```python
 async def test_transcribe_use_case_success():
-    # Criar mocks
+    # Create mocks
     mock_downloader = AsyncMock(spec=IVideoDownloader)
     mock_downloader.download.return_value = VideoFile(
         file_path=Path("video.mp4"),
@@ -180,14 +180,14 @@ async def test_transcribe_use_case_success():
     
     mock_storage = AsyncMock(spec=IStorageService)
     
-    # Criar Use Case com mocks
+    # Create Use Case with mocks
     use_case = TranscribeYouTubeVideoUseCase(
         video_downloader=mock_downloader,
         transcription_service=mock_transcription,
         storage_service=mock_storage
     )
     
-    # Executar
+    # Execute
     request = TranscribeRequestDTO(youtube_url="https://youtu.be/123")
     response = await use_case.execute(request)
     
@@ -200,6 +200,6 @@ async def test_transcribe_use_case_success():
 
 ---
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
