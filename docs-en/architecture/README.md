@@ -1,14 +1,14 @@
 # 🏛️ Architecture Documentation
 
-**Documentação técnica completa - espelha estrutura de `src/`**
+**Complete technical documentation - mirrors `src/` structure**
 
 ---
 
-## 📚 Visão Geral
+## 📚 Overview
 
-Esta seção documenta **cada módulo do código** seguindo **Clean Architecture**.
+This section documents **each code module** following **Clean Architecture**.
 
-A estrutura desta documentação **espelha exatamente** a estrutura de `src/`:
+The structure of this documentation **mirrors exactly** the structure of `src/`:
 
 ```
 src/domain/                  → docs/architecture/domain/
@@ -19,41 +19,39 @@ src/presentation/            → docs/architecture/presentation/
 
 ---
 
-## 🎯 Clean Architecture - 4 Camadas
+## 🎯 Clean Architecture - 4 Layers
 
-### 1. [Domain Layer](./domain/) (Núcleo)
+### 1. [Domain Layer](./domain/) (Core)
 
-**Responsabilidade**: Regras de negócio puras
+**Responsibility**: Pure business rules
 
-**Contém**:
+**Contains**:
 - Entities (Transcription, VideoFile)
 - Value Objects (TranscriptionSegment, YouTubeURL)
-- Interfaces (contratos)
+- Interfaces (contracts)
 - Exceptions
 
-**Regra**: Não depend
-
-e de NADA
+**Rule**: Depends on NOTHING
 
 ---
 
 ### 2. [Application Layer](./application/) (Use Cases)
 
-**Responsabilidade**: Orquestração da lógica de aplicação
+**Responsibility**: Application logic orchestration
 
-**Contém**:
+**Contains**:
 - Use Cases (TranscribeVideo, CleanupFiles)
 - DTOs (Data Transfer Objects)
 
-**Depende de**: Domain (interfaces)
+**Depends on**: Domain (interfaces)
 
 ---
 
-### 3. [Infrastructure Layer](./infrastructure/) (Implementações)
+### 3. [Infrastructure Layer](./infrastructure/) (Implementations)
 
-**Responsabilidade**: Implementações concretas
+**Responsibility**: Concrete implementations
 
-**Módulos principais**:
+**Main modules**:
 - **[YouTube](./infrastructure/youtube/)** - v3.0 Resilience System
 - **[Whisper](./infrastructure/whisper/)** - v2.0 Parallel Transcription
 - **[Storage](./infrastructure/storage/)** - File management
@@ -62,50 +60,50 @@ e de NADA
 - **[Validators](./infrastructure/validators/)** - Audio validation
 - **[Utils](./infrastructure/utils/)** - FFmpeg, Circuit Breaker
 
-**Depende de**: Domain (interfaces)
+**Depends on**: Domain (interfaces)
 
 ---
 
 ### 4. [Presentation Layer](./presentation/) (API)
 
-**Responsabilidade**: Controllers (FastAPI)
+**Responsibility**: Controllers (FastAPI)
 
-**Contém**:
+**Contains**:
 - Routes (endpoints)
 - Middlewares (logging, Prometheus)
 - Dependency Injection
 
-**Depende de**: Application (Use Cases)
+**Depends on**: Application (Use Cases)
 
 ---
 
 ### 5. [Config](./config/)
 
-**Responsabilidade**: Configurações e validação de env vars
+**Responsibility**: Settings and env vars validation
 
 ---
 
-## 🚀 Módulos Principais
+## 🚀 Main Modules
 
 ### YouTube Resilience v3.0
 
-Sistema com 5 camadas de proteção:
+System with 5 layers of protection:
 
 - **[Downloader](./infrastructure/youtube/downloader.md)** - Orchestrator (Facade)
-- **[DownloadConfig](./infrastructure/youtube/download-config.md)** - Configurações centralizadas
-- **[DownloadStrategies](./infrastructure/youtube/download-strategies.md)** - 7 estratégias
+- **[DownloadConfig](./infrastructure/youtube/download-config.md)** - Centralized settings
+- **[DownloadStrategies](./infrastructure/youtube/download-strategies.md)** - 7 strategies
 - **[RateLimiter](./infrastructure/youtube/rate-limiter.md)** - Rate limiting + Circuit Breaker
 - **[UserAgentRotator](./infrastructure/youtube/user-agent-rotator.md)** - 17 User-Agents
 - **[ProxyManager](./infrastructure/youtube/proxy-manager.md)** - Tor SOCKS5
-- **[Metrics](./infrastructure/youtube/metrics.md)** - 26 métricas Prometheus
+- **[Metrics](./infrastructure/youtube/metrics.md)** - 26 Prometheus metrics
 
-📖 [Documentação completa](./infrastructure/youtube/)
+📖 [Complete documentation](./infrastructure/youtube/)
 
 ---
 
 ### Whisper Parallel v2.0
 
-Sistema de transcrição paralela:
+Parallel transcription system:
 
 - **[TranscriptionService](./infrastructure/whisper/transcription-service.md)** - Core (single)
 - **[ParallelTranscriptionService](./infrastructure/whisper/parallel-transcription-service.md)** - Parallel workers
@@ -113,15 +111,15 @@ Sistema de transcrição paralela:
 - **[PersistentWorkerPool](./infrastructure/whisper/persistent-worker-pool.md)** - Worker pool
 - **[TranscriptionFactory](./infrastructure/whisper/transcription-factory.md)** - Factory pattern
 
-📖 [Documentação completa](./infrastructure/whisper/)
+📖 [Complete documentation](./infrastructure/whisper/)
 
 ---
 
-## 📊 Navegação
+## 📊 Navigation
 
-### Por Camada
+### By Layer
 
-| Camada | Documentação | Código |
+| Layer | Documentation | Code |
 |--------|--------------|--------|
 | Domain | [docs](./domain/) | [src/domain/](../../src/domain/) |
 | Application | [docs](./application/) | [src/application/](../../src/application/) |
@@ -129,9 +127,9 @@ Sistema de transcrição paralela:
 | Presentation | [docs](./presentation/) | [src/presentation/](../../src/presentation/) |
 | Config | [docs](./config/) | [src/config/](../../src/config/) |
 
-### Por Módulo
+### By Module
 
-| Módulo | Versão | Documentação |
+| Module | Version | Documentation |
 |--------|--------|--------------|
 | YouTube | v3.0 | [docs](./infrastructure/youtube/) |
 | Whisper | v2.0 | [docs](./infrastructure/whisper/) |
@@ -141,75 +139,75 @@ Sistema de transcrição paralela:
 
 ---
 
-## 🔍 Como Usar Esta Documentação
+## 🔍 How to Use This Documentation
 
-### Sou novo no projeto
+### I'm new to the project
 
-1. Leia [Domain Layer](./domain/) - Entenda o núcleo
-2. Leia [Application Layer](./application/) - Entenda os Use Cases
-3. Escolha um módulo (YouTube ou Whisper) e explore
+1. Read [Domain Layer](./domain/) - Understand the core
+2. Read [Application Layer](./application/) - Understand Use Cases
+3. Choose a module (YouTube or Whisper) and explore
 
-### Quero entender um módulo específico
+### I want to understand a specific module
 
-1. Vá para `architecture/infrastructure/<módulo>/`
-2. Leia o `README.md` do módulo
-3. Leia os arquivos individuais (ex: `downloader.md`)
+1. Go to `architecture/infrastructure/<module>/`
+2. Read the module's `README.md`
+3. Read individual files (e.g., `downloader.md`)
 
-### Quero modificar o código
+### I want to modify the code
 
-1. Encontre o arquivo Python (ex: `src/infrastructure/youtube/downloader.py`)
-2. Leia a documentação correspondente (`architecture/infrastructure/youtube/downloader.md`)
-3. Entenda dependências (seção "Relacionamentos")
-4. Faça as mudanças
-5. Atualize a documentação correspondente
+1. Find the Python file (e.g., `src/infrastructure/youtube/downloader.py`)
+2. Read the corresponding documentation (`architecture/infrastructure/youtube/downloader.md`)
+3. Understand dependencies ("Relationships" section)
+4. Make the changes
+5. Update the corresponding documentation
 
 ---
 
-## 📖 Padrão de Documentação
+## 📖 Documentation Pattern
 
-Cada arquivo de módulo segue este padrão:
+Each module file follows this pattern:
 
 ```markdown
-# NomeDoMódulo
+# ModuleName
 
-**Path**: `src/camada/modulo.py`
+**Path**: `src/layer/module.py`
 
-## Visão Geral
-Responsabilidade, camada, versão
+## Overview
+Responsibility, layer, version
 
-## Propósito
-O que faz e por quê
+## Purpose
+What it does and why
 
-## Arquitetura
-Dependências, padrões aplicados
+## Architecture
+Dependencies, applied patterns
 
-## Interface Pública
-Métodos, parâmetros, exceções
+## Public Interface
+Methods, parameters, exceptions
 
-## Fluxo de Execução
-Diagrama em texto
+## Execution Flow
+Text diagram
 
-## Métricas Emitidas
-(se aplicável)
+## Emitted Metrics
+(if applicable)
 
-## Exemplo de Uso
-Código funcional
+## Usage Example
+Functional code
 
-## Relacionamentos
-Usa, Usado por, Implementa
+## Relationships
+Uses, Used by, Implements
 
-## Referências
-Links para diagramas, outros módulos
+## References
+Links to diagrams, other modules
 ```
 
 ---
 
-## 🔗 Referências
+## 🔗 References
 
-- [Diagrams](../diagrams/) - Diagramas visuais
-- [Developer Guide](../developer-guide/) - Contribuir, testar
-- [User Guide](../user-guide/) - Usar a API
+- [Diagrams](../diagrams/) - Visual diagrams
+- [Developer Guide](../developer-guide/) - Contribute, test
+- [User Guide](../user-guide/) - Use the API
 
 ---
 
-**[← Voltar para documentação principal](../README.md)**
+**[← Back to main documentation](../README.md)**

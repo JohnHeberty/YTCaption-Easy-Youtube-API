@@ -1,102 +1,102 @@
 # 📘 User Guide
 
-**Guia completo para usuários finais do YTCaption**
+**Complete guide for YTCaption end users**
 
 ---
 
-## 📚 Índice
+## 📚 Table of Contents
 
 1. **[Quick Start](./01-quick-start.md)** ⚡  
-   Comece em 5 minutos - instalação + primeira transcrição
+   Get started in 5 minutes - installation + first transcription
 
 2. **[Installation](./02-installation.md)** 🐳  
-   Instalação completa - Docker, Proxmox, bare metal
+   Complete installation - Docker, Proxmox, bare metal
 
 3. **[Configuration](./03-configuration.md)** ⚙️  
-   Todas as variáveis de ambiente (.env) explicadas
+   All environment variables (.env) explained
 
 4. **[API Usage](./04-api-usage.md)** 🌐  
-   Como usar a API - endpoints, parâmetros, exemplos
+   How to use the API - endpoints, parameters, examples
 
 5. **[Troubleshooting](./05-troubleshooting.md)** 🔧  
-   Problemas comuns e soluções - erros 403, network, OOM
+   Common problems and solutions - 403 errors, network, OOM
 
 6. **[Deployment](./06-deployment.md)** 🚀  
-   Deploy em produção - Nginx, SSL, Docker Compose
+   Production deployment - Nginx, SSL, Docker Compose
 
 7. **[Monitoring](./07-monitoring.md)** 📊  
-   Monitoramento - Grafana dashboards, Prometheus queries
+   Monitoring - Grafana dashboards, Prometheus queries
 
 ---
 
-## 🎯 Para quem é este guia?
+## 🎯 Who is this guide for?
 
-Este guia é para **usuários finais** que querem:
-- ✅ Instalar e configurar o YTCaption
-- ✅ Usar a API para transcrever vídeos
-- ✅ Resolver problemas comuns
-- ✅ Fazer deploy em produção
-- ✅ Monitorar a aplicação
+This guide is for **end users** who want to:
+- ✅ Install and configure YTCaption
+- ✅ Use the API to transcribe videos
+- ✅ Solve common problems
+- ✅ Deploy to production
+- ✅ Monitor the application
 
-**Não é desenvolvedor?** Este guia é perfeito para você! 😊
+**Not a developer?** This guide is perfect for you! 😊
 
 ---
 
 ## 🚀 Quick Links
 
-| Eu quero... | Ir para... |
+| I want to... | Go to... |
 |-------------|-----------|
-| Começar agora (5min) | [Quick Start](./01-quick-start.md) |
-| Instalar com Docker | [Installation - Docker](./02-installation.md#docker) |
-| Configurar YouTube Resilience v3.0 | [Configuration - YouTube](./03-configuration.md#youtube-resilience-v30) |
-| Fazer uma transcrição | [API Usage - Transcribe](./04-api-usage.md#post-transcribe) |
-| Resolver erro 403 | [Troubleshooting - 403](./05-troubleshooting.md#http-403-forbidden) |
-| Deploy com Nginx | [Deployment - Nginx](./06-deployment.md#nginx-reverse-proxy) |
-| Ver métricas | [Monitoring - Grafana](./07-monitoring.md#grafana-dashboards) |
+| Get started now (5min) | [Quick Start](./01-quick-start.md) |
+| Install with Docker | [Installation - Docker](./02-installation.md#docker) |
+| Configure YouTube Resilience v3.0 | [Configuration - YouTube](./03-configuration.md#youtube-resilience-v30) |
+| Make a transcription | [API Usage - Transcribe](./04-api-usage.md#post-transcribe) |
+| Fix 403 error | [Troubleshooting - 403](./05-troubleshooting.md#http-403-forbidden) |
+| Deploy with Nginx | [Deployment - Nginx](./06-deployment.md#nginx-reverse-proxy) |
+| View metrics | [Monitoring - Grafana](./07-monitoring.md#grafana-dashboards) |
 
 ---
 
-## 💡 Dica: Ordem de Leitura
+## 💡 Tip: Reading Order
 
-**Primeira vez usando YTCaption?**
+**First time using YTCaption?**
 
-1. Leia [Quick Start](./01-quick-start.md) (5min)
-2. Faça sua primeira transcrição
-3. Leia [Configuration](./03-configuration.md) para ajustar
-4. Se tiver problemas: [Troubleshooting](./05-troubleshooting.md)
+1. Read [Quick Start](./01-quick-start.md) (5min)
+2. Make your first transcription
+3. Read [Configuration](./03-configuration.md) to adjust
+4. If you have problems: [Troubleshooting](./05-troubleshooting.md)
 
-**Preparando para produção?**
+**Preparing for production?**
 
-1. Leia [Configuration](./03-configuration.md) completo
+1. Read complete [Configuration](./03-configuration.md)
 2. Configure YouTube Resilience v3.0
-3. Leia [Deployment](./06-deployment.md)
+3. Read [Deployment](./06-deployment.md)
 4. Configure [Monitoring](./07-monitoring.md)
 
 ---
 
-## 🆕 Novidades v3.0
+## 🆕 What's New in v3.0
 
 ### YouTube Resilience System
 
-Sistema com 5 camadas de proteção contra bloqueios:
+System with 5 layers of protection against blocking:
 - DNS Resilience
-- Multi-Strategy Download (7 estratégias)
+- Multi-Strategy Download (7 strategies)
 - Rate Limiting + Circuit Breaker
 - User-Agent Rotation (17 UAs)
 - Tor Proxy Integration
 
-**Resultado**: Taxa de sucesso 60% → 95%
+**Result**: Success rate 60% → 95%
 
-📖 [Configuração completa](./03-configuration.md#youtube-resilience-v30)
-
----
-
-## 📞 Precisa de Ajuda?
-
-- **Problema técnico?** → [Troubleshooting](./05-troubleshooting.md)
-- **Quer contribuir?** → [Developer Guide](../developer-guide/)
-- **Issue no GitHub**: [Abrir issue](https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API/issues)
+📖 [Complete configuration](./03-configuration.md#youtube-resilience-v30)
 
 ---
 
-**[← Voltar para documentação principal](../README.md)**
+## 📞 Need Help?
+
+- **Technical problem?** → [Troubleshooting](./05-troubleshooting.md)
+- **Want to contribute?** → [Developer Guide](../developer-guide/)
+- **GitHub issue**: [Open issue](https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API/issues)
+
+---
+
+**[← Back to main documentation](../README.md)**

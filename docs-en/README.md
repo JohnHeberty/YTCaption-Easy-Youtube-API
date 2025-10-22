@@ -1,90 +1,90 @@
-# 📚 YTCaption - Documentação Completa
+# 📚 YTCaption - Complete Documentation
 
-**Sistema de transcrição de vídeos do YouTube com Whisper AI**
+**YouTube video transcription system with Whisper AI**
 
 ---
 
-## 🎯 Navegação Rápida
+## 🎯 Quick Navigation
 
-### 👤 Para Usuários
+### 👤 For Users
 
-**Quer usar a API?** → [User Guide](./user-guide/)
+**Want to use the API?** → [User Guide](./user-guide/)
 
-- [Quick Start (5min)](./user-guide/01-quick-start.md) - Primeiros passos
-- [Instalação](./user-guide/02-installation.md) - Docker, Proxmox, bare metal
-- [Configuração](./user-guide/03-configuration.md) - Todas as env vars explicadas
-- [API Usage](./user-guide/04-api-usage.md) - Como fazer requests
-- [Troubleshooting](./user-guide/05-troubleshooting.md) - Problemas comuns
-- [Deployment](./user-guide/06-deployment.md) - Produção (Nginx, SSL)
+- [Quick Start (5min)](./user-guide/01-quick-start.md) - Getting started
+- [Installation](./user-guide/02-installation.md) - Docker, Proxmox, bare metal
+- [Configuration](./user-guide/03-configuration.md) - All env vars explained
+- [API Usage](./user-guide/04-api-usage.md) - How to make requests
+- [Troubleshooting](./user-guide/05-troubleshooting.md) - Common issues
+- [Deployment](./user-guide/06-deployment.md) - Production (Nginx, SSL)
 - [Monitoring](./user-guide/07-monitoring.md) - Grafana + Prometheus
 
 ---
 
-### 👨‍💻 Para Desenvolvedores
+### 👨‍💻 For Developers
 
-**Quer contribuir ou entender o código?** → [Developer Guide](./developer-guide/)
+**Want to contribute or understand the code?** → [Developer Guide](./developer-guide/)
 
 - [Architecture Overview](./developer-guide/architecture-overview.md) - Clean Architecture
-- [Contributing](./developer-guide/contributing.md) - Como contribuir
+- [Contributing](./developer-guide/contributing.md) - How to contribute
 - [Testing](./developer-guide/testing.md) - Unit tests, integration tests
-- [Changelog](./developer-guide/changelog.md) - Histórico de versões
+- [Changelog](./developer-guide/changelog.md) - Version history
 
 ---
 
-### 🏛️ Arquitetura Técnica
+### 🏛️ Technical Architecture
 
-**Quer entender como cada módulo funciona?** → [Architecture](./architecture/)
+**Want to understand how each module works?** → [Architecture](./architecture/)
 
-#### Camadas (Clean Architecture)
+#### Layers (Clean Architecture)
 
-1. **[Domain Layer](./architecture/domain/)** - Regras de negócio puras
-2. **[Application Layer](./architecture/application/)** - Use Cases (orquestração)
-3. **[Infrastructure Layer](./architecture/infrastructure/)** - Implementações concretas
+1. **[Domain Layer](./architecture/domain/)** - Pure business rules
+2. **[Application Layer](./architecture/application/)** - Use Cases (orchestration)
+3. **[Infrastructure Layer](./architecture/infrastructure/)** - Concrete implementations
 4. **[Presentation Layer](./architecture/presentation/)** - FastAPI (controllers)
-5. **[Config](./architecture/config/)** - Configurações e validação
+5. **[Config](./architecture/config/)** - Settings and validation
 
-#### Módulos Principais
+#### Main Modules
 
-- **[YouTube Module](./architecture/infrastructure/youtube/)** - v3.0 Resilience System (5 camadas)
+- **[YouTube Module](./architecture/infrastructure/youtube/)** - v3.0 Resilience System (5 layers)
 - **[Whisper Module](./architecture/infrastructure/whisper/)** - v2.0 Parallel Transcription
 - **[Storage Module](./architecture/infrastructure/storage/)** - File management + cleanup
 - **[Monitoring](./architecture/infrastructure/monitoring/)** - Prometheus metrics
 
 ---
 
-### 📊 Diagramas Visuais
+### 📊 Visual Diagrams
 
-**Quer visualizar fluxos e arquitetura?** → [Diagrams](./diagrams/)
+**Want to visualize flows and architecture?** → [Diagrams](./diagrams/)
 
-- [Clean Architecture](./diagrams/clean-architecture.md) - Camadas e dependências
-- [YouTube Resilience Flow](./diagrams/youtube-resilience-flow.md) - v3.0 (5 camadas)
+- [Clean Architecture](./diagrams/clean-architecture.md) - Layers and dependencies
+- [YouTube Resilience Flow](./diagrams/youtube-resilience-flow.md) - v3.0 (5 layers)
 - [Parallel Transcription](./diagrams/parallel-transcription-flow.md) - v2.0 (workers)
-- [Request Lifecycle](./diagrams/request-lifecycle.md) - Request → Response completo
-- [Design Patterns](./diagrams/design-patterns.md) - Padrões aplicados
+- [Request Lifecycle](./diagrams/request-lifecycle.md) - Complete Request → Response
+- [Design Patterns](./diagrams/design-patterns.md) - Applied patterns
 
 ---
 
 ## 🚀 Quick Links
 
-| Eu quero... | Ir para... |
+| I want to... | Go to... |
 |-------------|-----------|
-| Começar em 5 minutos | [Quick Start](./user-guide/01-quick-start.md) |
-| Configurar YouTube Resilience v3.0 | [Configuration - YouTube Resilience](./user-guide/03-configuration.md#youtube-resilience-v30) |
-| Resolver erro 403 Forbidden | [Troubleshooting - HTTP 403](./user-guide/05-troubleshooting.md#http-403-forbidden) |
-| Entender o código do Downloader | [YouTube Downloader](./architecture/infrastructure/youtube/downloader.md) |
-| Ver métricas Prometheus | [Monitoring Guide](./user-guide/07-monitoring.md) |
-| Contribuir com código | [Contributing Guide](./developer-guide/contributing.md) |
-| Entender Clean Architecture | [Architecture Overview](./developer-guide/architecture-overview.md) |
+| Get started in 5 minutes | [Quick Start](./user-guide/01-quick-start.md) |
+| Configure YouTube Resilience v3.0 | [Configuration - YouTube Resilience](./user-guide/03-configuration.md#youtube-resilience-v30) |
+| Fix 403 Forbidden error | [Troubleshooting - HTTP 403](./user-guide/05-troubleshooting.md#http-403-forbidden) |
+| Understand the Downloader code | [YouTube Downloader](./architecture/infrastructure/youtube/downloader.md) |
+| View Prometheus metrics | [Monitoring Guide](./user-guide/07-monitoring.md) |
+| Contribute code | [Contributing Guide](./developer-guide/contributing.md) |
+| Understand Clean Architecture | [Architecture Overview](./developer-guide/architecture-overview.md) |
 
 ---
 
-## 📖 Estrutura da Documentação
+## 📖 Documentation Structure
 
 ```
 docs/
-├── README.md (você está aqui)
+├── README.md (you are here)
 │
-├── user-guide/              # 📘 Para usuários finais
+├── user-guide/              # 📘 For end users
 │   ├── 01-quick-start.md
 │   ├── 02-installation.md
 │   ├── 03-configuration.md
@@ -93,13 +93,13 @@ docs/
 │   ├── 06-deployment.md
 │   └── 07-monitoring.md
 │
-├── developer-guide/         # 👨‍💻 Para contribuidores
+├── developer-guide/         # 👨‍💻 For contributors
 │   ├── architecture-overview.md
 │   ├── contributing.md
 │   ├── testing.md
 │   └── changelog.md
 │
-├── architecture/            # 🏛️ Documentação técnica (espelha src/)
+├── architecture/            # 🏛️ Technical documentation (mirrors src/)
 │   ├── domain/              # Domain Layer
 │   ├── application/         # Application Layer
 │   ├── infrastructure/      # Infrastructure Layer
@@ -113,107 +113,107 @@ docs/
 │   ├── presentation/        # Presentation Layer (API)
 │   └── config/              # Settings
 │
-├── diagrams/                # 📊 Diagramas visuais
+├── diagrams/                # 📊 Visual diagrams
 │   ├── clean-architecture.md
 │   ├── youtube-resilience-flow.md
 │   ├── parallel-transcription-flow.md
 │   ├── request-lifecycle.md
 │   └── design-patterns.md
 │
-└── old/                     # 📦 Documentação anterior (referência)
+└── old/                     # 📦 Previous documentation (reference)
 ```
 
 ---
 
-## 🎓 Conceitos Principais
+## 🎓 Main Concepts
 
 ### YouTube Resilience v3.0
 
-Sistema com **5 camadas de proteção** contra bloqueios do YouTube:
+System with **5 layers of protection** against YouTube blocking:
 
 1. **DNS Resilience** - Google DNS (8.8.8.8) + Cloudflare (1.1.1.1)
-2. **Multi-Strategy** - 7 estratégias de download (direct, cookies, mobile, referer, extract, embedded, oauth)
-3. **Rate Limiting** - Controle de requests/min + Circuit Breaker
-4. **User-Agent Rotation** - 17 User-Agents diferentes (Chrome, Firefox, Safari, Edge)
-5. **Tor Proxy** - Anonimização de IP via SOCKS5
+2. **Multi-Strategy** - 7 download strategies (direct, cookies, mobile, referer, extract, embedded, oauth)
+3. **Rate Limiting** - Requests/min control + Circuit Breaker
+4. **User-Agent Rotation** - 17 different User-Agents (Chrome, Firefox, Safari, Edge)
+5. **Tor Proxy** - IP anonymization via SOCKS5
 
-**Resultado**: Taxa de sucesso 60% → 95% (+58%)
+**Result**: Success rate 60% → 95% (+58%)
 
-📖 [Documentação completa](./architecture/infrastructure/youtube/)
+📖 [Complete documentation](./architecture/infrastructure/youtube/)
 
 ---
 
 ### Parallel Transcription v2.0
 
-Sistema de transcrição paralela com **workers persistentes**:
+Parallel transcription system with **persistent workers**:
 
-- Worker pool pré-aquecido (evita overhead de spawn)
-- Chunking inteligente de áudio (120s por chunk)
-- Modelo Whisper compartilhado entre workers
-- Auto-cleanup de arquivos temporários
+- Pre-warmed worker pool (avoids spawn overhead)
+- Smart audio chunking (120s per chunk)
+- Whisper model shared between workers
+- Auto-cleanup of temporary files
 
-**Resultado**: 3-5x mais rápido que single-core
+**Result**: 3-5x faster than single-core
 
-📖 [Documentação completa](./architecture/infrastructure/whisper/)
+📖 [Complete documentation](./architecture/infrastructure/whisper/)
 
 ---
 
 ### Clean Architecture
 
-Arquitetura em **4 camadas** com **dependências apontando para dentro**:
+Architecture in **4 layers** with **dependencies pointing inward**:
 
 ```
-Infrastructure → Application → Domain ← (núcleo)
+Infrastructure → Application → Domain ← (core)
 Presentation ↗
 ```
 
-**Benefícios**:
-- ✅ Testabilidade (mocks fáceis)
-- ✅ Manutenibilidade (código organizado)
-- ✅ Escalabilidade (adicionar features sem quebrar)
-- ✅ Independência de frameworks (trocar FastAPI/Whisper sem reescrever)
+**Benefits**:
+- ✅ Testability (easy mocks)
+- ✅ Maintainability (organized code)
+- ✅ Scalability (add features without breaking)
+- ✅ Framework independence (swap FastAPI/Whisper without rewriting)
 
-📖 [Documentação completa](./developer-guide/architecture-overview.md)
+📖 [Complete documentation](./developer-guide/architecture-overview.md)
 
 ---
 
-## 📊 Estatísticas do Projeto
+## 📊 Project Statistics
 
-### Código
+### Code
 
-- **Linhas de código**: ~8.500 (Python)
-- **Módulos**: 55 arquivos Python
-- **Camadas**: 4 (Domain, Application, Infrastructure, Presentation)
-- **Testes**: Unit + Integration (pytest)
+- **Lines of code**: ~8,500 (Python)
+- **Modules**: 55 Python files
+- **Layers**: 4 (Domain, Application, Infrastructure, Presentation)
+- **Tests**: Unit + Integration (pytest)
 
 ### Performance
 
-- **Taxa de sucesso downloads**: 95% (antes: 60%)
-- **Latência**: 3-5s (cache) / 30s-2min (CPU) / 8-12min (paralelo)
-- **Throughput**: 10-15 req/min (antes: 2 req/min)
-- **Uso de RAM**: 2GB (antes: 8GB)
+- **Download success rate**: 95% (before: 60%)
+- **Latency**: 3-5s (cache) / 30s-2min (CPU) / 8-12min (parallel)
+- **Throughput**: 10-15 req/min (before: 2 req/min)
+- **RAM usage**: 2GB (before: 8GB)
 
-### Monitoramento
+### Monitoring
 
-- **Métricas Prometheus**: 26 métricas (YouTube) + 15 métricas (global)
-- **Dashboards Grafana**: 2 dashboards (YouTube Resilience + System)
-- **Uptime**: 99.5% (antes: 92%)
+- **Prometheus metrics**: 26 metrics (YouTube) + 15 metrics (global)
+- **Grafana dashboards**: 2 dashboards (YouTube Resilience + System)
+- **Uptime**: 99.5% (before: 92%)
 
 ---
 
-## 🤝 Contribuindo
+## 🤝 Contributing
 
-Quer contribuir? Veja o [Contributing Guide](./developer-guide/contributing.md)!
+Want to contribute? See the [Contributing Guide](./developer-guide/contributing.md)!
 
-Principais áreas:
+Main areas:
 - 🐛 Bug fixes
-- ✨ Novas features (estratégias de download, otimizações Whisper)
-- 📖 Documentação (melhorias, exemplos, traduções)
-- 🧪 Testes (aumentar cobertura)
+- ✨ New features (download strategies, Whisper optimizations)
+- 📖 Documentation (improvements, examples, translations)
+- 🧪 Tests (increase coverage)
 
 ---
 
-## 📞 Suporte
+## 📞 Support
 
 - **Issues**: [GitHub Issues](https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API/discussions)
@@ -221,12 +221,12 @@ Principais áreas:
 
 ---
 
-## 📝 Licença
+## 📝 License
 
-MIT License - veja [LICENSE](../LICENSE)
+MIT License - see [LICENSE](../LICENSE)
 
 ---
 
-**Versão da Documentação**: 3.0.0  
-**Última atualização**: 22/10/2025  
-**Mantido por**: [@JohnHeberty](https://github.com/JohnHeberty)
+**Documentation Version**: 3.0.0  
+**Last updated**: 10/22/2025  
+**Maintained by**: [@JohnHeberty](https://github.com/JohnHeberty)
