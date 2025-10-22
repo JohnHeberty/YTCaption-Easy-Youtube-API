@@ -1,21 +1,21 @@
 # Whisper Module v2.0 - Parallel Transcription
 
-Sistema de transcrição paralela com OpenAI Whisper.
+Parallel transcription system with OpenAI Whisper.
 
 ---
 
-## Visão Geral
+## Overview
 
-O **Parallel Transcription System v2.0** oferece:
-- **7-10x speedup** vs transcrição sequencial
-- **Worker pool persistente** (sem overhead de inicialização)
-- **Chunking inteligente** de áudio
+The **Parallel Transcription System v2.0** offers:
+- **7-10x speedup** vs sequential transcription
+- **Persistent worker pool** (no initialization overhead)
+- **Smart audio chunking**
 - **Memory-efficient** processing
 - **GPU/CPU automatic fallback**
 
 ---
 
-## Arquitetura
+## Architecture
 
 ```
 Audio File (60min)
@@ -36,42 +36,42 @@ Final Transcription
 
 ---
 
-## Componentes
+## Components
 
 ### ParallelWhisperService
-- Orquestra transcrição paralela
-- Divide áudio em chunks
-- Distribui para workers
-- Merge de resultados
+- Orchestrates parallel transcription
+- Splits audio into chunks
+- Distributes to workers
+- Merges results
 
 ### PersistentWorkerPool
-- Pool de N workers (configurável)
-- Workers permanecem carregados (modelo em memória)
-- Zero overhead entre transcrições
+- Pool of N workers (configurable)
+- Workers remain loaded (model in memory)
+- Zero overhead between transcriptions
 - Thread-safe task queue
 
 ### ChunkPreparationService
-- Chunking inteligente em silêncios
-- Evita cortar palavras
-- Overlap de 0.5s entre chunks
-- FFmpeg para splitting rápido
+- Smart chunking at silences
+- Avoids cutting words
+- 0.5s overlap between chunks
+- FFmpeg for fast splitting
 
 ### ModelCache
-- Cache de modelos Whisper carregados
+- Cache for loaded Whisper models
 - Lazy loading
 - LRU eviction
-- Reduz 10-15s de loading time
+- Reduces 10-15s loading time
 
 ### TranscriptionFactory
-- Factory para criar serviços
-- Auto-detecta GPU/CPU
-- Configura otimizações
+- Factory to create services
+- Auto-detects GPU/CPU
+- Configures optimizations
 
 ---
 
-## Modelos Suportados
+## Supported Models
 
-| Modelo | Size | VRAM | Speed | Accuracy |
+| Model  | Size | VRAM | Speed | Accuracy |
 |--------|------|------|-------|----------|
 | tiny   | 39M  | ~1GB | Fast  | Basic    |
 | base   | 74M  | ~1GB | Fast  | Good     |
@@ -80,33 +80,33 @@ Final Transcription
 | large  | 1.5G | ~10GB| V.Slow| Best     |
 | turbo  | 809M | ~6GB | Fast  | Great    |
 
-**Recomendado**: `base` (boa velocidade + qualidade)
+**Recommended**: `base` (good speed + quality)
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.infrastructure.whisper import ParallelWhisperService
 
-# Criar serviço paralelo
+# Create parallel service
 service = ParallelWhisperService(
     model="base",
     num_workers=4,
-    device="cuda"  # ou "cpu"
+    device="cuda"  # or "cpu"
 )
 
-# Transcrever
+# Transcribe
 transcription = await service.transcribe(
     video_file,
     language="auto"
 )
 
-# Resultados
-print(f"Segmentos: {len(transcription.segments)}")
-print(f"Idioma: {transcription.language}")
-print(f"Duração: {transcription.duration:.2f}s")
-print(f"Tempo: {transcription.processing_time:.2f}s")
+# Results
+print(f"Segments: {len(transcription.segments)}")
+print(f"Language: {transcription.language}")
+print(f"Duration: {transcription.duration:.2f}s")
+print(f"Time: {transcription.processing_time:.2f}s")
 ```
 
 ---
@@ -124,6 +124,6 @@ print(f"Tempo: {transcription.processing_time:.2f}s")
 
 ---
 
-**Versão**: 2.0.0
+**Version**: 2.0.0
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
