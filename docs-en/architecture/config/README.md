@@ -1,5 +1,5 @@
 # config - README.md
 
-**Em construção**
+**Under construction**
 
-[ Voltar](../README.md)
+[← Back](../README.md)
