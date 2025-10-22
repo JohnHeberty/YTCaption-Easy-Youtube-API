@@ -6,7 +6,12 @@ from src.application.dtos.transcription_dtos import (
     ExportCaptionsRequestDTO,
     HealthCheckDTO,
     ErrorResponseDTO,
-    CaptionFormat
+    CaptionFormat,
+    VideoInfoResponseDTO,
+    LanguageDetectionDTO,
+    SubtitlesInfoDTO,
+    WhisperRecommendationDTO,
+    ReadinessCheckDTO
 )
 
 __all__ = [
@@ -16,5 +21,10 @@ __all__ = [
     "ExportCaptionsRequestDTO",
     "HealthCheckDTO",
     "ErrorResponseDTO",
-    "CaptionFormat"
+    "CaptionFormat",
+    "VideoInfoResponseDTO",
+    "LanguageDetectionDTO",
+    "SubtitlesInfoDTO",
+    "WhisperRecommendationDTO",
+    "ReadinessCheckDTO"
 ]

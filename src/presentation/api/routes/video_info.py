@@ -9,7 +9,14 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from loguru import logger
 
-from src.application.dtos import TranscribeRequestDTO
+from src.application.dtos import (
+    TranscribeRequestDTO,
+    VideoInfoResponseDTO,
+    LanguageDetectionDTO,
+    SubtitlesInfoDTO,
+    WhisperRecommendationDTO,
+    ErrorResponseDTO
+)
 from src.domain.value_objects import YouTubeURL
 from src.domain.exceptions import VideoDownloadError, NetworkError
 from src.domain.interfaces import IVideoDownloader
@@ -23,26 +30,74 @@ router = APIRouter(prefix="/api/v1", tags=["video-info"])
 limiter = Limiter(key_func=get_remote_address)
 
 
-@router.post("/video/info")
-@limiter.limit("10/minute")  # v2.1: Rate limiting
+@router.post(
+    "/video/info",
+    response_model=VideoInfoResponseDTO,
+    status_code=200,
+    summary="Get video information without downloading",
+    description="""
+    Get complete video metadata without downloading the audio.
+    
+    **⚡ Rate Limit:** 10 requests per minute per IP address
+    
+    Returns detailed information including:
+    - Video duration and metadata
+    - Language detection with confidence score
+    - Available subtitles (manual and auto-generated)
+    - Whisper model recommendations
+    - Processing time estimates
+    
+    If rate limit is exceeded, returns HTTP 429.
+    """,
+    responses={
+        200: {
+            "description": "Video information retrieved successfully",
+            "headers": {
+                "X-Request-ID": {
+                    "description": "Unique request identifier for tracking",
+                    "schema": {"type": "string", "format": "uuid"}
+                },
+                "X-Process-Time": {
+                    "description": "Processing time in seconds",
+                    "schema": {"type": "string"}
+                }
+            }
+        },
+        400: {
+            "model": ErrorResponseDTO,
+            "description": "Invalid YouTube URL"
+        },
+        404: {
+            "model": ErrorResponseDTO,
+            "description": "Video not found or unavailable"
+        },
+        429: {
+            "model": ErrorResponseDTO,
+            "description": "Rate limit exceeded - 10 requests per minute per IP"
+        },
+        500: {
+            "model": ErrorResponseDTO,
+            "description": "Internal server error"
+        }
+    }
+)
+@limiter.limit("10/minute")
 async def get_video_info(
-    request: Request,  # ✅ CORRIGIDO: Primeiro parâmetro Request
-    request_dto: TranscribeRequestDTO,  # ✅ Renomeado para request_dto
+    request: Request,
+    request_dto: TranscribeRequestDTO,
     downloader: IVideoDownloader = Depends(Container.get_video_downloader)
-):
+) -> VideoInfoResponseDTO:
     """
     Obtém informações completas do vídeo sem baixá-lo.
     Inclui detecção de idioma e legendas disponíveis.
     
     Args:
+        request: FastAPI Request object
         request_dto: Requisição com URL do YouTube
+        downloader: Video downloader service
         
     Returns:
-        Informações completas do vídeo incluindo:
-        - Duração e tempo estimado de processamento
-        - Detecção de idioma com nível de confiança
-        - Legendas disponíveis (manuais e automáticas)
-        - Recomendações de modelo Whisper
+        VideoInfoResponseDTO: Informações completas do vídeo
         
     Raises:
         HTTPException: Se houver erro ao obter informações
@@ -91,60 +146,95 @@ async def get_video_info(
         seconds = duration % 60
         duration_formatted = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         
-        response = {
-            "video_id": info.get('video_id'),
-            "title": info.get('title'),
-            "duration_seconds": duration,
-            "duration_formatted": duration_formatted,
-            "uploader": info.get('uploader'),
-            "upload_date": info.get('upload_date'),
-            "view_count": info.get('view_count'),
-            "description_preview": (
-                info.get('description', '')[:200] + "..." 
-                if info.get('description') and len(info.get('description', '')) > 200 
-                else info.get('description', '')
-            ),
-            "language_detection": info.get('language_detection', {}),
-            "subtitles": {
-                "available": info.get('available_subtitles', []),
-                "manual_languages": info.get('subtitle_languages', []),
-                "auto_languages": info.get('auto_caption_languages', []),
-                "total": len(info.get('available_subtitles', []))
-            },
-            "whisper_recommendation": info.get('whisper_recommendation', {}),
-            "warnings": []
-        }
+        # Preparar descrição
+        description = info.get('description', '')
+        description_preview = (
+            description[:200] + "..." if description and len(description) > 200 
+            else description if description else ""
+        )
+        
+        # Preparar avisos
+        warnings = []
         
         # Adicionar avisos baseados na duração
         if duration > 7200:  # 2 horas
-            response["warnings"].append(
+            warnings.append(
                 "Video is very long (>2h). Processing may take significant time. "
                 "Consider using 'tiny' or 'base' model for faster results."
             )
         elif duration > 3600:  # 1 hora
-            response["warnings"].append(
+            warnings.append(
                 "Video is long (>1h). Processing may take 20-30 minutes with 'base' model."
             )
         
         if duration > 10800:  # 3 horas
-            response["warnings"].append(
+            warnings.append(
                 "Video exceeds recommended maximum duration (3h). "
                 "Processing may fail or timeout. Consider processing shorter videos."
             )
         
+        # Informações de legendas
+        available_subtitles = info.get('available_subtitles', [])
+        subtitle_languages = info.get('subtitle_languages', [])
+        auto_caption_languages = info.get('auto_caption_languages', [])
+        
         # Avisos sobre legendas
-        subtitles_info = response["subtitles"]
-        if subtitles_info["total"] > 0:
-            if len(subtitles_info["manual_languages"]) > 0:
-                response["warnings"].append(
-                    f"Manual subtitles available in {len(subtitles_info['manual_languages'])} languages. "
+        if len(available_subtitles) > 0:
+            if len(subtitle_languages) > 0:
+                warnings.append(
+                    f"Manual subtitles available in {len(subtitle_languages)} languages. "
                     "You can use YouTube transcripts instead of Whisper for faster results."
                 )
             else:
-                response["warnings"].append(
-                    f"Auto-generated captions available in {len(subtitles_info['auto_languages'])} languages. "
+                warnings.append(
+                    f"Auto-generated captions available in {len(auto_caption_languages)} languages. "
                     "You can use them for faster results, but quality may vary."
                 )
+        
+        # Construir DTOs
+        subtitles_dto = SubtitlesInfoDTO(
+            available=available_subtitles,
+            manual_languages=subtitle_languages,
+            auto_languages=auto_caption_languages,
+            total=len(available_subtitles)
+        )
+        
+        # Language detection DTO (opcional)
+        language_detection_dto = None
+        if info.get('language_detection'):
+            lang_det = info.get('language_detection')
+            language_detection_dto = LanguageDetectionDTO(
+                detected_language=lang_det.get('detected_language'),
+                confidence=lang_det.get('confidence'),
+                method=lang_det.get('method')
+            )
+        
+        # Whisper recommendation DTO (opcional)
+        whisper_recommendation_dto = None
+        if info.get('whisper_recommendation'):
+            whisper_rec = info.get('whisper_recommendation')
+            whisper_recommendation_dto = WhisperRecommendationDTO(
+                should_use_youtube_transcript=whisper_rec.get('should_use_youtube_transcript', False),
+                reason=whisper_rec.get('reason', ''),
+                estimated_time_whisper=whisper_rec.get('estimated_time_whisper'),
+                estimated_time_youtube=whisper_rec.get('estimated_time_youtube')
+            )
+        
+        # Construir response DTO
+        response_dto = VideoInfoResponseDTO(
+            video_id=info.get('video_id', ''),
+            title=info.get('title', ''),
+            duration_seconds=duration,
+            duration_formatted=duration_formatted,
+            uploader=info.get('uploader'),
+            upload_date=info.get('upload_date'),
+            view_count=info.get('view_count'),
+            description_preview=description_preview,
+            language_detection=language_detection_dto,
+            subtitles=subtitles_dto,
+            whisper_recommendation=whisper_recommendation_dto,
+            warnings=warnings
+        )
         
         logger.info(
             "Video info retrieved successfully",
@@ -153,11 +243,11 @@ async def get_video_info(
                 "video_id": youtube_url.video_id,
                 "duration": duration,
                 "detected_lang": info.get('language_detection', {}).get('detected_language'),
-                "subtitles_count": subtitles_info['total']
+                "subtitles_count": len(available_subtitles)
             }
         )
         
-        return response
+        return response_dto
     
     except HTTPException:
         raise

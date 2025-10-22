@@ -2,7 +2,7 @@
 DTOs (Data Transfer Objects) para a camada de aplicação.
 Seguem o princípio de separação de responsabilidades.
 """
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, HttpUrl, validator
 
 
@@ -125,20 +125,120 @@ class HealthCheckDTO(BaseModel):
 
 
 class ErrorResponseDTO(BaseModel):
-    """DTO para respostas de erro."""
+    """DTO padronizado para respostas de erro."""
     
-    error: str = Field(..., description="Tipo de erro")
-    message: str = Field(..., description="Mensagem de erro")
-    details: Optional[dict] = Field(None, description="Detalhes adicionais")
+    error: str = Field(..., description="Tipo/classe do erro")
+    message: str = Field(..., description="Mensagem legível do erro")
+    request_id: str = Field(..., description="ID da requisição para tracking")
+    details: Optional[Dict[str, Any]] = Field(None, description="Detalhes adicionais do erro")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "error": "VideoDownloadError",
-                "message": "Failed to download video",
+                "error": "AudioTooLongError",
+                "message": "Audio duration (7250s) exceeds maximum allowed (7200s)",
+                "request_id": "abc-123-def-456",
                 "details": {
-                    "url": "https://youtube.com/watch?v=invalid",
-                    "reason": "Video not found"
+                    "duration": 7250,
+                    "max_duration": 7200
                 }
+            }
+        }
+
+
+class SubtitlesInfoDTO(BaseModel):
+    """DTO para informações de legendas disponíveis."""
+    
+    available: List[str] = Field(..., description="Todas as legendas disponíveis")
+    manual_languages: List[str] = Field(..., description="Idiomas com legendas manuais")
+    auto_languages: List[str] = Field(..., description="Idiomas com legendas automáticas")
+    total: int = Field(..., description="Total de legendas disponíveis")
+
+
+class LanguageDetectionDTO(BaseModel):
+    """DTO para resultado da detecção de idioma."""
+    
+    detected_language: Optional[str] = Field(None, description="Idioma detectado")
+    confidence: Optional[float] = Field(None, description="Confiança da detecção (0-1)")
+    method: Optional[str] = Field(None, description="Método de detecção usado")
+
+
+class WhisperRecommendationDTO(BaseModel):
+    """DTO para recomendação de uso do Whisper vs YouTube."""
+    
+    should_use_youtube_transcript: bool = Field(..., description="Se deve usar transcrição do YouTube")
+    reason: str = Field(..., description="Razão da recomendação")
+    estimated_time_whisper: Optional[float] = Field(None, description="Tempo estimado com Whisper (segundos)")
+    estimated_time_youtube: Optional[float] = Field(None, description="Tempo estimado com YouTube (segundos)")
+
+
+class VideoInfoResponseDTO(BaseModel):
+    """DTO para resposta de informações do vídeo."""
+    
+    video_id: str = Field(..., description="ID do vídeo no YouTube")
+    title: str = Field(..., description="Título do vídeo")
+    duration_seconds: int = Field(..., description="Duração em segundos")
+    duration_formatted: str = Field(..., description="Duração formatada (HH:MM:SS)")
+    uploader: Optional[str] = Field(None, description="Nome do canal/uploader")
+    upload_date: Optional[str] = Field(None, description="Data de upload (YYYYMMDD)")
+    view_count: Optional[int] = Field(None, description="Número de visualizações")
+    description_preview: str = Field(..., description="Prévia da descrição (200 caracteres)")
+    language_detection: Optional[LanguageDetectionDTO] = Field(None, description="Detecção de idioma")
+    subtitles: SubtitlesInfoDTO = Field(..., description="Informações de legendas")
+    whisper_recommendation: Optional[WhisperRecommendationDTO] = Field(None, description="Recomendações Whisper")
+    warnings: List[str] = Field(default_factory=list, description="Avisos sobre o vídeo")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "video_id": "dQw4w9WgXcQ",
+                "title": "Rick Astley - Never Gonna Give You Up",
+                "duration_seconds": 213,
+                "duration_formatted": "00:03:33",
+                "uploader": "Rick Astley",
+                "upload_date": "20091024",
+                "view_count": 1400000000,
+                "description_preview": "The official video for 'Never Gonna Give You Up'...",
+                "language_detection": {
+                    "detected_language": "en",
+                    "confidence": 0.95,
+                    "method": "metadata"
+                },
+                "subtitles": {
+                    "available": ["en", "es", "pt"],
+                    "manual_languages": ["en"],
+                    "auto_languages": ["es", "pt"],
+                    "total": 3
+                },
+                "whisper_recommendation": {
+                    "should_use_youtube_transcript": True,
+                    "reason": "Manual subtitles available in detected language",
+                    "estimated_time_whisper": 45.0,
+                    "estimated_time_youtube": 2.0
+                },
+                "warnings": []
+            }
+        }
+
+
+class ReadinessCheckDTO(BaseModel):
+    """DTO para resposta de verificação de prontidão."""
+    
+    status: str = Field(..., description="Status de prontidão (ready/not_ready)")
+    checks: Dict[str, bool] = Field(..., description="Status de cada verificação")
+    message: Optional[str] = Field(None, description="Mensagem adicional")
+    timestamp: float = Field(..., description="Timestamp da verificação")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "ready",
+                "checks": {
+                    "storage": True,
+                    "whisper_model": True,
+                    "worker_pool": True
+                },
+                "message": "All systems operational",
+                "timestamp": 1234567890.123
             }
         }
