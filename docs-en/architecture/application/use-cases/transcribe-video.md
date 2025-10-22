@@ -1,39 +1,39 @@
 # TranscribeYouTubeVideoUseCase
 
-Use Case principal que orquestra o processo de transcrição de vídeos do YouTube.
+Main Use Case that orchestrates YouTube video transcription process.
 
 ---
 
-## Responsabilidade
+## Responsibility
 
-Coordenar download de vídeo + transcrição + cache + cleanup.
+Coordinate video download + transcription + cache + cleanup.
 
-**Arquivo**: `src/application/use_cases/transcribe_video.py`
+**File**: `src/application/use_cases/transcribe_video.py`
 
 ---
 
-## Fluxo de Execução
+## Execution Flow
 
 ```
-1. Validar URL do YouTube
-2. Verificar se deve usar YouTube Transcript
-   ├── SIM → Obter legendas do YouTube (rápido)
-   └── NÃO → Continuar com Whisper
-3. Criar diretório temporário
-4. Baixar vídeo
-5. [v2.2.1] Verificar cache usando file_hash
-   ├── HIT → Retornar resultado em cache
-   └── MISS → Continuar processamento
-6. [v2.0] Validar áudio (duração, integridade)
-7. [v2.1] Transcrever com Whisper + timeout global
-8. [v2.2.1] Salvar no cache
-9. Limpar arquivos temporários
-10. Retornar resposta
+1. Validate YouTube URL
+2. Check if should use YouTube Transcript
+   ├── YES → Get YouTube captions (fast)
+   └── NO → Continue with Whisper
+3. Create temporary directory
+4. Download video
+5. [v2.2.1] Check cache using file_hash
+   ├── HIT → Return cached result
+   └── MISS → Continue processing
+6. [v2.0] Validate audio (duration, integrity)
+7. [v2.1] Transcribe with Whisper + global timeout
+8. [v2.2.1] Save to cache
+9. Clean temporary files
+10. Return response
 ```
 
 ---
 
-## Parâmetros do Construtor
+## Constructor Parameters
 
 ```python
 def __init__(
@@ -50,43 +50,43 @@ def __init__(
 
 ---
 
-## Método Principal
+## Main Method
 
 ### `execute(request: TranscribeRequestDTO) -> TranscribeResponseDTO`
 
-**Entrada**: `TranscribeRequestDTO`
-- `youtube_url` - URL do YouTube
-- `language` - Idioma ("auto" para detecção automática)
-- `use_youtube_transcript` - Usar legendas do YouTube (v2.0)
-- `prefer_manual_subtitles` - Preferir legendas manuais (v2.0)
+**Input**: `TranscribeRequestDTO`
+- `youtube_url` - YouTube URL
+- `language` - Language ("auto" for automatic detection)
+- `use_youtube_transcript` - Use YouTube captions (v2.0)
+- `prefer_manual_subtitles` - Prefer manual subtitles (v2.0)
 
-**Saída**: `TranscribeResponseDTO`
-- `transcription_id` - UUID único
-- `youtube_url` - URL do vídeo
-- `video_id` - ID do vídeo
-- `language` - Idioma detectado
-- `full_text` - Texto completo
-- `segments` - Lista de segmentos com timestamps
-- `total_segments` - Número de segmentos
-- `duration` - Duração total (segundos)
-- `processing_time` - Tempo de processamento (segundos)
-- `source` - "whisper" ou "youtube_transcript"
+**Output**: `TranscribeResponseDTO`
+- `transcription_id` - Unique UUID
+- `youtube_url` - Video URL
+- `video_id` - Video ID
+- `language` - Detected language
+- `full_text` - Full text
+- `segments` - List of segments with timestamps
+- `total_segments` - Number of segments
+- `duration` - Total duration (seconds)
+- `processing_time` - Processing time (seconds)
+- `source` - "whisper" or "youtube_transcript"
 
-**Exceções**:
-- `ValidationError` - URL inválida, áudio corrompido
-- `VideoDownloadError` - Falha no download
-- `TranscriptionError` - Falha na transcrição
-- `OperationTimeoutError` - Timeout na transcrição (v2.1)
+**Exceptions**:
+- `ValidationError` - Invalid URL, corrupted audio
+- `VideoDownloadError` - Download failure
+- `TranscriptionError` - Transcription failure
+- `OperationTimeoutError` - Transcription timeout (v2.1)
 
 ---
 
-## Exemplo Completo
+## Complete Example
 
 ```python
 from src.application.use_cases import TranscribeYouTubeVideoUseCase
 from src.application.dtos import TranscribeRequestDTO
 
-# Criar Use Case
+# Create Use Case
 use_case = TranscribeYouTubeVideoUseCase(
     video_downloader=downloader,
     transcription_service=whisper_service,
@@ -97,14 +97,14 @@ use_case = TranscribeYouTubeVideoUseCase(
     transcription_cache=cache    # v2.0
 )
 
-# Exemplo 1: Transcrição com Whisper
+# Example 1: Transcription with Whisper
 request1 = TranscribeRequestDTO(
     youtube_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     language="auto"
 )
 response1 = await use_case.execute(request1)
 
-# Exemplo 2: Usar legendas do YouTube (rápido)
+# Example 2: Use YouTube captions (fast)
 request2 = TranscribeRequestDTO(
     youtube_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     use_youtube_transcript=True,
@@ -112,53 +112,53 @@ request2 = TranscribeRequestDTO(
 )
 response2 = await use_case.execute(request2)
 
-# Processar resposta
+# Process response
 print(f"ID: {response1.transcription_id}")
-print(f"Idioma: {response1.language}")
-print(f"Segmentos: {response1.total_segments}")
-print(f"Duração: {response1.duration:.1f}s")
-print(f"Processamento: {response1.processing_time:.2f}s")
-print(f"Fonte: {response1.source}")
-print(f"\nTexto completo:\n{response1.full_text}")
+print(f"Language: {response1.language}")
+print(f"Segments: {response1.total_segments}")
+print(f"Duration: {response1.duration:.1f}s")
+print(f"Processing: {response1.processing_time:.2f}s")
+print(f"Source: {response1.source}")
+print(f"\nFull text:\n{response1.full_text}")
 ```
 
 ---
 
-## Novidades por Versão
+## Features by Version
 
 ### v2.0
-- ✅ Cache de transcrições
-- ✅ Validação de áudio antes de processar
-- ✅ Suporte a YouTube Transcript (rápido)
-- ✅ Estimativa de tempo de processamento
+- ✅ Transcription cache
+- ✅ Audio validation before processing
+- ✅ YouTube Transcript support (fast)
+- ✅ Processing time estimation
 
 ### v2.1
-- ✅ Timeout global na transcrição
-- ✅ Exceções granulares (`AudioTooLongError`, `OperationTimeoutError`)
-- ✅ Logging melhorado
+- ✅ Global transcription timeout
+- ✅ Granular exceptions (`AudioTooLongError`, `OperationTimeoutError`)
+- ✅ Improved logging
 
 ### v2.2.1
-- ✅ Cache reimplementado com `file_hash` (após download)
-- ✅ Cache mais confiável (não depende de URL, usa hash do arquivo)
+- ✅ Cache reimplemented with `file_hash` (after download)
+- ✅ More reliable cache (doesn't depend on URL, uses file hash)
 
 ---
 
-## Timeout Dinâmico (v2.1)
+## Dynamic Timeout (v2.1)
 
-O Use Case calcula timeout dinamicamente baseado em:
-- Duração do áudio
-- Modelo Whisper usado
-- Fatores de processamento (realtime factor)
+The Use Case calculates timeout dynamically based on:
+- Audio duration
+- Whisper model used
+- Processing factors (realtime factor)
 
 ```python
-# Fatores por modelo
-tiny:   2.0x realtime  # ~2x mais rápido que duração
+# Factors per model
+tiny:   2.0x realtime  # ~2x faster than duration
 base:   1.5x realtime
 small:  0.8x realtime
 medium: 0.4x realtime
 large:  0.2x realtime
 
-# Exemplo: áudio de 60s com modelo "base"
+# Example: 60s audio with "base" model
 base_time = 60 / 1.5 = 40s
 overhead = 40 * 0.2 = 8s
 safety = 40 * 0.5 = 20s
@@ -169,13 +169,13 @@ timeout = 40 + 8 + 20 = 68s
 
 ## Cache (v2.2.1)
 
-**Chave do Cache**: `file_hash + model_name + language`
+**Cache Key**: `file_hash + model_name + language`
 
 ```python
-# Hash calculado APÓS download
+# Hash calculated AFTER download
 file_hash = compute_file_hash(video_file.file_path)
 
-# Verificar cache
+# Check cache
 cached = cache.get(
     file_hash=file_hash,
     model_name="base",
@@ -185,10 +185,10 @@ cached = cache.get(
 if cached:
     return cached  # Cache HIT
 else:
-    # Cache MISS → processar
+    # Cache MISS → process
     result = await transcribe(video_file)
     
-    # Salvar no cache
+    # Save to cache
     cache.put(
         file_hash=file_hash,
         transcription_data=result,
@@ -197,14 +197,14 @@ else:
     )
 ```
 
-**Benefícios**:
-- Mesmo vídeo processado uma única vez
-- Cache funciona mesmo com URLs diferentes
-- Baseado no conteúdo real do arquivo (hash SHA256)
+**Benefits**:
+- Same video processed only once
+- Cache works even with different URLs
+- Based on actual file content (SHA256 hash)
 
 ---
 
-## Testes
+## Tests
 
 ```python
 async def test_transcribe_success():
@@ -232,17 +232,17 @@ async def test_transcribe_with_cache():
         # ...
     )
     
-    # Primeira execução (cache MISS)
+    # First execution (cache MISS)
     response1 = await use_case.execute(request)
     
-    # Segunda execução (cache HIT)
+    # Second execution (cache HIT)
     response2 = await use_case.execute(request)
     
     assert response1.transcription_id == response2.transcription_id
     assert response2.processing_time < response1.processing_time
 
 async def test_transcribe_timeout():
-    # Simular transcrição lenta
+    # Simulate slow transcription
     async def slow_transcribe(*args, **kwargs):
         await asyncio.sleep(100)
     
@@ -260,6 +260,6 @@ async def test_transcribe_timeout():
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0

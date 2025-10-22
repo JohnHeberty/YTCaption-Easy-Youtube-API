@@ -1,18 +1,18 @@
 # CleanupOldFilesUseCase
 
-Use Case para limpeza de arquivos temporários antigos.
+Use Case for cleaning old temporary files.
 
 ---
 
-## Responsabilidade
+## Responsibility
 
-Remover arquivos temporários que excedem uma idade máxima.
+Remove temporary files that exceed a maximum age.
 
-**Arquivo**: `src/application/use_cases/cleanup_files.py`
+**File**: `src/application/use_cases/cleanup_files.py`
 
 ---
 
-## Parâmetros
+## Parameters
 
 ```python
 def __init__(
@@ -22,16 +22,16 @@ def __init__(
 ):
 ```
 
-- `storage_service` - Serviço de armazenamento
-- `max_age_hours` - Idade máxima dos arquivos (padrão: 24h)
+- `storage_service` - Storage service
+- `max_age_hours` - Maximum file age (default: 24h)
 
 ---
 
-## Método Principal
+## Main Method
 
 ### `execute() -> dict`
 
-**Saída**: Dicionário com estatísticas de limpeza:
+**Output**: Dictionary with cleanup statistics:
 ```python
 {
     "success": True,
@@ -44,32 +44,32 @@ def __init__(
 
 ---
 
-## Exemplo de Uso
+## Usage Example
 
 ```python
 from src.application.use_cases import CleanupOldFilesUseCase
 
-# Criar Use Case
+# Create Use Case
 cleanup = CleanupOldFilesUseCase(
     storage_service=storage,
-    max_age_hours=12  # Remover arquivos > 12h
+    max_age_hours=12  # Remove files > 12h
 )
 
-# Executar limpeza
+# Execute cleanup
 result = await cleanup.execute()
 
-print(f"Arquivos removidos: {result['removed_count']}")
-print(f"Espaço liberado: {result['freed_space_mb']:.2f} MB")
+print(f"Files removed: {result['removed_count']}")
+print(f"Space freed: {result['freed_space_mb']:.2f} MB")
 ```
 
 ---
 
-## Uso em Produção
+## Production Usage
 
 ### Cron Job (Linux)
 ```bash
 # /etc/cron.d/ytcaption-cleanup
-# Executar limpeza a cada 6 horas
+# Run cleanup every 6 hours
 0 */6 * * * python -m scripts.cleanup_old_files
 ```
 
@@ -96,6 +96,6 @@ Register-ScheduledTask -TaskName "YTCaption Cleanup" -Action $action -Trigger $t
 
 ---
 
-[⬅️ Voltar](../README.md)
+[⬅️ Back](../README.md)
 
-**Versão**: 3.0.0
+**Version**: 3.0.0
