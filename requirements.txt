@@ -27,7 +27,10 @@ loguru==0.7.2
 tenacity==9.0.0
 slowapi==0.1.9
 circuitbreaker==2.0.0
+
+# Observability (v2.2)
 prometheus-client==0.21.0
+prometheus-fastapi-instrumentator==7.0.0
 
 # Development dependencies (optional, can be in separate requirements-dev.txt)
 pytest==8.3.3

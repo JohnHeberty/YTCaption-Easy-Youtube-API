@@ -21,6 +21,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# Prometheus Metrics (v2.2)
+from prometheus_client import make_asgi_app
+from prometheus_fastapi_instrumentator import Instrumentator
+
 from src.config import settings
 from src.presentation.api.routes import transcription, system, video_info
 from src.presentation.api.middlewares import LoggingMiddleware
@@ -463,6 +467,30 @@ async def add_request_id_and_log(request: Request, call_next):
 
 # 4. Legacy Logging Middleware (manter compatibilidade)
 app.add_middleware(LoggingMiddleware)
+
+# ============= PROMETHEUS METRICS INSTRUMENTATION (v2.2) =============
+logger.info("Configuring Prometheus metrics instrumentation...")
+
+# Instrumentador padrão (métricas automáticas: latency, requests, etc.)
+instrumentator = Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=False,
+    should_respect_env_var=True,
+    should_instrument_requests_inprogress=True,
+    excluded_handlers=["/metrics", "/health", "/health/ready"],
+    env_var_name="ENABLE_METRICS",
+    inprogress_name="http_requests_inprogress",
+    inprogress_labels=True
+)
+
+# Ativar instrumentação (adiciona middleware automaticamente)
+instrumentator.instrument(app)
+
+# Criar endpoint /metrics para Prometheus scraping
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
+
+logger.info("✅ Prometheus metrics configured at /metrics")
 
 # Registrar rotas
 app.include_router(system.router)

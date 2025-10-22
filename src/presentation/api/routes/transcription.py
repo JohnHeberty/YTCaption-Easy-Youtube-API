@@ -3,8 +3,9 @@ Rotas de transcrição.
 Endpoints para transcrição de vídeos do YouTube.
 
 v2.1: Rate limiting para prevenir abuso.
-v2.2: Circuit breaker para proteção contra falhas em cascata.
+v2.2: Circuit breaker + Prometheus metrics.
 """
+from time import time
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from loguru import logger
 from slowapi import Limiter
@@ -26,6 +27,7 @@ from src.domain.exceptions import (
     NetworkError
 )
 from src.infrastructure.utils import CircuitBreakerOpenError
+from src.infrastructure.monitoring import MetricsCollector
 from src.presentation.api.dependencies import get_transcribe_use_case
 
 
