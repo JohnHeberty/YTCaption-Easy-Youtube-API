@@ -6,6 +6,11 @@ services:
     container_name: whisper-transcription-api
     ports:
       - "8000:8000"
+    # DNS público para evitar "Network unreachable"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+      - 1.1.1.1
     environment:
       - WHISPER_MODEL=${WHISPER_MODEL:-base}
       - WORKERS=${WORKERS:-1}
@@ -21,6 +26,19 @@ services:
       - ENABLE_PARALLEL_TRANSCRIPTION=${ENABLE_PARALLEL_TRANSCRIPTION:-false}
       - PARALLEL_WORKERS=${PARALLEL_WORKERS:-2}
       - PARALLEL_CHUNK_DURATION=${PARALLEL_CHUNK_DURATION:-120}
+      # YouTube Download Resilience (v3.0)
+      - YOUTUBE_MAX_RETRIES=${YOUTUBE_MAX_RETRIES:-5}
+      - YOUTUBE_RETRY_DELAY_MIN=${YOUTUBE_RETRY_DELAY_MIN:-10}
+      - YOUTUBE_RETRY_DELAY_MAX=${YOUTUBE_RETRY_DELAY_MAX:-120}
+      - YOUTUBE_CIRCUIT_BREAKER_THRESHOLD=${YOUTUBE_CIRCUIT_BREAKER_THRESHOLD:-8}
+      - YOUTUBE_CIRCUIT_BREAKER_TIMEOUT=${YOUTUBE_CIRCUIT_BREAKER_TIMEOUT:-180}
+      - YOUTUBE_REQUESTS_PER_MINUTE=${YOUTUBE_REQUESTS_PER_MINUTE:-10}
+      - YOUTUBE_REQUESTS_PER_HOUR=${YOUTUBE_REQUESTS_PER_HOUR:-200}
+      - YOUTUBE_COOLDOWN_ON_ERROR=${YOUTUBE_COOLDOWN_ON_ERROR:-60}
+      - ENABLE_TOR_PROXY=${ENABLE_TOR_PROXY:-false}
+      - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://tor-proxy:9050}
+      - ENABLE_MULTI_STRATEGY=${ENABLE_MULTI_STRATEGY:-true}
+      - ENABLE_USER_AGENT_ROTATION=${ENABLE_USER_AGENT_ROTATION:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
@@ -73,6 +91,20 @@ services:
       - whisper-network
     depends_on:
       - prometheus
+
+  # Tor Proxy para bypass de bloqueios (v3.0)
+  tor-proxy:
+    image: dperson/torproxy
+    container_name: whisper-tor-proxy
+    ports:
+      - "8118:8118"  # HTTP proxy
+      - "9050:9050"  # SOCKS5 proxy
+    restart: unless-stopped
+    networks:
+      - whisper-network
+    environment:
+      - TOR_MaxCircuitDirtiness=60
+      - TOR_NewCircuitPeriod=30
 
 networks:
   whisper-network:

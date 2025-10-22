@@ -1,11 +1,15 @@
 # Multi-stage build para otimizar tamanho da imagem
 FROM python:3.11-slim as builder
 
-# Instalar dependências de sistema necessárias
+# Instalar dependências de sistema necessárias + ferramentas de debug de rede
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
     build-essential \
+    iputils-ping \
+    curl \
+    dnsutils \
+    net-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar diretório de trabalho
@@ -21,9 +25,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Stage final
 FROM python:3.11-slim
 
-# Instalar apenas runtime necessário
+# Instalar apenas runtime necessário + ferramentas de rede
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    iputils-ping \
+    curl \
+    dnsutils \
+    net-tools \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Criar usuário não-root para segurança

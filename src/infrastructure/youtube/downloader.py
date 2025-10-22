@@ -4,9 +4,17 @@ Implementação concreta da interface IVideoDownloader.
 
 v2.1: Retry logic com exponential backoff.
 v2.2: Circuit breaker próprio integrado.
+v3.0: YouTube Download Resilience System
+      - Multi-strategy download (7 fallback strategies)
+      - Rate limiting (sliding window + exponential backoff)
+      - User-Agent rotation (17 UAs + fake-useragent)
+      - Tor proxy support (free, anonymous)
+      - Enhanced network diagnostics
+      - Prometheus metrics integration
 """
 import asyncio
 import re
+import time
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 import yt_dlp
@@ -24,6 +32,24 @@ from src.domain.value_objects import YouTubeURL
 from src.domain.entities import VideoFile
 from src.domain.exceptions import VideoDownloadError, NetworkError, AudioTooLongError
 from src.infrastructure.utils import CircuitBreaker, CircuitBreakerOpenError
+
+# v3.0: Import resilience system modules
+from .download_config import get_youtube_config
+from .download_strategies import get_strategy_manager
+from .user_agent_rotator import get_ua_rotator
+from .rate_limiter import get_rate_limiter
+from .proxy_manager import get_proxy_manager
+from .metrics import (
+    record_download_attempt,
+    record_download_error,
+    record_rate_limit_wait,
+    update_rate_limit_gauges,
+    record_user_agent_rotation,
+    record_proxy_request,
+    set_tor_status,
+    record_info_request,
+    set_resilience_config
+)
 
 
 # Circuit Breaker global para YouTube API
@@ -109,6 +135,26 @@ class YouTubeDownloader(IVideoDownloader):
         self.output_template = output_template
         self.max_filesize = max_filesize
         self.timeout = timeout
+        
+        # v3.0: Inicializar resilience system
+        self.config = get_youtube_config()
+        self.strategy_manager = get_strategy_manager()
+        self.ua_rotator = get_ua_rotator()
+        self.rate_limiter = get_rate_limiter()
+        self.proxy_manager = get_proxy_manager()
+        
+        # v3.0: Configurar métricas do Prometheus
+        set_resilience_config({
+            'max_retries': str(self.config.max_retries),
+            'requests_per_minute': str(self.config.requests_per_minute),
+            'requests_per_hour': str(self.config.requests_per_hour),
+            'tor_enabled': str(self.config.enable_tor_proxy),
+            'multi_strategy_enabled': str(self.config.enable_multi_strategy),
+            'user_agent_rotation_enabled': str(self.config.enable_user_agent_rotation)
+        })
+        set_tor_status(self.config.enable_tor_proxy)
+        
+        logger.info("✅ YouTubeDownloader initialized with v3.0 Resilience System + Prometheus metrics")
     
     async def download(
         self, 
@@ -153,9 +199,15 @@ class YouTubeDownloader(IVideoDownloader):
         validate_duration: bool,
         max_duration: Optional[int]
     ) -> VideoFile:
-        """Método interno com retry logic - chamado pelo Circuit Breaker."""
+        """
+        Método interno com retry logic - chamado pelo Circuit Breaker.
+        v3.0: Multi-strategy download com rate limiting e proxy support.
+        """
         try:
-            logger.info(f"🔽 Starting download: {url.video_id}")
+            logger.info(f"🔽 Starting download (v3.0): {url.video_id}")
+            
+            # v3.0: Rate limiting ANTES de qualquer tentativa
+            await self.rate_limiter.wait_if_needed()
             
             # Validar duração antes de baixar (para vídeos longos)
             if validate_duration:
@@ -171,7 +223,6 @@ class YouTubeDownloader(IVideoDownloader):
                         logger.error(
                             f"❌ Video too long: {duration}s > {max_duration}s"
                         )
-                        # v2.1: Usar exceção granular
                         raise AudioTooLongError(duration, max_duration)
                     
                     # Estimar tempo de processamento
@@ -182,75 +233,161 @@ class YouTubeDownloader(IVideoDownloader):
             # Garantir que o diretório existe
             output_path.mkdir(parents=True, exist_ok=True)
             
-            # Configurações do yt-dlp para baixar pior qualidade (menor arquivo)
-            # v2.2.1: Headers adicionados para evitar HTTP 403 Forbidden
-            ydl_opts = {
-                'format': 'worstaudio/worst',  # Pior qualidade de áudio/vídeo
-                'outtmpl': str(output_path / self.output_template),
-                'quiet': True,
-                'no_warnings': True,
-                'extract_flat': False,
-                'socket_timeout': self.timeout,
-                'nocheckcertificate': True,
-                'prefer_insecure': True,
-                # Headers para evitar bloqueio do YouTube (HTTP 403)
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                },
-                # Usar extractor config para bypass
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'web'],
-                        'player_skip': ['webpage', 'configs'],
+            # v3.0: Multi-strategy fallback loop
+            strategies = self.strategy_manager.get_strategies()
+            last_error = None
+            
+            for strategy in strategies:
+                try:
+                    logger.info(f"🎯 Trying strategy: {strategy.name} (priority {strategy.priority})")
+                    
+                    # v3.0: Track tempo de download
+                    download_start_time = time.time()
+                    
+                    # Configurações base do yt-dlp
+                    ydl_opts = {
+                        'format': 'worstaudio/worst',  # Pior qualidade de áudio/vídeo
+                        'outtmpl': str(output_path / self.output_template),
+                        'quiet': True,
+                        'no_warnings': True,
+                        'extract_flat': False,
+                        'socket_timeout': self.config.download_timeout,
+                        'nocheckcertificate': True,
+                        'prefer_insecure': True,
                     }
-                },
-            }
+                    
+                    if self.max_filesize:
+                        ydl_opts['max_filesize'] = self.max_filesize
+                    
+                    # v3.0: Merge strategy-specific options
+                    if strategy.extra_opts:
+                        ydl_opts.update(strategy.extra_opts)
+                    
+                    # v3.0: User-Agent rotation
+                    if self.config.enable_user_agent_rotation:
+                        user_agent = self.ua_rotator.get_random()
+                        logger.debug(f"🔄 Using User-Agent: {user_agent[:50]}...")
+                        record_user_agent_rotation('random')
+                    else:
+                        user_agent = strategy.user_agent
+                    
+                    ydl_opts['http_headers'] = {
+                        'User-Agent': user_agent,
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-us,en;q=0.5',
+                        'Sec-Fetch-Mode': 'navigate',
+                    }
+                    
+                    # v3.0: Tor proxy support
+                    proxy_type = 'none'
+                    if self.config.enable_tor_proxy:
+                        proxy_url = self.proxy_manager.get_tor_proxy()
+                        if proxy_url:
+                            ydl_opts['proxy'] = proxy_url
+                            proxy_type = 'tor'
+                            logger.info(f"🧅 Using Tor proxy: {proxy_url}")
+                    
+                    # Executar download em thread separada
+                    loop = asyncio.get_event_loop()
+                    info_dict = await loop.run_in_executor(
+                        None,
+                        self._download_sync,
+                        str(url),
+                        ydl_opts
+                    )
+                    
+                    # Criar entidade VideoFile
+                    file_path = Path(info_dict['filepath'])
+                    
+                    if not file_path.exists():
+                        raise VideoDownloadError(f"Downloaded file not found: {file_path}")
+                    
+                    video_file = VideoFile(
+                        file_path=file_path,
+                        original_url=str(url),
+                        file_size_bytes=file_path.stat().st_size,
+                        format=info_dict.get('ext', 'unknown')
+                    )
+                    
+                    # v3.0: Report success
+                    await self.rate_limiter.report_success()
+                    self.strategy_manager.report_success(strategy.name)
+                    
+                    # v3.0: Record metrics
+                    download_duration = time.time() - download_start_time
+                    record_download_attempt(
+                        strategy=strategy.name,
+                        success=True,
+                        duration=download_duration,
+                        size_bytes=video_file.file_size_bytes
+                    )
+                    record_proxy_request(proxy_type, success=True)
+                    
+                    logger.info(
+                        f"✅ Download completed with strategy '{strategy.name}': {url.video_id} "
+                        f"({video_file.file_size_mb:.2f} MB, {download_duration:.1f}s)"
+                    )
+                    
+                    return video_file
+                    
+                except (yt_dlp.utils.DownloadError, ConnectionError, TimeoutError) as e:
+                    last_error = e
+                    self.strategy_manager.report_failure(strategy.name, str(e))
+                    
+                    # v3.0: Record metrics
+                    download_duration = time.time() - download_start_time
+                    record_download_attempt(
+                        strategy=strategy.name,
+                        success=False,
+                        duration=download_duration
+                    )
+                    record_proxy_request(proxy_type, success=False)
+                    
+                    # Detectar tipo de erro
+                    error_str = str(e).lower()
+                    if '403' in error_str:
+                        error_type = '403_forbidden'
+                    elif '404' in error_str:
+                        error_type = '404_not_found'
+                    elif 'timeout' in error_str:
+                        error_type = 'timeout'
+                    elif 'network' in error_str or 'unreachable' in error_str:
+                        error_type = 'network'
+                    else:
+                        error_type = 'other'
+                    
+                    record_download_error(error_type, strategy.name)
+                    
+                    logger.warning(f"⚠️ Strategy '{strategy.name}' failed: {str(e)}")
+                    
+                    # Se não for a última estratégia, continuar
+                    if strategy != strategies[-1]:
+                        logger.info("🔄 Trying next strategy...")
+                        continue
+                    else:
+                        # Última estratégia falhou - propagar erro
+                        raise
             
-            if self.max_filesize:
-                ydl_opts['max_filesize'] = self.max_filesize
-            
-            # Executar download em thread separada para não bloquear
-            loop = asyncio.get_event_loop()
-            info_dict = await loop.run_in_executor(
-                None,
-                self._download_sync,
-                str(url),
-                ydl_opts
-            )
-            
-            # Criar entidade VideoFile
-            file_path = Path(info_dict['filepath'])
-            
-            if not file_path.exists():
-                raise VideoDownloadError(f"Downloaded file not found: {file_path}")
-            
-            video_file = VideoFile(
-                file_path=file_path,
-                original_url=str(url),
-                file_size_bytes=file_path.stat().st_size,
-                format=info_dict.get('ext', 'unknown')
-            )
-            
-            logger.info(
-                f"Download completed: {url.video_id} "
-                f"({video_file.file_size_mb:.2f} MB)"
-            )
-            
-            return video_file
+            # Se chegou aqui, todas as estratégias falharam
+            if last_error:
+                await self.rate_limiter.report_error()
+                raise last_error
+            else:
+                raise VideoDownloadError("All download strategies failed")
             
         except AudioTooLongError:
             # Re-raise sem wrapper
             raise
         except yt_dlp.utils.DownloadError as e:
+            await self.rate_limiter.report_error()
             logger.error(f"🔥 yt-dlp download error: {str(e)}", exc_info=True)
             raise VideoDownloadError(f"Failed to download video: {str(e)}") from e
         except (ConnectionError, TimeoutError) as e:
+            await self.rate_limiter.report_error()
             logger.error(f"🔥 Network error during download: {str(e)}", exc_info=True)
             raise NetworkError("YouTube", str(e)) from e
         except Exception as e:
+            await self.rate_limiter.report_error()
             logger.error(f"🔥 Unexpected download error: {type(e).__name__}: {str(e)}", exc_info=True)
             raise VideoDownloadError(f"Unexpected error during download: {str(e)}") from e
     
@@ -308,31 +445,51 @@ class YouTubeDownloader(IVideoDownloader):
         reraise=True
     )
     async def _get_video_info_internal(self, url: YouTubeURL) -> dict:
-        """Método interno com retry logic - chamado pelo Circuit Breaker."""
+        """
+        Método interno com retry logic - chamado pelo Circuit Breaker.
+        v3.0: User-Agent rotation e proxy support.
+        """
         try:
-            logger.info(f"Fetching video info: {url.video_id}")
+            logger.info(f"📄 Fetching video info (v3.0): {url.video_id}")
             
-            # v2.2.1: Headers adicionados para evitar HTTP 403
+            # v3.0: Track tempo
+            info_start_time = time.time()
+            
+            # v3.0: Rate limiting
+            await self.rate_limiter.wait_if_needed()
+            
+            # v3.0: Usar primeira estratégia (mais confiável)
+            strategy = self.strategy_manager.get_strategies()[0]
+            
             ydl_opts = {
                 'quiet': True,
                 'no_warnings': True,
                 'extract_flat': False,
                 'socket_timeout': 30,
-                # Headers para evitar bloqueio
-                'http_headers': {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
-                    'Sec-Fetch-Mode': 'navigate',
-                },
-                # Usar extractor config para bypass
-                'extractor_args': {
-                    'youtube': {
-                        'player_client': ['android', 'web'],
-                        'player_skip': ['webpage', 'configs'],
-                    }
-                },
             }
+            
+            # v3.0: Merge strategy options
+            if strategy.extra_opts:
+                ydl_opts.update(strategy.extra_opts)
+            
+            # v3.0: User-Agent rotation
+            if self.config.enable_user_agent_rotation:
+                user_agent = self.ua_rotator.get_random()
+            else:
+                user_agent = strategy.user_agent
+            
+            ydl_opts['http_headers'] = {
+                'User-Agent': user_agent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
+            }
+            
+            # v3.0: Tor proxy support
+            if self.config.enable_tor_proxy:
+                proxy_url = self.proxy_manager.get_tor_proxy()
+                if proxy_url:
+                    ydl_opts['proxy'] = proxy_url
             
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(
@@ -341,6 +498,13 @@ class YouTubeDownloader(IVideoDownloader):
                 str(url),
                 ydl_opts
             )
+            
+            # v3.0: Report success
+            await self.rate_limiter.report_success()
+            
+            # v3.0: Record metrics
+            info_duration = time.time() - info_start_time
+            record_info_request(success=True, duration=info_duration)
             
             return {
                 'video_id': info.get('id'),
@@ -354,10 +518,22 @@ class YouTubeDownloader(IVideoDownloader):
             }
             
         except yt_dlp.utils.DownloadError as e:
-            logger.error(f"Failed to get video info: {str(e)}")
+            await self.rate_limiter.report_error()
+            
+            # v3.0: Record metrics
+            info_duration = time.time() - info_start_time
+            record_info_request(success=False, duration=info_duration)
+            
+            logger.error(f"🔥 Failed to get video info: {str(e)}")
             raise VideoDownloadError(f"Failed to get video info: {str(e)}")
         except Exception as e:
-            logger.error(f"Unexpected error getting video info: {str(e)}")
+            await self.rate_limiter.report_error()
+            
+            # v3.0: Record metrics
+            info_duration = time.time() - info_start_time
+            record_info_request(success=False, duration=info_duration)
+            
+            logger.error(f"🔥 Unexpected error getting video info: {str(e)}")
             raise VideoDownloadError(f"Unexpected error: {str(e)}")
     
     def _get_info_sync(self, url: str, ydl_opts: dict) -> dict:
