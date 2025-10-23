@@ -10,11 +10,24 @@ Métricas disponíveis:
 - worker_pool_queue_size: Gauge de tamanho da fila de workers
 - circuit_breaker_state: Gauge de estado do circuit breaker (0=CLOSED, 1=HALF_OPEN, 2=OPEN)
 - model_loading_duration_seconds: Histogram de tempo de carregamento de modelos
+
+NOTA: Métricas de download do YouTube estão em src/infrastructure/youtube/metrics.py
 """
-from typing import Optional, Dict
+from typing import Optional
 from prometheus_client import Counter, Histogram, Gauge, Info
 from loguru import logger
 from enum import Enum
+
+# Import das métricas de YouTube (evita duplicação no Prometheus Registry)
+try:
+    from src.infrastructure.youtube.metrics import (
+        youtube_download_duration,
+        youtube_download_size_bytes
+    )
+    _YOUTUBE_METRICS_AVAILABLE = True
+except ImportError:
+    _YOUTUBE_METRICS_AVAILABLE = False
+    logger.warning("YouTube metrics module not available")
 
 
 class CircuitBreakerState(Enum):
@@ -138,20 +151,9 @@ model_info = Info(
 # ===========================
 # MÉTRICAS DE DOWNLOAD
 # ===========================
-
-download_duration_histogram = Histogram(
-    name='youtube_download_duration_seconds',
-    documentation='Duração do download de vídeos do YouTube',
-    labelnames=['status'],
-    buckets=[5, 10, 30, 60, 120, 300, 600, 900]  # 5s até 15min
-)
-
-download_size_histogram = Histogram(
-    name='youtube_download_size_bytes',
-    documentation='Tamanho dos vídeos baixados',
-    labelnames=['status'],
-    buckets=[1e6, 10e6, 50e6, 100e6, 500e6, 1e9, 2e9, 5e9]  # 1MB até 5GB
-)
+# NOTA: Estas métricas foram movidas para src/infrastructure/youtube/metrics.py
+# para evitar duplicação no Prometheus CollectorRegistry.
+# Use as funções helper de youtube.metrics para registrar downloads.
 
 
 # ===========================
@@ -263,13 +265,29 @@ class MetricsCollector:
     
     @staticmethod
     def record_download_duration(duration: float, status: str):
-        """Registra a duração de um download."""
-        download_duration_histogram.labels(status=status).observe(duration)
+        """
+        Registra a duração de um download.
+        
+        NOTA: Usa as métricas do módulo youtube.metrics para evitar duplicação.
+        """
+        if _YOUTUBE_METRICS_AVAILABLE:
+            # Mapeia status para strategy (compatibility layer)
+            strategy = status if status != 'error' else 'fallback'
+            youtube_download_duration.labels(strategy=strategy).observe(duration)
+        else:
+            logger.warning("Cannot record download duration: YouTube metrics unavailable")
     
     @staticmethod
     def record_download_size(size_bytes: int, status: str):
-        """Registra o tamanho de um download."""
-        download_size_histogram.labels(status=status).observe(size_bytes)
+        """
+        Registra o tamanho de um download.
+        
+        NOTA: Usa as métricas do módulo youtube.metrics para evitar duplicação.
+        """
+        if _YOUTUBE_METRICS_AVAILABLE:
+            youtube_download_size_bytes.observe(size_bytes)
+        else:
+            logger.warning("Cannot record download size: YouTube metrics unavailable")
     
     @staticmethod
     def record_api_error(endpoint: str, error_type: str, status_code: int):
