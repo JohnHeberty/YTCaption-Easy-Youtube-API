@@ -11,9 +11,7 @@ Testa:
 - Integração entre componentes
 """
 import pytest
-from unittest.mock import Mock, MagicMock, AsyncMock, patch
-from pathlib import Path
-from datetime import datetime
+from unittest.mock import Mock
 
 from src.application.use_cases.transcribe_video import TranscribeYouTubeVideoUseCase
 from src.application.dtos.transcription_dtos import (
@@ -49,7 +47,6 @@ class TestTranscribeYouTubeVideoUseCase:
         return TranscribeYouTubeVideoUseCase(
             video_downloader=mock_dependencies["video_downloader"],
             transcription_service=mock_dependencies["transcription_service"],
-            youtube_transcript_service=mock_dependencies["youtube_transcript_service"],
             storage_service=mock_dependencies["storage_service"],
             transcription_cache=mock_dependencies["transcription_cache"],
             audio_validator=mock_dependencies["audio_validator"]
@@ -539,7 +536,6 @@ class TestTranscribeYouTubeVideoUseCaseEdgeCases:
         return TranscribeYouTubeVideoUseCase(
             video_downloader=mock_dependencies["video_downloader"],
             transcription_service=mock_dependencies["transcription_service"],
-            youtube_transcript_service=mock_dependencies["youtube_transcript_service"],
             storage_service=mock_dependencies["storage_service"],
             transcription_cache=mock_dependencies["transcription_cache"],
             audio_validator=mock_dependencies["audio_validator"]

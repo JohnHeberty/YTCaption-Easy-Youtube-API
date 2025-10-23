@@ -8,7 +8,6 @@ Testa:
 - Extração de metadados (duração, codec, bitrate)
 - Estimativa de tempo de processamento
 """
-import tempfile
 from pathlib import Path
 import subprocess
 import pytest

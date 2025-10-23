@@ -10,8 +10,6 @@ Testa:
 - Estatísticas do cache
 """
 import time
-import tempfile
-from pathlib import Path
 import pytest
 
 from src.infrastructure.cache.transcription_cache import (

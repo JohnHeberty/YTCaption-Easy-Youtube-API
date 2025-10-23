@@ -356,11 +356,11 @@ class TranscribeYouTubeVideoUseCase:
             # Criar entidade Transcription
             transcription = Transcription(
                 segments=segments,
-                language=transcript_data['language'],
-                duration=segments[-1].end if segments else 0
+                language=transcript_data['language']
             )
             transcription.youtube_url = youtube_url
             transcription.processing_time = time.time() - start_time
+            # Note: duration is calculated automatically via property
             
             logger.info(
                 f"YouTube transcript fetched: {len(segments)} segments, "
