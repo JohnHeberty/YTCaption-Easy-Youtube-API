@@ -310,7 +310,7 @@ class YouTubeDownloader(IVideoDownloader):
                     )
                     
                     # v3.0: Report success
-                    await self.rate_limiter.report_success()
+                    self.rate_limiter.report_success()
                     self.strategy_manager.report_success(strategy.name)
                     
                     # v3.0: Record metrics
@@ -370,7 +370,7 @@ class YouTubeDownloader(IVideoDownloader):
             
             # Se chegou aqui, todas as estratégias falharam
             if last_error:
-                await self.rate_limiter.report_error()
+                self.rate_limiter.report_error()
                 raise last_error
             else:
                 raise VideoDownloadError("All download strategies failed")
@@ -379,15 +379,15 @@ class YouTubeDownloader(IVideoDownloader):
             # Re-raise sem wrapper
             raise
         except yt_dlp.utils.DownloadError as e:
-            await self.rate_limiter.report_error()
+            self.rate_limiter.report_error()
             logger.error(f"🔥 yt-dlp download error: {str(e)}", exc_info=True)
             raise VideoDownloadError(f"Failed to download video: {str(e)}") from e
         except (ConnectionError, TimeoutError) as e:
-            await self.rate_limiter.report_error()
+            self.rate_limiter.report_error()
             logger.error(f"🔥 Network error during download: {str(e)}", exc_info=True)
             raise NetworkError("YouTube", str(e)) from e
         except Exception as e:
-            await self.rate_limiter.report_error()
+            self.rate_limiter.report_error()
             logger.error(f"🔥 Unexpected download error: {type(e).__name__}: {str(e)}", exc_info=True)
             raise VideoDownloadError(f"Unexpected error during download: {str(e)}") from e
     
@@ -500,7 +500,7 @@ class YouTubeDownloader(IVideoDownloader):
             )
             
             # v3.0: Report success
-            await self.rate_limiter.report_success()
+            self.rate_limiter.report_success()
             
             # v3.0: Record metrics
             info_duration = time.time() - info_start_time
@@ -518,7 +518,7 @@ class YouTubeDownloader(IVideoDownloader):
             }
             
         except yt_dlp.utils.DownloadError as e:
-            await self.rate_limiter.report_error()
+            self.rate_limiter.report_error()
             
             # v3.0: Record metrics
             info_duration = time.time() - info_start_time
@@ -527,7 +527,7 @@ class YouTubeDownloader(IVideoDownloader):
             logger.error(f"🔥 Failed to get video info: {str(e)}")
             raise VideoDownloadError(f"Failed to get video info: {str(e)}")
         except Exception as e:
-            await self.rate_limiter.report_error()
+            self.rate_limiter.report_error()
             
             # v3.0: Record metrics
             info_duration = time.time() - info_start_time
