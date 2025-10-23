@@ -175,6 +175,68 @@ class CircuitBreaker:
             self._on_failure(e)
             raise
     
+    async def acall(self, func: Callable, *args, **kwargs) -> Any:
+        """
+        Executa função ASSÍNCRONA protegida por circuit breaker.
+        
+        Versão async do método call() que suporta coroutines corretamente.
+        Use este método quando a função protegida for async.
+        
+        Args:
+            func: Função assíncrona a executar
+            *args: Argumentos posicionais
+            **kwargs: Argumentos nomeados
+            
+        Returns:
+            Resultado da função assíncrona
+            
+        Raises:
+            CircuitBreakerOpenError: Se circuito estiver OPEN
+            Exception: Exceções da função original
+        """
+        with self.lock:
+            self.total_calls += 1
+            
+            # Estado OPEN: Bloquear chamadas
+            if self.state == CircuitState.OPEN:
+                if self._should_attempt_reset():
+                    self._transition_to_half_open()
+                else:
+                    retry_after = self._time_until_retry()
+                    logger.warning(
+                        f"Circuit breaker OPEN: {self.name}",
+                        extra={
+                            "retry_after": retry_after,
+                            "failure_count": self.failure_count,
+                            "last_failure": self.last_failure_time.isoformat() if self.last_failure_time else None
+                        }
+                    )
+                    raise CircuitBreakerOpenError(self.name, retry_after)
+            
+            # Estado HALF_OPEN: Limitar chamadas
+            if self.state == CircuitState.HALF_OPEN:
+                if self.half_open_calls >= self.half_open_max_calls:
+                    logger.warning(
+                        f"Circuit breaker HALF_OPEN limit reached: {self.name}",
+                        extra={
+                            "half_open_calls": self.half_open_calls,
+                            "max_calls": self.half_open_max_calls
+                        }
+                    )
+                    raise CircuitBreakerOpenError(self.name, self.timeout.total_seconds())
+                
+                self.half_open_calls += 1
+        
+        # Executar função ASSÍNCRONA
+        try:
+            result = await func(*args, **kwargs)
+            self._on_success()
+            return result
+        
+        except Exception as e:
+            self._on_failure(e)
+            raise
+    
     def _should_attempt_reset(self) -> bool:
         """Verifica se deve tentar reset (OPEN → HALF_OPEN)."""
         if not self.last_failure_time:

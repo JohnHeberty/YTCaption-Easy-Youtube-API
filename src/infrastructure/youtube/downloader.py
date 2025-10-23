@@ -182,8 +182,8 @@ class YouTubeDownloader(IVideoDownloader):
             AudioTooLongError: Se vídeo exceder duração máxima
             CircuitBreakerOpenError: Se circuit breaker estiver aberto
         """
-        # Envolve a lógica de download com Circuit Breaker
-        return await _youtube_circuit_breaker.call(self._download_internal, url, output_path, validate_duration, max_duration)
+        # Envolve a lógica de download com Circuit Breaker (versão async)
+        return await _youtube_circuit_breaker.acall(self._download_internal, url, output_path, validate_duration, max_duration)
     
     @retry(
         stop=stop_after_attempt(3),
@@ -434,8 +434,8 @@ class YouTubeDownloader(IVideoDownloader):
             VideoDownloadError: Se houver erro ao obter informações
             CircuitBreakerOpenError: Se circuit breaker estiver aberto
         """
-        # Envolve a lógica de info com Circuit Breaker
-        return await _youtube_circuit_breaker.call(self._get_video_info_internal, url)
+        # Envolve a lógica de info com Circuit Breaker (versão async)
+        return await _youtube_circuit_breaker.acall(self._get_video_info_internal, url)
     
     @retry(
         stop=stop_after_attempt(3),
