@@ -311,7 +311,7 @@ class YouTubeDownloader(IVideoDownloader):
                     
                     # v3.0: Report success
                     self.rate_limiter.report_success()
-                    self.strategy_manager.report_success(strategy.name)
+                    self.strategy_manager.log_strategy_success(strategy)
                     
                     # v3.0: Record metrics
                     download_duration = time.time() - download_start_time
@@ -332,7 +332,7 @@ class YouTubeDownloader(IVideoDownloader):
                     
                 except (yt_dlp.utils.DownloadError, ConnectionError, TimeoutError) as e:
                     last_error = e
-                    self.strategy_manager.report_failure(strategy.name, str(e))
+                    self.strategy_manager.log_strategy_failure(strategy, str(e))
                     
                     # v3.0: Record metrics
                     download_duration = time.time() - download_start_time
