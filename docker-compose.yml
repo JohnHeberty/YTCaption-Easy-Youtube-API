@@ -35,8 +35,6 @@ services:
       - YOUTUBE_REQUESTS_PER_MINUTE=${YOUTUBE_REQUESTS_PER_MINUTE:-10}
       - YOUTUBE_REQUESTS_PER_HOUR=${YOUTUBE_REQUESTS_PER_HOUR:-200}
       - YOUTUBE_COOLDOWN_ON_ERROR=${YOUTUBE_COOLDOWN_ON_ERROR:-60}
-      - ENABLE_TOR_PROXY=${ENABLE_TOR_PROXY:-false}
-      - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://tor-proxy:9050}
       - ENABLE_MULTI_STRATEGY=${ENABLE_MULTI_STRATEGY:-true}
       - ENABLE_USER_AGENT_ROTATION=${ENABLE_USER_AGENT_ROTATION:-true}
     restart: unless-stopped
@@ -91,20 +89,6 @@ services:
       - whisper-network
     depends_on:
       - prometheus
-
-  # Tor Proxy para bypass de bloqueios (v3.0)
-  tor-proxy:
-    image: dperson/torproxy
-    container_name: whisper-tor-proxy
-    ports:
-      - "8118:8118"  # HTTP proxy
-      - "9050:9050"  # SOCKS5 proxy
-    restart: unless-stopped
-    networks:
-      - whisper-network
-    environment:
-      - TOR_MaxCircuitDirtiness=60
-      - TOR_NewCircuitPeriod=30
 
 networks:
   whisper-network:

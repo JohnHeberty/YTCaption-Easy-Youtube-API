@@ -115,7 +115,7 @@ youtube_user_agent_rotations = Counter(
 youtube_proxy_requests = Counter(
     'youtube_proxy_requests_total',
     'Requests made through each proxy',
-    ['proxy_type']  # proxy_type: tor, custom, none
+    ['proxy_type']  # proxy_type: custom, none
 )
 
 # Counter: Erros por proxy
@@ -123,12 +123,6 @@ youtube_proxy_errors = Counter(
     'youtube_proxy_errors_total',
     'Errors from proxy connections',
     ['proxy_type']
-)
-
-# Gauge: Status do Tor (0=desabilitado, 1=ativo)
-youtube_tor_enabled = Gauge(
-    'youtube_tor_enabled',
-    'Whether Tor proxy is currently enabled (0 or 1)'
 )
 
 
@@ -253,16 +247,6 @@ def record_proxy_request(proxy_type: str, success: bool):
     youtube_proxy_requests.labels(proxy_type=proxy_type).inc()
     if not success:
         youtube_proxy_errors.labels(proxy_type=proxy_type).inc()
-
-
-def set_tor_status(enabled: bool):
-    """
-    Define status do Tor.
-    
-    Args:
-        enabled: Se Tor está habilitado
-    """
-    youtube_tor_enabled.set(1 if enabled else 0)
 
 
 def record_info_request(success: bool, duration: float):

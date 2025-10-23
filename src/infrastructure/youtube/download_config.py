@@ -32,10 +32,6 @@ class YouTubeDownloadConfig:
         # User-Agent Rotation
         self.enable_user_agent_rotation = os.getenv("ENABLE_USER_AGENT_ROTATION", "true").lower() == "true"
         
-        # Proxy Configuration
-        self.enable_tor_proxy = os.getenv("ENABLE_TOR_PROXY", "false").lower() == "true"
-        self.tor_proxy_url = os.getenv("TOR_PROXY_URL", "socks5://tor-proxy:9050")
-        
         # Timeout
         self.download_timeout = int(os.getenv("DOWNLOAD_TIMEOUT", "900"))
         
@@ -51,7 +47,6 @@ class YouTubeDownloadConfig:
         logger.info(f"⏱️  Rate Limit: {self.requests_per_minute}/min, {self.requests_per_hour}/hour, cooldown={self.cooldown_on_error}s")
         logger.info(f"🎯 Multi-Strategy: {self.enable_multi_strategy}")
         logger.info(f"🔄 User-Agent Rotation: {self.enable_user_agent_rotation}")
-        logger.info(f"🧅 Tor Proxy: {self.enable_tor_proxy} ({self.tor_proxy_url if self.enable_tor_proxy else 'N/A'})")
         logger.info(f"⏳ Download Timeout: {self.download_timeout}s")
         logger.info("=" * 60)
 

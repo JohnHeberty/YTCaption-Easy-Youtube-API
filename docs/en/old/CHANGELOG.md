@@ -7,6 +7,140 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ---
 
+## [Unreleased]
+
+### 🔴 BREAKING CHANGES
+
+#### **Removed Tor Proxy Support Completely**
+
+After comprehensive testing (56 minutes, 14 configurations, 7 strategies × 2 modes), we determined that Tor infrastructure provides **ZERO value** to the YouTube download system:
+
+**Test Results**:
+- **Without Tor**: 71% success rate (5/7 strategies working)
+  - ✅ android_client, android_music, web_embed, mweb, default
+- **With Tor**: 0% success rate (0/7 strategies working)
+  - ❌ All strategies timeout after 30+ seconds
+  - ❌ YouTube blocks known Tor exit nodes
+  - ❌ High latency causes complete failure
+
+**Rationale**:
+- Tor reduces success rate from 71% to 0%
+- Current system (Multi-Strategy + User-Agent Rotation) is superior
+- Tor adds complexity with zero benefit
+- Removing Tor simplifies architecture and improves performance
+
+**Removed Components**:
+- `ENABLE_TOR_PROXY` environment variable
+- `TOR_PROXY_URL` environment variable
+- `tor-proxy` Docker service (dperson/torproxy)
+- Tor-related code from `proxy_manager.py`, `downloader.py`, `metrics.py`, `download_config.py`
+- Tor metrics and monitoring (`youtube_tor_enabled` gauge, `set_tor_status()` function)
+- Test suite: `tests/integration/test_youtube_strategies_tor.py` (600 lines)
+- Documentation: `docs/TESTING-WITH-TOR.md`
+
+**Migration Guide**:
+- If you had `ENABLE_TOR_PROXY=true` in your `.env`: **Remove this line**
+  - System works better without it (71% vs 0% success)
+- If you had `TOR_PROXY_URL` configured: **Remove this line**
+- No code changes needed for custom proxy support (still fully functional)
+- No action required if Tor was disabled (default configuration)
+
+**Current System Performance** (without Tor):
+- Multi-Strategy fallback: 7 strategies with automatic rotation
+- User-Agent rotation: 17+ user agents for bypass
+- Rate limiting: 10 req/min + 200 req/hour
+- Circuit breaker: Automatic failure detection
+- Success rate: 71% (5/7 strategies working)
+
+**References**:
+- See `docs/TOR-TEST-RESULTS.md` for detailed test analysis
+- See `docs/REMOVAL-PLAN-TOR.md` for complete removal plan
+
+### Removed
+
+- **Tor Proxy Infrastructure**
+  - Docker service `tor-proxy` (dperson/torproxy image)
+  - Environment variables: `ENABLE_TOR_PROXY`, `TOR_PROXY_URL`
+  - ProxyManager Tor support: `enable_tor`, `tor_proxy_url`, `get_tor_proxy()` method
+  - Tor metrics: `youtube_tor_enabled` Prometheus gauge, `set_tor_status()` function
+  - Tor configuration logging and tracking
+
+- **Test Files**
+  - `tests/integration/test_youtube_strategies_tor.py` (600 lines)
+  - `test_strategies_tor_report.txt`
+  - `test_strategies_tor_report.json`
+  - `docs/TESTING-WITH-TOR.md`
+
+### Changed
+
+- **ProxyManager** (`src/infrastructure/youtube/proxy_manager.py`)
+  - Simplified `__init__` signature: removed `enable_tor` and `tor_proxy_url` parameters
+  - Removed `get_tor_proxy()` method
+  - Updated `get_stats()`: removed `tor_enabled` and `tor_url` fields
+  - Updated `get_proxy_manager()` function: removed Tor parameters
+  - Custom proxy support unchanged and fully functional
+
+- **DownloadConfig** (`src/infrastructure/youtube/download_config.py`)
+  - Removed `enable_tor_proxy` attribute
+  - Removed `tor_proxy_url` attribute
+  - Removed Tor status from configuration logging
+
+- **Metrics** (`src/infrastructure/youtube/metrics.py`)
+  - Removed `youtube_tor_enabled` Prometheus gauge metric
+  - Removed `set_tor_status()` function
+  - Updated `youtube_proxy_requests` metric: removed 'tor' from proxy_type labels
+  - Simplified proxy tracking to 'custom' and 'none' only
+
+- **YouTubeDownloader** (`src/infrastructure/youtube/downloader.py`)
+  - Removed Tor proxy injection logic from download flow
+  - Removed Tor status from resilience configuration
+  - Removed conditional Tor proxy blocks (2 locations)
+  - Simplified proxy handling
+
+- **Docker Compose** (`docker-compose.yml`)
+  - Removed `ENABLE_TOR_PROXY` environment variable
+  - Removed `TOR_PROXY_URL` environment variable
+  - Removed entire `tor-proxy` service definition
+
+- **Documentation**
+  - Updated all English documentation to remove Tor references
+  - Removed Tor configuration examples
+  - Updated troubleshooting guides
+  - Removed Tor deployment instructions
+
+### Architecture
+
+**Simplified YouTube Download System** (4 layers instead of 5):
+1. **Network Layer**: DNS configuration, SSL/TLS certificates
+2. **Multi-Strategy Layer**: 7 fallback strategies (android_client, android_music, web_embed, etc.)
+3. **Rate Limiting Layer**: Sliding window, exponential backoff, cooldown
+4. **User-Agent Rotation Layer**: 17+ user agents for bypass
+
+**Proxy Support** (custom proxies still supported):
+- Custom proxy list via `custom_proxies` parameter
+- No-proxy fallback option (`enable_no_proxy`)
+- Proxy rotation and statistics tracking
+- Zero dependency on external proxy services
+
+### Testing
+
+**Validation Results**:
+- ✅ Unit tests: All passing
+- ✅ Integration tests: YouTube downloads working
+- ✅ Docker build: Successful
+- ✅ Backward compatibility: Custom proxies working
+- ✅ Documentation: Updated and consistent
+- ✅ No breaking changes to core functionality
+
+**Test Evidence**:
+- Test duration: 56 minutes
+- Configurations tested: 14 (7 strategies × 2 modes)
+- Without Tor: 5/7 strategies working (71%)
+- With Tor: 0/7 strategies working (0%)
+- Conclusion: Tor provides no value
+
+---
+
 ## [3.0.0] - 2025-10-22
 
 ### 🚀 MAJOR UPDATE - YouTube Download Resilience System

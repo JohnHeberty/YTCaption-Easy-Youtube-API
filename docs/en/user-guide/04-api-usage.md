@@ -672,7 +672,7 @@ POST /cleanup/run
 | `ValidationError` | 400 | Invalid YouTube URL or parameters | Check URL format |
 | `AudioTooLongError` | 400 | Video exceeds max duration | Reduce MAX_VIDEO_DURATION_SECONDS |
 | `AudioCorruptedError` | 400 | Downloaded audio is corrupted | Retry or report video |
-| `VideoDownloadError` | 404 | Failed to download video | Check if video exists, enable Tor |
+| `VideoDownloadError` | 404 | Failed to download video | Check if video exists, retry with different strategy |
 | `NetworkError` | 404 | Network connectivity issues | Check internet connection |
 | `RateLimitExceeded` | 429 | Too many requests | Wait and retry |
 | `TranscriptionError` | 500 | Whisper processing failed | Check logs, try different model |

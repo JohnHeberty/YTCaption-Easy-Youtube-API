@@ -46,7 +46,6 @@ from .metrics import (
     update_rate_limit_gauges,
     record_user_agent_rotation,
     record_proxy_request,
-    set_tor_status,
     record_info_request,
     set_resilience_config
 )
@@ -148,11 +147,9 @@ class YouTubeDownloader(IVideoDownloader):
             'max_retries': str(self.config.max_retries),
             'requests_per_minute': str(self.config.requests_per_minute),
             'requests_per_hour': str(self.config.requests_per_hour),
-            'tor_enabled': str(self.config.enable_tor_proxy),
             'multi_strategy_enabled': str(self.config.enable_multi_strategy),
             'user_agent_rotation_enabled': str(self.config.enable_user_agent_rotation)
         })
-        set_tor_status(self.config.enable_tor_proxy)
         
         logger.info("✅ YouTubeDownloader initialized with v3.0 Resilience System + Prometheus metrics")
     
@@ -278,14 +275,8 @@ class YouTubeDownloader(IVideoDownloader):
                         'Sec-Fetch-Mode': 'navigate',
                     }
                     
-                    # v3.0: Tor proxy support
+                    # Proxy type tracking
                     proxy_type = 'none'
-                    if self.config.enable_tor_proxy:
-                        proxy_url = self.proxy_manager.get_tor_proxy()
-                        if proxy_url:
-                            ydl_opts['proxy'] = proxy_url
-                            proxy_type = 'tor'
-                            logger.info(f"🧅 Using Tor proxy: {proxy_url}")
                     
                     # Executar download em thread separada
                     loop = asyncio.get_event_loop()
@@ -486,11 +477,6 @@ class YouTubeDownloader(IVideoDownloader):
             }
             
             # v3.0: Tor proxy support
-            if self.config.enable_tor_proxy:
-                proxy_url = self.proxy_manager.get_tor_proxy()
-                if proxy_url:
-                    ydl_opts['proxy'] = proxy_url
-            
             loop = asyncio.get_event_loop()
             info = await loop.run_in_executor(
                 None,
