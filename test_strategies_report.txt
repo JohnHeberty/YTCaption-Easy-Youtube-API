@@ -1,0 +1,22 @@
+RELATÓRIO DE TESTE DE ESTRATÉGIAS DE DOWNLOAD
+================================================================================
+
+Vídeo testado: https://www.youtube.com/watch?v=jNQXAC9IVRw
+Total de estratégias: 7
+Bem-sucedidas: 5
+Com erro: 2
+
+ESTRATÉGIAS FUNCIONANDO:
+  ✅ android_client (priority 1)
+  ✅ android_music (priority 2)
+  ✅ web_embed (priority 4)
+  ✅ mweb (priority 6)
+  ✅ default (priority 7)
+
+ESTRATÉGIAS COM ERRO:
+  ❌ ios_client (priority 3)
+     [0;31mERROR:[0m [youtube] jNQXAC9IVRw: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U
+
+  ❌ tv_embedded (priority 5)
+     [0;31mERROR:[0m [youtube] jNQXAC9IVRw: Please sign in. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
