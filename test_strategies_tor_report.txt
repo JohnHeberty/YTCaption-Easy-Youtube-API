@@ -1,0 +1,21 @@
+RELATÓRIO DE TESTE: TOR vs DIRETO
+================================================================================
+
+Vídeo testado: https://www.youtube.com/watch?v=jNQXAC9IVRw
+Data: 2025-10-23 14:33:37
+
+COM TOR: 0/7 funcionando
+
+SEM TOR: 5/7 funcionando
+  ✅ android_client (priority 1)
+  ✅ android_music (priority 2)
+  ✅ web_embed (priority 4)
+  ✅ mweb (priority 6)
+  ✅ default (priority 7)
+
+QUEBRADAS COM TOR: 5
+  ❌ android_client
+  ❌ android_music
+  ❌ web_embed
+  ❌ mweb
+  ❌ default

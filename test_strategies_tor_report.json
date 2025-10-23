@@ -1,0 +1,102 @@
+{
+  "timestamp": "2025-10-23T14:33:37.841230",
+  "test_video": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+  "results_with_tor": [
+    {
+      "strategy": "android_client",
+      "priority": 1,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F2949760>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F2949760>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    },
+    {
+      "strategy": "android_music",
+      "priority": 2,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F416DA00>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F416DA00>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    },
+    {
+      "strategy": "ios_client",
+      "priority": 3,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F2E64BF0>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F2E64BF0>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    },
+    {
+      "strategy": "web_embed",
+      "priority": 4,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F427C830>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F427C830>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    },
+    {
+      "strategy": "tv_embedded",
+      "priority": 5,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F4271F70>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F4271F70>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    },
+    {
+      "strategy": "mweb",
+      "priority": 6,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F4210A10>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F4210A10>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    },
+    {
+      "strategy": "default",
+      "priority": 7,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Unable to download API page: (<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F3F48770>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)') (caused by TransportError(\"(<yt_dlp.networking._requests.SocksHTTPSConnection object at 0x00000291F3F48770>, 'Connection to www.youtube.com timed out. (connect timeout=30.0)')\"))"
+    }
+  ],
+  "results_without_tor": [
+    {
+      "strategy": "android_client",
+      "priority": 1,
+      "success": true,
+      "error": null
+    },
+    {
+      "strategy": "android_music",
+      "priority": 2,
+      "success": true,
+      "error": null
+    },
+    {
+      "strategy": "ios_client",
+      "priority": 3,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: No video formats found!; please report this issue on  https://github.com/yt-dlp/yt-dlp/issues?q= , filling out the appropriate issue template. Confirm you are on the latest version using  yt-dlp -U"
+    },
+    {
+      "strategy": "web_embed",
+      "priority": 4,
+      "success": true,
+      "error": null
+    },
+    {
+      "strategy": "tv_embedded",
+      "priority": 5,
+      "success": false,
+      "error": "\u001b[0;31mERROR:\u001b[0m [youtube] jNQXAC9IVRw: Please sign in. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies"
+    },
+    {
+      "strategy": "mweb",
+      "priority": 6,
+      "success": true,
+      "error": null
+    },
+    {
+      "strategy": "default",
+      "priority": 7,
+      "success": true,
+      "error": null
+    }
+  ],
+  "working_with_tor": 0,
+  "working_without_tor": 5,
+  "only_tor": [],
+  "broken_by_tor": [
+    "android_client",
+    "android_music",
+    "web_embed",
+    "mweb",
+    "default"
+  ]
+}
