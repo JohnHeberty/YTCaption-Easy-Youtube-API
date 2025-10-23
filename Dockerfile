@@ -2,7 +2,11 @@
 FROM python:3.11-slim as builder
 
 # Instalar dependências de sistema necessárias + ferramentas de debug de rede
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Usar retry e timeout aumentado para apt
+RUN apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30 && \
+    apt-get install -y --no-install-recommends \
+    -o Acquire::Retries=5 \
+    -o Acquire::http::Timeout=30 \
     ffmpeg \
     git \
     build-essential \
@@ -25,8 +29,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Stage final
 FROM python:3.11-slim
 
-# Instalar apenas runtime necessário + ferramentas de rede
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Instalar apenas runtime necessário + ferramentas de rede com retry e timeout aumentado
+RUN apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30 && \
+    apt-get install -y --no-install-recommends \
+    -o Acquire::Retries=5 \
+    -o Acquire::http::Timeout=30 \
     ffmpeg \
     iputils-ping \
     curl \
