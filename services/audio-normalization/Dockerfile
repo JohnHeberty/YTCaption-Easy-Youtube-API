@@ -1,5 +1,5 @@
-# Use imagem Python slim
-FROM python:3.11-slim
+# Use Python 3.9 (compatível com Spleeter)
+FROM python:3.9-slim
 
 # Instala dependências do sistema para processamento de áudio
 RUN apt-get update && apt-get install -y --no-install-recommends \

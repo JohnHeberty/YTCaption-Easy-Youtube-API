@@ -16,9 +16,8 @@ scipy==1.11.4
 numpy==1.26.2
 librosa==0.10.1
 soundfile==0.12.1
-torch==2.1.0  # Requerido pelo noisereduce
-torchaudio==2.1.0  # Requerido pelo Demucs
-demucs==4.0.1  # Vocal isolation (Meta AI - Python 3.11 compatible)
+spleeter==2.4.0  # Vocal isolation (Deezer - Python 3.9 compatible)
+tensorflow==2.5.0  # Requerido pelo Spleeter
 
 # Tests
 requests==2.32.5

@@ -13,18 +13,17 @@ from .models import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 
-# Importa Demucs apenas quando necessário (lazy load)
-_demucs_model = None
+# Importa Spleeter apenas quando necessário (lazy load)
+_spleeter_separator = None
 
-def get_demucs_model():
-    """Lazy load do Demucs (só carrega quando necessário)"""
-    global _demucs_model
-    if _demucs_model is None:
-        from demucs.pretrained import get_model
-        from demucs.apply import apply_model
-        _demucs_model = get_model('htdemucs')  # Modelo híbrido (melhor qualidade)
-        logger.info("✅ Demucs carregado (modelo htdemucs)")
-    return _demucs_model
+def get_spleeter_separator():
+    """Lazy load do Spleeter (só carrega quando necessário)"""
+    global _spleeter_separator
+    if _spleeter_separator is None:
+        from spleeter.separator import Separator
+        _spleeter_separator = Separator('spleeter:2stems')  # 2 stems: vocals + accompaniment
+        logger.info("✅ Spleeter carregado (modelo 2stems)")
+    return _spleeter_separator
 
 
 class AudioProcessor:
@@ -33,6 +32,10 @@ class AudioProcessor:
     def __init__(self, output_dir: str = "./processed"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True)
+        
+        # Cria diretório temp para arquivos temporários
+        self.temp_dir = Path("./temp")
+        self.temp_dir.mkdir(exist_ok=True)
         
         # Referência para o job store será injetada
         self.job_store = None
@@ -176,98 +179,89 @@ class AudioProcessor:
     
     def _isolate_vocals(self, audio_path: Path, job: Job) -> AudioSegment:
         """
-        Isola voz usando Demucs (remove instrumental)
+        Isola vocais usando Spleeter (Deezer AI)
+        
+        Usa modelo 2stems que separa em:
+        - vocals: voz isolada  
+        - accompaniment: instrumental
         
         Args:
-            audio_path: Caminho do arquivo de áudio original
+            audio_path: Caminho do arquivo de áudio
             job: Job para atualizar progresso
             
         Returns:
-            AudioSegment contendo apenas a voz isolada
+            AudioSegment contendo apenas vocais
         """
-        temp_wav_path = None
-        temp_vocals_path = None
+        temp_output_dir = None
         
         try:
-            import torch
-            import torchaudio
-            from demucs.apply import apply_model
             import tempfile
+            import shutil
             
-            # Carrega Demucs (lazy load)
-            model = get_demucs_model()
+            # Carrega Spleeter (lazy load)
+            separator = get_spleeter_separator()
             
-            # SEMPRE converte para WAV primeiro para garantir compatibilidade
-            # Demucs + torchaudio têm problemas com formatos exóticos (webm, etc)
-            self._update_progress(job, 11.0, "Convertendo para formato compatível")
-            logger.info(f"🔄 Convertendo {audio_path.suffix} para WAV temporário")
+            # Cria diretório temporário para output do Spleeter
+            temp_output_dir = tempfile.mkdtemp(prefix=f"spleeter_{job.id}_")
+            
+            self._update_progress(job, 11.0, "Preparando áudio")
+            logger.info("🔄 Preparando áudio para Spleeter: %s", audio_path)
+            
+            # Spleeter aceita vários formatos via ffmpeg
+            self._update_progress(job, 13.0, "Carregando modelo de IA")
+            
+            # Calcula estimativa (Spleeter é mais rápido que Demucs)
             audio_temp = AudioSegment.from_file(str(audio_path))
+            duration_seconds = len(audio_temp) / 1000.0
+            estimated_time = int(duration_seconds * 0.3)  # ~0.3s por segundo
             
-            # Salva em /tmp/ com nome do job
-            temp_wav_path = f"/tmp/{job.id}_input.wav"
-            audio_temp.export(temp_wav_path, format='wav')
-            
-            logger.info(f"📂 WAV temporário criado: {temp_wav_path}")
-            
-            # Carrega WAV com torchaudio
-            self._update_progress(job, 13.0, "Carregando áudio em memória")
-            wav, sr = torchaudio.load(temp_wav_path)
-            
-            # Demucs espera formato: [batch, channels, time]
-            # wav já vem nesse formato do torchaudio
-            wav = wav.unsqueeze(0)  # Adiciona batch dimension
-            
-            # Calcula duração do áudio para estimar tempo de processamento
-            duration_seconds = wav.shape[2] / sr
-            estimated_time = int(duration_seconds * 0.7)  # ~0.5s por segundo de áudio
-            
-            self._update_progress(job, 15.0, f"Separando voz com IA (~{estimated_time}s)")
-            logger.info(f"🎵 Aplicando Demucs no áudio")
-            logger.info(f"   ├─ Sample rate: {sr}Hz")
-            logger.info(f"   ├─ Shape: {wav.shape}")
-            logger.info(f"   ├─ Duração: {duration_seconds:.1f}s")
-            logger.info(f"   └─ Tempo estimado: ~{estimated_time}s")
-            logger.info(f"⏳ Processando com IA (pode demorar, aguarde)...")
+            self._update_progress(job, 15.0, f"Separando voz (~{estimated_time}s)")
+            logger.info("🎵 Processando com Spleeter")
+            logger.info("   ├─ Duração: %.1fs", duration_seconds)
+            logger.info("   └─ Tempo estimado: ~%ss", estimated_time)
+            logger.info("⏳ Processando com IA (aguarde)...")
             
             import time
             start_time = time.time()
             
-            # Aplica modelo Demucs
-            # Output: [batch, sources, channels, time]
-            # sources = [drums, bass, other, vocals]
-            with torch.no_grad():
-                sources = apply_model(model, wav, device='cpu', shifts=1, split=True)
+            # Separa vocais - Spleeter cria: {temp_dir}/{filename_sem_ext}/vocals.wav
+            separator.separate_to_file(
+                str(audio_path),
+                temp_output_dir,
+                codec='wav'
+            )
             
             elapsed = time.time() - start_time
-            logger.info(f"✨ Separação concluída em {elapsed:.1f}s!")
+            logger.info("✨ Separação concluída em %.1fs!", elapsed)
             
-            # Extrai apenas vocals (índice 3)
             self._update_progress(job, 22.0, "Extraindo trilha de vocais")
-            vocals = sources[0, 3]  # [channels, time]
             
-            logger.info(f"🎤 Vocais extraídos, salvando WAV temporário")
+            # Localiza arquivo de vocais
+            audio_name = audio_path.stem
+            vocals_path = Path(temp_output_dir) / audio_name / "vocals.wav"
+            
+            if not vocals_path.exists():
+                raise FileNotFoundError(f"Arquivo de vocais não encontrado: {vocals_path}")
+            
             self._update_progress(job, 24.0, "Finalizando isolamento")
             
-            # Salva em /tmp/ com nome do job
-            temp_vocals_path = f"/tmp/{job.id}_vocals.wav"
-            torchaudio.save(temp_vocals_path, vocals, sr)
+            # Carrega vocais como AudioSegment
+            vocals_audio = AudioSegment.from_wav(str(vocals_path))
             
-            # Carrega como AudioSegment
-            vocals_audio = AudioSegment.from_wav(temp_vocals_path)
-            
-            logger.info(f"✅ Voz isolada com sucesso usando Demucs")
+            logger.info("✅ Voz isolada com sucesso usando Spleeter")
             return vocals_audio
                 
-        except Exception as e:
-            logger.error(f"❌ Erro ao isolar voz com Demucs: {e}")
+        except Exception as exc:
+            logger.error("❌ Erro ao isolar voz com Spleeter: %s", exc)
             logger.warning("Usando áudio original (sem isolamento)")
-            # Fallback: retorna áudio original se falhar
             return AudioSegment.from_file(str(audio_path))
             
         finally:
-            # Remove arquivos temporários
-            if temp_wav_path and Path(temp_wav_path).exists():
-                Path(temp_wav_path).unlink()
+            # Remove diretório temporário completo
+            if temp_output_dir and Path(temp_output_dir).exists():
+                import shutil
+                shutil.rmtree(temp_output_dir, ignore_errors=True)
+                logger.info("🗑️ Removido diretório temporário: %s", temp_output_dir)
                 logger.info(f"🗑️ Removido WAV temporário: {temp_wav_path}")
             if temp_vocals_path and Path(temp_vocals_path).exists():
                 Path(temp_vocals_path).unlink()
