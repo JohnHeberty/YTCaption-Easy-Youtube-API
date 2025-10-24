@@ -37,11 +37,18 @@ class Job(BaseModel):
     
     @classmethod
     def create_new(cls, url: str, quality: str = "best") -> "Job":
-        import re
         import uuid
         
         # Extrai ID do vídeo do YouTube
         video_id = cls._extract_video_id(url)
+        
+        # Se não conseguiu extrair, assume que url já é o video_id
+        if not video_id:
+            # Verifica se é um ID válido (11 caracteres alfanuméricos)
+            if len(url) == 11 and url.replace('-', '').replace('_', '').isalnum():
+                video_id = url
+                # Reconstrói URL completa
+                url = f"https://www.youtube.com/watch?v={video_id}"
         
         # Cria ID único: video_id + quality (para diferentes qualidades do mesmo vídeo)
         job_id = f"{video_id}_{quality}" if video_id else str(uuid.uuid4())

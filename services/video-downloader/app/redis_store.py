@@ -1,11 +1,11 @@
 import json
 import asyncio
 import os
-from typing import Optional
-from datetime import datetime, timedelta
-from redis import Redis
-from .models import Job, JobStatus
 import logging
+from typing import Optional
+from datetime import datetime
+from redis import Redis
+from .models import Job
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,11 @@ class RedisJobStore:
         # Testa conexão
         try:
             self.redis.ping()
-            logger.info(f"✅ Redis conectado: {redis_url}")
-            logger.info(f"⏰ Cache TTL: {self.cache_ttl_hours}h, Cleanup: {self.cleanup_interval_minutes}min")
-        except Exception as e:
-            logger.error(f"❌ Erro ao conectar Redis: {e}")
+            logger.info("✅ Redis conectado: %s", redis_url)
+            logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
+                       self.cache_ttl_hours, self.cleanup_interval_minutes)
+        except Exception as exc:
+            logger.error("❌ Erro ao conectar Redis: %s", exc)
             raise
     
     def _job_key(self, job_id: str) -> str:
@@ -81,8 +82,8 @@ class RedisJobStore:
                 await self.cleanup_expired()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error(f"Erro na limpeza automática: {e}")
+            except Exception as exc:
+                logger.error("Erro na limpeza automática: %s", exc)
     
     async def cleanup_expired(self) -> int:
         """Remove jobs e arquivos expirados do Redis"""
@@ -109,19 +110,19 @@ class RedisJobStore:
                         if file_path.exists():
                             try:
                                 file_path.unlink()
-                                logger.info(f"🗑️  Arquivo removido: {file_path}")
-                            except Exception as e:
-                                logger.error(f"Erro ao remover arquivo {file_path}: {e}")
+                                logger.info("🗑️  Arquivo removido: %s", file_path)
+                            except Exception as exc:
+                                logger.error("Erro ao remover arquivo %s: %s", file_path, exc)
                     
                     # Remove job do Redis
                     self.redis.delete(key)
                     expired_count += 1
                     
-            except Exception as e:
-                logger.error(f"Erro ao processar {key}: {e}")
+            except Exception as exc:
+                logger.error("Erro ao processar %s: %s", key, exc)
         
         if expired_count > 0:
-            logger.info(f"🧹 Limpeza: removidos {expired_count} jobs expirados")
+            logger.info("🧹 Limpeza: removidos %s jobs expirados", expired_count)
         
         return expired_count
     
@@ -134,7 +135,7 @@ class RedisJobStore:
         ttl_seconds = self.cache_ttl_hours * 3600
         self.redis.setex(key, ttl_seconds, data)
         
-        logger.debug(f"💾 Job salvo no Redis: {job.id} (TTL: {self.cache_ttl_hours}h)")
+        logger.debug("💾 Job salvo no Redis: %s (TTL: %sh)", job.id, self.cache_ttl_hours)
         return job
     
     def get_job(self, job_id: str) -> Optional[Job]:
@@ -147,8 +148,8 @@ class RedisJobStore:
         
         try:
             return self._deserialize_job(data)
-        except Exception as e:
-            logger.error(f"Erro ao deserializar job {job_id}: {e}")
+        except Exception as exc:
+            logger.error("Erro ao deserializar job %s: %s", job_id, exc)
             return None
     
     def update_job(self, job: Job) -> Job:
@@ -166,8 +167,8 @@ class RedisJobStore:
                 if data:
                     job = self._deserialize_job(data)
                     jobs.append(job)
-            except Exception as e:
-                logger.error(f"Erro ao deserializar job {key}: {e}")
+            except Exception as exc:
+                logger.error("Erro ao deserializar job %s: %s", key, exc)
         
         # Ordena por data de criação (mais recente primeiro)
         jobs.sort(key=lambda j: j.created_at, reverse=True)

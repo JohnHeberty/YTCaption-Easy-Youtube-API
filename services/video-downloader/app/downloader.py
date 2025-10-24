@@ -102,8 +102,8 @@ class SimpleDownloader:
                 if self.job_store:
                     self.job_store.update_job(job)
                     
-        except Exception as e:
-            logger.warning(f"Erro no hook de progresso: {e}")
+        except Exception as exc:
+            logger.warning("Erro no hook de progresso: %s", exc)
             # Continue mesmo com erro no progresso
     
     async def download_video(self, job: Job) -> Job:
@@ -122,9 +122,9 @@ class SimpleDownloader:
             
             return result
             
-        except Exception as e:
+        except Exception as exc:
             job.status = JobStatus.FAILED
-            job.error_message = str(e)
+            job.error_message = str(exc)
             return job
     
     def _sync_download(self, job: Job) -> Job:
@@ -135,7 +135,8 @@ class SimpleDownloader:
             opts = self._get_ydl_opts(job)
             current_ua = getattr(job, 'current_user_agent', None)
             
-            logger.info(f"Iniciando download com UA: {current_ua[:50] if current_ua else 'N/A'}...")
+            ua_display = current_ua[:50] if current_ua else 'N/A'
+            logger.info("Iniciando download com UA: %s...", ua_display)
             
             # Progresso inicial
             job.progress = 5.0
@@ -185,21 +186,22 @@ class SimpleDownloader:
                     job.completed_at = job.created_at.__class__.now()
                     job.progress = 100.0
                     
-                    logger.info(f"Download concluído com sucesso: {job.filename}")
+                    logger.info("Download concluído com sucesso: %s", job.filename)
                 else:
-                    raise Exception("Arquivo não encontrado após download")
+                    raise FileNotFoundError("Arquivo não encontrado após download")
                     
-        except Exception as e:
+        except Exception as exc:
             job.status = JobStatus.FAILED
-            job.error_message = str(e)
+            job.error_message = str(exc)
             
-            logger.error(f"Erro no download: {str(e)}")
+            logger.error("Erro no download: %s", str(exc))
             
             # Reporta erro ao UserAgentManager se UA estava sendo usado
             if current_ua:
-                error_details = f"Download failed: {str(e)}"
+                error_details = f"Download failed: {str(exc)}"
                 self.ua_manager.report_error(current_ua, error_details)
-                logger.warning(f"Erro reportado para UA: {current_ua[:50]}...")
+                ua_display = str(current_ua)[:50] if len(str(current_ua)) > 50 else str(current_ua)
+                logger.warning("Erro reportado para UA: %s...", ua_display)
         
         return job
     

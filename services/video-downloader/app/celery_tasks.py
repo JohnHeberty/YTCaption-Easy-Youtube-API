@@ -4,12 +4,12 @@ Tasks do Celery para download de vídeos
 """
 
 import os
+import logging
 from celery import Task
 from .celery_config import celery_app
 from .models import Job, JobStatus
 from .downloader import SimpleDownloader
 from .redis_store import RedisJobStore
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,10 @@ class CallbackTask(Task):
             if self._downloader:
                 self._downloader.job_store = self._job_store
         return self._job_store
+    
+    def run(self, *args, **kwargs):
+        """Método abstrato obrigatório (não usado, mas precisa existir)"""
+        return None  # Retorna None em vez de pass
 
 
 @celery_app.task(bind=True, base=CallbackTask, name='download_video_task')
@@ -57,7 +61,7 @@ def download_video_task(self, job_dict: dict) -> dict:
     # Reconstrói o Job a partir do dict
     job = Job(**job_dict)
     
-    logger.info(f"Iniciando download do job {job.id}")
+    logger.info("Iniciando download do job %s", job.id)
     
     try:
         # Atualiza status para downloading no Redis
@@ -66,21 +70,21 @@ def download_video_task(self, job_dict: dict) -> dict:
         self.job_store.update_job(job)
         
         # Executa download (job_store já está injetado no downloader)
-        result_job = self.downloader._sync_download(job)
+        result_job = self.downloader._sync_download(job)  # noqa: SLF001
         
         # Atualiza resultado final no Redis
         self.job_store.update_job(result_job)
         
-        logger.info(f"Job {job.id} concluído: {result_job.status}")
+        logger.info("Job %s concluído: %s", job.id, result_job.status)
         
         # Retorna job serializado
         return result_job.model_dump()
         
-    except Exception as e:
-        logger.error(f"Erro no download do job {job.id}: {e}")
+    except Exception as exc:
+        logger.error("Erro no download do job %s: %s", job.id, exc)
         
         job.status = JobStatus.FAILED
-        job.error_message = str(e)
+        job.error_message = str(exc)
         self.job_store.update_job(job)
         
         return job.model_dump()
@@ -91,8 +95,7 @@ def cleanup_expired_jobs_task():
     """
     Task periódica para limpeza de jobs expirados via Redis
     """
-    import os
-    from .redis_store import RedisJobStore
+    import asyncio
     
     logger.info("Executando limpeza de jobs expirados")
     
@@ -100,7 +103,6 @@ def cleanup_expired_jobs_task():
     store = RedisJobStore(redis_url=redis_url)
     
     # Executa cleanup síncrono
-    import asyncio
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
