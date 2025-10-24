@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: video-download-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  video-download-service:
+    build: .
+    container_name: video-download-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # Monta código fonte para hot reload (desenvolvimento)
+      - ./app:/app/app
+      - ./cache:/app/cache
+      - ./user-agents.txt:/app/user-agents.txt
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+      - UA_QUARANTINE_HOURS=48
+      - UA_MAX_ERRORS=3
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.example.service=video-download"
+
+  celery-worker:
+    build: .
+    container_name: video-download-celery
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo
+    volumes:
+      # Monta código fonte para hot reload (desenvolvimento)
+      - ./app:/app/app
+      - ./cache:/app/cache
+      - ./user-agents.txt:/app/user-agents.txt
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+      - UA_QUARANTINE_HOURS=48
+      - UA_MAX_ERRORS=3
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
