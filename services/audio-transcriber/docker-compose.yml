@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: audio-normalization-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  audio-normalization-service:
+    build: .
+    container_name: audio-normalization-api
+    ports:
+      - "8001:8001"
+    volumes:
+      # Monta código para hot reload
+      - ./app:/app/app
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+      - ./temp:/app/temp
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  celery-worker:
+    build: .
+    container_name: audio-normalization-celery
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo
+    volumes:
+      # Monta código para hot reload
+      - ./app:/app/app
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+      - ./temp:/app/temp
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/0
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
