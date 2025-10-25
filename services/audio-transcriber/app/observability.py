@@ -165,7 +165,7 @@ class HealthChecker:
     async def check_redis_health(self) -> HealthStatus:
         """Verifica saúde do Redis"""
         try:
-            from app.redis_store_new import get_redis_store
+            from app.redis_store import get_redis_store
             store = get_redis_store()
             
             # Testa ping

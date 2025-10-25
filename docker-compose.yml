@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Audio Normalization Service
   audio-normalization:

@@ -17,7 +17,7 @@ import librosa
 import soundfile as sf
 from pydantic import BaseModel
 
-from .models_new import Job, JobStatus, ProcessingResult, TranscriptionSegment
+from .models import Job, JobStatus, ProcessingResult, TranscriptionSegment
 from .config import get_settings
 from .exceptions import (
     TranscriptionError, AudioProcessingError, ModelLoadError,

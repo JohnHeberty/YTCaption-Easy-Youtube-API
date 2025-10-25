@@ -1,561 +1,211 @@
-"""
-Audio Normalization Service - Aplicação principal
-Versão 2.0 com alta resiliência, observabilidade e boas práticas
-"""
 import asyncio
-from contextlib import asynccontextmanager
-from typing import List, Optional
+import os
 from datetime import datetime
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
+from typing import List
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request, BackgroundTasks, Depends
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-
-from app.config import get_settings, AppSettings
-from app.logging_config import setup_logging, create_logger
-from app.models import Job, JobStatus, JobResponse, ProcessingOptionsRequest
-from app.processor import AudioProcessor
-from app.redis_store import RedisJobStore
-from app.security_validator import ValidationMiddleware, RateLimiter
-from app.observability import PrometheusMetrics, HealthChecker, ObservabilityManager
-from app.instrumentation import get_tracing, trace_function
-from app.exceptions import ValidationError, ResourceError, ProcessingError, SecurityError
-from app.resource_manager import ResourceMonitor, TempFileManager
-
-# Configuração inicial
-settings = get_settings()
-setup_logging(settings.log_level.upper())
-logger = create_logger(__name__)
+from .models import Job, JobRequest, JobStatus
+from .processor import AudioProcessor
+from .redis_store import RedisJobStore
 
 # Instâncias globais
-job_store: Optional[RedisJobStore] = None
-audio_processor: Optional[AudioProcessor] = None
-validation_middleware: Optional[ValidationMiddleware] = None
-observability_manager: Optional[ObservabilityManager] = None
-resource_monitor: Optional[ResourceMonitor] = None
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Gerenciamento do ciclo de vida da aplicação"""
-    logger.info(f"🚀 Iniciando {settings.app_name} v{settings.version}")
-    
-    # Inicialização
-    await initialize_services()
-    
-    # Configura instrumentação distribuída
-    if settings.monitoring.enable_tracing:
-        tracing = get_tracing()
-        tracing.instrument_fastapi_app(app)
-        logger.info("📡 Instrumentação distribuída configurada")
-    
-    logger.info("✅ Serviços inicializados com sucesso")
-    
-    yield
-    
-    # Shutdown
-    await cleanup_services()
-    logger.info("👋 Serviços finalizados")
-
-
-async def initialize_services():
-    """Inicializa todos os serviços da aplicação"""
-    global job_store, audio_processor, validation_middleware, observability_manager, resource_monitor
-    
-    try:
-        # Monitor de recursos
-        resource_monitor = ResourceMonitor()
-        
-        # Job store
-        job_store = RedisJobStore()
-        
-        # Processador de áudio
-        audio_processor = AudioProcessor()
-        
-        # Middleware de validação
-        validation_middleware = ValidationMiddleware()
-        
-        # Observabilidade
-        observability_manager = ObservabilityManager()
-        await observability_manager.start()
-        
-        # Verifica uso atual de recursos
-        usage = resource_monitor.get_current_usage()
-        logger.info(f"Uso atual de recursos: CPU {usage.cpu_percent:.1f}%, Memory {usage.memory_mb:.1f}MB")
-        
-    except Exception as e:
-        logger.error(f"❌ Falha na inicialização dos serviços: {e}")
-        raise
-
-
-async def cleanup_services():
-    """Limpa recursos dos serviços"""
-    global job_store, observability_manager
-    
-    try:
-        if job_store:
-            await job_store.cleanup_expired()
-            
-        if observability_manager:
-            await observability_manager.shutdown()
-            
-    except Exception as e:
-        logger.warning(f"⚠️ Erro durante cleanup: {e}")
-
-
-# Criação da aplicação FastAPI
 app = FastAPI(
-    title=settings.app_name,
-    description="Microserviço resiliente para normalização de áudio com observabilidade completa",
-    version=settings.version,
-    lifespan=lifespan,
-    docs_url="/docs" if settings.debug else None,
-    redoc_url="/redoc" if settings.debug else None
+    title="Audio Normalization Service",
+    description="Microserviço para normalização de áudio com cache de 24h",
+    version="2.0.0"
 )
 
-# Middlewares de segurança
-if not settings.debug:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=["localhost", "127.0.0.1", settings.host]
-    )
+# Usa Redis como store compartilhado
+redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+job_store = RedisJobStore(redis_url=redis_url)
+processor = AudioProcessor()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if settings.debug else ["http://localhost", "https://localhost"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"]
-)
+# Injeta referência do job_store no processor para updates de progresso
+processor.job_store = job_store
 
 
-# Dependências
-def get_job_store() -> RedisJobStore:
-    """Dependência para obter job store"""
-    if job_store is None:
-        raise HTTPException(status_code=503, detail="Job store not available")
-    return job_store
+@app.on_event("startup")
+async def startup_event():
+    """Inicializa sistema"""
+    await job_store.start_cleanup_task()
+    print("✅ Serviço de normalização iniciado")
 
 
-def get_audio_processor() -> AudioProcessor:
-    """Dependência para obter processador de áudio"""
-    if audio_processor is None:
-        raise HTTPException(status_code=503, detail="Audio processor not available")
-    return audio_processor
+@app.on_event("shutdown") 
+async def shutdown_event():
+    """Para sistema"""
+    await job_store.stop_cleanup_task()
+    print("🛑 Serviço parado graciosamente")
 
 
-def get_validation_middleware() -> ValidationMiddleware:
-    """Dependência para obter middleware de validação"""
-    if validation_middleware is None:
-        raise HTTPException(status_code=503, detail="Validation middleware not available")
-    return validation_middleware
+def submit_processing_task(job: Job):
+    """Submete job para processamento em background"""
+    # Por agora, processamento direto (pode ser melhorado com Celery depois)
+    asyncio.create_task(processor.process_audio_job(job))
 
 
-def get_resource_monitor() -> ResourceMonitor:
-    """Dependência para obter monitor de recursos"""
-    if resource_monitor is None:
-        raise HTTPException(status_code=503, detail="Resource monitor not available")
-    return resource_monitor
-
-
-# Endpoints de saúde e métricas
-@app.get("/health", tags=["Health"])
-async def health_check():
-    """Verifica saúde do serviço"""
-    try:
-        monitor = get_resource_monitor()
-        usage = monitor.get_current_usage()
-        
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now().isoformat(),
-            "service": "audio-normalization",
-            "version": "2.0.0",
-            "resources": {
-                "cpu_percent": usage.cpu_percent,
-                "memory_mb": usage.memory_mb
-            }
-        }
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        raise HTTPException(status_code=503, detail="Health check failed")
-
-
-@app.get("/metrics", tags=["Monitoring"])
-async def get_metrics():
-    """Expõe métricas Prometheus"""
-    if observability_manager:
-        return await observability_manager.get_metrics()
-    return {"message": "Metrics not available"}
-
-
-@app.get("/readiness", tags=["Health"])
-async def readiness_check(store: RedisJobStore = Depends(get_job_store)):
-    """Verifica se o serviço está pronto para receber requests"""
-    try:
-        # Testa conectividade com Redis
-        is_ready = await store.health_check()
-        
-        if is_ready:
-            return {"status": "ready", "message": "Service is ready to accept requests"}
-        else:
-            raise HTTPException(status_code=503, detail="Service not ready - Redis unavailable")
-            
-    except Exception as e:
-        logger.error(f"Readiness check failed: {e}")
-        raise HTTPException(status_code=503, detail="Service not ready")
-
-
-# Endpoints principais de processamento
-@app.post("/upload", response_model=JobResponse, tags=["Processing"])
-@trace_function("upload_audio_file")
-async def upload_audio(
-    request: Request,
+@app.post("/jobs", response_model=Job)
+async def create_audio_job(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    remove_noise: bool = False,
-    normalize_volume: bool = True,
-    convert_to_mono: bool = False,
-    apply_highpass_filter: bool = False,
-    set_sample_rate_16k: bool = False,
-    isolate_vocals: bool = False,
-    store: RedisJobStore = Depends(get_job_store),
-    validator: ValidationMiddleware = Depends(get_validation_middleware),
-    processor: AudioProcessor = Depends(get_audio_processor)
-):
+    file: UploadFile = File(...)
+) -> Job:
     """
-    Faz upload e processa arquivo de áudio
+    Cria um novo job de normalização de áudio
     
-    - **file**: Arquivo de áudio (MP3, WAV, FLAC)
-    - **remove_noise**: Remove ruído de fundo
-    - **normalize_volume**: Normaliza volume
-    - **convert_to_mono**: Converte para mono
-    - **apply_highpass_filter**: Aplica filtro passa-alta
-    - **set_sample_rate_16k**: Define sample rate para 16kHz
-    - **isolate_vocals**: Isola vocais (experimental)
+    - **file**: Arquivo de áudio para processar
     """
-    try:
-        # Obter IP do cliente para rate limiting
-        client_ip = request.client.host
-        
-        # Validação de arquivo e segurança
-        file_result, security_result = await validator.validate_upload(file, client_ip)
-        
-        if not file_result.valid:
-            raise ValidationError(f"Invalid file: {file_result.error}")
-        
-        if not security_result.safe:
-            raise SecurityError(f"Security check failed: {security_result.reason}")
-        
-        # Salva arquivo temporariamente
-        temp_manager = TempFileManager()
-        with temp_manager.temp_file(suffix=f".{file_result.format}") as temp_path:
-            # Lê e salva conteúdo do arquivo
-            content = await file.read()
-            temp_path.write_bytes(content)
-            
-            # Cria job
-            job = Job.create_new(
-                input_file=str(temp_path),
-                remove_noise=remove_noise,
-                normalize_volume=normalize_volume,
-                convert_to_mono=convert_to_mono,
-                apply_highpass_filter=apply_highpass_filter,
-                set_sample_rate_16k=set_sample_rate_16k,
-                isolate_vocals=isolate_vocals
-            )
-            
-            # Salva job
-            store.save_job(job)
-            
-            # Agenda processamento em background
-            background_tasks.add_task(process_audio_background, job.id, str(temp_path))
-            
-            logger.info(f"📄 Job {job.id} criado para arquivo: {file.filename}")
-            
-            return JobResponse(
-                job_id=job.id,
-                status=job.status,
-                message="Job created successfully",
-                created_at=job.created_at,
-                expires_at=job.expires_at
-            )
-            
-    except (ValidationError, SecurityError) as e:
-        logger.warning(f"⚠️ Upload rejected: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+    # Cria job para extrair ID
+    new_job = Job.create_new(file.filename, "normalize")
     
-    except ResourceError as e:
-        logger.error(f"💾 Resource error during upload: {e}")
-        raise HTTPException(status_code=503, detail="Service temporarily unavailable")
+    # Verifica se já existe job com mesmo ID
+    existing_job = job_store.get_job(new_job.id)
     
-    except Exception as e:
-        logger.error(f"❌ Upload failed: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    if existing_job:
+        # Job já existe - verifica status
+        if existing_job.status == JobStatus.COMPLETED:
+            return existing_job
+        elif existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
+            return existing_job
+        elif existing_job.status == JobStatus.FAILED:
+            # Falhou antes - tenta novamente
+            existing_job.status = JobStatus.QUEUED
+            existing_job.error_message = None
+            existing_job.progress = 0.0
+            job_store.update_job(existing_job)
+            
+            # Submete para processamento
+            submit_processing_task(existing_job)
+            return existing_job
+    
+    # Job novo - salva arquivo
+    upload_dir = Path("./uploads")
+    upload_dir.mkdir(exist_ok=True)
+    
+    file_path = upload_dir / f"{new_job.id}_{file.filename}"
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+    
+    new_job.input_file = str(file_path)
+    
+    # Salva job e submete para processamento
+    job_store.save_job(new_job)
+    submit_processing_task(new_job)
+    
+    return new_job
 
 
-@app.post("/process", response_model=JobResponse, tags=["Processing"])
-@trace_function("process_audio_job")
-async def process_audio_with_options(
-    request: ProcessingOptionsRequest,
-    background_tasks: BackgroundTasks,
-    store: RedisJobStore = Depends(get_job_store)
-):
-    """
-    Cria job de processamento com opções customizadas
-    
-    Aceita configurações detalhadas de processamento via JSON
-    """
-    try:
-        # Cria job com opções customizadas
-        job = Job.create_new(
-            input_file=request.input_file,
-            **request.model_dump(exclude={"input_file"})
-        )
-        
-        # Salva job
-        store.save_job(job)
-        
-        # Agenda processamento
-        background_tasks.add_task(process_audio_background, job.id, request.input_file)
-        
-        logger.info(f"🔧 Job customizado {job.id} criado")
-        
-        return JobResponse(
-            job_id=job.id,
-            status=job.status,
-            message="Custom processing job created",
-            created_at=job.created_at,
-            expires_at=job.expires_at
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to create processing job: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
-@trace_function("get_job_status")
-async def get_job_status(
-    job_id: str,
-    store: RedisJobStore = Depends(get_job_store)
-):
+@app.get("/jobs/{job_id}", response_model=Job)
+async def get_job_status(job_id: str) -> Job:
     """Consulta status de um job"""
-    try:
-        job = store.get_job(job_id)
+    job = job_store.get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    
+    if job.is_expired:
+        raise HTTPException(status_code=410, detail="Job expirado")
+    
+    return job
+
+
+@app.get("/jobs/{job_id}/download")
+async def download_file(job_id: str):
+    """Faz download do arquivo processado"""
+    job = job_store.get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    
+    if job.is_expired:
+        raise HTTPException(status_code=410, detail="Job expirado")
         
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        return JobResponse(
-            job_id=job.id,
-            status=job.status,
-            message=job.error_message if job.status == JobStatus.FAILED else "Job found",
-            output_file=job.output_file,
-            created_at=job.created_at,
-            started_at=job.started_at,
-            completed_at=job.completed_at,
-            expires_at=job.expires_at,
-            processing_options={
-                "remove_noise": job.remove_noise,
-                "normalize_volume": job.normalize_volume,
-                "convert_to_mono": job.convert_to_mono,
-                "apply_highpass_filter": job.apply_highpass_filter,
-                "set_sample_rate_16k": job.set_sample_rate_16k,
-                "isolate_vocals": job.isolate_vocals
-            }
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=425, 
+            detail=f"Processamento não pronto. Status: {job.status}"
         )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to get job status: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.get("/jobs", tags=["Jobs"])
-@trace_function("list_jobs")
-async def list_jobs(
-    status: Optional[JobStatus] = None,
-    limit: int = 10,
-    store: RedisJobStore = Depends(get_job_store)
-):
-    """Lista jobs com filtros opcionais"""
-    try:
-        jobs = store.list_jobs(status=status, limit=limit)
-        
-        return {
-            "jobs": [
-                {
-                    "job_id": job.id,
-                    "status": job.status,
-                    "created_at": job.created_at,
-                    "input_file": job.input_file
-                }
-                for job in jobs
-            ],
-            "total": len(jobs)
-        }
-        
-    except Exception as e:
-        logger.error(f"❌ Failed to list jobs: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.get("/download/{job_id}", tags=["Files"])
-@trace_function("download_processed_file")
-async def download_processed_file(
-    job_id: str,
-    store: RedisJobStore = Depends(get_job_store)
-):
-    """Download do arquivo processado"""
-    try:
-        job = store.get_job(job_id)
-        
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        if job.status != JobStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail="Job not completed")
-        
-        if not job.output_file or not Path(job.output_file).exists():
-            raise HTTPException(status_code=404, detail="Output file not found")
-        
-        filename = f"processed_{job_id}.mp3"
-        
-        return FileResponse(
-            job.output_file,
-            media_type="audio/mpeg",
-            filename=filename
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Download failed: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.delete("/jobs/{job_id}", tags=["Jobs"])
-@trace_function("delete_job")
-async def delete_job(
-    job_id: str,
-    store: RedisJobStore = Depends(get_job_store)
-):
-    """Remove um job e seus arquivos"""
-    try:
-        job = store.get_job(job_id)
-        
-        if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
-        
-        # Remove arquivos se existirem
-        if job.output_file and Path(job.output_file).exists():
-            Path(job.output_file).unlink()
-        
-        # Remove job do store
-        store.delete_job(job_id)
-        
-        logger.info(f"🗑️ Job {job_id} removido")
-        
-        return {"message": "Job deleted successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"❌ Failed to delete job: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-# Função de background para processamento
-@trace_function("background_audio_processing")
-async def process_audio_background(job_id: str, input_file: str):
-    """Processa áudio em background"""
-    try:
-        # Obtém job
-        job = job_store.get_job(job_id)
-        if not job:
-            logger.error(f"Job {job_id} not found for background processing")
-            return
-        
-        # Inicia processamento
-        job.status = JobStatus.PROCESSING
-        job.started_at = datetime.now()
-        job_store.save_job(job)
-        
-        # Processa áudio
-        result = await audio_processor.process_audio(job)
-        
-        # Atualiza job com resultado
-        if result.success:
-            job.status = JobStatus.COMPLETED
-            job.output_file = result.output_file
-            job.completed_at = datetime.now()
-            logger.info(f"✅ Job {job_id} completed successfully")
-        else:
-            job.status = JobStatus.FAILED
-            job.error_message = result.error
-            logger.error(f"❌ Job {job_id} failed: {result.error}")
-        
-        job_store.save_job(job)
-        
-    except Exception as e:
-        # Marca job como falhado
-        try:
-            job = job_store.get_job(job_id)
-            if job:
-                job.status = JobStatus.FAILED
-                job.error_message = f"Background processing failed: {str(e)}"
-                job_store.save_job(job)
-        except:
-            pass  # Evita erro duplo
-        
-        logger.error(f"❌ Background processing failed for job {job_id}: {e}")
-
-
-# Handler global de exceções
-@app.exception_handler(ValidationError)
-async def validation_exception_handler(request: Request, exc: ValidationError):
-    """Handler para erros de validação"""
-    logger.warning(f"Validation error: {exc}")
-    return JSONResponse(
-        status_code=400,
-        content={"detail": str(exc), "error_code": exc.error_code}
+    
+    file_path = Path(job.output_file) if job.output_file else None
+    if not file_path or not file_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    
+    return FileResponse(
+        path=file_path,
+        filename=f"normalized_{job_id}.wav",
+        media_type='application/octet-stream'
     )
 
 
-@app.exception_handler(SecurityError)
-async def security_exception_handler(request: Request, exc: SecurityError):
-    """Handler para erros de segurança"""
-    logger.warning(f"Security error: {exc}")
-    return JSONResponse(
-        status_code=403,
-        content={"detail": str(exc), "error_code": exc.error_code}
-    )
+@app.get("/jobs", response_model=List[Job])
+async def list_jobs(limit: int = 20) -> List[Job]:
+    """Lista jobs recentes"""
+    return job_store.list_jobs(limit)
 
 
-@app.exception_handler(ResourceError)
-async def resource_exception_handler(request: Request, exc: ResourceError):
-    """Handler para erros de recurso"""
-    logger.error(f"Resource error: {exc}")
-    return JSONResponse(
-        status_code=503,
-        content={"detail": "Service temporarily unavailable", "error_code": exc.error_code}
-    )
+@app.delete("/jobs/{job_id}")
+async def delete_job(job_id: str):
+    """Remove job e arquivo associado"""
+    job = job_store.get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    
+    # Remove arquivos se existirem
+    if job.input_file:
+        input_path = Path(job.input_file)
+        if input_path.exists():
+            input_path.unlink()
+    
+    if job.output_file:
+        output_path = Path(job.output_file)
+        if output_path.exists():
+            output_path.unlink()
+    
+    return {"message": "Job removido com sucesso"}
 
 
-@app.exception_handler(ProcessingError)
-async def processing_exception_handler(request: Request, exc: ProcessingError):
-    """Handler para erros de processamento"""
-    logger.error(f"Processing error: {exc}")
-    return JSONResponse(
-        status_code=422,
-        content={"detail": str(exc), "error_code": exc.error_code}
-    )
+@app.post("/admin/cleanup")
+async def manual_cleanup():
+    """Força limpeza manual de arquivos expirados"""
+    removed = await job_store.cleanup_expired()
+    return {"message": f"Removidos {removed} jobs expirados"}
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host=settings.host, port=settings.port)
+@app.get("/admin/stats")
+async def get_stats():
+    """Estatísticas do sistema"""
+    stats = job_store.get_stats()
+    
+    # Adiciona info do cache
+    upload_path = Path("./uploads")
+    processed_path = Path("./processed")
+    
+    total_files = 0
+    total_size = 0
+    
+    for path in [upload_path, processed_path]:
+        if path.exists():
+            files = list(path.iterdir())
+            total_files += len(files)
+            total_size += sum(f.stat().st_size for f in files if f.is_file())
+    
+    stats["cache"] = {
+        "files_count": total_files,
+        "total_size_mb": round(total_size / (1024 * 1024), 2)
+    }
+    
+    return stats
+
+
+@app.get("/health")
+async def health_check():
+    """Health check simples"""
+    return {
+        "status": "healthy",
+        "service": "audio-normalization", 
+        "version": "2.0.0",
+        "timestamp": datetime.now().isoformat()
+    }

@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from collections import defaultdict
 from datetime import datetime
 
-from .models_new import Job, JobStatus, TranscriptionStats
+from .models import Job, JobStatus, TranscriptionStats
 from .logging_config import get_logger
 
 logger = get_logger(__name__)

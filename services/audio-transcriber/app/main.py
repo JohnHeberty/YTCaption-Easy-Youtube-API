@@ -11,20 +11,20 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uvicorn
 
 from .config import get_settings
-from .models_new import (
+from .models import (
     Job, JobStatus, JobResponse, TranscriptionRequest, 
     ProcessingResult, TranscriptionStats
 )
-from .processor_new import TranscriptionProcessor
+from .processor import TranscriptionProcessor
 from .resource_manager import ResourceMonitor, TempFileManager
 from .security_validator import FileValidator, ValidationMiddleware, RateLimiter
 from .observability import ObservabilityManager
-from .logging_config import get_logger, setup_request_logging
+from .logging_config import create_logger, setup_request_logging
 from .exceptions import (
     TranscriptionError, AudioProcessingError, ModelLoadError,
     ValidationError, ResourceError
@@ -33,7 +33,9 @@ from .exceptions import (
 # Storage para jobs (em produção, usar Redis)
 from .storage import JobStorage
 
-logger = get_logger(__name__)
+)
+
+logger = create_logger(__name__)
 
 
 class TranscriptionApp:
