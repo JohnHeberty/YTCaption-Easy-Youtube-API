@@ -20,6 +20,28 @@ class AudioNormalizationRequest(BaseModel):
     convert_to_mono: bool = True  # Converte para mono
     apply_highpass_filter: bool = True  # Aplica filtro highpass
 
+class ProcessingOptionsRequest(BaseModel):
+    """Request com opções customizadas de processamento"""
+    input_file: str
+    isolate_vocals: bool = False
+    remove_noise: bool = True
+    normalize_volume: bool = True
+    convert_to_mono: bool = False
+    apply_highpass_filter: bool = False
+    set_sample_rate_16k: bool = False
+
+class JobResponse(BaseModel):
+    """Response padrão para operações com jobs"""
+    job_id: str
+    status: JobStatus
+    message: str
+    output_file: Optional[str] = None
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    expires_at: datetime
+    processing_options: Optional[dict] = None
+
 class Job(BaseModel):
     id: str
     input_file: str
