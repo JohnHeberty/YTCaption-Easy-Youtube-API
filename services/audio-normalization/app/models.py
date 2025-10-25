@@ -73,7 +73,7 @@ class Job(BaseModel):
 
         file_hash = _calculate_file_hash(input_file)
         # Gera código de operações (i=isolate, n=noise, v=volume, m=mono, h=highpass, s=sample_rate)
-    operations = f"{'i' if isolate_vocals else ''}{'n' if remove_noise else ''}{'v' if normalize_volume else ''}{'m' if convert_to_mono else ''}{'h' if apply_highpass_filter else ''}{'s' if set_sample_rate_16k else ''}"  # pylint: disable=line-too-long
+        operations = f"{'i' if isolate_vocals else ''}{'n' if remove_noise else ''}{'v' if normalize_volume else ''}{'m' if convert_to_mono else ''}{'h' if apply_highpass_filter else ''}{'s' if set_sample_rate_16k else ''}"  # pylint: disable=line-too-long
         job_id = f"{file_hash}_{operations}" if operations else file_hash
         cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         now = datetime.now()
