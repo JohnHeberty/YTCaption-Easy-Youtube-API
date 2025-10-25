@@ -4,7 +4,8 @@ import os
 from typing import Optional
 from datetime import datetime
 from redis import Redis
-from .models import Job, JobStatus
+
+from .models import Job
 import logging
 
 logger = logging.getLogger(__name__)
@@ -14,19 +15,29 @@ class RedisJobStore:
     """Store compartilhado de jobs usando Redis"""
     
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
+        from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
+        self.redis_url = redis_url
         self._cleanup_task: Optional[asyncio.Task] = None
         
         # Lê configurações de cache das variáveis de ambiente
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CLEANUP_INTERVAL_MINUTES', '30'))
         
+        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+        def connect_redis():
+            redis = Redis.from_url(self.redis_url, decode_responses=True, socket_timeout=5)
+            redis.ping()
+            return redis
+        
         try:
-            self.redis.ping()
-            logger.info(f"✅ Redis conectado: {redis_url}")
-            logger.info(f"⏰ Cache TTL: {self.cache_ttl_hours}h, Cleanup: {self.cleanup_interval_minutes}min")
+            self.redis = connect_redis()
+            logger.info("✅ Redis conectado: %s", self.redis_url)
+            logger.info("⏰ Cache TTL: %dh, Cleanup: %dmin", self.cache_ttl_hours, self.cleanup_interval_minutes)
+        except RetryError as e:
+            logger.error("❌ Falha ao conectar Redis após múltiplas tentativas: %s", e)
+            raise
         except Exception as e:
-            logger.error(f"❌ Erro ao conectar Redis: {e}")
+            logger.error("❌ Erro ao conectar Redis: %s", e)
             raise
     
     def _job_key(self, job_id: str) -> str:
@@ -60,15 +71,14 @@ class RedisJobStore:
     async def _cleanup_loop(self):
         """Loop de limpeza com intervalo configurável"""
         cleanup_interval_seconds = self.cleanup_interval_minutes * 60
-        
         while True:
             try:
                 await asyncio.sleep(cleanup_interval_seconds)
                 await self.cleanup_expired()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error(f"Erro na limpeza: {e}")
+            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError) as e:
+                logger.error("Erro na limpeza: %s", e)
     
     async def cleanup_expired(self) -> int:
         from pathlib import Path
@@ -81,47 +91,56 @@ class RedisJobStore:
                 data = self.redis.get(key)
                 if not data:
                     continue
-                
                 job = self._deserialize_job(data)
-                
                 if job.expires_at < now:
                     # Remove arquivo se existir
                     if job.output_file:
                         file_path = Path(job.output_file)
                         if file_path.exists():
                             file_path.unlink()
-                            logger.info(f"🗑️  Arquivo removido: {file_path}")
-                    
+                            logger.info("🗑️  Arquivo removido: %s", file_path)
                     self.redis.delete(key)
                     expired_count += 1
-                    
-            except Exception as e:
-                logger.error(f"Erro ao processar {key}: {e}")
+            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError) as e:
+                logger.error("Erro ao processar %s: %s", key, e)
         
         if expired_count > 0:
-            logger.info(f"🧹 Removidos {expired_count} jobs expirados")
+            logger.info("� Removidos %d jobs expirados", expired_count)
         
         return expired_count
     
     def save_job(self, job: Job) -> Job:
+        from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
         key = self._job_key(job.id)
         data = self._serialize_job(job)
         ttl_seconds = self.cache_ttl_hours * 3600  # Converte horas para segundos
-        self.redis.setex(key, ttl_seconds, data)
-        logger.debug(f"💾 Job salvo: {job.id} (TTL: {self.cache_ttl_hours}h)")
+        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+        def set_job():
+            self.redis.setex(key, ttl_seconds, data)
+        try:
+            set_job()
+            logger.debug("💾 Job salvo: %s (TTL: %dh)", job.id, self.cache_ttl_hours)
+        except RetryError as e:
+            logger.error("❌ Falha ao salvar job no Redis: %s", e)
         return job
-    
+
     def get_job(self, job_id: str) -> Optional[Job]:
+        from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
         key = self._job_key(job_id)
-        data = self.redis.get(key)
-        
+        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+        def get_data():
+            return self.redis.get(key)
+        try:
+            data = get_data()
+        except RetryError as e:
+            logger.error("❌ Falha ao buscar job no Redis: %s", e)
+            return None
         if not data:
             return None
-        
         try:
             return self._deserialize_job(data)
-        except Exception as e:
-            logger.error(f"Erro ao deserializar job {job_id}: {e}")
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            logger.error("Erro ao deserializar job %s: %s", job_id, e)
             return None
     
     def update_job(self, job: Job) -> Job:
@@ -136,8 +155,8 @@ class RedisJobStore:
                 if data:
                     job = self._deserialize_job(data)
                     jobs.append(job)
-            except Exception as e:
-                logger.error(f"Erro ao deserializar {key}: {e}")
+            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError) as e:
+                logger.error("Erro ao deserializar %s: %s", key, e)
         
         jobs.sort(key=lambda j: j.created_at, reverse=True)
         return jobs[:limit]
@@ -154,7 +173,7 @@ class RedisJobStore:
                     job = self._deserialize_job(data)
                     status = job.status.value
                     by_status[status] = by_status.get(status, 0) + 1
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError):
                 pass
         
         return {

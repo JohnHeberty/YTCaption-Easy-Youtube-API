@@ -18,6 +18,7 @@ class AudioNormalizationRequest(BaseModel):
     remove_noise: bool = True  # Remove ruído de fundo
     normalize_volume: bool = True  # Normaliza volume
     convert_to_mono: bool = True  # Converte para mono
+    apply_highpass_filter: bool = True  # Aplica filtro highpass
 
 
 class Job(BaseModel):
@@ -36,6 +37,8 @@ class Job(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     progress: float = 0.0  # Progresso de 0.0 a 100.0
+    apply_highpass_filter: bool  # Aplica filtro highpass
+    set_sample_rate_16k: bool  # Reduz sample rate para 16kHz
     
     @property
     def is_expired(self) -> bool:
@@ -43,38 +46,38 @@ class Job(BaseModel):
     
     @classmethod
     def create_new(
-        cls, 
+        cls,
         input_file: str,
         isolate_vocals: bool = False,
         remove_noise: bool = True,
         normalize_volume: bool = True,
-        convert_to_mono: bool = True
+        convert_to_mono: bool = True,
+        apply_highpass_filter: bool = True,
+        set_sample_rate_16k: bool = True
     ) -> "Job":
         """
         Cria novo job com ID baseado no hash do arquivo + operações
-        
         Sistema de cache:
         - Calcula hash SHA256 do arquivo
         - Combina com operações solicitadas
         - Job ID = hash_operacoes (ex: abc123def_invm)
         - Se mesmo arquivo + mesmas operações = retorna job existente (cache)
         """
-        import hashlib
         import os
-        from pathlib import Path
-        
+        import hashlib
         # Calcula hash SHA256 do arquivo (cache key)
-        file_hash = cls._calculate_file_hash(input_file)
-        
-        # Gera código de operações (i=isolate, n=noise, v=volume, m=mono)
-        operations = f"{'i' if isolate_vocals else ''}{'n' if remove_noise else ''}{'v' if normalize_volume else ''}{'m' if convert_to_mono else ''}"
-        
-        # Job ID = hash_operacoes (garante unicidade por arquivo + operações)
+        def _calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
+            hash_obj = hashlib.new(algorithm)
+            with open(file_path, 'rb') as f:
+                for chunk in iter(lambda: f.read(8192), b''):
+                    hash_obj.update(chunk)
+            return hash_obj.hexdigest()[:12]
+
+        file_hash = _calculate_file_hash(input_file)
+        # Gera código de operações (i=isolate, n=noise, v=volume, m=mono, h=highpass, s=sample_rate)
+        operations = f"{'i' if isolate_vocals else ''}{'n' if remove_noise else ''}{'v' if normalize_volume else ''}{'m' if convert_to_mono else ''}{'h' if apply_highpass_filter else ''}{'s' if set_sample_rate_16k else ''}"
         job_id = f"{file_hash}_{operations}" if operations else file_hash
-        
-        # Lê TTL do cache das variáveis de ambiente (padrão: 24 horas)
         cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
-        
         now = datetime.now()
         return cls(
             id=job_id,
@@ -84,6 +87,8 @@ class Job(BaseModel):
             remove_noise=remove_noise,
             normalize_volume=normalize_volume,
             convert_to_mono=convert_to_mono,
+            apply_highpass_filter=apply_highpass_filter,
+            set_sample_rate_16k=set_sample_rate_16k,
             created_at=now,
             expires_at=now + timedelta(hours=cache_ttl_hours)
         )
@@ -101,7 +106,6 @@ class Job(BaseModel):
             Hash hexadecimal (primeiros 12 caracteres)
         """
         import hashlib
-        from pathlib import Path
         
         hash_obj = hashlib.new(algorithm)
         

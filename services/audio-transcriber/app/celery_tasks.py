@@ -7,7 +7,7 @@ import os
 from celery import Task
 from .celery_config import celery_app
 from .models import Job, JobStatus
-from .processor import AudioProcessor
+from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
 import logging
 
@@ -16,20 +16,23 @@ logger = logging.getLogger(__name__)
 
 class CallbackTask(Task):
     """Task base com callbacks para atualização de progresso"""
-    
     def __init__(self):
         super().__init__()
         self._processor = None
         self._job_store = None
-    
+
+    def run(self, *args, **kwargs):
+        """Implementação abstrata exigida pelo Celery"""
+        return None
+
     @property
     def processor(self):
         if self._processor is None:
-            self._processor = AudioProcessor()
+            self._processor = TranscriptionProcessor()
             if self._job_store:
                 self._processor.job_store = self._job_store
         return self._processor
-    
+
     @property
     def job_store(self):
         if self._job_store is None:
@@ -40,44 +43,37 @@ class CallbackTask(Task):
         return self._job_store
 
 
-@celery_app.task(bind=True, base=CallbackTask, name='normalize_audio_task')
-def normalize_audio_task(self, job_dict: dict) -> dict:
+
+@celery_app.task(bind=True, base=CallbackTask, name='transcribe_audio_task')
+def transcribe_audio_task(self, job_dict: dict) -> dict:
     """
-    Task do Celery para normalização de áudio
-    
+    Task do Celery para transcrição de áudio
     Args:
         job_dict: Job serializado como dicionário
-        
     Returns:
         Job atualizado como dicionário
     """
     job = Job(**job_dict)
-    
-    logger.info(f"Iniciando processamento do job {job.id}")
-    
+    logger.info("Iniciando transcrição do job %s", job.id)
     try:
-        # Atualiza status para processing no Redis
         job.status = JobStatus.PROCESSING
         job.progress = 0.0
         self.job_store.update_job(job)
-        
-        # Executa processamento
-        result_job = self.processor.process_audio(job)
-        
-        # Atualiza resultado final no Redis
+        result_job = self.processor.transcribe_audio(job)
         self.job_store.update_job(result_job)
-        
-        logger.info(f"Job {job.id} concluído: {result_job.status}")
-        
+        logger.info("Job %s concluído: %s", job.id, result_job.status)
         return result_job.model_dump()
-        
-    except Exception as e:
-        logger.error(f"Erro no job {job.id}: {e}")
-        
+    except (RuntimeError, ValueError, OSError) as e:
+        logger.error("Erro ao processar tarefa Celery: %s", e)
         job.status = JobStatus.FAILED
         job.error_message = str(e)
         self.job_store.update_job(job)
-        
+        return job.model_dump()
+    except Exception as e:
+        logger.error("Erro inesperado ao processar tarefa Celery: %s", e)
+        job.status = JobStatus.FAILED
+        job.error_message = str(e)
+        self.job_store.update_job(job)
         return job.model_dump()
 
 

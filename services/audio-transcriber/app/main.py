@@ -4,23 +4,25 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from typing import List
 from datetime import datetime
+import logging
+logger = logging.getLogger(__name__)
 
-from .models import Job, AudioNormalizationRequest, JobStatus
-from .processor import AudioProcessor
+from .models import Job, JobStatus
+from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
-from .celery_tasks import normalize_audio_task
+from .celery_tasks import transcribe_audio_task
 
 # Instâncias globais
 app = FastAPI(
-    title="Audio Normalization Service",
-    description="Microserviço para normalização de áudio com Celery + Redis",
+    title="Audio Transcriber Service",
+    description="Microserviço para transcrição de áudio com Celery + Redis",
     version="1.0.0"
 )
 
 # Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 job_store = RedisJobStore(redis_url=redis_url)
-processor = AudioProcessor()
+processor = TranscriptionProcessor()
 
 # Injeta job_store no processor
 processor.job_store = job_store
@@ -34,7 +36,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 async def startup_event():
     """Inicializa sistema"""
     await job_store.start_cleanup_task()
-    print("✅ Audio Normalization Service iniciado")
+    print("✅ Audio Transcriber Service iniciado")
 
 
 @app.on_event("shutdown")
@@ -47,77 +49,40 @@ async def shutdown_event():
 def submit_celery_task(job: Job):
     """Submete job para o Celery"""
     job_dict = job.model_dump()
-    task = normalize_audio_task.apply_async(
+    task = transcribe_audio_task.apply_async(
         args=[job_dict],
         task_id=job.id
     )
     return task
 
 
-@app.post("/normalize", response_model=Job)
-async def create_normalization_job(
+
+@app.post("/transcribe", response_model=Job)
+async def create_transcription_job(
     file: UploadFile = File(...),
-    isolate_vocals: bool = False,
-    remove_noise: bool = True,
-    normalize_volume: bool = True,
-    convert_to_mono: bool = True
+    language: str = "auto",
+    output_format: str = "srt"
 ) -> Job:
     """
-    Cria job de normalização de áudio com cache inteligente
-    
-    - **file**: Arquivo de áudio para processar
-    - **isolate_vocals**: Isola voz removendo instrumental (padrão: false)
-    - **remove_noise**: Remove ruído de fundo (padrão: true)
-    - **normalize_volume**: Normaliza volume (padrão: true)
-    - **convert_to_mono**: Converte para mono (padrão: true)
-    
-    Sistema de cache:
-    - Se mesmo arquivo + mesmas operações já foram processadas, retorna job existente
-    - Cache válido por 24h
+    Cria job de transcrição de áudio
+    - **file**: Arquivo de áudio para transcrever
+    - **language**: Idioma do áudio (pt, en, es, auto)
+    - **output_format**: Formato de saída (srt, vtt, txt)
     """
-    # Salva arquivo enviado
     file_path = UPLOAD_DIR / file.filename
-    
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
-    
-    # Cria job (gera ID baseado no hash do arquivo + operações)
     new_job = Job.create_new(
         input_file=str(file_path),
-        isolate_vocals=isolate_vocals,
-        remove_noise=remove_noise,
-        normalize_volume=normalize_volume,
-        convert_to_mono=convert_to_mono
+        language=language,
+        output_format=output_format
     )
-    
-    # Verifica se job já existe (cache)
     existing_job = job_store.get_job(new_job.id)
-    
-    if existing_job:
-        # Job já existe - verifica status
-        if existing_job.status == JobStatus.COMPLETED:
-            # Já foi processado - retorna job em cache
-            return existing_job
-        elif existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
-            # Ainda está processando - retorna job em progresso
-            return existing_job
-        elif existing_job.status == JobStatus.FAILED:
-            # Falhou antes - tenta novamente
-            existing_job.status = JobStatus.QUEUED
-            existing_job.error_message = None
-            existing_job.progress = 0.0
-            existing_job.input_file = str(file_path)  # Atualiza caminho
-            job_store.update_job(existing_job)
-            
-            # Submete para Celery
-            submit_celery_task(existing_job)
-            return existing_job
-    
-    # Job novo - salva e submete para Celery
+    if existing_job and existing_job.status == JobStatus.COMPLETED:
+        return existing_job
     job_store.save_job(new_job)
     submit_celery_task(new_job)
-    
     return new_job
 
 
@@ -135,32 +100,54 @@ async def get_job_status(job_id: str) -> Job:
     return job
 
 
+
 @app.get("/jobs/{job_id}/download")
-async def download_processed_file(job_id: str):
-    """Download do arquivo processado"""
+async def download_transcription_file(job_id: str):
+    """Download do arquivo de legenda gerado (.srt/.vtt/.txt)"""
     job = job_store.get_job(job_id)
-    
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
-    
     if job.is_expired:
         raise HTTPException(status_code=410, detail="Job expirado")
-    
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
             status_code=425,
-            detail=f"Processamento não concluído. Status: {job.status}"
+            detail=f"Transcrição não concluída. Status: {job.status}"
         )
-    
-    file_path = processor.get_file_path(job)
-    if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-    
+    file_path = Path(job.output_file)
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Arquivo de transcrição não encontrado")
+    media_types = {
+        "srt": "application/x-subrip",
+        "vtt": "text/vtt",
+        "txt": "text/plain"
+    }
+    fmt = getattr(job, "output_format", "srt")
     return FileResponse(
         path=file_path,
         filename=file_path.name,
-        media_type='audio/opus'
+        media_type=media_types.get(fmt, "text/plain")
     )
+
+@app.get("/jobs/{job_id}/text")
+async def get_transcription_text(job_id: str):
+    """Retorna texto completo da transcrição (sem timestamps)"""
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=425,
+            detail=f"Transcrição não concluída. Status: {job.status}"
+        )
+    return {
+        "job_id": job.id,
+        "text": job.transcription_text,
+        "language": getattr(job, "detected_language", None),
+        "segments_count": getattr(job, "segments_count", None),
+        "duration": getattr(job, "audio_duration", None),
+        "output_format": getattr(job, "output_format", None)
+    }
 
 
 @app.delete("/jobs/{job_id}")
@@ -198,7 +185,7 @@ async def manual_cleanup():
     """
     removed = await job_store.cleanup_expired()
     return {
-        "message": f"Limpeza concluída",
+    "message": "Limpeza concluída",
         "jobs_removed": removed,
         "timestamp": datetime.now().isoformat()
     }
@@ -270,7 +257,7 @@ async def health_check():
         active_workers = inspect.active()
         celery_healthy = active_workers is not None
         workers_active = len(active_workers) if active_workers else 0
-    except:
+    except (RuntimeError, ValueError, OSError):
         celery_healthy = False
     
     # Verifica Redis
@@ -280,7 +267,7 @@ async def health_check():
         redis = Redis.from_url(redis_url, decode_responses=True)
         redis.ping()
         redis_healthy = True
-    except:
+    except (RuntimeError, ValueError, OSError):
         redis_healthy = False
     
     overall_status = "healthy" if (celery_healthy and redis_healthy) else "degraded"
@@ -347,7 +334,13 @@ async def get_stats():
             "broker": "redis",
             "backend": "redis"
         }
+    except (RuntimeError, ValueError, OSError) as e:
+        stats["celery"] = {
+            "error": str(e),
+            "status": "unavailable"
+        }
     except Exception as e:
+        logger.error("Erro inesperado ao obter estatísticas do Celery: %s", e)
         stats["celery"] = {
             "error": str(e),
             "status": "unavailable"
@@ -377,7 +370,13 @@ async def get_queue_stats():
             "active_tasks": active_workers if active_workers else {},
             "is_running": active_workers is not None
         }
+    except (RuntimeError, ValueError, OSError) as e:
+        return {
+            "error": str(e),
+            "is_running": False
+        }
     except Exception as e:
+        logger.error("Erro inesperado ao obter estatísticas da fila: %s", e)
         return {
             "error": str(e),
             "is_running": False

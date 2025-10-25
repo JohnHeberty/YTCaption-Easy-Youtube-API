@@ -22,7 +22,7 @@ def get_openunmix_model():
     if _openunmix_model is None:
         import torch
         import openunmix
-        _openunmix_model = openunmix.umxhq(targets=['vocals'])  # Apenas vocals
+        _openunmix_model = openunmix.umxhq(targets=['vocals', 'accompaniment'])  # Corrigido: precisa de 2 targets
         _openunmix_model.eval()  # Modo de inferência
         logger.info("✅ OpenUnmix carregado (modelo umxhq)")
     return _openunmix_model
@@ -51,132 +51,85 @@ class AudioProcessor:
     
     def process_audio(self, job: Job) -> Job:
         """
-        Processa áudio com as operações solicitadas:
-        1. Remove ruído (noise reduction)
-        2. Normaliza volume
-        3. Converte para mono
+        Processa áudio conforme parâmetros do job. Só executa operações ativas, pula as desativadas.
         """
         try:
             job.status = JobStatus.PROCESSING
             self._update_progress(job, 5.0, "Iniciando processamento")
-            
+
             input_path = Path(job.input_file)
             if not input_path.exists():
                 raise FileNotFoundError(f"Arquivo não encontrado: {job.input_file}")
-            
-            # Armazena tamanho do arquivo original
+
             job.file_size_input = input_path.stat().st_size
-            
-            # Gera nome do arquivo de saída usando job.id (hash + operações)
-            # Ex: abc123def_nvm_normalized.mp3
-            output_filename = f"{job.id}_normalized{input_path.suffix}"
-            output_path = self.output_dir / output_filename
-            
-            # Carrega áudio
-            self._update_progress(job, 5.0, "Carregando áudio")
-            audio = AudioSegment.from_file(str(input_path))
-            
-            # Passo 0: Isola voz (se solicitado) - ANTES de tudo
+
+            # Se todos os parâmetros estiverem desativados, pula processamento
+            if not any([
+                job.isolate_vocals,
+                job.remove_noise,
+                job.normalize_volume,
+                job.convert_to_mono,
+                job.apply_highpass_filter,
+                job.set_sample_rate_16k
+            ]):
+                self._update_progress(job, 95.0, "Nenhuma operação solicitada, pulando processamento")
+                job.status = JobStatus.COMPLETED
+                job.completed_at = datetime.now()
+                job.progress = 100.0
+                job.output_file = None
+                job.file_size_output = None
+                return job
+
+            # Processamento condicional conforme parâmetros
+            audio = AudioSegment.from_file(input_path)
+            if audio is None:
+                raise RuntimeError(f"Falha ao carregar arquivo de áudio: {input_path}")
+
+            # Executa operações conforme parâmetros
             if job.isolate_vocals:
-                self._update_progress(job, 10.0, "Isolando voz com IA (pode demorar 30-90s)")
                 audio = self._isolate_vocals(input_path, job)
-                self._update_progress(job, 25.0, "Voz isolada com sucesso")
-            else:
-                self._update_progress(job, 10.0, "Pulando isolamento de voz")
-            
-            # Passo 1: Converte para mono PRIMEIRO (otimização para voz)
-            self._update_progress(job, 30.0, "Convertendo para mono (voz)")
-            if audio.channels > 1:
-                audio = audio.set_channels(1)
-            
-            # Passo 2: Reduz sample rate para 16kHz (ideal para voz)
-            self._update_progress(job, 35.0, "Otimizando para voz (16kHz)")
-            if audio.frame_rate > 16000:
-                audio = audio.set_frame_rate(16000)
-            
-            # Passo 3: High-Pass Filter (remove frequências < 80Hz)
-            self._update_progress(job, 40.0, "Removendo frequências graves inaudíveis")
-            audio = self._apply_highpass_filter(audio, cutoff=80)
-            
-            # Passo 4: Remove ruído
+                self._update_progress(job, 20.0, "Vocais isolados")
+
             if job.remove_noise:
-                self._update_progress(job, 45.0, "Removendo ruído de fundo")
                 audio = self._remove_noise(audio, job)
-                self._update_progress(job, 70.0, "Ruído removido")
-            else:
-                self._update_progress(job, 70.0, "Pulando remoção de ruído")
-            
-            # Passo 5: Dynamic Range Compression (equaliza volume da fala)
-            self._update_progress(job, 75.0, "Compressão dinâmica (equaliza voz)")
-            audio = compress_dynamic_range(
-                audio,
-                threshold=-20.0,  # dB
-                ratio=4.0,        # Compressão 4:1
-                attack=5.0,       # ms
-                release=50.0      # ms
-            )
-            
-            # Passo 6: Normaliza volume
+                self._update_progress(job, 40.0, "Ruído removido")
+
             if job.normalize_volume:
-                self._update_progress(job, 80.0, "Normalizando volume")
                 audio = pydub_normalize(audio)
-                self._update_progress(job, 85.0, "Volume normalizado")
-            else:
-                self._update_progress(job, 85.0, "Pulando normalização de volume")
-            
-            # Salva arquivo processado com codec Opus (melhor para voz)
-            self._update_progress(job, 90.0, "Exportando com codec Opus")
-            
-            # Força extensão .opus para garantir codec correto
-            output_filename = f"{job.id}_normalized.opus"
-            output_path = self.output_dir / output_filename
-            
-            # Exporta como Opus 64kbps mono (ideal para voz)
-            audio.export(
-                str(output_path),
-                format="opus",
-                codec="libopus",
-                bitrate="64k",
-                parameters=["-vbr", "on", "-compression_level", "10", "-application", "voip"]
-            )
-            
-            # Atualiza job com resultado
+                self._update_progress(job, 60.0, "Volume normalizado")
+
+            if job.convert_to_mono:
+                audio = audio.set_channels(1)
+                self._update_progress(job, 70.0, "Convertido para mono")
+
+            if job.apply_highpass_filter:
+                audio = self._apply_highpass_filter(audio, job)
+                self._update_progress(job, 80.0, "Filtro highpass aplicado")
+
+            if job.set_sample_rate_16k:
+                audio = audio.set_frame_rate(16000)
+                self._update_progress(job, 90.0, "Sample rate ajustado para 16kHz")
+
+            # Exporta arquivo processado
+            output_path = self.output_dir / f"{job.id}.opus"
+            audio.export(output_path, format="opus")
             job.output_file = str(output_path)
             job.file_size_output = output_path.stat().st_size
             job.status = JobStatus.COMPLETED
             job.completed_at = datetime.now()
             job.progress = 100.0
-            
-            # Calcula redução de tamanho
-            reduction = ((job.file_size_input - job.file_size_output) / job.file_size_input) * 100
-            logger.info(
-                f"Processamento concluído: {job.output_file} "
-                f"(redução: {reduction:.1f}%)"
-            )
-            
-            # 🗑️ Deleta arquivo de INPUT (mantém só o processado)
-            try:
-                if input_path.exists():
-                    input_path.unlink()
-                    logger.info(f"Arquivo de entrada deletado: {input_path}")
-            except Exception as e:
-                logger.warning(f"Erro ao deletar arquivo de entrada: {e}")
-            
+            self._update_progress(job, 100.0, "Processamento concluído")
             return job
-            
         except Exception as e:
             logger.error(f"Erro no processamento: {e}")
             job.status = JobStatus.FAILED
             job.error_message = str(e)
-            
-            # Tenta deletar input mesmo em caso de falha
             try:
                 if Path(job.input_file).exists():
                     Path(job.input_file).unlink()
                     logger.info(f"Arquivo de entrada deletado após falha: {job.input_file}")
             except Exception as cleanup_error:
                 logger.warning(f"Erro ao deletar arquivo após falha: {cleanup_error}")
-            
             return job
     
     def _isolate_vocals(self, audio_path: Path, job: Job) -> AudioSegment:
@@ -336,10 +289,9 @@ class AudioProcessor:
             
             # Aplica filtro
             filtered_samples = signal.filtfilt(b, a, samples)
-            
-            # Converte de volta para int
+            # Remove NaN/infinito antes de converter para int
+            filtered_samples = np.nan_to_num(filtered_samples, nan=0.0, posinf=0.0, neginf=0.0)
             filtered_samples = np.int16(filtered_samples * (2 ** (audio.sample_width * 8 - 1)))
-            
             # Cria novo AudioSegment
             filtered_audio = AudioSegment(
                 filtered_samples.tobytes(),
@@ -347,7 +299,6 @@ class AudioProcessor:
                 sample_width=audio.sample_width,
                 channels=audio.channels
             )
-            
             return filtered_audio
             
         except Exception as e:

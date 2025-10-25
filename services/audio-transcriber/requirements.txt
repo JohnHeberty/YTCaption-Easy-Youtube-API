@@ -1,3 +1,5 @@
+# Resiliência
+tenacity==8.2.2
 # API
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
@@ -10,11 +12,12 @@ celery==5.3.4
 redis==5.0.1
 
 # Audio Processing
+numpy==1.24.4
 
 # Transcrição com Whisper
-faster-whisper==0.10.0
 torch==2.1.0
 torchaudio==2.1.0
+faster-whisper
 
 # Tests
 requests==2.32.5

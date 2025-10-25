@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 from datetime import datetime
 
-from .models import Job, AudioNormalizationRequest, JobStatus
+from .models import Job, JobStatus
 from .processor import AudioProcessor
 from .redis_store import RedisJobStore
 from .celery_tasks import normalize_audio_task
@@ -60,7 +60,9 @@ async def create_normalization_job(
     isolate_vocals: bool = False,
     remove_noise: bool = True,
     normalize_volume: bool = True,
-    convert_to_mono: bool = True
+    convert_to_mono: bool = True,
+    set_sample_rate_16k: bool = True,
+    apply_highpass_filter: bool = True
 ) -> Job:
     """
     Cria job de normalização de áudio com cache inteligente
@@ -88,7 +90,9 @@ async def create_normalization_job(
         isolate_vocals=isolate_vocals,
         remove_noise=remove_noise,
         normalize_volume=normalize_volume,
-        convert_to_mono=convert_to_mono
+        convert_to_mono=convert_to_mono,
+        apply_highpass_filter=apply_highpass_filter,
+        set_sample_rate_16k=set_sample_rate_16k
     )
     
     # Verifica se job já existe (cache)
@@ -116,8 +120,8 @@ async def create_normalization_job(
     
     # Job novo - salva e submete para Celery
     job_store.save_job(new_job)
-    submit_celery_task(new_job)
-    
+    # Sempre envia o job serializado completo para o Celery
+    submit_celery_task(job_store.get_job(new_job.id))
     return new_job
 
 
@@ -198,7 +202,7 @@ async def manual_cleanup():
     """
     removed = await job_store.cleanup_expired()
     return {
-        "message": f"Limpeza concluída",
+        "message": "Limpeza concluída",
         "jobs_removed": removed,
         "timestamp": datetime.now().isoformat()
     }
@@ -270,7 +274,7 @@ async def health_check():
         active_workers = inspect.active()
         celery_healthy = active_workers is not None
         workers_active = len(active_workers) if active_workers else 0
-    except:
+    except (AttributeError, RuntimeError):
         celery_healthy = False
     
     # Verifica Redis
@@ -280,7 +284,7 @@ async def health_check():
         redis = Redis.from_url(redis_url, decode_responses=True)
         redis.ping()
         redis_healthy = True
-    except:
+    except (ConnectionError, RuntimeError):
         redis_healthy = False
     
     overall_status = "healthy" if (celery_healthy and redis_healthy) else "degraded"
@@ -339,7 +343,6 @@ async def get_stats():
     try:
         from .celery_config import celery_app
         inspect = celery_app.control.inspect()
-        
         active_tasks = inspect.active() or {}
         stats["celery"] = {
             "active_workers": len(active_tasks),
@@ -347,7 +350,7 @@ async def get_stats():
             "broker": "redis",
             "backend": "redis"
         }
-    except Exception as e:
+    except (AttributeError, RuntimeError) as e:
         stats["celery"] = {
             "error": str(e),
             "status": "unavailable"
@@ -365,11 +368,9 @@ async def get_queue_stats():
     
     try:
         inspect = celery_app.control.inspect()
-        
         # Workers ativos
         active_workers = inspect.active()
         registered = inspect.registered()
-        
         return {
             "broker": "redis",
             "active_workers": len(active_workers) if active_workers else 0,
@@ -377,7 +378,7 @@ async def get_queue_stats():
             "active_tasks": active_workers if active_workers else {},
             "is_running": active_workers is not None
         }
-    except Exception as e:
+    except (AttributeError, RuntimeError) as e:
         return {
             "error": str(e),
             "is_running": False
