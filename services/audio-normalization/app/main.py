@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import get_settings, AppSettings
-from app.logging_config import setup_logging, get_logger
+from app.logging_config import setup_logging, create_logger
 from app.models import Job, JobStatus, JobResponse, ProcessingOptionsRequest
 from app.processor_new import AudioProcessor
 from app.redis_store_new import RedisJobStore
@@ -25,7 +25,7 @@ from app.resource_manager import ResourceMonitor, TempFileManager
 # Configuração inicial
 settings = get_settings()
 setup_logging(settings.log_level.upper())
-logger = get_logger(__name__)
+logger = create_logger(__name__)
 
 # Instâncias globais
 job_store: Optional[RedisJobStore] = None

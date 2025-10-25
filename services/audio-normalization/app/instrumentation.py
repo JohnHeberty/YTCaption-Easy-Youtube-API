@@ -23,9 +23,9 @@ from opentelemetry.propagators.b3 import B3MultiFormat
 from opentelemetry.trace.status import Status, StatusCode
 
 from app.config import AppSettings
-from app.logging_config import get_logger
+from app.logging_config import create_logger
 
-logger = get_logger(__name__)
+logger = create_logger(__name__)
 
 
 class DistributedTracing:
