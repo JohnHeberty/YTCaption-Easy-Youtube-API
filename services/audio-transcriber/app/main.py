@@ -1,459 +1,550 @@
-
-import os
-import logging
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse
-from pathlib import Path
-from typing import List
-from datetime import datetime
-
-from .models import Job, JobStatus
-from .processor import TranscriptionProcessor
-from .redis_store import RedisJobStore
-from .celery_tasks import transcribe_audio_task
-
-# Configuração de logging para arquivo
-LOG_DIR = Path(os.getenv('LOG_DIR', './logs'))
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / 'audio_transcriber.log'
-logging.basicConfig(
-    level=os.getenv('LOG_LEVEL', 'INFO').upper(),
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
+"""
+Aplicação principal do Audio Transcriber Service
+Versão resiliente com gerenciamento completo do ciclo de vida
+"""
 import asyncio
+import signal
+import sys
+from contextlib import asynccontextmanager
+from typing import Dict, Any, Optional, List
+from pathlib import Path
 
-class CustomFastAPI(FastAPI):
-    async def __call__(self, scope, receive, send):
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import uvicorn
+
+from .config import get_settings
+from .models_new import (
+    Job, JobStatus, JobResponse, TranscriptionRequest, 
+    ProcessingResult, TranscriptionStats
+)
+from .processor_new import TranscriptionProcessor
+from .resource_manager import ResourceMonitor, TempFileManager
+from .security_validator import FileValidator, ValidationMiddleware, RateLimiter
+from .observability import ObservabilityManager
+from .logging_config import get_logger, setup_request_logging
+from .exceptions import (
+    TranscriptionError, AudioProcessingError, ModelLoadError,
+    ValidationError, ResourceError
+)
+
+# Storage para jobs (em produção, usar Redis)
+from .storage import JobStorage
+
+logger = get_logger(__name__)
+
+
+class TranscriptionApp:
+    """
+    Classe principal da aplicação de transcrição
+    """
+    
+    def __init__(self):
+        self.settings = get_settings()
+        self.processor = TranscriptionProcessor()
+        self.job_storage = JobStorage()
+        self.resource_monitor = ResourceMonitor()
+        self.temp_manager = TempFileManager()
+        self.file_validator = FileValidator()
+        self.observability = ObservabilityManager()
+        self.rate_limiter = RateLimiter()
+        
+        # FastAPI app
+        self.app = FastAPI(
+            title="Audio Transcriber Service",
+            description="High-resilience audio transcription service with Whisper",
+            version="2.0.0",
+            lifespan=self.lifespan
+        )
+        
+        # Security
+        self.security = HTTPBearer(auto_error=False)
+        
+        # Setup da aplicação
+        self._setup_middleware()
+        self._setup_routes()
+        self._setup_exception_handlers()
+    
+    @asynccontextmanager
+    async def lifespan(self, app: FastAPI):
+        """Gerenciamento do ciclo de vida da aplicação"""
+        
+        # Startup
+        logger.info("Starting Audio Transcriber Service")
+        
         try:
-            await super().__call__(scope, receive, send)
-        except asyncio.CancelledError:
-            # Silencia erro de cancelamento no shutdown
-            if scope["type"] == "lifespan":
-                pass
+            # Inicializa componentes
+            await self._startup()
+            
+            # Sinal de que está pronto
+            logger.info("Audio Transcriber Service is ready!")
+            
+            yield
+            
+        finally:
+            # Shutdown
+            logger.info("Shutting down Audio Transcriber Service")
+            await self._shutdown()
+    
+    async def _startup(self):
+        """Inicialização da aplicação"""
+        
+        # Verifica recursos do sistema
+        if not await self.resource_monitor.system_health_check():
+            raise RuntimeError("System health check failed")
+        
+        # Inicia observabilidade
+        await self.observability.start()
+        
+        # Verifica diretórios necessários
+        self._ensure_directories()
+        
+        # Inicia limpeza automática
+        asyncio.create_task(self._periodic_cleanup())
+        
+        logger.info("Application startup completed")
+    
+    async def _shutdown(self):
+        """Finalização da aplicação"""
+        
+        # Para observabilidade
+        await self.observability.stop()
+        
+        # Limpa arquivos temporários
+        await self.temp_manager.cleanup_all()
+        
+        logger.info("Application shutdown completed")
+    
+    def _ensure_directories(self):
+        """Garante que diretórios necessários existem"""
+        
+        dirs_to_create = [
+            self.settings.transcription.output_dir,
+            self.settings.transcription.upload_dir,
+            self.settings.transcription.model_cache_dir
+        ]
+        
+        for dir_path in dirs_to_create:
+            Path(dir_path).mkdir(parents=True, exist_ok=True)
+            logger.info(f"Directory ensured: {dir_path}")
+    
+    async def _periodic_cleanup(self):
+        """Limpeza periódica de jobs expirados"""
+        
+        while True:
+            try:
+                await asyncio.sleep(3600)  # A cada hora
+                
+                # Remove jobs expirados
+                expired_jobs = await self.job_storage.get_expired_jobs()
+                
+                for job in expired_jobs:
+                    # Limpa arquivos do job
+                    await self.processor.cleanup_job_files(job)
+                    
+                    # Remove do storage
+                    await self.job_storage.delete_job(job.id)
+                    
+                    logger.info(f"Cleaned up expired job: {job.id}")
+                
+                # Limpa arquivos temporários antigos
+                await self.temp_manager.cleanup_old_files(hours=24)
+                
+                logger.info(f"Periodic cleanup completed, removed {len(expired_jobs)} jobs")
+                
+            except Exception as e:
+                logger.error(f"Periodic cleanup failed: {e}")
+    
+    def _setup_middleware(self):
+        """Configura middlewares"""
+        
+        # CORS
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=self.settings.cors.allowed_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+        
+        # Rate limiting e validação
+        self.app.add_middleware(ValidationMiddleware)
+        
+        # Request logging
+        setup_request_logging(self.app)
+    
+    def _setup_routes(self):
+        """Configura rotas da API"""
+        
+        @self.app.get("/health")
+        async def health_check():
+            """Health check endpoint"""
+            health = await self.observability.health_checker.check_all()
+            
+            status_code = status.HTTP_200_OK if health["healthy"] else status.HTTP_503_SERVICE_UNAVAILABLE
+            
+            return JSONResponse(
+                status_code=status_code,
+                content=health
+            )
+        
+        @self.app.get("/metrics")
+        async def metrics():
+            """Prometheus metrics endpoint"""
+            from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+            
+            metrics_data = generate_latest()
+            return Response(
+                metrics_data,
+                media_type=CONTENT_TYPE_LATEST
+            )
+        
+        @self.app.post("/transcribe", response_model=JobResponse)
+        async def create_transcription_job(
+            background_tasks: BackgroundTasks,
+            file: UploadFile = File(...),
+            language: str = "auto",
+            output_format: str = "srt",
+            enable_vad: bool = True,
+            beam_size: int = 5,
+            temperature: float = 0.0,
+            priority: str = "normal",
+            token: Optional[HTTPAuthorizationCredentials] = Depends(self.security)
+        ):
+            """
+            Cria job de transcrição de áudio
+            """
+            
+            # Rate limiting
+            client_ip = "unknown"  # Em produção, extrair do request
+            if not await self.rate_limiter.check_rate_limit(client_ip):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Rate limit exceeded"
+                )
+            
+            # Valida arquivo
+            validation_result = await self.file_validator.validate_audio_file(
+                file.filename, 
+                await file.read()
+            )
+            
+            if not validation_result.is_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid file: {validation_result.error}"
+                )
+            
+            # Reset file position
+            await file.seek(0)
+            
+            try:
+                # Salva arquivo
+                upload_dir = Path(self.settings.transcription.upload_dir)
+                file_path = await self._save_upload_file(file, upload_dir)
+                
+                # Cria job
+                job = Job.create_new(
+                    input_file=str(file_path),
+                    language=language,
+                    output_format=output_format,
+                    enable_vad=enable_vad,
+                    beam_size=beam_size,
+                    temperature=temperature,
+                    priority=priority,
+                    file_size_input=validation_result.file_size,
+                    audio_duration=validation_result.duration,
+                    sample_rate=validation_result.sample_rate,
+                    channels=validation_result.channels
+                )
+                
+                # Verifica se já existe resultado em cache
+                existing_job = await self.job_storage.get_job(job.id)
+                if existing_job and existing_job.is_completed:
+                    logger.info(f"Returning cached result for job: {job.id}")
+                    return self._job_to_response(existing_job)
+                
+                # Salva job
+                await self.job_storage.save_job(job)
+                
+                # Inicia processamento em background
+                background_tasks.add_task(self._process_job_async, job)
+                
+                logger.info(f"Created transcription job: {job.id}")
+                return self._job_to_response(job)
+                
+            except Exception as e:
+                logger.error(f"Failed to create transcription job: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to create transcription job"
+                )
+        
+        @self.app.get("/jobs/{job_id}", response_model=JobResponse)
+        async def get_job_status(job_id: str):
+            """
+            Consulta status de um job
+            """
+            
+            job = await self.job_storage.get_job(job_id)
+            
+            if not job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Job not found"
+                )
+            
+            return self._job_to_response(job)
+        
+        @self.app.delete("/jobs/{job_id}")
+        async def cancel_job(job_id: str):
+            """
+            Cancela um job
+            """
+            
+            job = await self.job_storage.get_job(job_id)
+            
+            if not job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Job not found"
+                )
+            
+            if job.is_completed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Job already completed"
+                )
+            
+            # Marca como cancelado
+            job.mark_as_cancelled()
+            await self.job_storage.save_job(job)
+            
+            # Limpa arquivos
+            await self.processor.cleanup_job_files(job)
+            
+            return {"message": "Job cancelled successfully"}
+        
+        @self.app.get("/jobs/{job_id}/download")
+        async def download_result(job_id: str):
+            """
+            Download do arquivo de resultado
+            """
+            
+            job = await self.job_storage.get_job(job_id)
+            
+            if not job:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Job not found"
+                )
+            
+            if not job.is_completed or not job.output_file:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Job not completed or output file not available"
+                )
+            
+            if not Path(job.output_file).exists():
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Output file not found"
+                )
+            
+            return FileResponse(
+                path=job.output_file,
+                filename=f"transcription_{job_id}.{job.output_format}",
+                media_type="application/octet-stream"
+            )
+        
+        @self.app.get("/jobs", response_model=List[JobResponse])
+        async def list_jobs(
+            status_filter: Optional[str] = None,
+            limit: int = 50,
+            offset: int = 0
+        ):
+            """
+            Lista jobs com filtros opcionais
+            """
+            
+            jobs = await self.job_storage.list_jobs(
+                status=status_filter,
+                limit=limit,
+                offset=offset
+            )
+            
+            return [self._job_to_response(job) for job in jobs]
+        
+        @self.app.get("/stats", response_model=TranscriptionStats)
+        async def get_stats():
+            """
+            Estatísticas do serviço
+            """
+            
+            return await self.job_storage.get_stats()
+        
+        @self.app.get("/system/info")
+        async def get_system_info():
+            """
+            Informações do sistema
+            """
+            
+            return {
+                "service": "audio-transcriber",
+                "version": "2.0.0",
+                "processing_stats": await self.processor.get_processing_stats(),
+                "resource_usage": await self.resource_monitor.get_current_usage(),
+                "system_health": await self.observability.health_checker.check_all()
+            }
+    
+    def _setup_exception_handlers(self):
+        """Configura tratamento de exceções"""
+        
+        @self.app.exception_handler(ValidationError)
+        async def validation_exception_handler(request, exc):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={"detail": str(exc)}
+            )
+        
+        @self.app.exception_handler(TranscriptionError)
+        async def transcription_exception_handler(request, exc):
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"detail": f"Transcription error: {str(exc)}"}
+            )
+        
+        @self.app.exception_handler(ResourceError)
+        async def resource_exception_handler(request, exc):
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"detail": f"Resource error: {str(exc)}"}
+            )
+    
+    async def _save_upload_file(self, file: UploadFile, upload_dir: Path) -> Path:
+        """Salva arquivo de upload"""
+        
+        # Gera nome único
+        import uuid
+        unique_name = f"{uuid.uuid4()}_{file.filename}"
+        file_path = upload_dir / unique_name
+        
+        # Escreve arquivo
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        return file_path
+    
+    def _job_to_response(self, job: Job) -> JobResponse:
+        """Converte Job para JobResponse"""
+        
+        return JobResponse(
+            job_id=job.id,
+            status=job.status,
+            message=self._get_status_message(job),
+            created_at=job.created_at,
+            expires_at=job.expires_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            output_file=f"/jobs/{job.id}/download" if job.output_file else None,
+            transcription_text=job.transcription_text,
+            processing_options={
+                "language": job.language,
+                "output_format": job.output_format,
+                "detected_language": job.detected_language,
+                "confidence_score": job.confidence_score,
+                "audio_duration": job.audio_duration,
+                "processing_time": job.processing_time,
+                "real_time_factor": job.real_time_factor
+            }
+        )
+    
+    def _get_status_message(self, job: Job) -> str:
+        """Gera mensagem de status"""
+        
+        if job.status == JobStatus.QUEUED:
+            return "Job is queued for processing"
+        elif job.status == JobStatus.PROCESSING:
+            return f"Processing... {job.progress:.1f}% complete"
+        elif job.status == JobStatus.COMPLETED:
+            return "Transcription completed successfully"
+        elif job.status == JobStatus.FAILED:
+            return f"Job failed: {job.error_message}"
+        elif job.status == JobStatus.CANCELLED:
+            return "Job was cancelled"
+        
+        return "Unknown status"
+    
+    async def _process_job_async(self, job: Job):
+        """Processa job em background"""
+        
+        try:
+            logger.info(f"Starting background processing for job: {job.id}")
+            
+            # Processa transcrição
+            result = await self.processor.process_transcription(job)
+            
+            # Atualiza job com resultado
+            await self.job_storage.save_job(job)
+            
+            if result.success:
+                logger.info(f"Job {job.id} completed successfully")
             else:
-                raise
-
-# Instância da aplicação FastAPI
-app = CustomFastAPI(
-    title="Audio Transcriber Service",
-    description="Microserviço para transcrição de áudio com Celery + Redis",
-    version="1.0.0"
-)
-
-# Redis como store compartilhado
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-job_store = RedisJobStore(redis_url=redis_url)
-UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
-UPLOAD_DIR.mkdir(exist_ok=True)
-PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", "./processed"))
-PROCESSED_DIR.mkdir(exist_ok=True)
-processor = TranscriptionProcessor(
-    output_dir=os.getenv("WHISPER_OUTPUT_DIR", "./transcriptions"),
-    model_dir=os.getenv("WHISPER_MODEL_DIR", "./models")
-)
-
-# Injeta job_store no processor
-processor.job_store = job_store
-
-# Endpoints de healthcheck
-@app.get("/health", tags=["monitoring"])
-async def health():
-    """Healthcheck básico"""
-    return JSONResponse(content={"status": "ok"})
-
-@app.get("/ready", tags=["monitoring"])
-async def ready():
-    """Readiness check: verifica conexão Redis"""
-    try:
-        job_store.redis.ping()
-        return JSONResponse(content={"status": "ready"})
-    except Exception as e:  # pylint: disable=broad-except
-        logger.error(f"Readiness check falhou: {e}")  # pylint: disable=logging-fstring-interpolation
-        return JSONResponse(content={"status": "not ready", "error": str(e)}, status_code=503)
+                logger.error(f"Job {job.id} failed: {result.error}")
+                
+        except Exception as e:
+            logger.error(f"Background processing failed for job {job.id}: {e}")
+            
+            # Marca job como falhado
+            job.mark_as_failed(str(e))
+            await self.job_storage.save_job(job)
 
 
-def submit_celery_task(job: Job):
-    """Submete job para o Celery"""
-    # Serializa job para dict
-    job_dict = job.model_dump()
+# Instância global da aplicação
+transcription_app = TranscriptionApp()
+app = transcription_app.app
+
+
+def run_server():
+    """Executa o servidor"""
     
-    # Envia para fila do Celery
-    task = transcribe_audio_task.apply_async(
-        args=[job_dict],
-        task_id=job.id
+    settings = get_settings()
+    
+    # Configuração do servidor
+    config = uvicorn.Config(
+        app=app,
+        host=settings.server.host,
+        port=settings.server.port,
+        log_config=None,  # Usamos nosso próprio logging
+        access_log=False,  # Desativa log de acesso padrão
+        reload=settings.debug,
+        workers=1 if settings.debug else settings.server.workers
     )
-    return task
-
-@app.on_event("startup")
-async def startup_event():
-    """Inicializa sistema"""
-    await job_store.start_cleanup_task()
-    logger.info("✅ Audio Transcriber Service iniciado")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Para sistema. Aguarda tarefas pendentes."""
-    await job_store.stop_cleanup_task()
-    # Aguarda tasks Celery pendentes
+    
+    server = uvicorn.Server(config)
+    
+    # Setup de signal handlers para shutdown graceful
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, shutting down...")
+        server.should_exit = True
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Executa servidor
     try:
-        from .celery_config import celery_app
-        inspect = celery_app.control.inspect()
-        active = inspect.active() or {}
-        if active:
-            logger.info("Aguardando %d tarefas Celery pendentes...", sum(len(v) for v in active.values()))
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("Erro ao consultar tarefas pendentes Celery no shutdown: %s", exc)
-    logger.info("🛑 Serviço parado")
-
-
-def submit_celery_task(job: Job):
-    """Submete job para o Celery"""
-    job_dict = job.model_dump()
-    task = transcribe_audio_task.apply_async(
-        args=[job_dict],
-        task_id=job.id
-    )
-    return task
-
-
-@app.post("/transcribe", response_model=Job)
-async def create_transcription_job(
-    file: UploadFile = File(...),
-    language: str = "auto",
-    output_format: str = "srt"
-) -> Job:
-    """
-    Cria job de transcrição de áudio
-    - **file**: Arquivo de áudio para transcrever
-    - **language**: Idioma do áudio (pt, en, es, auto)
-    - **output_format**: Formato de saída (srt, vtt, txt)
-    """
-    # Circuit breaker: verifica se Redis está disponível
-    try:
-        job_store.redis.ping()
-    except Exception as exc:
-        logger.error("Circuit breaker: Redis indisponível, rejeitando requisição. Erro: %s", exc)
-        raise HTTPException(status_code=503, detail="Serviço temporariamente indisponível (Redis down)")
-    
-    # Validação reforçada do arquivo
-    allowed_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a'}
-    max_size_mb = 100
-    ext = Path(file.filename).suffix.lower()
-    
-    if ext not in allowed_extensions:
-        logger.warning("Arquivo com extensão não permitida: %s", ext)
-        raise HTTPException(status_code=400, detail=f"Extensão de arquivo não permitida: {ext}")
-    
-    content = await file.read()
-    if len(content) > max_size_mb * 1024 * 1024:
-        logger.warning("Arquivo excede tamanho máximo: %d bytes", len(content))
-        raise HTTPException(status_code=400, detail=f"Arquivo excede tamanho máximo de {max_size_mb}MB")
-    
-    file_path = UPLOAD_DIR / file.filename
-    with open(file_path, "wb") as f:
-        f.write(content)
-    new_job = Job.create_new(
-        input_file=str(file_path),
-        language=language,
-        output_format=output_format
-    )
-    existing_job = job_store.get_job(new_job.id)
-    if existing_job and existing_job.status == JobStatus.COMPLETED:
-        return existing_job
-    job_store.save_job(new_job)
-    submit_celery_task(new_job)
-    return new_job
-
-
-@app.get("/jobs/{job_id}", response_model=Job)
-async def get_job_status(job_id: str) -> Job:
-    """Consulta status de um job"""
-    job = job_store.get_job(job_id)
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
-    
-    if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expirado")
-    
-    return job
-
-
-
-@app.get("/jobs/{job_id}/download")
-async def download_transcription_file(job_id: str):
-    """Download do arquivo de legenda gerado (.srt/.vtt/.txt)"""
-    job = job_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
-    if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expirado")
-    if job.status != JobStatus.COMPLETED:
-        raise HTTPException(
-            status_code=425,
-            detail=f"Transcrição não concluída. Status: {job.status}"
-        )
-    file_path = Path(job.output_file)
-    if not file_path.exists() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Arquivo de transcrição não encontrado")
-    media_types = {
-        "srt": "application/x-subrip",
-        "vtt": "text/vtt",
-        "txt": "text/plain"
-    }
-    fmt = getattr(job, "output_format", "srt")
-    return FileResponse(
-        path=file_path,
-        filename=file_path.name,
-        media_type=media_types.get(fmt, "text/plain")
-    )
-
-@app.get("/jobs/{job_id}/text")
-async def get_transcription_text(job_id: str):
-    """Retorna texto completo da transcrição (sem timestamps)"""
-    job = job_store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
-    if job.status != JobStatus.COMPLETED:
-        raise HTTPException(
-            status_code=425,
-            detail=f"Transcrição não concluída. Status: {job.status}"
-        )
-    return {
-        "job_id": job.id,
-        "text": job.transcription_text,
-        "language": getattr(job, "detected_language", None),
-        "segments_count": getattr(job, "segments_count", None),
-        "duration": getattr(job, "audio_duration", None),
-        "output_format": getattr(job, "output_format", None)
-    }
-
-
-@app.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
-    """Cancela/deleta um job"""
-    job = job_store.get_job(job_id)
-    
-    if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
-    
-    # Remove arquivo processado se existir
-    if job.output_file:
-        file_path = Path(job.output_file)
-        if file_path.exists():
-            file_path.unlink()
-    
-    # Remove arquivo de input se existir
-    if job.input_file:
-        input_path = Path(job.input_file)
-        if input_path.exists():
-            input_path.unlink()
-    
-    # Remove do Redis
-    from redis import Redis
-    redis = Redis.from_url(redis_url, decode_responses=True)
-    redis.delete(f"audio_job:{job_id}")
-    
-    return {"message": "Job deletado"}
-
-
-@app.post("/admin/cleanup")
-async def manual_cleanup():
-    """
-    Força limpeza manual de jobs e arquivos expirados
-    """
-    removed = await job_store.cleanup_expired()
-    return {
-    "message": "Limpeza concluída",
-        "jobs_removed": removed,
-        "timestamp": datetime.now().isoformat()
-    }
-
-
-@app.delete("/admin/cache")
-async def clear_all_cache():
-    """
-    Limpa TODO o cache (jobs + arquivos)
-    ⚠️ CUIDADO: Remove todos os jobs e arquivos processados
-    """
-    from redis import Redis
-    
-    # Limpa todos os jobs do Redis
-    redis = Redis.from_url(redis_url, decode_responses=True)
-    keys = redis.keys("audio_job:*")
-    deleted_keys = 0
-    
-    for key in keys:
-        redis.delete(key)
-        deleted_keys += 1
-    
-    # Remove todos os arquivos processados
-    processed_dir = Path("./processed")
-    deleted_files = 0
-    if processed_dir.exists():
-        for file in processed_dir.iterdir():
-            if file.is_file():
-                file.unlink()
-                deleted_files += 1
-    
-    # Remove todos os arquivos de upload
-    upload_dir = Path("./uploads")
-    deleted_uploads = 0
-    if upload_dir.exists():
-        for file in upload_dir.iterdir():
-            if file.is_file():
-                file.unlink()
-                deleted_uploads += 1
-    
-    return {
-        "message": "Cache completamente limpo",
-        "redis_keys_deleted": deleted_keys,
-        "processed_files_deleted": deleted_files,
-        "upload_files_deleted": deleted_uploads,
-        "timestamp": datetime.now().isoformat()
-    }
-
-
-@app.get("/jobs", response_model=List[Job])
-async def list_jobs(limit: int = 20) -> List[Job]:
-    """Lista jobs recentes"""
-    return job_store.list_jobs(limit)
-
-
-@app.get("/health")
-async def health_check():
-    """
-    Health check avançado com Celery
-    """
-    from .celery_config import celery_app
-    
-    # Verifica Celery
-    celery_healthy = False
-    workers_active = 0
-    
-    try:
-        inspect = celery_app.control.inspect()
-        active_workers = inspect.active()
-        celery_healthy = active_workers is not None
-        workers_active = len(active_workers) if active_workers else 0
-    except (RuntimeError, ValueError, OSError):
-        celery_healthy = False
-    
-    # Verifica Redis
-    redis_healthy = False
-    try:
-        from redis import Redis
-        redis = Redis.from_url(redis_url, decode_responses=True)
-        redis.ping()
-        redis_healthy = True
-    except (RuntimeError, ValueError, OSError):
-        redis_healthy = False
-    
-    overall_status = "healthy" if (celery_healthy and redis_healthy) else "degraded"
-    
-    return {
-        "status": overall_status,
-        "service": "audio-normalization-service",
-        "version": "2.0.0",
-        "celery": {
-            "healthy": celery_healthy,
-            "workers_active": workers_active,
-            "broker": "redis"
-        },
-        "redis": {
-            "healthy": redis_healthy,
-            "connection": "✅ Ativo" if redis_healthy else "❌ Problema"
-        },
-        "details": {
-            "celery_workers": "✅ Ativo" if celery_healthy else "❌ Problema",
-            "redis_broker": "✅ Ativo" if celery_healthy else "❌ Problema",
-            "redis_store": "✅ Ativo" if redis_healthy else "❌ Problema",
-            "job_store": "✅ Ativo",
-            "cache_cleanup": "✅ Ativo"
-        }
-    }
-
-
-@app.get("/admin/stats")
-async def get_stats():
-    """Estatísticas do sistema"""
-    stats = job_store.get_stats()
-    
-    # Adiciona info de arquivos processados
-    processed_dir = Path("./processed")
-    if processed_dir.exists():
-        files = list(processed_dir.iterdir())
-        total_size = sum(f.stat().st_size for f in files if f.is_file())
+        logger.info(f"Starting server on {settings.server.host}:{settings.server.port}")
+        server.run()
         
-        stats["processed_files"] = {
-            "count": len(files),
-            "total_size_mb": round(total_size / (1024 * 1024), 2)
-        }
-    
-    # Adiciona info de uploads
-    upload_dir = Path("./uploads")
-    if upload_dir.exists():
-        files = list(upload_dir.iterdir())
-        total_size = sum(f.stat().st_size for f in files if f.is_file())
-        
-        stats["upload_files"] = {
-            "count": len(files),
-            "total_size_mb": round(total_size / (1024 * 1024), 2)
-        }
-    
-    # Estatísticas do Celery
-    try:
-        from .celery_config import celery_app
-        inspect = celery_app.control.inspect()
-        
-        active_tasks = inspect.active() or {}
-        stats["celery"] = {
-            "active_workers": len(active_tasks),
-            "active_tasks": sum(len(tasks) for tasks in active_tasks.values()),
-            "broker": "redis",
-            "backend": "redis"
-        }
-    except (RuntimeError, ValueError, OSError) as e:
-        logger.error("Erro inesperado ao obter estatísticas do Celery: %s", e)
-        stats["celery"] = {
-            "error": str(e),
-            "status": "unavailable"
-        }
-    
-    return stats
+    except KeyboardInterrupt:
+        logger.info("Server stopped by user")
+    except Exception as e:
+        logger.error(f"Server error: {e}")
+        sys.exit(1)
 
 
-@app.get("/admin/queue")
-async def get_queue_stats():
-    """
-    Estatísticas específicas da fila Celery
-    """
-    from .celery_config import celery_app
-    
-    try:
-        inspect = celery_app.control.inspect()
-        
-        # Workers ativos
-        active_workers = inspect.active()
-        registered = inspect.registered()
-        
-        return {
-            "broker": "redis",
-            "active_workers": len(active_workers) if active_workers else 0,
-            "registered_tasks": list(registered.values())[0] if registered else [],
-            "active_tasks": active_workers if active_workers else {},
-            "is_running": active_workers is not None
-        }
-    except (RuntimeError, ValueError, OSError) as e:
-        logger.error("Erro inesperado ao obter estatísticas da fila: %s", e)
-        return {
-            "error": str(e),
-            "is_running": False
-        }
+if __name__ == "__main__":
+    run_server()

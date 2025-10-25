@@ -4,7 +4,7 @@ services:
     build: .
     container_name: audio-transcriber-api
     ports:
-      - "8002:8002"
+      - "${PORT:-8002}:8002"
     volumes:
       # Monta código para hot reload em desenvolvimento
       - ./app:/app/app
@@ -13,18 +13,10 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://192.168.18.110:6379/0
-      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
-      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-30}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - UPLOAD_DIR=/app/uploads
-      - TRANSCRIPTION_DIR=/app/transcriptions
-      - MODELS_DIR=/app/models
-      - TEMP_DIR=/app/temp
-    extra_hosts:
-      - "redis-server:192.168.18.110"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -48,18 +40,10 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://192.168.18.110:6379/0
-      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
-      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-30}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - UPLOAD_DIR=/app/uploads
-      - TRANSCRIPTION_DIR=/app/transcriptions
-      - MODELS_DIR=/app/models
-      - TEMP_DIR=/app/temp
-    extra_hosts:
-      - "redis-server:192.168.18.110"
     restart: unless-stopped
     depends_on:
       - audio-transcriber-service
