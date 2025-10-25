@@ -1,5 +1,6 @@
 import asyncio
 import os
+from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
@@ -185,6 +186,40 @@ async def manual_cleanup():
     """
     removed = await job_store.cleanup_expired()
     return {"message": f"Removidos {removed} jobs expirados"}
+
+
+@app.delete("/admin/cache")
+async def clear_all_cache():
+    """
+    Limpa TODO o cache (jobs + arquivos)
+    ⚠️ CUIDADO: Remove todos os jobs e arquivos em cache
+    """
+    from redis import Redis
+    
+    # Limpa todos os jobs do Redis
+    redis = Redis.from_url(redis_url, decode_responses=True)
+    keys = redis.keys("video_job:*")
+    deleted_keys = 0
+    
+    for key in keys:
+        redis.delete(key)
+        deleted_keys += 1
+    
+    # Remove todos os arquivos do cache
+    cache_dir = Path("./cache")
+    deleted_files = 0
+    if cache_dir.exists():
+        for file in cache_dir.iterdir():
+            if file.is_file():
+                file.unlink()
+                deleted_files += 1
+    
+    return {
+        "message": "Cache completamente limpo",
+        "redis_keys_deleted": deleted_keys,
+        "cache_files_deleted": deleted_files,
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 @app.get("/admin/stats")

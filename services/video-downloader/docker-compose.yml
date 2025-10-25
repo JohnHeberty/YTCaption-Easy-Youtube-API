@@ -1,54 +1,65 @@
 services:
-
-  video-download-service:
+  video-downloader-service:
     build: .
-    container_name: video-download-api
+    container_name: video-downloader-api
     ports:
       - "8000:8000"
     volumes:
-      # Monta código fonte para hot reload (desenvolvimento)
+      # Monta código fonte para hot reload em desenvolvimento
       - ./app:/app/app
       - ./cache:/app/cache
+      - ./logs:/app/logs
       - ./user-agents.txt:/app/user-agents.txt
+      - ./user-agents-clean.txt:/app/user-agents-clean.txt
+      - ./user-agents-original.txt:/app/user-agents-original.txt
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://redis:6379/0
-      - UA_QUARANTINE_HOURS=48
-      - UA_MAX_ERRORS=3
-      - CACHE_TTL_HOURS=24
-      - CLEANUP_INTERVAL_MINUTES=30
-    depends_on:
-      redis:
-        condition: service_healthy
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - UA_QUARANTINE_HOURS=${UA_QUARANTINE_HOURS:-48}
+      - UA_MAX_ERRORS=${UA_MAX_ERRORS:-3}
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
+      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CACHE_DIR=/app/cache
+    extra_hosts:
+      - "redis-server:192.168.18.110"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 60s
     labels:
-      - "com.example.service=video-download"
+      - "com.example.service=video-downloader"
+      - "com.example.version=1.0.0"
 
   celery-worker:
     build: .
-    container_name: video-download-celery
-    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo
+    container_name: video-downloader-celery
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
     volumes:
-      # Monta código fonte para hot reload (desenvolvimento)
+      # Monta código fonte para hot reload em desenvolvimento
       - ./app:/app/app
       - ./cache:/app/cache
+      - ./logs:/app/logs
       - ./user-agents.txt:/app/user-agents.txt
+      - ./user-agents-clean.txt:/app/user-agents-clean.txt
+      - ./user-agents-original.txt:/app/user-agents-original.txt
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://redis:6379/0
-      - UA_QUARANTINE_HOURS=48
-      - UA_MAX_ERRORS=3
-      - CACHE_TTL_HOURS=24
-      - CLEANUP_INTERVAL_MINUTES=30
-    depends_on:
-      redis:
-        condition: service_healthy
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - UA_QUARANTINE_HOURS=${UA_QUARANTINE_HOURS:-48}
+      - UA_MAX_ERRORS=${UA_MAX_ERRORS:-3}
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
+      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CACHE_DIR=/app/cache
+    extra_hosts:
+      - "redis-server:192.168.18.110"
     restart: unless-stopped
-
-volumes:
-  redis_data:
+    depends_on:
+      - video-downloader-service
+    labels:
+      - "com.example.service=video-downloader-worker"
+      - "com.example.version=1.0.0"

@@ -38,10 +38,6 @@ app = FastAPI(
 # Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 job_store = RedisJobStore(redis_url=redis_url)
-processor = AudioProcessor()
-
-# Injeta job_store no processor
-processor.job_store = job_store
 
 # Diretório para uploads
 UPLOAD_DIR = Path(os.getenv('UPLOAD_DIR', './uploads'))
@@ -52,6 +48,9 @@ processor = AudioProcessor(
     output_dir=os.getenv('OUTPUT_DIR', './processed'),
     temp_dir=os.getenv('TEMP_DIR', './temp')
 )
+
+# Injeta job_store no processor
+processor.job_store = job_store
 
 # Endpoints administrativos e de monitoramento
 @app.post("/backup", tags=["admin"])
@@ -77,48 +76,6 @@ async def celery_metrics():
     except Exception as exc:
         logger.error("Erro ao consultar métricas Celery: %s", exc)
         return {"error": str(exc)}
-
-
-import os
-import logging
-from pathlib import Path
-from typing import List
-from datetime import datetime
-from redis import Redis
-
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse
-
-from .models import Job, JobStatus
-from .processor import AudioProcessor
-from .redis_store import RedisJobStore
-from .celery_tasks import normalize_audio_task
-
-# Configuração de logging para arquivo
-LOG_DIR = Path(os.getenv('LOG_DIR', './logs'))
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / 'audio_normalization.log'
-logging.basicConfig(
-    level=os.getenv('LOG_LEVEL', 'INFO').upper(),
-    format='%(asctime)s %(levelname)s %(name)s %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
-# Instâncias globais
-app = FastAPI(
-    title="Audio Normalization Service",
-    description="Microserviço para normalização de áudio com Celery + Redis",
-    version="1.0.0"
-)
-
-# Redis como store compartilhado
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-job_store = RedisJobStore(redis_url=redis_url)
-processor = AudioProcessor()
 
 # Injeta job_store no processor
 processor.job_store = job_store

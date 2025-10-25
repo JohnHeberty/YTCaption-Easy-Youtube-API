@@ -1,65 +1,64 @@
 
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: audio-normalization-redis
-    ports:
-      - "6380:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
   audio-normalization-service:
     build: .
     container_name: audio-normalization-api
     ports:
       - "8001:8001"
     volumes:
-      # Monta código para hot reload
+      # Monta código para hot reload em desenvolvimento
       - ./app:/app/app
       - ./uploads:/app/uploads
       - ./processed:/app/processed
       - ./temp:/app/temp
+      - ./logs:/app/logs
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_TTL_HOURS=24
-      - CLEANUP_INTERVAL_MINUTES=30
-    depends_on:
-      redis:
-        condition: service_healthy
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
+      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/processed
+      - TEMP_DIR=/app/temp
+    extra_hosts:
+      - "redis-server:192.168.18.110"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 60s
+    labels:
+      - "com.example.service=audio-normalization"
+      - "com.example.version=1.0.0"
 
   celery-worker:
     build: .
     container_name: audio-normalization-celery
-    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
     volumes:
-      # Monta código para hot reload
+      # Monta código para hot reload em desenvolvimento
       - ./app:/app/app
       - ./uploads:/app/uploads
       - ./processed:/app/processed
       - ./temp:/app/temp
+      - ./logs:/app/logs
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://redis:6379/0
-      - CACHE_TTL_HOURS=24
-      - CLEANUP_INTERVAL_MINUTES=30
-    depends_on:
-      redis:
-        condition: service_healthy
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS:-24}
+      - CLEANUP_INTERVAL_MINUTES=${CLEANUP_INTERVAL_MINUTES:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/processed
+      - TEMP_DIR=/app/temp
+    extra_hosts:
+      - "redis-server:192.168.18.110"
     restart: unless-stopped
-
-volumes:
-  redis_data:
+    depends_on:
+      - audio-normalization-service
+    labels:
+      - "com.example.service=audio-normalization-worker"
+      - "com.example.version=1.0.0"

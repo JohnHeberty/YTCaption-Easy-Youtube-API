@@ -39,13 +39,12 @@ class CustomFastAPI(FastAPI):
             else:
                 raise
 
-# ...existing code...
+# Instância da aplicação FastAPI
 app = CustomFastAPI(
     title="Audio Transcriber Service",
     description="Microserviço para transcrição de áudio com Celery + Redis",
     version="1.0.0"
 )
-add_celery_metrics_endpoint(app)
 
 # Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
@@ -78,14 +77,18 @@ async def ready():
         logger.error(f"Readiness check falhou: {e}")  # pylint: disable=logging-fstring-interpolation
         return JSONResponse(content={"status": "not ready", "error": str(e)}, status_code=503)
 
-import os
-import logging
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse
-from pathlib import Path
-from typing import List
 
-# ...existing code...
+def submit_celery_task(job: Job):
+    """Submete job para o Celery"""
+    # Serializa job para dict
+    job_dict = job.model_dump()
+    
+    # Envia para fila do Celery
+    task = transcribe_audio_task.apply_async(
+        args=[job_dict],
+        task_id=job.id
+    )
+    return task
 
 @app.on_event("startup")
 async def startup_event():
@@ -120,7 +123,6 @@ def submit_celery_task(job: Job):
     return task
 
 
-
 @app.post("/transcribe", response_model=Job)
 async def create_transcription_job(
     file: UploadFile = File(...),
@@ -136,23 +138,27 @@ async def create_transcription_job(
     # Circuit breaker: verifica se Redis está disponível
     try:
         job_store.redis.ping()
-    except Exception as exc:  # pylint: disable=broad-except
+    except Exception as exc:
         logger.error("Circuit breaker: Redis indisponível, rejeitando requisição. Erro: %s", exc)
-    raise HTTPException(status_code=503, detail="Serviço temporariamente indisponível (Redis down)")  # pylint: disable=raise-missing-from,line-too-long
-        # Validação reforçada do arquivo
-    allowed_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a'}  # pylint: disable=unreachable
-        max_size_mb = 100
-        ext = Path(file.filename).suffix.lower()
-        if ext not in allowed_extensions:
-            logger.warning("Arquivo com extensão não permitida: %s", ext)
-            raise HTTPException(status_code=400, detail=f"Extensão de arquivo não permitida: {ext}")  # pylint: disable=raise-missing-from,line-too-long
-        content = await file.read()
-        if len(content) > max_size_mb * 1024 * 1024:
-            logger.warning("Arquivo excede tamanho máximo: %d bytes", len(content))
-            raise HTTPException(status_code=400, detail=f"Arquivo excede tamanho máximo de {max_size_mb}MB")  # pylint: disable=raise-missing-from,line-too-long
-        file_path = UPLOAD_DIR / file.filename
-        with open(file_path, "wb") as f:
-            f.write(content)
+        raise HTTPException(status_code=503, detail="Serviço temporariamente indisponível (Redis down)")
+    
+    # Validação reforçada do arquivo
+    allowed_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a'}
+    max_size_mb = 100
+    ext = Path(file.filename).suffix.lower()
+    
+    if ext not in allowed_extensions:
+        logger.warning("Arquivo com extensão não permitida: %s", ext)
+        raise HTTPException(status_code=400, detail=f"Extensão de arquivo não permitida: {ext}")
+    
+    content = await file.read()
+    if len(content) > max_size_mb * 1024 * 1024:
+        logger.warning("Arquivo excede tamanho máximo: %d bytes", len(content))
+        raise HTTPException(status_code=400, detail=f"Arquivo excede tamanho máximo de {max_size_mb}MB")
+    
+    file_path = UPLOAD_DIR / file.filename
+    with open(file_path, "wb") as f:
+        f.write(content)
     new_job = Job.create_new(
         input_file=str(file_path),
         language=language,

@@ -1,0 +1,187 @@
+version: '3.8'
+
+services:
+  # Audio Normalization Service
+  audio-normalization:
+    build: ./services/audio-normalization
+    container_name: ytcaption-audio-normalization
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./services/audio-normalization/uploads:/app/uploads
+      - ./services/audio-normalization/processed:/app/processed
+      - ./services/audio-normalization/temp:/app/temp
+      - ./services/audio-normalization/logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/processed
+      - TEMP_DIR=/app/temp
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ytcaption-network
+
+  audio-normalization-celery:
+    build: ./services/audio-normalization
+    container_name: ytcaption-audio-normalization-celery
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
+    volumes:
+      - ./services/audio-normalization/uploads:/app/uploads
+      - ./services/audio-normalization/processed:/app/processed
+      - ./services/audio-normalization/temp:/app/temp
+      - ./services/audio-normalization/logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/processed
+      - TEMP_DIR=/app/temp
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    depends_on:
+      - audio-normalization
+    networks:
+      - ytcaption-network
+
+  # Audio Transcriber Service
+  audio-transcriber:
+    build: ./services/audio-transcriber
+    container_name: ytcaption-audio-transcriber
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services/audio-transcriber/uploads:/app/uploads
+      - ./services/audio-transcriber/transcriptions:/app/transcriptions
+      - ./services/audio-transcriber/models:/app/models
+      - ./services/audio-transcriber/temp:/app/temp
+      - ./services/audio-transcriber/logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - UPLOAD_DIR=/app/uploads
+      - TRANSCRIPTION_DIR=/app/transcriptions
+      - MODELS_DIR=/app/models
+      - TEMP_DIR=/app/temp
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ytcaption-network
+
+  audio-transcriber-celery:
+    build: ./services/audio-transcriber
+    container_name: ytcaption-audio-transcriber-celery
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
+    volumes:
+      - ./services/audio-transcriber/uploads:/app/uploads
+      - ./services/audio-transcriber/transcriptions:/app/transcriptions
+      - ./services/audio-transcriber/models:/app/models
+      - ./services/audio-transcriber/temp:/app/temp
+      - ./services/audio-transcriber/logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - UPLOAD_DIR=/app/uploads
+      - TRANSCRIPTION_DIR=/app/transcriptions
+      - MODELS_DIR=/app/models
+      - TEMP_DIR=/app/temp
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    depends_on:
+      - audio-transcriber
+    networks:
+      - ytcaption-network
+
+  # Video Downloader Service
+  video-downloader:
+    build: ./services/video-downloader
+    container_name: ytcaption-video-downloader
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./services/video-downloader/cache:/app/cache
+      - ./services/video-downloader/logs:/app/logs
+      - ./services/video-downloader/user-agents.txt:/app/user-agents.txt
+      - ./services/video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
+      - ./services/video-downloader/user-agents-original.txt:/app/user-agents-original.txt
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - UA_QUARANTINE_HOURS=48
+      - UA_MAX_ERRORS=3
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - CACHE_DIR=/app/cache
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ytcaption-network
+
+  video-downloader-celery:
+    build: ./services/video-downloader
+    container_name: ytcaption-video-downloader-celery
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
+    volumes:
+      - ./services/video-downloader/cache:/app/cache
+      - ./services/video-downloader/logs:/app/logs
+      - ./services/video-downloader/user-agents.txt:/app/user-agents.txt
+      - ./services/video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
+      - ./services/video-downloader/user-agents-original.txt:/app/user-agents-original.txt
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - UA_QUARANTINE_HOURS=48
+      - UA_MAX_ERRORS=3
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - CACHE_DIR=/app/cache
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    depends_on:
+      - video-downloader
+    networks:
+      - ytcaption-network
+
+networks:
+  ytcaption-network:
+    driver: bridge
+    name: ytcaption-network
