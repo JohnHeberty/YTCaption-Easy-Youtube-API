@@ -106,7 +106,7 @@ async def cleanup_services():
 
 
 # Criação da aplicação FastAPI
-app = FastAPI(
+app_normalization = FastAPI(
     title=settings.app_name,
     description="Microserviço resiliente para normalização de áudio com observabilidade completa",
     version=settings.version,
@@ -117,12 +117,12 @@ app = FastAPI(
 
 # Middlewares de segurança
 if not settings.debug:
-    app.add_middleware(
+    app_normalization.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["localhost", "127.0.0.1", settings.host]
     )
 
-app.add_middleware(
+app_normalization.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.debug else ["http://localhost", "https://localhost"],
     allow_credentials=True,
@@ -161,7 +161,7 @@ def get_resource_monitor() -> ResourceMonitor:
 
 
 # Endpoints de saúde e métricas
-@app.get("/health", tags=["Health"])
+@app_normalization.get("/health", tags=["Health"])
 async def health_check():
     """Verifica saúde do serviço"""
     try:
@@ -179,7 +179,7 @@ async def health_check():
         raise HTTPException(status_code=503, detail="Health check failed")
 
 
-@app.get("/metrics", tags=["Monitoring"])
+@app_normalization.get("/metrics", tags=["Monitoring"])
 async def get_metrics():
     """Expõe métricas Prometheus"""
     if observability_manager:
@@ -187,7 +187,7 @@ async def get_metrics():
     return {"message": "Metrics not available"}
 
 
-@app.get("/readiness", tags=["Health"])
+@app_normalization.get("/readiness", tags=["Health"])
 async def readiness_check(store: RedisJobStore = Depends(get_job_store)):
     """Verifica se o serviço está pronto para receber requests"""
     try:
@@ -205,7 +205,7 @@ async def readiness_check(store: RedisJobStore = Depends(get_job_store)):
 
 
 # Endpoints principais de processamento
-@app.post("/upload", response_model=JobResponse, tags=["Processing"])
+@app_normalization.post("/upload", response_model=JobResponse, tags=["Processing"])
 @trace_function("upload_audio_file")
 async def upload_audio(
     request: Request,
@@ -292,7 +292,7 @@ async def upload_audio(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/process", response_model=JobResponse, tags=["Processing"])
+@app_normalization.post("/process", response_model=JobResponse, tags=["Processing"])
 @trace_function("process_audio_job")
 async def process_audio_with_options(
     request: ProcessingOptionsRequest,
@@ -332,7 +332,7 @@ async def process_audio_with_options(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+@app_normalization.get("/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 @trace_function("get_job_status")
 async def get_job_status(
     job_id: str,
@@ -371,7 +371,7 @@ async def get_job_status(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/jobs", tags=["Jobs"])
+@app_normalization.get("/jobs", tags=["Jobs"])
 @trace_function("list_jobs")
 async def list_jobs(
     status: Optional[JobStatus] = None,
@@ -400,7 +400,7 @@ async def list_jobs(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/download/{job_id}", tags=["Files"])
+@app_normalization.get("/download/{job_id}", tags=["Files"])
 @trace_function("download_processed_file")
 async def download_processed_file(
     job_id: str,
@@ -434,7 +434,7 @@ async def download_processed_file(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.delete("/jobs/{job_id}", tags=["Jobs"])
+@app_normalization.delete("/jobs/{job_id}", tags=["Jobs"])
 @trace_function("delete_job")
 async def delete_job(
     job_id: str,
@@ -512,7 +512,7 @@ async def process_audio_background(job_id: str, input_file: str):
 
 
 # Handler global de exceções
-@app.exception_handler(ValidationError)
+@app_normalization.exception_handler(ValidationError)
 async def validation_exception_handler(request: Request, exc: ValidationError):
     """Handler para erros de validação"""
     logger.warning(f"Validation error: {exc}")
@@ -522,7 +522,7 @@ async def validation_exception_handler(request: Request, exc: ValidationError):
     )
 
 
-@app.exception_handler(SecurityError)
+@app_normalization.exception_handler(SecurityError)
 async def security_exception_handler(request: Request, exc: SecurityError):
     """Handler para erros de segurança"""
     logger.warning(f"Security error: {exc}")
@@ -532,7 +532,7 @@ async def security_exception_handler(request: Request, exc: SecurityError):
     )
 
 
-@app.exception_handler(ResourceError)
+@app_normalization.exception_handler(ResourceError)
 async def resource_exception_handler(request: Request, exc: ResourceError):
     """Handler para erros de recurso"""
     logger.error(f"Resource error: {exc}")
@@ -542,7 +542,7 @@ async def resource_exception_handler(request: Request, exc: ResourceError):
     )
 
 
-@app.exception_handler(ProcessingError)
+@app_normalization.exception_handler(ProcessingError)
 async def processing_exception_handler(request: Request, exc: ProcessingError):
     """Handler para erros de processamento"""
     logger.error(f"Processing error: {exc}")
@@ -554,4 +554,4 @@ async def processing_exception_handler(request: Request, exc: ProcessingError):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=settings.host, port=settings.port)
+    uvicorn.run(app_normalization, host=settings.host, port=settings.port)
