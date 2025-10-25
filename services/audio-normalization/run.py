@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.main import app
 from app.config import get_settings
-from app.logging_config import get_logger
+from app.logging_config import create_logger
 
-logger = get_logger(__name__)
+logger = create_logger(__name__)
 
 
 def main():
