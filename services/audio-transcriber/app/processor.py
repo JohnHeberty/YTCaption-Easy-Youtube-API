@@ -1,4 +1,4 @@
-
+    
 import logging
 from pathlib import Path
 from .models import Job, JobStatus
@@ -7,16 +7,20 @@ logger = logging.getLogger(__name__)
 
 class TranscriptionProcessor:
     """Processador de transcrição usando Whisper base"""
-    def __init__(self, output_dir: str = "./transcriptions", model_dir: str = "./models"):
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir: str = None, model_dir: str = None):
+        import os
+        self.output_dir = Path(output_dir or os.getenv("WHISPER_OUTPUT_DIR", "./transcriptions"))
         self.output_dir.mkdir(exist_ok=True)
-        self.model_dir = Path(model_dir)
+        self.model_dir = Path(model_dir or os.getenv("WHISPER_MODEL_DIR", "./models"))
         self.model_dir.mkdir(exist_ok=True)
+        self.model_type = os.getenv("WHISPER_MODEL_TYPE", "base")
+        self.device = os.getenv("WHISPER_DEVICE", "cpu")
+        self.compute_type = os.getenv("WHISPER_COMPUTE_TYPE", "default")
         self.job_store = None
         self._model = None
 
     def get_whisper_model(self):
-        """Lazy load do Whisper base, salva modelo em ./models"""
+        """Lazy load do Whisper, salva modelo em model_dir"""
         if self._model is None:
             try:
                 from faster_whisper import WhisperModel
@@ -24,11 +28,12 @@ class TranscriptionProcessor:
                 logging.error("Erro ao importar 'faster_whisper': %s", e)
                 raise
             self._model = WhisperModel(
-                "base",
-                device="cpu",
-                compute_type="default"
+                self.model_type,
+                device=self.device,
+                compute_type=self.compute_type,
+                cache_directory=str(self.model_dir)
             )
-            logger.info("✅ Whisper modelo 'base' carregado em ./models")
+            logger.info(f"✅ Whisper modelo '{self.model_type}' carregado e salvo em {str(self.model_dir)} (device={self.device}, compute_type={self.compute_type})")  # pylint: disable=line-too-long
         return self._model
     def _update_progress(self, job: Job, progress: float, message: str = ""):
         job.progress = min(progress, 99.9)

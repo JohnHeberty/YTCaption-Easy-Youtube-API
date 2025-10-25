@@ -4,31 +4,63 @@ import os
 from typing import Optional
 from datetime import datetime
 from redis import Redis
-
+    
 from .models import Job
 import logging
-
+        
 logger = logging.getLogger(__name__)
 
 
 class RedisJobStore:
+    def backup_jobs(self, backup_dir: str = './backup') -> int:
+        """
+        Realiza backup dos jobs e arquivos processados.
+        Args:
+            backup_dir (str): Diretório de backup.
+        Returns:
+            int: Quantidade de jobs salvos.
+        """
+        from pathlib import Path
+        import shutil
+        backup_path = Path(backup_dir)
+        backup_path.mkdir(exist_ok=True)
+        count = 0
+        for key in self.redis.keys("audio_job:*"):
+            data = self.redis.get(key)
+            if not data:
+                continue
+            job = self._deserialize_job(data)
+            # Salva job em JSON
+            job_file = backup_path / f"{job.id}.json"
+            with open(job_file, 'w', encoding='utf-8') as f:
+                f.write(data)
+            # Copia arquivo processado se existir
+            if getattr(job, 'output_file', None):
+                src = Path(job.output_file)
+                if src.exists():
+                    shutil.copy2(src, backup_path / src.name)
+            count += 1
+        logger.info(f"Backup realizado: {count} jobs salvos em {backup_path}")
+        return count
     """Store compartilhado de jobs usando Redis"""
     
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = None):
         from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
-        self.redis_url = redis_url
+        self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
         self._cleanup_task: Optional[asyncio.Task] = None
-        
-        # Lê configurações de cache das variáveis de ambiente
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CLEANUP_INTERVAL_MINUTES', '30'))
-        
-        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+        min_memory_bytes = int(os.getenv('REDIS_MIN_MEMORY_BYTES', '52428800'))  # 50MB padrão
+        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
         def connect_redis():
             redis = Redis.from_url(self.redis_url, decode_responses=True, socket_timeout=5)
             redis.ping()
+            info = redis.info('memory')
+            used_memory = info.get('used_memory', 0)
+            if used_memory < min_memory_bytes:
+                logger.error("Redis está usando apenas %d bytes, mínimo exigido: %d bytes", used_memory, min_memory_bytes)  # pylint: disable=line-too-long
+                raise ConnectionError(f"Redis precisa de pelo menos {min_memory_bytes} bytes de memória disponível para iniciar.")  # pylint: disable=line-too-long
             return redis
-        
         try:
             self.redis = connect_redis()
             logger.info("✅ Redis conectado: %s", self.redis_url)

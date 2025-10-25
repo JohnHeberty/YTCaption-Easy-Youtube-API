@@ -1,15 +1,15 @@
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Optional
+import os
+import hashlib
 from pydantic import BaseModel
-
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
-
 
 class AudioNormalizationRequest(BaseModel):
     """Request para normalização de áudio"""
@@ -19,7 +19,6 @@ class AudioNormalizationRequest(BaseModel):
     normalize_volume: bool = True  # Normaliza volume
     convert_to_mono: bool = True  # Converte para mono
     apply_highpass_filter: bool = True  # Aplica filtro highpass
-
 
 class Job(BaseModel):
     id: str
@@ -63,8 +62,7 @@ class Job(BaseModel):
         - Job ID = hash_operacoes (ex: abc123def_invm)
         - Se mesmo arquivo + mesmas operações = retorna job existente (cache)
         """
-        import os
-        import hashlib
+    # imports já movidos para o topo
         # Calcula hash SHA256 do arquivo (cache key)
         def _calculate_file_hash(file_path: str, algorithm: str = 'sha256') -> str:
             hash_obj = hashlib.new(algorithm)
@@ -75,7 +73,7 @@ class Job(BaseModel):
 
         file_hash = _calculate_file_hash(input_file)
         # Gera código de operações (i=isolate, n=noise, v=volume, m=mono, h=highpass, s=sample_rate)
-        operations = f"{'i' if isolate_vocals else ''}{'n' if remove_noise else ''}{'v' if normalize_volume else ''}{'m' if convert_to_mono else ''}{'h' if apply_highpass_filter else ''}{'s' if set_sample_rate_16k else ''}"
+    operations = f"{'i' if isolate_vocals else ''}{'n' if remove_noise else ''}{'v' if normalize_volume else ''}{'m' if convert_to_mono else ''}{'h' if apply_highpass_filter else ''}{'s' if set_sample_rate_16k else ''}"  # pylint: disable=line-too-long
         job_id = f"{file_hash}_{operations}" if operations else file_hash
         cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         now = datetime.now()
@@ -105,7 +103,7 @@ class Job(BaseModel):
         Returns:
             Hash hexadecimal (primeiros 12 caracteres)
         """
-        import hashlib
+    # imports já movidos para o topo
         
         hash_obj = hashlib.new(algorithm)
         

@@ -1,49 +1,113 @@
+
 import os
+import logging
 from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List
 from datetime import datetime
-import logging
-logger = logging.getLogger(__name__)
 
 from .models import Job, JobStatus
 from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
 from .celery_tasks import transcribe_audio_task
 
-# Instâncias globais
-app = FastAPI(
+# Configuração de logging para arquivo
+LOG_DIR = Path(os.getenv('LOG_DIR', './logs'))
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / 'audio_transcriber.log'
+logging.basicConfig(
+    level=os.getenv('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+import asyncio
+
+class CustomFastAPI(FastAPI):
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        except asyncio.CancelledError:
+            # Silencia erro de cancelamento no shutdown
+            if scope["type"] == "lifespan":
+                pass
+            else:
+                raise
+
+# ...existing code...
+app = CustomFastAPI(
     title="Audio Transcriber Service",
     description="Microserviço para transcrição de áudio com Celery + Redis",
     version="1.0.0"
 )
+add_celery_metrics_endpoint(app)
 
 # Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 job_store = RedisJobStore(redis_url=redis_url)
-processor = TranscriptionProcessor()
+UPLOAD_DIR = Path(os.getenv("UPLOAD_DIR", "./uploads"))
+UPLOAD_DIR.mkdir(exist_ok=True)
+PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", "./processed"))
+PROCESSED_DIR.mkdir(exist_ok=True)
+processor = TranscriptionProcessor(
+    output_dir=os.getenv("WHISPER_OUTPUT_DIR", "./transcriptions"),
+    model_dir=os.getenv("WHISPER_MODEL_DIR", "./models")
+)
 
 # Injeta job_store no processor
 processor.job_store = job_store
 
-# Diretório para uploads
-UPLOAD_DIR = Path("./uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
+# Endpoints de healthcheck
+@app.get("/health", tags=["monitoring"])
+async def health():
+    """Healthcheck básico"""
+    return JSONResponse(content={"status": "ok"})
 
+@app.get("/ready", tags=["monitoring"])
+async def ready():
+    """Readiness check: verifica conexão Redis"""
+    try:
+        job_store.redis.ping()
+        return JSONResponse(content={"status": "ready"})
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error(f"Readiness check falhou: {e}")  # pylint: disable=logging-fstring-interpolation
+        return JSONResponse(content={"status": "not ready", "error": str(e)}, status_code=503)
+
+import os
+import logging
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse
+from pathlib import Path
+from typing import List
+
+# ...existing code...
 
 @app.on_event("startup")
 async def startup_event():
     """Inicializa sistema"""
     await job_store.start_cleanup_task()
-    print("✅ Audio Transcriber Service iniciado")
+    logger.info("✅ Audio Transcriber Service iniciado")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Para sistema"""
+    """Para sistema. Aguarda tarefas pendentes."""
     await job_store.stop_cleanup_task()
-    print("🛑 Serviço parado")
+    # Aguarda tasks Celery pendentes
+    try:
+        from .celery_config import celery_app
+        inspect = celery_app.control.inspect()
+        active = inspect.active() or {}
+        if active:
+            logger.info("Aguardando %d tarefas Celery pendentes...", sum(len(v) for v in active.values()))
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Erro ao consultar tarefas pendentes Celery no shutdown: %s", exc)
+    logger.info("🛑 Serviço parado")
 
 
 def submit_celery_task(job: Job):
@@ -69,10 +133,26 @@ async def create_transcription_job(
     - **language**: Idioma do áudio (pt, en, es, auto)
     - **output_format**: Formato de saída (srt, vtt, txt)
     """
-    file_path = UPLOAD_DIR / file.filename
-    with open(file_path, "wb") as f:
+    # Circuit breaker: verifica se Redis está disponível
+    try:
+        job_store.redis.ping()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("Circuit breaker: Redis indisponível, rejeitando requisição. Erro: %s", exc)
+    raise HTTPException(status_code=503, detail="Serviço temporariamente indisponível (Redis down)")  # pylint: disable=raise-missing-from,line-too-long
+        # Validação reforçada do arquivo
+    allowed_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a'}  # pylint: disable=unreachable
+        max_size_mb = 100
+        ext = Path(file.filename).suffix.lower()
+        if ext not in allowed_extensions:
+            logger.warning("Arquivo com extensão não permitida: %s", ext)
+            raise HTTPException(status_code=400, detail=f"Extensão de arquivo não permitida: {ext}")  # pylint: disable=raise-missing-from,line-too-long
         content = await file.read()
-        f.write(content)
+        if len(content) > max_size_mb * 1024 * 1024:
+            logger.warning("Arquivo excede tamanho máximo: %d bytes", len(content))
+            raise HTTPException(status_code=400, detail=f"Arquivo excede tamanho máximo de {max_size_mb}MB")  # pylint: disable=raise-missing-from,line-too-long
+        file_path = UPLOAD_DIR / file.filename
+        with open(file_path, "wb") as f:
+            f.write(content)
     new_job = Job.create_new(
         input_file=str(file_path),
         language=language,
@@ -335,11 +415,6 @@ async def get_stats():
             "backend": "redis"
         }
     except (RuntimeError, ValueError, OSError) as e:
-        stats["celery"] = {
-            "error": str(e),
-            "status": "unavailable"
-        }
-    except Exception as e:
         logger.error("Erro inesperado ao obter estatísticas do Celery: %s", e)
         stats["celery"] = {
             "error": str(e),
@@ -371,11 +446,6 @@ async def get_queue_stats():
             "is_running": active_workers is not None
         }
     except (RuntimeError, ValueError, OSError) as e:
-        return {
-            "error": str(e),
-            "is_running": False
-        }
-    except Exception as e:
         logger.error("Erro inesperado ao obter estatísticas da fila: %s", e)
         return {
             "error": str(e),

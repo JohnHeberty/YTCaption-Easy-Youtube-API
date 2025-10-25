@@ -1,17 +1,17 @@
 """
 Sistema inteligente de User-Agents com cache de erro e quarentena
 """
-
+    
 import os
 import random
 import logging
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
 from pathlib import Path
-
+        
 logger = logging.getLogger(__name__)
-
-
+            
+                
 class UserAgentManager:
     """
     Gerenciador inteligente de User-Agents que:
@@ -153,8 +153,8 @@ class UserAgentManager:
     def _load_default_user_agents(self) -> None:
         """Carrega User-Agents padrão como fallback"""
         self.all_user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', # pylint: disable=line-too-long
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36', # pylint: disable=line-too-long
             'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0'

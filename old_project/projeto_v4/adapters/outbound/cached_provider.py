@@ -4,7 +4,7 @@ from projeto_v3.infrastructure.cache import FileCaptionCache
 
 
 class CachedProvider(CaptionProviderPort):
-    def __init__(self, primary: CaptionProviderPort, cache: FileCaptionCache, fallback: CaptionProviderPort | None = None):
+    def __init__(self, primary: CaptionProviderPort, cache: FileCaptionCache, fallback: CaptionProviderPort | None = None):  # pylint: disable=line-too-long
         self.primary = primary
         self.cache = cache
         self.fallback = fallback

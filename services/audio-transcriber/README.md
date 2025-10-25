@@ -1,15 +1,30 @@
-# Audio Normalization Service
+# Audio Transcriber Service - Enterprise Grade
 
-Microserviço para normalização de áudio com Celery + Redis.
+Serviço de transcrição de áudio de alta resiliência usando Whisper AI com arquitetura empresarial completa.
 
-## 🎯 Funcionalidades
+## 🚀 Características Principais
 
-- ✅ **Remoção de ruído** - Remove ruído de fundo usando noisereduce
-- ✅ **Normalização de volume** - Ajusta volume para nível consistente
-- ✅ **Conversão para mono** - Reduz canais de áudio para 1 (economia de espaço)
-- ✅ **Processamento assíncrono** - Celery + Redis para jobs em background
-- ✅ **Cache inteligente por hash** - Evita reprocessamento de arquivos idênticos
-- ✅ **Cache de 24h** - Arquivos processados disponíveis por 24 horas
+### Core Features
+- ✅ **Transcrição AI** - OpenAI Whisper com múltiplos modelos (tiny, base, small, medium, large)
+- ✅ **Múltiplos Formatos** - WAV, MP3, M4A, FLAC, OGG com conversão automática
+- ✅ **Saídas Flexíveis** - SRT, VTT, TXT, JSON com formatação precisa
+- ✅ **Processamento Assíncrono** - Jobs em background com monitoramento em tempo real
+- ✅ **Cache Inteligente** - Hash-based caching (arquivo + configurações)
+- ✅ **Detecção Automática** - Idioma, formato, qualidade de áudio
+
+### Enterprise Features  
+- ✅ **Alta Resiliência** - Circuit breakers, retry automático, failover graceful
+- ✅ **Observabilidade Completa** - Prometheus metrics, OpenTelemetry distributed tracing
+- ✅ **Segurança Avançada** - Validação magic bytes, rate limiting, análise de entropia
+- ✅ **Monitoramento Proativo** - Health checks, resource monitoring, alertas automáticos
+- ✅ **Configuração Hierárquica** - Pydantic settings com validação de tipos
+- ✅ **Logging Estruturado** - JSON logging com correlation IDs e performance metrics
+
+### Performance & Scalability
+- ✅ **Processamento Concorrente** - Multiple job processing com resource management
+- ✅ **GPU Acceleration** - Auto-detecção CUDA com fallback para CPU
+- ✅ **Resource Management** - Monitoramento CPU/GPU/memória com auto-scaling
+- ✅ **Cleanup Automático** - Gestão de arquivos temporários e jobs expirados
 
 ## 🚀 Iniciar Serviços
 
@@ -28,13 +43,15 @@ docker-compose logs -f
 
 | Método | Endpoint | Descrição |
 |--------|----------|-----------|
-| POST | `/normalize` | Upload e processa áudio |
-| GET | `/jobs/{job_id}` | Consulta status do job |
-| GET | `/jobs/{job_id}/download` | Download do áudio processado |
-| DELETE | `/jobs/{job_id}` | Cancela/deleta job |
-| GET | `/jobs` | Lista jobs recentes |
-| GET | `/health` | Health check |
-| GET | `/admin/stats` | Estatísticas do sistema |
+| POST | `/transcribe` | Upload e transcreve áudio |
+| GET | `/jobs/{job_id}` | Consulta status e progresso |
+| GET | `/jobs/{job_id}/download` | Download da transcrição |
+| DELETE | `/jobs/{job_id}` | Cancela job em andamento |
+| GET | `/jobs` | Lista jobs com filtros |
+| GET | `/stats` | Estatísticas de transcrição |
+| GET | `/health` | Health check completo |
+| GET | `/metrics` | Prometheus metrics |
+| GET | `/system/info` | Informações do sistema |
 
 ## 🧪 Testar
 

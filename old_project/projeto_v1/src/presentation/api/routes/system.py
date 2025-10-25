@@ -217,7 +217,7 @@ async def readiness_check(request: Request) -> ReadinessCheckDTO:
             stats = transcription_cache.get_stats()
             checks["transcription_cache"] = {
                 "status": "healthy",
-                "details": f"Size: {stats.get('cache_size', 0)}/{stats.get('max_size', 0)}, Hit rate: {stats.get('hit_rate_percent', 0)}%"
+                "details": f"Size: {stats.get('cache_size', 0)}/{stats.get('max_size', 0)}, Hit rate: {stats.get('hit_rate_percent', 0)}%" # pylint: disable=line-too-long
             }
         else:
             checks["transcription_cache"] = {
@@ -306,7 +306,7 @@ async def readiness_check(request: Request) -> ReadinessCheckDTO:
             stats = file_cleanup_manager.get_stats()
             checks["file_cleanup"] = {
                 "status": "healthy",
-                "details": f"Tracked files: {stats.get('tracked_files', 0)}, Running: {stats.get('periodic_cleanup_running', False)}"
+                "details": f"Tracked files: {stats.get('tracked_files', 0)}, Running: {stats.get('periodic_cleanup_running', False)}" # pylint: disable=line-too-long
             }
         else:
             checks["file_cleanup"] = {

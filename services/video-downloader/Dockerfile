@@ -14,7 +14,6 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Instala dependências Python sem cache
-RUN RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia código da aplicação

@@ -1,58 +1,74 @@
+    
 import os
 import logging
-import numpy as np
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
+
+from datetime import datetime
 from pydub import AudioSegment
-from pydub.effects import normalize as pydub_normalize, compress_dynamic_range
-import noisereduce as nr
-import soundfile as sf
-from scipy import signal
-
-from .models import Job, JobStatus
-
-logger = logging.getLogger(__name__)
-
-# Importa OpenUnmix apenas quando necessário (lazy load)
-_openunmix_model = None
-
-def get_openunmix_model():
-    """Lazy load do OpenUnmix (só carrega quando necessário)"""
-    global _openunmix_model
-    if _openunmix_model is None:
-        import torch
-        import openunmix
-        _openunmix_model = openunmix.umxhq(targets=['vocals', 'accompaniment'])  # Corrigido: precisa de 2 targets
-        _openunmix_model.eval()  # Modo de inferência
-        logger.info("✅ OpenUnmix carregado (modelo umxhq)")
+from pydub.effects import normalize as pydub_normalize
+import logging
+from pathlib import Path
+from typing import Optional
     return _openunmix_model
 
 
 class AudioProcessor:
     """Processador de áudio para normalização"""
     
-    def __init__(self, output_dir: str = "./processed"):
-        self.output_dir = Path(output_dir)
+    def __init__(self, output_dir: str = None, temp_dir: str = None) -> None:
+        """
+        Inicializa o processador de áudio.
+        Args:
+            output_dir (str, opcional): Diretório de saída dos arquivos processados.
+            temp_dir (str, opcional): Diretório para arquivos temporários.
+        """
+        self.output_dir = Path(output_dir or os.getenv('OUTPUT_DIR', './processed'))
         self.output_dir.mkdir(exist_ok=True)
-        
-        # Cria diretório temp para arquivos temporários
-        self.temp_dir = Path("./temp")
+import os
+import logging
+from pathlib import Path
+from typing import Optional
+from datetime import datetime
+from pydub import AudioSegment
+from pydub.effects import normalize as pydub_normalize
+from .models import Job, JobStatus
+
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
+
+# Importa OpenUnmix apenas quando necessário (lazy load)
+_openunmix_model = None
+
+        self.temp_dir = Path(temp_dir or os.getenv('TEMP_DIR', './temp'))
         self.temp_dir.mkdir(exist_ok=True)
-        
         # Referência para o job store será injetada
         self.job_store = None
     
-    def _update_progress(self, job: Job, progress: float, message: str = ""):
-        """Atualiza progresso do job"""
+    def _update_progress(self, job: Job, progress: float, message: str = "") -> None:
+        """
+        Atualiza o progresso do job e registra no log.
+        Args:
+            job (Job): Instância do job.
+            progress (float): Progresso percentual.
+            message (str): Mensagem adicional.
+        """
         job.progress = min(progress, 99.9)
         if self.job_store:
             self.job_store.update_job(job)
-        logger.info(f"Job {job.id}: {progress:.1f}% - {message}")
+        logger.info("Job %s: %.1f%% - %s", job.id, progress, message)
     
     def process_audio(self, job: Job) -> Job:
         """
-        Processa áudio conforme parâmetros do job. Só executa operações ativas, pula as desativadas.
+        Processa o áudio conforme parâmetros do job.
+        Args:
+            job (Job): Instância do job.
+        Returns:
+            Job: Job atualizado após processamento.
         """
+    # Processa áudio conforme parâmetros do job. Só executa operações ativas, pula as desativadas.
         try:
             job.status = JobStatus.PROCESSING
             self._update_progress(job, 5.0, "Iniciando processamento")
@@ -120,19 +136,27 @@ class AudioProcessor:
             job.progress = 100.0
             self._update_progress(job, 100.0, "Processamento concluído")
             return job
-        except Exception as e:
-            logger.error(f"Erro no processamento: {e}")
+        except (FileNotFoundError, RuntimeError, OSError, ValueError) as e:
+            logger.error("Erro no processamento: %s", e)
             job.status = JobStatus.FAILED
             job.error_message = str(e)
             try:
                 if Path(job.input_file).exists():
                     Path(job.input_file).unlink()
-                    logger.info(f"Arquivo de entrada deletado após falha: {job.input_file}")
-            except Exception as cleanup_error:
-                logger.warning(f"Erro ao deletar arquivo após falha: {cleanup_error}")
+                    logger.info("Arquivo de entrada deletado após falha: %s", job.input_file)
+            except OSError as cleanup_error:
+                logger.warning("Erro ao deletar arquivo após falha: %s", cleanup_error)
             return job
     
     def _isolate_vocals(self, audio_path: Path, job: Job) -> AudioSegment:
+        """
+        Isola vocais usando OpenUnmix.
+        Args:
+            audio_path (Path): Caminho do arquivo de áudio.
+            job (Job): Instância do job.
+        Returns:
+            AudioSegment: Segmento de áudio contendo apenas vocais.
+        """
         """
         Isola vocais usando OpenUnmix (mais leve e rápido)
         
@@ -145,6 +169,7 @@ class AudioProcessor:
         """
         temp_wav_path = None
         temp_vocals_path = None
+        temp_dir = os.getenv('TEMP_DIR', './temp')
         
         try:
             import torch
@@ -158,7 +183,7 @@ class AudioProcessor:
             logger.info("🔄 Carregando %s para processamento", audio_path.suffix)
             
             audio_temp = AudioSegment.from_file(str(audio_path))
-            temp_wav_path = f"/tmp/{job.id}_input.wav"
+            temp_wav_path = os.path.join(temp_dir, f"{job.id}_input.wav")
             audio_temp.export(temp_wav_path, format='wav')
             
             logger.info("� WAV temporário criado: %s", temp_wav_path)
@@ -198,7 +223,7 @@ class AudioProcessor:
             self._update_progress(job, 22.0, "Extraindo trilha de vocais")
             
             # Salva vocais
-            temp_vocals_path = f"/tmp/{job.id}_vocals.wav"
+            temp_vocals_path = os.path.join(temp_dir, f"{job.id}_vocals.wav")
             torchaudio.save(temp_vocals_path, vocals, sr)
             
             logger.info("🎤 Vocais extraídos, salvando WAV temporário")
@@ -210,7 +235,7 @@ class AudioProcessor:
             logger.info("✅ Voz isolada com sucesso usando OpenUnmix")
             return vocals_audio
                 
-        except Exception as exc:
+        except (RuntimeError, ValueError, OSError) as exc:
             logger.error("❌ Erro ao isolar voz com OpenUnmix: %s", exc)
             logger.warning("Usando áudio original (sem isolamento)")
             return AudioSegment.from_file(str(audio_path))
@@ -224,7 +249,15 @@ class AudioProcessor:
                 Path(temp_vocals_path).unlink()
                 logger.info("🗑️ Removido vocals temporário: %s", temp_vocals_path)
     
-    def _remove_noise(self, audio: AudioSegment, job: Job) -> AudioSegment:
+    def _remove_noise(self, audio: AudioSegment, job: Job = None) -> AudioSegment:
+        """
+        Remove ruído do áudio usando noisereduce.
+        Args:
+            audio (AudioSegment): Segmento de áudio de entrada.
+            job (Job): Instância do job.
+        Returns:
+            AudioSegment: Segmento de áudio com ruído reduzido.
+        """
         """
         Remove ruído do áudio usando noisereduce
         
@@ -234,22 +267,20 @@ class AudioProcessor:
         3. Converte de volta para AudioSegment
         """
         try:
+            import numpy as np
+            import noisereduce as nr
             # Converte para numpy array
             samples = np.array(audio.get_array_of_samples())
-            
             # Reshape para stereo se necessário
             if audio.channels == 2:
                 samples = samples.reshape((-1, 2))
-            
             # Aplica noise reduction
-            # stationary=True assume que o ruído é constante ao longo do áudio
             reduced_samples = nr.reduce_noise(
                 y=samples,
                 sr=audio.frame_rate,
                 stationary=True,
-                prop_decrease=0.8  # Reduz 80% do ruído detectado
+                prop_decrease=0.8
             )
-            
             # Converte de volta para AudioSegment
             reduced_audio = AudioSegment(
                 reduced_samples.tobytes(),
@@ -257,14 +288,20 @@ class AudioProcessor:
                 sample_width=audio.sample_width,
                 channels=audio.channels
             )
-            
             return reduced_audio
-            
-        except Exception as e:
-            logger.warning(f"Erro na remoção de ruído, usando áudio original: {e}")
+        except (RuntimeError, ValueError, OSError) as e:
+            logger.warning("Erro na remoção de ruído, usando áudio original: %s", e)
             return audio
     
     def _apply_highpass_filter(self, audio: AudioSegment, cutoff: int = 80) -> AudioSegment:
+        """
+        Aplica filtro high-pass para remover frequências baixas.
+        Args:
+            audio (AudioSegment): Segmento de áudio de entrada.
+            cutoff (int): Frequência de corte em Hz.
+        Returns:
+            AudioSegment: Segmento de áudio filtrado.
+        """
         """
         Aplica filtro high-pass para remover frequências baixas inaudíveis
         
@@ -276,23 +313,20 @@ class AudioProcessor:
             AudioSegment filtrado
         """
         try:
+            import numpy as np
+            from scipy import signal
             # Converte para numpy array
             samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            
             # Normaliza para -1.0 a 1.0
             samples = samples / (2 ** (audio.sample_width * 8 - 1))
-            
             # Design do filtro Butterworth high-pass (ordem 5)
             nyquist = audio.frame_rate / 2
             normal_cutoff = cutoff / nyquist
             b, a = signal.butter(5, normal_cutoff, btype='high', analog=False)
-            
             # Aplica filtro
             filtered_samples = signal.filtfilt(b, a, samples)
-            # Remove NaN/infinito antes de converter para int
             filtered_samples = np.nan_to_num(filtered_samples, nan=0.0, posinf=0.0, neginf=0.0)
             filtered_samples = np.int16(filtered_samples * (2 ** (audio.sample_width * 8 - 1)))
-            # Cria novo AudioSegment
             filtered_audio = AudioSegment(
                 filtered_samples.tobytes(),
                 frame_rate=audio.frame_rate,
@@ -300,17 +334,21 @@ class AudioProcessor:
                 channels=audio.channels
             )
             return filtered_audio
-            
-        except Exception as e:
-            logger.warning(f"Erro ao aplicar filtro high-pass, usando áudio original: {e}")
+        except (RuntimeError, ValueError, OSError) as e:
+            logger.warning("Erro ao aplicar filtro high-pass, usando áudio original: %s", e)
             return audio
     
     def get_file_path(self, job: Job) -> Optional[Path]:
+        """
+        Retorna caminho do arquivo processado se existir.
+        Args:
+            job (Job): Instância do job.
+        Returns:
+            Optional[Path]: Caminho do arquivo ou None.
+        """
         """Retorna caminho do arquivo processado se existir"""
         if job.output_file and Path(job.output_file).exists():
             return Path(job.output_file)
         return None
 
 
-# Import necessário para datetime
-from datetime import datetime

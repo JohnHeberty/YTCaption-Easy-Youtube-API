@@ -141,7 +141,7 @@ if settings.log_file:
             rotation="100 MB",
             retention="30 days",  # Aumentado de 10 para 30 dias
             level=settings.log_level,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | PID:{process} | {message}",
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | PID:{process} | {message}", # pylint: disable=line-too-long
             backtrace=True,
             diagnose=True,
             enqueue=True,  # Thread-safe async logging
@@ -186,7 +186,7 @@ async def lifespan(app: FastAPI):
             max_size=settings.cache_max_size,
             ttl_hours=settings.cache_ttl_hours
         )
-        logger.info(f"✅ Transcription cache initialized (size: {settings.cache_max_size}, TTL: {settings.cache_ttl_hours}h)")
+        logger.info(f"✅ Transcription cache initialized (size: {settings.cache_max_size}, TTL: {settings.cache_ttl_hours}h)") # pylint: disable=line-too-long
     else:
         logger.info("⚠️  Transcription cache disabled")
     

@@ -263,7 +263,7 @@ async def get_video_info(
         raise_error(
             status_code=503,
             error_type="ServiceTemporarilyUnavailable",
-            message=f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.",
+            message=f"YouTube API is temporarily unavailable. Circuit breaker '{e.circuit_name}' is open. Please try again later.", # pylint: disable=line-too-long
             request_id=request_id,
             details={"retry_after_seconds": 60}
         )

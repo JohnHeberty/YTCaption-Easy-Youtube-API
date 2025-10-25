@@ -1,14 +1,32 @@
+
 import os
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+import logging
 from pathlib import Path
 from typing import List
 from datetime import datetime
+from redis import Redis
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse
 
 from .models import Job, JobStatus
 from .processor import AudioProcessor
 from .redis_store import RedisJobStore
 from .celery_tasks import normalize_audio_task
+
+# Configuração de logging para arquivo
+LOG_DIR = Path(os.getenv('LOG_DIR', './logs'))
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / 'audio_normalization.log'
+logging.basicConfig(
+    level=os.getenv('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Instâncias globais
 app = FastAPI(
@@ -26,26 +44,148 @@ processor = AudioProcessor()
 processor.job_store = job_store
 
 # Diretório para uploads
-UPLOAD_DIR = Path("./uploads")
+UPLOAD_DIR = Path(os.getenv('UPLOAD_DIR', './uploads'))
 UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Instancia processor usando variáveis do .env
+processor = AudioProcessor(
+    output_dir=os.getenv('OUTPUT_DIR', './processed'),
+    temp_dir=os.getenv('TEMP_DIR', './temp')
+)
+
+# Endpoints administrativos e de monitoramento
+@app.post("/backup", tags=["admin"])
+async def backup_jobs():
+    count = job_store.backup_jobs()
+    return {"jobs_backed_up": count}
+
+@app.get("/celery-metrics", tags=["monitoring"])
+async def celery_metrics():
+    try:
+        from .celery_config import celery_app
+        inspect = celery_app.control.inspect()
+        stats = inspect.stats() or {}
+        active = inspect.active() or {}
+        reserved = inspect.reserved() or {}
+        scheduled = inspect.scheduled() or {}
+        return {
+            "stats": stats,
+            "active": active,
+            "reserved": reserved,
+            "scheduled": scheduled
+        }
+    except Exception as exc:
+        logger.error("Erro ao consultar métricas Celery: %s", exc)
+        return {"error": str(exc)}
+
+
+import os
+import logging
+from pathlib import Path
+from typing import List
+from datetime import datetime
+from redis import Redis
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse
+
+from .models import Job, JobStatus
+from .processor import AudioProcessor
+from .redis_store import RedisJobStore
+from .celery_tasks import normalize_audio_task
+
+# Configuração de logging para arquivo
+LOG_DIR = Path(os.getenv('LOG_DIR', './logs'))
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / 'audio_normalization.log'
+logging.basicConfig(
+    level=os.getenv('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s %(name)s %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Instâncias globais
+app = FastAPI(
+    title="Audio Normalization Service",
+    description="Microserviço para normalização de áudio com Celery + Redis",
+    version="1.0.0"
+)
+
+# Redis como store compartilhado
+redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+job_store = RedisJobStore(redis_url=redis_url)
+processor = AudioProcessor()
+
+# Injeta job_store no processor
+processor.job_store = job_store
+
+# Diretório para uploads
+UPLOAD_DIR = Path(os.getenv('UPLOAD_DIR', './uploads'))
+UPLOAD_DIR.mkdir(exist_ok=True)
+
+# Instancia processor usando variáveis do .env
+processor = AudioProcessor(
+    output_dir=os.getenv('OUTPUT_DIR', './processed'),
+    temp_dir=os.getenv('TEMP_DIR', './temp')
+)
+
+# Endpoints de healthcheck
+@app.get("/health", tags=["monitoring"])
+async def health():
+    """Healthcheck básico"""
+    return JSONResponse(content={"status": "ok"})
+
+@app.get("/ready", tags=["monitoring"])
+async def ready():
+    """Readiness check: verifica conexão Redis"""
+    try:
+        job_store.redis.ping()
+        return JSONResponse(content={"status": "ready"})
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error(f"Readiness check falhou: {e}")  # pylint: disable=logging-fstring-interpolation
+        return JSONResponse(content={"status": "not ready", "error": str(e)}, status_code=503)
 
 
 @app.on_event("startup")
-async def startup_event():
-    """Inicializa sistema"""
+async def startup_event() -> None:
+    """
+    Inicializa sistema e inicia tarefa de limpeza.
+    """
     await job_store.start_cleanup_task()
-    print("✅ Audio Normalization Service iniciado")
+    logger.info("✅ Audio Normalization Service iniciado")
 
 
 @app.on_event("shutdown")
-async def shutdown_event():
-    """Para sistema"""
+async def shutdown_event() -> None:
+    """
+    Para sistema e encerra tarefa de limpeza. Aguarda tarefas pendentes.
+    """
     await job_store.stop_cleanup_task()
-    print("🛑 Serviço parado")
+    # Aguarda tasks Celery pendentes
+    try:
+        from .celery_config import celery_app
+        inspect = celery_app.control.inspect()
+        active = inspect.active() or {}
+        if active:
+            logger.info("Aguardando %d tarefas Celery pendentes...", sum(len(v) for v in active.values()))
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Erro ao consultar tarefas pendentes Celery no shutdown: %s", exc)
+    logger.info("🛑 Serviço parado")
 
 
-def submit_celery_task(job: Job):
-    """Submete job para o Celery"""
+
+def submit_celery_task(job: Job) -> object:
+    """
+    Submete job para o Celery.
+    Args:
+        job (Job): Instância do job.
+    Returns:
+        object: Task Celery.
+    """
     job_dict = job.model_dump()
     task = normalize_audio_task.apply_async(
         args=[job_dict],
@@ -77,11 +217,25 @@ async def create_normalization_job(
     - Se mesmo arquivo + mesmas operações já foram processadas, retorna job existente
     - Cache válido por 24h
     """
-    # Salva arquivo enviado
+    # Circuit breaker: verifica se Redis está disponível
+    try:
+        job_store.redis.ping()
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.error("Circuit breaker: Redis indisponível, rejeitando requisição. Erro: %s", exc)
+        raise HTTPException(status_code=503, detail="Serviço temporariamente indisponível (Redis down)")  # pylint: disable=raise-missing-from,line-too-long
+    # Validação reforçada do arquivo
+    allowed_extensions = {'.wav', '.mp3', '.flac', '.ogg', '.m4a'}
+    max_size_mb = 100
+    ext = Path(file.filename).suffix.lower()
+    if ext not in allowed_extensions:
+        logger.warning("Arquivo com extensão não permitida: %s", ext)
+        raise HTTPException(status_code=400, detail=f"Extensão de arquivo não permitida: {ext}")  # pylint: disable=raise-missing-from,line-too-long
+    content = await file.read()
+    if len(content) > max_size_mb * 1024 * 1024:
+        logger.warning("Arquivo excede tamanho máximo: %d bytes", len(content))
+        raise HTTPException(status_code=400, detail=f"Arquivo excede tamanho máximo de {max_size_mb}MB")  # pylint: disable=raise-missing-from,line-too-long
     file_path = UPLOAD_DIR / file.filename
-    
     with open(file_path, "wb") as f:
-        content = await file.read()
         f.write(content)
     
     # Cria job (gera ID baseado no hash do arquivo + operações)
@@ -188,7 +342,6 @@ async def delete_job(job_id: str):
             input_path.unlink()
     
     # Remove do Redis
-    from redis import Redis
     redis = Redis.from_url(redis_url, decode_responses=True)
     redis.delete(f"audio_job:{job_id}")
     
@@ -214,7 +367,6 @@ async def clear_all_cache():
     Limpa TODO o cache (jobs + arquivos)
     ⚠️ CUIDADO: Remove todos os jobs e arquivos processados
     """
-    from redis import Redis
     
     # Limpa todos os jobs do Redis
     redis = Redis.from_url(redis_url, decode_responses=True)
@@ -235,8 +387,8 @@ async def clear_all_cache():
                 deleted_files += 1
     
     # Remove todos os arquivos de upload
-    upload_dir = Path("./uploads")
     deleted_uploads = 0
+    upload_dir = Path(os.getenv('UPLOAD_DIR', './uploads'))
     if upload_dir.exists():
         for file in upload_dir.iterdir():
             if file.is_file():
@@ -280,7 +432,6 @@ async def health_check():
     # Verifica Redis
     redis_healthy = False
     try:
-        from redis import Redis
         redis = Redis.from_url(redis_url, decode_responses=True)
         redis.ping()
         redis_healthy = True
@@ -329,7 +480,7 @@ async def get_stats():
         }
     
     # Adiciona info de uploads
-    upload_dir = Path("./uploads")
+    upload_dir = Path(os.getenv('UPLOAD_DIR', './uploads'))
     if upload_dir.exists():
         files = list(upload_dir.iterdir())
         total_size = sum(f.stat().st_size for f in files if f.is_file())

@@ -40,7 +40,7 @@ def _ensure_wiring(app):
             return SaveFromCacheUseCase(cache=cache, storage=storage)
         else:
             # Cascata de providers: YouTube transcript → Whisper (download + transcreve) → Stub
-            yt_transcript = YouTubeTranscriptProvider(timeout_s=settings.timeout_seconds, max_retries=settings.max_retries)
+            yt_transcript = YouTubeTranscriptProvider(timeout_s=settings.timeout_seconds, max_retries=settings.max_retries)  # pylint: disable=line-too-long
             whisper = WhisperProvider(timeout_s=60.0, max_retries=1, model_name="base")  # timeout maior para whisper
             stub = YouTubeStubProvider(timeout_s=settings.timeout_seconds, max_retries=settings.max_retries)
             
