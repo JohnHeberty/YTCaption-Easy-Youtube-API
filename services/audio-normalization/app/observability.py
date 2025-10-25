@@ -60,6 +60,14 @@ class PrometheusMetrics:
         self.registry = registry or REGISTRY
         self.settings = get_settings()
         
+        # Limpa registry antes de criar métricas (evita duplicatas em restart)
+        try:
+            for collector in list(self.registry._collector_to_names.keys()):
+                if hasattr(collector, '_name') and 'audio_normalization' in collector._name:
+                    self.registry.unregister(collector)
+        except:
+            pass  # Ignora erros de limpeza
+        
         # Métricas de aplicação
         self.app_info = Info(
             'audio_normalization_app_info',

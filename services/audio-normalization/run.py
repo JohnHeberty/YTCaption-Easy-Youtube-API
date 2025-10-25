@@ -11,7 +11,7 @@ from pathlib import Path
 # Adiciona app ao path para imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from app.main import app_normalization
+from app.main import app
 from app.config import get_settings
 from app.logging_config import create_logger
 
@@ -36,7 +36,7 @@ def main():
         
         # Inicia servidor
         uvicorn.run(
-            app_normalization,
+            app,
             host=settings.host,
             port=settings.port,
             log_level="info" if not settings.debug else "debug",

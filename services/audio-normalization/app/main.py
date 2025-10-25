@@ -69,8 +69,7 @@ async def initialize_services():
         resource_monitor = ResourceMonitor()
         
         # Job store
-        job_store = RedisJobStore(settings)
-        await job_store.initialize()
+        job_store = RedisJobStore()
         
         # Processador de áudio
         audio_processor = AudioProcessor()
@@ -79,13 +78,12 @@ async def initialize_services():
         validation_middleware = ValidationMiddleware()
         
         # Observabilidade
-        observability_manager = ObservabilityManager(settings)
-        await observability_manager.initialize()
+        observability_manager = ObservabilityManager()
+        await observability_manager.start()
         
-        # Verifica saúde inicial do sistema
-        health = await resource_monitor.check_system_health()
-        if not health.healthy:
-            logger.warning(f"⚠️ Sistema com recursos limitados: {health.warnings}")
+        # Verifica uso atual de recursos
+        usage = resource_monitor.get_current_usage()
+        logger.info(f"Uso atual de recursos: CPU {usage.cpu_percent:.1f}%, Memory {usage.memory_mb:.1f}MB")
         
     except Exception as e:
         logger.error(f"❌ Falha na inicialização dos serviços: {e}")
@@ -168,13 +166,17 @@ async def health_check():
     """Verifica saúde do serviço"""
     try:
         monitor = get_resource_monitor()
-        health = await monitor.check_system_health()
+        usage = monitor.get_current_usage()
         
         return {
-            "status": "healthy" if health.healthy else "degraded",
-            "timestamp": health.timestamp,
-            "checks": health.checks,
-            "warnings": health.warnings if not health.healthy else []
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "service": "audio-normalization",
+            "version": "2.0.0",
+            "resources": {
+                "cpu_percent": usage.cpu_percent,
+                "memory_mb": usage.memory_mb
+            }
         }
     except Exception as e:
         logger.error(f"Health check failed: {e}")

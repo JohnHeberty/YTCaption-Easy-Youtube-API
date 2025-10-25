@@ -21,7 +21,6 @@ os.environ.update({
     "CACHE__TTL_HOURS": "1",
     "PROCESSING__MAX_FILE_SIZE_MB": "10",
     "SECURITY__ENABLE_FILE_CONTENT_VALIDATION": "true",
-    "MONITORING__ENABLE_PROMETHEUS": "false"  # Desabilitado em testes
 })
 
 from app.config import get_settings
