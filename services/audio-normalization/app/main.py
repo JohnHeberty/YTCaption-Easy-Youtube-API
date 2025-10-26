@@ -176,13 +176,15 @@ async def create_audio_job(
                 detail=f"Arquivo muito grande. Máximo: {max_size//1024//1024}MB"
             )
         
-        # Validação de segurança (validação de formato básica)
+        # Validação básica de segurança (apenas tamanho - sem validar formato)
         try:
             validate_audio_file(file.filename, content)
-            logger.info(f"Arquivo validado com sucesso: {file.filename}")
+            logger.info(f"Validação básica concluída: {file.filename}")
         except (ValidationError, SecurityError) as e:
-            logger.error(f"Validação falhou para {file.filename}: {e}")
+            logger.error(f"Validação básica falhou para {file.filename}: {e}")
             raise HTTPException(status_code=400, detail=str(e))
+        
+        logger.info("IMPORTANTE: Validação real de formato será feita com ffprobe durante processamento")
         
         # Salva arquivo
         upload_dir = Path("./uploads")

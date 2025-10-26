@@ -46,69 +46,102 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
 def validate_audio_file(filename: str, content: bytes) -> None:
     """
-    Valida arquivo de áudio
+    Valida arquivo básico (sem validação de formato)
+    
+    IMPORTANTE: NÃO valida formato/MIME type aqui.
+    A validação real acontece no processamento com ffprobe.
     
     Args:
         filename: Nome do arquivo
         content: Conteúdo do arquivo
     
     Raises:
-        ValidationError: Se arquivo inválido
-        SecurityError: Se arquivo suspeito
+        ValidationError: Se arquivo básico inválido
+        SecurityError: Se arquivo suspeito por tamanho
     """
     settings = get_settings()
     
     if not settings['security']['enable_file_validation']:
         return
     
-    # Verifica extensão
-    allowed_extensions = {'.mp3', '.wav', '.flac', '.ogg', '.m4a', '.webm', '.mp4'}
-    file_ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
-    
-    if file_ext not in allowed_extensions:
-        raise ValidationError(f"Tipo de arquivo não suportado: {file_ext}")
-    
-    # Verifica tamanho
+    # Verifica apenas tamanho (sem verificar formato)
     max_size = get_settings()['max_file_size_mb'] * 1024 * 1024
     if len(content) > max_size:
         raise ValidationError(f"Arquivo muito grande. Máximo: {max_size // (1024*1024)}MB")
     
     # Verifica se não está vazio
-    if len(content) < 1000:  # Mínimo 1KB
-        raise ValidationError("Arquivo muito pequeno ou corrompido")
+    if len(content) < 100:  # Mínimo 100 bytes (muito permissivo)
+        raise ValidationError("Arquivo vazio")
     
-    # Validação básica de headers de áudio
-    if settings['security']['validate_audio_headers']:
-        _validate_audio_headers(content)
+    # NÃO faz validação de formato aqui - deixa para o ffprobe
 
 
-def _validate_audio_headers(content: bytes) -> None:
-    """Validação básica de headers de áudio"""
-    if len(content) < 12:
-        raise ValidationError("Arquivo corrompido - headers inválidos")
+def validate_audio_content_with_ffprobe(file_path: str) -> Dict[str, any]:
+    """
+    Valida arquivo de áudio usando ffprobe
     
-    # Verifica alguns headers conhecidos
-    headers = content[:12]
+    Args:
+        file_path: Caminho para o arquivo
     
-    # MP3
-    if headers[:3] == b'ID3' or headers[:2] == b'\xff\xfb':
-        return
+    Returns:
+        dict: Informações do arquivo
     
-    # WAV
-    if headers[:4] == b'RIFF' and headers[8:12] == b'WAVE':
-        return
+    Raises:
+        ValidationError: Se não contém stream de áudio
+    """
+    import subprocess
+    import json
+    import logging
     
-    # FLAC
-    if headers[:4] == b'fLaC':
-        return
+    logger = logging.getLogger(__name__)
     
-    # OGG
-    if headers[:4] == b'OggS':
-        return
-    
-    # WebM/MP4 (básico)
-    if b'ftyp' in headers or b'mdat' in headers:
-        return
-    
-    # Se chegou aqui, pode ser suspeito
-    raise ValidationError("Formato de áudio não reconhecido ou corrompido")
+    try:
+        # Executa ffprobe para obter informações do arquivo
+        cmd = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            '-show_format',
+            str(file_path)
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"ffprobe falhou: {result.stderr}")
+            raise ValidationError("Arquivo não pode ser analisado pelo ffprobe")
+        
+        data = json.loads(result.stdout)
+        streams = data.get('streams', [])
+        
+        # Verifica se há pelo menos um stream de áudio
+        audio_streams = [s for s in streams if s.get('codec_type') == 'audio']
+        
+        if not audio_streams:
+            raise ValidationError("O arquivo enviado não contém um stream de áudio válido")
+        
+        logger.info(f"Arquivo válido: {len(audio_streams)} stream(s) de áudio encontrado(s)")
+        
+        return {
+            'audio_streams': audio_streams,
+            'video_streams': [s for s in streams if s.get('codec_type') == 'video'],
+            'format': data.get('format', {}),
+            'has_video': any(s.get('codec_type') == 'video' for s in streams),
+            'has_audio': len(audio_streams) > 0
+        }
+        
+    except subprocess.TimeoutExpired:
+        raise ValidationError("Timeout ao analisar arquivo")
+    except json.JSONDecodeError:
+        raise ValidationError("Resposta inválida do ffprobe")
+    except FileNotFoundError:
+        raise ValidationError("ffprobe não encontrado - instale ffmpeg")
+    except Exception as e:
+        logger.error(f"Erro inesperado no ffprobe: {e}")
+        raise ValidationError(f"Erro ao validar arquivo: {str(e)}")

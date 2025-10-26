@@ -56,17 +56,41 @@ class AudioProcessor:
             
             # Atualiza status para processando
             job.status = JobStatus.PROCESSING
+            job.progress = 2.0
+            if self.job_store:
+                self.job_store.update_job(job)
+            
+            # VALIDAÇÃO COM FFPROBE (a verdadeira validação)
+            try:
+                from .security import validate_audio_content_with_ffprobe
+                logger.info(f"Validando arquivo com ffprobe: {job.input_file}")
+                file_info = validate_audio_content_with_ffprobe(job.input_file)
+                logger.info(f"Arquivo válido - Áudio: {file_info['has_audio']}, Vídeo: {file_info['has_video']}")
+            except Exception as e:
+                logger.error(f"Validação ffprobe falhou: {e}")
+                raise AudioNormalizationException(str(e))
+            
             job.progress = 5.0
             if self.job_store:
                 self.job_store.update_job(job)
             
-            # Carrega arquivo de áudio - ACEITA QUALQUER FORMATO
+            # Carrega arquivo - com extração automática de áudio se for vídeo
             try:
-                logger.info(f"Carregando arquivo de áudio: {job.input_file}")
-                audio = AudioSegment.from_file(job.input_file)
-                logger.info(f"Arquivo carregado com sucesso. Formato original: {Path(job.input_file).suffix}")
+                logger.info(f"Carregando arquivo: {job.input_file}")
+                
+                # Se contém vídeo, extrai apenas o áudio automaticamente
+                if file_info['has_video']:
+                    logger.info("Arquivo contém vídeo - extraindo stream de áudio automaticamente")
+                    # pydub automaticamente extrai áudio usando ffmpeg
+                    audio = AudioSegment.from_file(job.input_file, parameters=["-vn"])
+                else:
+                    # Arquivo só de áudio
+                    audio = AudioSegment.from_file(job.input_file)
+                
+                logger.info(f"Áudio carregado com sucesso. Formato: {Path(job.input_file).suffix}")
+                
             except Exception as e:
-                logger.error(f"Erro ao carregar arquivo de áudio: {e}")
+                logger.error(f"Erro ao carregar arquivo: {e}")
                 raise AudioNormalizationException(f"Não foi possível carregar o arquivo: {str(e)}")
             
             job.progress = 10.0

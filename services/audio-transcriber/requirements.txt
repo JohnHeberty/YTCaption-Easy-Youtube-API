@@ -11,4 +11,4 @@ redis==5.0.1
 openai-whisper==20231117
 
 # === SECURITY ===
-slowapi==0.1.9
+# Rate limiting desabilitado - removido slowapi==0.1.9
