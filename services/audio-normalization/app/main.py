@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List
@@ -79,20 +79,35 @@ async def shutdown_event():
 
 
 def submit_processing_task(job: Job):
-    """Submete job para processamento em background"""
-    # Por agora, processamento direto (pode ser melhorado com Celery depois)
-    asyncio.create_task(processor.process_audio_job(job))
+    """Submete job para processamento em background via Celery"""
+    try:
+        from .celery_config import celery_app
+        from .celery_tasks import normalize_audio_task
+        
+        # Envia job para o worker Celery
+        task_result = normalize_audio_task.apply_async(
+            args=[job.model_dump()], 
+            task_id=job.id  # Usa o job ID como task ID
+        )
+        logger.info(f"📤 Job {job.id} enviado para Celery worker: {task_result.id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar job {job.id} para Celery: {e}")
+        logger.error(f"❌ Fallback: processando diretamente job {job.id}")
+        # Fallback para processamento direto se Celery falhar
+        import asyncio
+        asyncio.create_task(processor.process_audio_job(job))
 
 
 @app.post("/jobs", response_model=Job)
 async def create_audio_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    remove_noise: bool = False,
-    convert_to_mono: bool = False,
-    apply_highpass_filter: bool = False,
-    set_sample_rate_16k: bool = False,
-    isolate_vocals: bool = False
+    remove_noise: str = Form("false"),
+    convert_to_mono: str = Form("false"),
+    apply_highpass_filter: str = Form("false"),
+    set_sample_rate_16k: str = Form("false"),
+    isolate_vocals: str = Form("false")
 ) -> Job:
     """
     Cria um novo job de processamento de áudio
@@ -121,14 +136,29 @@ async def create_audio_job(
         
         logger.info(f"Recebido request para processar: {file.filename}")
         
+        # Converte strings form-data para boolean
+        def str_to_bool(value: str) -> bool:
+            return value.lower() in ('true', '1', 'yes', 'on')
+        
+        remove_noise_bool = str_to_bool(remove_noise)
+        convert_to_mono_bool = str_to_bool(convert_to_mono)
+        apply_highpass_filter_bool = str_to_bool(apply_highpass_filter)
+        set_sample_rate_16k_bool = str_to_bool(set_sample_rate_16k)
+        isolate_vocals_bool = str_to_bool(isolate_vocals)
+        
+        logger.info(f"🔍 DEBUG Parâmetros convertidos:")
+        logger.info(f"  remove_noise: '{remove_noise}' -> {remove_noise_bool}")
+        logger.info(f"  apply_highpass_filter: '{apply_highpass_filter}' -> {apply_highpass_filter_bool}")
+        logger.info(f"  isolate_vocals: '{isolate_vocals}' -> {isolate_vocals_bool}")
+        
         # Cria job com parâmetros de processamento
         new_job = Job.create_new(
             filename=file.filename,
-            remove_noise=remove_noise,
-            convert_to_mono=convert_to_mono,
-            apply_highpass_filter=apply_highpass_filter,
-            set_sample_rate_16k=set_sample_rate_16k,
-            isolate_vocals=isolate_vocals
+            remove_noise=remove_noise_bool,
+            convert_to_mono=convert_to_mono_bool,
+            apply_highpass_filter=apply_highpass_filter_bool,
+            set_sample_rate_16k=set_sample_rate_16k_bool,
+            isolate_vocals=isolate_vocals_bool
         )
         
         # Verifica se já existe job com mesmo ID (cache baseado no arquivo + operações)

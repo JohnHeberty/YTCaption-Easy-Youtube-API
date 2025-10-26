@@ -1,0 +1,8 @@
+"""
+Requirements para os testes do Audio Normalization Service
+"""
+pytest>=7.4.0
+pytest-html>=3.2.0
+pytest-xdist>=3.3.0
+pytest-timeout>=2.1.0
+requests>=2.31.0

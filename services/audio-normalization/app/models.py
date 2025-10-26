@@ -72,6 +72,14 @@ class Job(BaseModel):
         set_sample_rate_16k: bool = False,
         isolate_vocals: bool = False
     ) -> "Job":
+        # DEBUG: Log dos parâmetros recebidos
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔍 DEBUG Job.create_new - filename: {filename}")
+        logger.info(f"🔍 DEBUG Job.create_new - remove_noise: {remove_noise}")
+        logger.info(f"🔍 DEBUG Job.create_new - apply_highpass_filter: {apply_highpass_filter}")
+        logger.info(f"🔍 DEBUG Job.create_new - isolate_vocals: {isolate_vocals}")
+        
         # Calcula hash do nome do arquivo + operações para criar ID único
         operations = [
             "n" if remove_noise else "",
@@ -83,6 +91,11 @@ class Job(BaseModel):
         operation_string = "".join([op for op in operations if op])
         content = f"{filename}_{operation_string}" if operation_string else filename
         job_id = hashlib.md5(content.encode()).hexdigest()[:12]
+        
+        logger.info(f"🔍 DEBUG Job.create_new - operations: {operations}")
+        logger.info(f"🔍 DEBUG Job.create_new - operation_string: '{operation_string}'")
+        logger.info(f"🔍 DEBUG Job.create_new - content: '{content}'")
+        logger.info(f"🔍 DEBUG Job.create_new - job_id: {job_id}")
         
         now = datetime.now()
         cache_ttl_hours = 24

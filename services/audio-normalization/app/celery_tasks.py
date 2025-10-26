@@ -101,8 +101,6 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
                 asyncio.set_event_loop(loop)
             
             # PROCESSAMENTO REAL COM TIMEOUT DE SEGURANÇA
-            import asyncio
-            
             async def process_with_timeout():
                 return await self.processor.process_audio_job(job)
             
