@@ -32,18 +32,37 @@ class AudioProcessor:
         self._openunmix_model = None
     
     def _load_openunmix_model(self):
-        """Carrega modelo openunmix para isolamento vocal"""
+        """Carrega modelo openunmix para isolamento vocal - API CORRIGIDA"""
         if not OPENUNMIX_AVAILABLE:
             raise AudioNormalizationException("OpenUnmix não está disponível")
             
         if self._openunmix_model is None:
             try:
                 logger.info("Carregando modelo OpenUnmix...")
-                self._openunmix_model = openunmix.load_model(device='cpu')
+                
+                # API CORRETA do OpenUnmix
+                from openunmix import umx
+                
+                # Carrega modelo UMX (default)
+                self._openunmix_model = umx.load_model(
+                    model_name='umx',
+                    device='cpu',
+                    targets=['vocals', 'drums', 'bass', 'other']
+                )
+                
                 logger.info("Modelo OpenUnmix carregado com sucesso")
             except Exception as e:
                 logger.error(f"Erro ao carregar modelo OpenUnmix: {e}")
-                raise AudioNormalizationException(f"Falha ao carregar OpenUnmix: {str(e)}")
+                
+                # Fallback: tenta API alternativa
+                try:
+                    import openunmix.model
+                    self._openunmix_model = openunmix.model.load_model(device='cpu')
+                    logger.info("Modelo OpenUnmix carregado via API alternativa")
+                except Exception as e2:
+                    logger.error(f"Fallback também falhou: {e2}")
+                    raise AudioNormalizationException(f"Falha ao carregar OpenUnmix - APIs testadas: {str(e)} / {str(e2)}")
+                    
         return self._openunmix_model
     
     async def process_audio_job(self, job: Job):
@@ -305,43 +324,81 @@ class AudioProcessor:
             raise AudioNormalizationException(f"Erro no isolamento vocal: {str(e)}")
     
     async def _remove_noise(self, audio: AudioSegment) -> AudioSegment:
-        """Remove ruído usando noisereduce com tratamento robusto de erros"""
+        """Remove ruído usando noisereduce com PROTEÇÃO CONTRA MEMORY ERROR"""
         try:
-            # Converte para numpy
-            samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
-            if audio.channels == 2:
-                samples = samples.reshape((-1, 2))
+            logger.info(f"🔇 Iniciando remoção de ruído - duração: {len(audio)}ms, canais: {audio.channels}")
             
-            # Normaliza
-            samples = samples / (2**15)
+            # PROTEÇÃO 1: Limita duração para evitar OOM
+            max_duration_ms = 300000  # 5 minutos máximo
+            if len(audio) > max_duration_ms:
+                logger.warning(f"⚠️ Áudio muito longo ({len(audio)}ms), cortando para {max_duration_ms}ms")
+                audio = audio[:max_duration_ms]
             
-            # Aplica redução de ruído
+            # PROTEÇÃO 2: Converte para mono para reduzir uso de memória
+            if audio.channels > 1:
+                logger.info("🔄 Convertendo para mono para economizar memória")
+                audio_mono = audio.set_channels(1)
+            else:
+                audio_mono = audio
+            
+            # PROTEÇÃO 3: Reduz sample rate se muito alto
+            target_sample_rate = 22050  # 22kHz é suficiente para noise reduction
+            if audio_mono.frame_rate > target_sample_rate:
+                logger.info(f"🔄 Reduzindo sample rate de {audio_mono.frame_rate} para {target_sample_rate}")
+                audio_mono = audio_mono.set_frame_rate(target_sample_rate)
+            
+            # Converte para numpy de forma eficiente
+            samples = np.array(audio_mono.get_array_of_samples(), dtype=np.float32)
+            
+            # Normaliza para [-1, 1]
+            max_val = np.max(np.abs(samples))
+            if max_val > 0:
+                samples = samples / max_val
+            
+            logger.info(f"📊 Processando {len(samples)} samples para noise reduction")
+            
+            # PROTEÇÃO 4: Aplica redução de ruído com parâmetros conservadores
             reduced_noise = nr.reduce_noise(
                 y=samples, 
-                sr=audio.frame_rate,
-                stationary=False,
-                prop_decrease=0.8
+                sr=audio_mono.frame_rate,
+                stationary=True,  # Mais eficiente em memória
+                prop_decrease=0.5,  # Redução mais conservadora
+                n_jobs=1  # Força single-thread para controlar memória
             )
             
-            # Converte de volta
-            reduced_noise = (reduced_noise * 2**15).astype(np.int16)
+            # Converte de volta para int16
+            if max_val > 0:
+                reduced_noise = reduced_noise * max_val
             
-            # Cria AudioSegment
-            if len(reduced_noise.shape) == 2:
-                reduced_noise = reduced_noise.flatten()
+            reduced_noise = np.clip(reduced_noise, -32768, 32767).astype(np.int16)
             
+            # Cria AudioSegment processado
             processed_audio = AudioSegment(
                 reduced_noise.tobytes(),
-                frame_rate=audio.frame_rate,
+                frame_rate=audio_mono.frame_rate,
                 sample_width=2,
-                channels=audio.channels
+                channels=1  # Sempre retorna mono após noise reduction
             )
             
-            logger.info("Remoção de ruído aplicada com sucesso")
+            # Restaura características originais se possível
+            if audio.channels > 1 and processed_audio.channels == 1:
+                # Se áudio original era estéreo, duplica canal para compatibilidade
+                processed_audio = processed_audio.set_channels(audio.channels)
+                logger.info("🔄 Restaurado para estéreo")
+            
+            # Restaura sample rate original se foi alterado
+            if processed_audio.frame_rate != audio.frame_rate:
+                processed_audio = processed_audio.set_frame_rate(audio.frame_rate)
+                logger.info(f"🔄 Sample rate restaurado para {audio.frame_rate}")
+            
+            logger.info("✅ Remoção de ruído aplicada com sucesso")
             return processed_audio
             
+        except MemoryError as mem_err:
+            logger.error(f"💾 MEMORY ERROR na remoção de ruído: {mem_err}")
+            raise AudioNormalizationException(f"Áudio muito grande para remoção de ruído: {str(mem_err)}")
         except Exception as e:
-            logger.error(f"Erro crítico na remoção de ruído: {e}", exc_info=True)
+            logger.error(f"💥 Erro crítico na remoção de ruído: {e}", exc_info=True)
             raise AudioNormalizationException(f"Erro na remoção de ruído: {str(e)}")
     
     async def _apply_highpass_filter(self, audio: AudioSegment) -> AudioSegment:

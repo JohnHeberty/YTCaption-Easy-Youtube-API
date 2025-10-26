@@ -10,6 +10,7 @@ teste_melhoria/
 run_test.ps1
 monitor_test.ps1
 test_output.txt
+*.webm
 
 # Distribution / packaging
 .Python
