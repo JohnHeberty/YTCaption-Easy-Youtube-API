@@ -12,3 +12,6 @@ class ResourceError(Exception):
 
 class ProcessingTimeoutError(Exception):
     pass
+
+class AudioNormalizationException(Exception):
+    pass
