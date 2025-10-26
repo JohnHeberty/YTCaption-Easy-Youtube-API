@@ -97,83 +97,164 @@ async def create_audio_job(
     """
     Cria um novo job de processamento de áudio
     
-    - **file**: Arquivo de áudio para processar
+    **IMPORTANTE**: Aceita QUALQUER formato de áudio como entrada e SEMPRE retorna .webm
+    
+    - **file**: Arquivo de áudio (qualquer formato: .mp3, .wav, .m4a, .ogg, etc.)
     - **remove_noise**: Remove ruído de fundo (padrão: False)
     - **convert_to_mono**: Converte para mono (padrão: False)  
     - **apply_highpass_filter**: Aplica filtro high-pass (padrão: False)
     - **set_sample_rate_16k**: Define sample rate para 16kHz (padrão: False)
     - **isolate_vocals**: Isola vocais usando OpenUnmix (padrão: False)
     
-    Se nenhum parâmetro for True, apenas salva o arquivo original.
+    Se nenhum parâmetro for True, apenas converte o arquivo para .webm.
     """
-    # Cria job com parâmetros de processamento
-    new_job = Job.create_new(
-        filename=file.filename,
-        remove_noise=remove_noise,
-        convert_to_mono=convert_to_mono,
-        apply_highpass_filter=apply_highpass_filter,
-        set_sample_rate_16k=set_sample_rate_16k,
-        isolate_vocals=isolate_vocals
-    )
-    
-    # Verifica se já existe job com mesmo ID (cache baseado no arquivo + operações)
-    existing_job = job_store.get_job(new_job.id)
-    
-    if existing_job:
-        # Job já existe - verifica status
-        if existing_job.status == JobStatus.COMPLETED:
-            return existing_job
-        elif existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
-            return existing_job
-        elif existing_job.status == JobStatus.FAILED:
-            # Falhou antes - tenta novamente
-            existing_job.status = JobStatus.QUEUED
-            existing_job.error_message = None
-            existing_job.progress = 0.0
-            job_store.update_job(existing_job)
-            
-            # Submete para processamento
-            submit_processing_task(existing_job)
-            return existing_job
-    
-    # Job novo - lê e valida arquivo
-    content = await file.read()
-    
-    # Validação de segurança
     try:
-        validate_audio_file(file.filename, content)
-        logger.info(f"Arquivo validado com sucesso: {file.filename}")
-    except (ValidationError, SecurityError) as e:
-        logger.error(f"Validação falhou para {file.filename}: {e}")
+        # Validação 1: Arquivo está presente?
+        if not file:
+            logger.error("Nenhum arquivo foi enviado")
+            raise HTTPException(status_code=400, detail="Nenhum arquivo enviado")
+        
+        # Validação 2: Arquivo tem nome?
+        if not file.filename:
+            logger.error("Arquivo sem nome")
+            raise HTTPException(status_code=400, detail="Arquivo sem nome")
+        
+        logger.info(f"Recebido request para processar: {file.filename}")
+        
+        # Cria job com parâmetros de processamento
+        new_job = Job.create_new(
+            filename=file.filename,
+            remove_noise=remove_noise,
+            convert_to_mono=convert_to_mono,
+            apply_highpass_filter=apply_highpass_filter,
+            set_sample_rate_16k=set_sample_rate_16k,
+            isolate_vocals=isolate_vocals
+        )
+        
+        # Verifica se já existe job com mesmo ID (cache baseado no arquivo + operações)
+        existing_job = job_store.get_job(new_job.id)
+        
+        if existing_job:
+            # Job já existe - verifica status
+            if existing_job.status == JobStatus.COMPLETED:
+                logger.info(f"Job {new_job.id} já completado - retornando do cache")
+                return existing_job
+            elif existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
+                logger.info(f"Job {new_job.id} já em processamento")
+                return existing_job
+            elif existing_job.status == JobStatus.FAILED:
+                # Falhou antes - tenta novamente
+                logger.info(f"Reprocessando job falhado: {new_job.id}")
+                existing_job.status = JobStatus.QUEUED
+                existing_job.error_message = None
+                existing_job.progress = 0.0
+                job_store.update_job(existing_job)
+                
+                # Submete para processamento
+                submit_processing_task(existing_job)
+                return existing_job
+        
+        # Job novo - lê arquivo
+        try:
+            content = await file.read()
+            logger.info(f"Arquivo lido: {len(content)} bytes")
+        except Exception as e:
+            logger.error(f"Erro ao ler arquivo: {e}")
+            raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {str(e)}")
+        
+        # Validação 3: Arquivo não está vazio?
+        if not content or len(content) == 0:
+            logger.error("Arquivo vazio")
+            raise HTTPException(status_code=400, detail="Arquivo está vazio")
+        
+        # Validação 4: Arquivo não excede limite de tamanho?
+        max_size = 100 * 1024 * 1024  # 100MB
+        if len(content) > max_size:
+            logger.error(f"Arquivo muito grande: {len(content)} bytes")
+            raise HTTPException(
+                status_code=413,
+                detail=f"Arquivo muito grande. Máximo: {max_size//1024//1024}MB"
+            )
+        
+        # Validação de segurança (validação de formato básica)
+        try:
+            validate_audio_file(file.filename, content)
+            logger.info(f"Arquivo validado com sucesso: {file.filename}")
+        except (ValidationError, SecurityError) as e:
+            logger.error(f"Validação falhou para {file.filename}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+        
+        # Salva arquivo
+        upload_dir = Path("./uploads")
+        try:
+            upload_dir.mkdir(exist_ok=True, parents=True)
+        except Exception as e:
+            logger.error(f"Erro ao criar diretório: {e}")
+            raise HTTPException(status_code=500, detail="Erro ao criar diretório de upload")
+        
+        file_path = upload_dir / f"{new_job.id}_{file.filename}"
+        try:
+            with open(file_path, "wb") as f:
+                f.write(content)
+            logger.info(f"Arquivo salvo em: {file_path}")
+        except Exception as e:
+            logger.error(f"Erro ao salvar arquivo: {e}")
+            raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo: {str(e)}")
+        
+        new_job.input_file = str(file_path)
+        new_job.file_size_input = file_path.stat().st_size
+        
+        # Salva job e submete para processamento
+        try:
+            job_store.save_job(new_job)
+            submit_processing_task(new_job)
+            logger.info(f"Job {new_job.id} criado e submetido para processamento")
+        except Exception as e:
+            logger.error(f"Erro ao salvar job: {e}")
+            # Limpa arquivo se falhou
+            if file_path.exists():
+                file_path.unlink()
+            raise HTTPException(status_code=500, detail=f"Erro ao criar job: {str(e)}")
+        
+        return new_job
+        
+    except HTTPException:
+        # Re-lança HTTPExceptions
         raise
-    
-    # Salva arquivo
-    upload_dir = Path("./uploads")
-    upload_dir.mkdir(exist_ok=True)
-    
-    file_path = upload_dir / f"{new_job.id}_{file.filename}"
-    with open(file_path, "wb") as f:
-        f.write(content)
-    
-    new_job.input_file = str(file_path)
-    new_job.file_size_input = file_path.stat().st_size
-    
-    # Salva job e submete para processamento
-    job_store.save_job(new_job)
-    submit_processing_task(new_job)
-    
-    return new_job
+    except Exception as e:
+        # Captura qualquer erro inesperado
+        logger.error(f"Erro inesperado ao criar job: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 
 @app.get("/jobs/{job_id}", response_model=Job)
 async def get_job_status(job_id: str) -> Job:
-    """Consulta status de um job"""
-    job = job_store.get_job(job_id)
+    """
+    Consulta status de um job
+    
+    Args:
+        job_id: ID do job a consultar
+        
+    Returns:
+        Job: Dados do job com status atual
+    """
+    # Validação: job_id está presente?
+    if not job_id or len(job_id) == 0:
+        logger.error("Job ID vazio ou inválido")
+        raise HTTPException(status_code=400, detail="Job ID inválido")
+    
+    try:
+        job = job_store.get_job(job_id)
+    except Exception as e:
+        logger.error(f"Erro ao buscar job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar job: {str(e)}")
     
     if not job:
+        logger.warning(f"Job não encontrado: {job_id}")
         raise HTTPException(status_code=404, detail="Job não encontrado")
     
     if job.is_expired:
+        logger.info(f"Job expirado: {job_id}")
         raise HTTPException(status_code=410, detail="Job expirado")
     
     return job

@@ -52,46 +52,62 @@ class CallbackTask(Task):
 def normalize_audio_task(self, job_dict: dict) -> dict:
     """
     Task do Celery para normalização de áudio.
+    IMPORTANTE: Aceita qualquer formato de entrada e sempre retorna .webm
+    
     Args:
         job_dict (dict): Job serializado como dicionário.
     Returns:
         dict: Job atualizado como dicionário.
     """
-    # Garante que todos os campos do modelo estejam presentes
-    # ValidationError já importado no topo
     try:
+        # Reconstrói o job a partir do dict
         job = Job(**job_dict)
     except ValidationError as ve:
-        logger.error("Erro de validação ao reconstruir job: %s", ve)
-        # Preenche campos ausentes com valores do modelo
+        logger.error(f"Erro de validação ao reconstruir job: {ve}")
+        # Preenche campos ausentes com valores padrão
         fields = {field: job_dict.get(field, Job.model_fields[field].default) for field in Job.model_fields}
         job = Job(**fields)
-    logger.info("Iniciando processamento do job %s", job.id)
+    
+    logger.info(f"Iniciando processamento do job {job.id}")
+    
     try:
-        # Atualiza status para processing no Redis (com retry)
+        # Atualiza status para processing no Redis
         @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-        def update_job_status(job):
-            self.job_store.update_job(job)
+        def update_job_status(job_to_update):
+            try:
+                self.job_store.update_job(job_to_update)
+            except Exception as e:
+                logger.error(f"Erro ao atualizar job no Redis: {e}")
+                raise
+        
         job.status = JobStatus.PROCESSING
         job.progress = 0.0
         update_job_status(job)
-        # Executa processamento
-        result_job = self.processor.process_audio(job)
-        if not isinstance(result_job, Job):
-            logger.error("process_audio retornou valor inválido para job %s, marcando como falha.", job.id)
-            job.status = JobStatus.FAILED
-            job.error_message = "process_audio retornou valor inválido"
-            self.job_store.update_job(job)
-            return job.model_dump()
-        # Atualiza resultado final no Redis
-        self.job_store.update_job(result_job)
-        logger.info("Job %s concluído: %s", result_job.id, result_job.status)
-        return result_job.model_dump()
-    except (OSError, RuntimeError) as exc:
-        logger.error("Erro no job %s: %s", job.id, exc)
+        
+        # Executa processamento (método ASYNC)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # Executa o processamento assíncrono
+        loop.run_until_complete(self.processor.process_audio_job(job))
+        
+        # Job já foi atualizado dentro do processor
+        logger.info(f"Job {job.id} concluído com status: {job.status}")
+        return job.model_dump()
+        
+    except Exception as exc:
+        logger.error(f"Erro crítico no job {job.id}: {exc}", exc_info=True)
         job.status = JobStatus.FAILED
         job.error_message = str(exc)
-        self.job_store.update_job(job)
+        
+        try:
+            self.job_store.update_job(job)
+        except Exception as e:
+            logger.error(f"Erro ao atualizar job falhado no Redis: {e}")
+        
         return job.model_dump()
 
 

@@ -2,24 +2,28 @@ import os
 import asyncio
 import tempfile
 import numpy as np
+import logging
 from datetime import datetime
 from pathlib import Path
 from pydub import AudioSegment
-from pydub.effects import normalize
-from pydub.effects import high_pass_filter
+from pydub.effects import normalize, high_pass_filter
 import noisereduce as nr
 import soundfile as sf
 import librosa
 from .models import Job, JobStatus
+from .exceptions import AudioNormalizationException
+
+logger = logging.getLogger(__name__)
 
 # Para isolamento vocal com openunmix
 try:
     import torch
     import openunmix
     OPENUNMIX_AVAILABLE = True
+    logger.info("OpenUnmix disponível para isolamento vocal")
 except ImportError:
     OPENUNMIX_AVAILABLE = False
-    print("⚠️ OpenUnmix não disponível. Isolamento vocal será desabilitado.")
+    logger.warning("OpenUnmix não disponível. Isolamento vocal será desabilitado")
 
 
 class AudioProcessor:
@@ -30,25 +34,44 @@ class AudioProcessor:
     def _load_openunmix_model(self):
         """Carrega modelo openunmix para isolamento vocal"""
         if not OPENUNMIX_AVAILABLE:
-            raise Exception("OpenUnmix não está disponível")
+            raise AudioNormalizationException("OpenUnmix não está disponível")
             
         if self._openunmix_model is None:
-            print("🔄 Carregando modelo OpenUnmix...")
-            self._openunmix_model = openunmix.load_model(device='cpu')
-            print("✅ Modelo OpenUnmix carregado")
+            try:
+                logger.info("Carregando modelo OpenUnmix...")
+                self._openunmix_model = openunmix.load_model(device='cpu')
+                logger.info("Modelo OpenUnmix carregado com sucesso")
+            except Exception as e:
+                logger.error(f"Erro ao carregar modelo OpenUnmix: {e}")
+                raise AudioNormalizationException(f"Falha ao carregar OpenUnmix: {str(e)}")
         return self._openunmix_model
     
     async def process_audio_job(self, job: Job):
-        """Processa um job de áudio com operações condicionais"""
+        """
+        Processa um job de áudio com operações condicionais.
+        IMPORTANTE: Aceita QUALQUER formato de entrada e SEMPRE salva como .webm
+        """
         try:
+            logger.info(f"Iniciando processamento do job: {job.id}")
+            
             # Atualiza status para processando
             job.status = JobStatus.PROCESSING
+            job.progress = 5.0
             if self.job_store:
                 self.job_store.update_job(job)
             
-            # Carrega arquivo de áudio
-            print(f"🔄 Carregando arquivo: {job.input_file}")
-            audio = AudioSegment.from_file(job.input_file)
+            # Carrega arquivo de áudio - ACEITA QUALQUER FORMATO
+            try:
+                logger.info(f"Carregando arquivo de áudio: {job.input_file}")
+                audio = AudioSegment.from_file(job.input_file)
+                logger.info(f"Arquivo carregado com sucesso. Formato original: {Path(job.input_file).suffix}")
+            except Exception as e:
+                logger.error(f"Erro ao carregar arquivo de áudio: {e}")
+                raise AudioNormalizationException(f"Não foi possível carregar o arquivo: {str(e)}")
+            
+            job.progress = 10.0
+            if self.job_store:
+                self.job_store.update_job(job)
             
             # Verifica se alguma operação foi solicitada
             any_operation = (job.remove_noise or job.convert_to_mono or 
@@ -56,32 +79,46 @@ class AudioProcessor:
                            job.isolate_vocals)
             
             if not any_operation:
-                print("ℹ️ Nenhuma operação solicitada - salvando arquivo original")
+                logger.info("Nenhuma operação solicitada - salvando arquivo sem modificações")
                 job.progress = 50.0
                 if self.job_store:
                     self.job_store.update_job(job)
             else:
-                print(f"🔄 Aplicando operações: {job.processing_operations}")
+                logger.info(f"Aplicando operações: {job.processing_operations}")
                 
-                # Progresso inicial
-                job.progress = 10.0
-                if self.job_store:
-                    self.job_store.update_job(job)
-                
-                # Aplicar operações condicionalmente
-                processed_audio = await self._apply_processing_operations(audio, job)
-                audio = processed_audio
+                try:
+                    # Aplicar operações condicionalmente
+                    processed_audio = await self._apply_processing_operations(audio, job)
+                    audio = processed_audio
+                except Exception as e:
+                    logger.error(f"Erro durante processamento de áudio: {e}")
+                    raise AudioNormalizationException(f"Falha no processamento: {str(e)}")
             
-            # Salva arquivo processado
+            # CRÍTICO: Salva arquivo processado SEMPRE como .webm
             output_dir = Path("./processed")
-            output_dir.mkdir(exist_ok=True)
+            try:
+                output_dir.mkdir(exist_ok=True, parents=True)
+            except Exception as e:
+                logger.error(f"Erro ao criar diretório de saída: {e}")
+                raise AudioNormalizationException(f"Não foi possível criar diretório: {str(e)}")
             
             # Nome do arquivo baseado nas operações
             operations_suffix = f"_{job.processing_operations}" if job.processing_operations != "none" else ""
-            output_path = output_dir / f"{job.id}{operations_suffix}.wav"
+            output_path = output_dir / f"{job.id}{operations_suffix}.webm"
             
-            print(f"💾 Salvando arquivo processado: {output_path}")
-            audio.export(str(output_path), format="wav")
+            try:
+                logger.info(f"Salvando arquivo processado como WebM: {output_path}")
+                # SEMPRE exporta como .webm com codec opus
+                audio.export(
+                    str(output_path), 
+                    format="webm",
+                    codec="libopus",
+                    parameters=["-strict", "-2"]
+                )
+                logger.info(f"Arquivo WebM salvo com sucesso. Tamanho: {output_path.stat().st_size} bytes")
+            except Exception as e:
+                logger.error(f"Erro ao salvar arquivo WebM: {e}")
+                raise AudioNormalizationException(f"Falha ao salvar arquivo de saída: {str(e)}")
             
             # Finaliza job
             job.output_file = str(output_path)
@@ -93,78 +130,109 @@ class AudioProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
-            print(f"✅ Job {job.id} processado com sucesso")
+            logger.info(f"Job {job.id} processado com sucesso. Output: {output_path.name}")
             
+        except AudioNormalizationException:
+            # Re-raise exceções específicas
+            raise
         except Exception as e:
-            # Marca job como falhou
+            # Captura qualquer erro inesperado
+            error_msg = f"Erro inesperado no processamento: {str(e)}"
+            logger.error(f"Job {job.id} falhou: {error_msg}", exc_info=True)
+            
             job.status = JobStatus.FAILED
-            job.error_message = str(e)
+            job.error_message = error_msg
             
             if self.job_store:
                 self.job_store.update_job(job)
             
-            print(f"❌ Job {job.id} falhou: {e}")
+            raise AudioNormalizationException(error_msg)
     
     async def _apply_processing_operations(self, audio: AudioSegment, job: Job) -> AudioSegment:
-        """Aplica operações de processamento condicionalmente"""
-        progress_step = 80.0 / sum([
+        """Aplica operações de processamento condicionalmente com tratamento robusto de erros"""
+        operations_count = sum([
             job.remove_noise, job.convert_to_mono, job.apply_highpass_filter,
             job.set_sample_rate_16k, job.isolate_vocals
         ])
+        
+        if operations_count == 0:
+            return audio
+            
+        progress_step = 80.0 / operations_count
         current_progress = 10.0
         
         # 1. Isolamento vocal (primeiro, pois pode afetar outras operações)
         if job.isolate_vocals:
-            print("🎤 Aplicando isolamento vocal...")
-            audio = await self._isolate_vocals(audio)
-            current_progress += progress_step
-            job.progress = current_progress
-            if self.job_store:
-                self.job_store.update_job(job)
+            try:
+                logger.info("Aplicando isolamento vocal...")
+                audio = await self._isolate_vocals(audio)
+                current_progress += progress_step
+                job.progress = current_progress
+                if self.job_store:
+                    self.job_store.update_job(job)
+            except Exception as e:
+                logger.error(f"Erro no isolamento vocal: {e}")
+                raise AudioNormalizationException(f"Falha no isolamento vocal: {str(e)}")
         
         # 2. Remoção de ruído
         if job.remove_noise:
-            print("🔇 Removendo ruído...")
-            audio = await self._remove_noise(audio)
-            current_progress += progress_step
-            job.progress = current_progress
-            if self.job_store:
-                self.job_store.update_job(job)
+            try:
+                logger.info("Removendo ruído...")
+                audio = await self._remove_noise(audio)
+                current_progress += progress_step
+                job.progress = current_progress
+                if self.job_store:
+                    self.job_store.update_job(job)
+            except Exception as e:
+                logger.error(f"Erro na remoção de ruído: {e}")
+                raise AudioNormalizationException(f"Falha na remoção de ruído: {str(e)}")
         
         # 3. Converter para mono
         if job.convert_to_mono:
-            print("📻 Convertendo para mono...")
-            audio = audio.set_channels(1)
-            current_progress += progress_step
-            job.progress = current_progress
-            if self.job_store:
-                self.job_store.update_job(job)
+            try:
+                logger.info("Convertendo para mono...")
+                audio = audio.set_channels(1)
+                current_progress += progress_step
+                job.progress = current_progress
+                if self.job_store:
+                    self.job_store.update_job(job)
+            except Exception as e:
+                logger.error(f"Erro ao converter para mono: {e}")
+                raise AudioNormalizationException(f"Falha na conversão para mono: {str(e)}")
         
         # 4. Aplicar filtro high-pass
         if job.apply_highpass_filter:
-            print("🔊 Aplicando filtro high-pass...")
-            audio = await self._apply_highpass_filter(audio)
-            current_progress += progress_step
-            job.progress = current_progress
-            if self.job_store:
-                self.job_store.update_job(job)
+            try:
+                logger.info("Aplicando filtro high-pass...")
+                audio = await self._apply_highpass_filter(audio)
+                current_progress += progress_step
+                job.progress = current_progress
+                if self.job_store:
+                    self.job_store.update_job(job)
+            except Exception as e:
+                logger.error(f"Erro no filtro high-pass: {e}")
+                raise AudioNormalizationException(f"Falha no filtro high-pass: {str(e)}")
         
         # 5. Reduzir sample rate para 16kHz
         if job.set_sample_rate_16k:
-            print("📡 Reduzindo sample rate para 16kHz...")
-            audio = audio.set_frame_rate(16000)
-            current_progress += progress_step
-            job.progress = current_progress
-            if self.job_store:
-                self.job_store.update_job(job)
+            try:
+                logger.info("Reduzindo sample rate para 16kHz...")
+                audio = audio.set_frame_rate(16000)
+                current_progress += progress_step
+                job.progress = current_progress
+                if self.job_store:
+                    self.job_store.update_job(job)
+            except Exception as e:
+                logger.error(f"Erro ao ajustar sample rate: {e}")
+                raise AudioNormalizationException(f"Falha ao ajustar sample rate: {str(e)}")
         
         return audio
     
     async def _isolate_vocals(self, audio: AudioSegment) -> AudioSegment:
-        """Isola vocais usando OpenUnmix"""
+        """Isola vocais usando OpenUnmix com tratamento robusto de erros"""
         if not OPENUNMIX_AVAILABLE:
-            print("⚠️ OpenUnmix não disponível - pulando isolamento vocal")
-            return audio
+            logger.warning("OpenUnmix não disponível - pulando isolamento vocal")
+            raise AudioNormalizationException("OpenUnmix não está instalado")
         
         try:
             # Converte para numpy array
@@ -205,14 +273,15 @@ class AudioProcessor:
                 channels=1 if len(vocals.shape) == 1 else 2
             )
             
+            logger.info("Isolamento vocal aplicado com sucesso")
             return processed_audio
             
         except Exception as e:
-            print(f"⚠️ Erro no isolamento vocal: {e}")
-            return audio
+            logger.error(f"Erro crítico no isolamento vocal: {e}", exc_info=True)
+            raise AudioNormalizationException(f"Erro no isolamento vocal: {str(e)}")
     
     async def _remove_noise(self, audio: AudioSegment) -> AudioSegment:
-        """Remove ruído usando noisereduce"""
+        """Remove ruído usando noisereduce com tratamento robusto de erros"""
         try:
             # Converte para numpy
             samples = np.array(audio.get_array_of_samples(), dtype=np.float32)
@@ -244,18 +313,21 @@ class AudioProcessor:
                 channels=audio.channels
             )
             
+            logger.info("Remoção de ruído aplicada com sucesso")
             return processed_audio
             
         except Exception as e:
-            print(f"⚠️ Erro na remoção de ruído: {e}")
-            return audio
+            logger.error(f"Erro crítico na remoção de ruído: {e}", exc_info=True)
+            raise AudioNormalizationException(f"Erro na remoção de ruído: {str(e)}")
     
     async def _apply_highpass_filter(self, audio: AudioSegment) -> AudioSegment:
-        """Aplica filtro high-pass"""
+        """Aplica filtro high-pass com tratamento robusto de erros"""
         try:
             # Frequência de corte: 80Hz (remove frequências muito baixas)
             cutoff_freq = 80
-            return high_pass_filter(audio, cutoff_freq)
+            filtered_audio = high_pass_filter(audio, cutoff_freq)
+            logger.info("Filtro high-pass aplicado com sucesso")
+            return filtered_audio
         except Exception as e:
-            print(f"⚠️ Erro no filtro high-pass: {e}")
-            return audio
+            logger.error(f"Erro crítico no filtro high-pass: {e}", exc_info=True)
+            raise AudioNormalizationException(f"Erro no filtro high-pass: {str(e)}")
