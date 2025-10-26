@@ -77,38 +77,67 @@ def validate_audio_file(filename: str, content: bytes) -> None:
     if len(content) < 1000:  # Mínimo 1KB
         raise ValidationError("Arquivo muito pequeno ou corrompido")
     
-    # Validação básica de headers de áudio
-    if settings['security']['validate_audio_headers']:
-        _validate_audio_headers(content)
+    # IMPORTANTE: Validação real de formato será feita com ffprobe durante processamento
+    # Headers validation removida para evitar rejeições de arquivos .webm válidos
 
 
-def _validate_audio_headers(content: bytes) -> None:
-    """Validação básica de headers de áudio"""
-    if len(content) < 12:
-        raise ValidationError("Arquivo corrompido - headers inválidos")
+def validate_audio_content_with_ffprobe(file_path: str) -> dict:
+    """
+    Valida conteúdo de áudio usando ffprobe - mais robusta que validação de headers
     
-    # Verifica alguns headers conhecidos
-    headers = content[:12]
+    Args:
+        file_path: Caminho para o arquivo a ser validado
+        
+    Returns:
+        dict: Informações do arquivo (streams, duração, etc.)
+        
+    Raises:
+        ValidationError: Se arquivo não é válido ou não contém áudio
+    """
+    import subprocess
+    import json
     
-    # MP3
-    if headers[:3] == b'ID3' or headers[:2] == b'\xff\xfb':
-        return
-    
-    # WAV
-    if headers[:4] == b'RIFF' and headers[8:12] == b'WAVE':
-        return
-    
-    # FLAC
-    if headers[:4] == b'fLaC':
-        return
-    
-    # OGG
-    if headers[:4] == b'OggS':
-        return
-    
-    # WebM/MP4 (básico)
-    if b'ftyp' in headers or b'mdat' in headers:
-        return
-    
-    # Se chegou aqui, pode ser suspeito
-    raise ValidationError("Formato de áudio não reconhecido ou corrompido")
+    try:
+        # Comando ffprobe para analisar o arquivo
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+            '-show_streams', '-show_format', str(file_path)
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode != 0:
+            raise ValidationError("Arquivo não pode ser analisado pelo ffprobe")
+            
+        file_info = json.loads(result.stdout)
+        
+        # Verifica se tem streams de áudio
+        audio_streams = [s for s in file_info.get('streams', []) if s.get('codec_type') == 'audio']
+        
+        if not audio_streams:
+            # Pode ser um arquivo de vídeo, vamos verificar se tem streams de vídeo
+            video_streams = [s for s in file_info.get('streams', []) if s.get('codec_type') == 'video']
+            if video_streams:
+                # É um arquivo de vídeo - será necessário extrair áudio
+                return {
+                    'type': 'video_with_audio',
+                    'audio_streams': audio_streams,
+                    'video_streams': video_streams,
+                    'format': file_info.get('format', {})
+                }
+            else:
+                raise ValidationError("Arquivo não contém streams de áudio")
+        
+        return {
+            'type': 'audio',
+            'audio_streams': audio_streams,
+            'format': file_info.get('format', {}),
+            'duration': float(file_info.get('format', {}).get('duration', 0))
+        }
+        
+    except subprocess.TimeoutExpired:
+        raise ValidationError("Timeout ao analisar arquivo com ffprobe")
+    except json.JSONDecodeError:
+        raise ValidationError("Resposta inválida do ffprobe")
+    except Exception as e:
+        raise ValidationError(f"Erro ao validar arquivo: {str(e)}")

@@ -77,38 +77,49 @@ def validate_audio_file(filename: str, content: bytes) -> None:
     if len(content) < 1000:  # Mínimo 1KB
         raise ValidationError("Arquivo muito pequeno ou corrompido")
     
-    # Validação básica de headers de áudio
-    if settings['security']['validate_audio_headers']:
-        _validate_audio_headers(content)
+    # IMPORTANTE: Validação real de formato será feita durante processamento
+    # Headers validation removida para evitar rejeições de arquivos .webm válidos
 
 
-def _validate_audio_headers(content: bytes) -> None:
-    """Validação básica de headers de áudio"""
-    if len(content) < 12:
-        raise ValidationError("Arquivo corrompido - headers inválidos")
+def validate_url(url: str) -> None:
+    """
+    Valida URL para download (específico para video-downloader)
     
-    # Verifica alguns headers conhecidos
-    headers = content[:12]
+    Args:
+        url: URL para validar
+        
+    Raises:
+        ValidationError: Se URL inválida
+        SecurityError: Se URL suspeita
+    """
+    import re
     
-    # MP3
-    if headers[:3] == b'ID3' or headers[:2] == b'\xff\xfb':
-        return
+    if not url or not isinstance(url, str):
+        raise ValidationError("URL é obrigatória")
     
-    # WAV
-    if headers[:4] == b'RIFF' and headers[8:12] == b'WAVE':
-        return
+    # Verifica se é uma URL válida
+    url_pattern = re.compile(
+        r'^https?://'  # http:// ou https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...ou ip
+        r'(?::\d+)?'  # porta opcional
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
     
-    # FLAC
-    if headers[:4] == b'fLaC':
-        return
+    if not url_pattern.match(url):
+        raise ValidationError("URL inválida")
     
-    # OGG
-    if headers[:4] == b'OggS':
-        return
+    # Lista de domínios permitidos (YouTube, etc)
+    allowed_domains = [
+        'youtube.com', 'youtu.be', 'vimeo.com', 
+        'dailymotion.com', 'twitch.tv'
+    ]
     
-    # WebM/MP4 (básico)
-    if b'ftyp' in headers or b'mdat' in headers:
-        return
+    domain_found = False
+    for domain in allowed_domains:
+        if domain in url.lower():
+            domain_found = True
+            break
     
-    # Se chegou aqui, pode ser suspeito
-    raise ValidationError("Formato de áudio não reconhecido ou corrompido")
+    if not domain_found:
+        raise SecurityError(f"Domínio não permitido. Permitidos: {', '.join(allowed_domains)}")

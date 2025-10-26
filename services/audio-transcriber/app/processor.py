@@ -35,6 +35,22 @@ class TranscriptionProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
+            # Validação robusta do arquivo com ffprobe
+            from .security import validate_audio_content_with_ffprobe
+            try:
+                file_info = validate_audio_content_with_ffprobe(job.input_file)
+                logger.info(f"Arquivo validado com ffprobe: {file_info['type']}")
+                
+                # Se for vídeo, extrai áudio automaticamente
+                if file_info['type'] == 'video_with_audio':
+                    logger.info("Arquivo de vídeo detectado, extraindo áudio...")
+                    job.input_file = await self._extract_audio_from_video(job.input_file)
+                    logger.info(f"Áudio extraído para: {job.input_file}")
+                    
+            except Exception as e:
+                logger.error(f"Validação ffprobe falhou: {e}")
+                raise AudioTranscriptionException(str(e))
+            
             # Carrega modelo se necessário
             self._load_model()
             
@@ -108,3 +124,52 @@ class TranscriptionProcessor:
         millis = int((seconds - int(seconds)) * 1000)
         
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    
+    async def _extract_audio_from_video(self, video_file_path: str) -> str:
+        """
+        Extrai áudio de arquivo de vídeo usando ffmpeg
+        
+        Args:
+            video_file_path: Caminho para o arquivo de vídeo
+            
+        Returns:
+            str: Caminho para o arquivo de áudio extraído
+        """
+        import subprocess
+        
+        try:
+            # Cria arquivo temporário para o áudio extraído
+            temp_dir = Path("temp")
+            temp_dir.mkdir(exist_ok=True)
+            
+            video_path = Path(video_file_path)
+            audio_filename = f"{video_path.stem}_audio.wav"
+            audio_path = temp_dir / audio_filename
+            
+            # Comando ffmpeg para extrair áudio
+            cmd = [
+                'ffmpeg', '-i', str(video_file_path),
+                '-vn',  # Remove streams de vídeo
+                '-acodec', 'pcm_s16le',  # Codec áudio para compatibilidade
+                '-ar', '16000',  # Sample rate 16kHz (ótimo para Whisper)
+                '-ac', '1',  # Mono
+                '-y',  # Sobrescrever se existir
+                str(audio_path)
+            ]
+            
+            logger.info(f"Extraindo áudio: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode != 0:
+                raise AudioTranscriptionException(f"Falha ao extrair áudio: {result.stderr}")
+            
+            if not audio_path.exists():
+                raise AudioTranscriptionException("Arquivo de áudio extraído não foi criado")
+                
+            logger.info(f"Áudio extraído com sucesso: {audio_path}")
+            return str(audio_path)
+            
+        except subprocess.TimeoutExpired:
+            raise AudioTranscriptionException("Timeout ao extrair áudio do vídeo")
+        except Exception as e:
+            raise AudioTranscriptionException(f"Erro ao extrair áudio: {str(e)}")
