@@ -50,15 +50,18 @@ class CallbackTask(Task):
 @celery_app.task(bind=True, base=CallbackTask, name='normalize_audio_task')
 def normalize_audio_task(self, job_dict: dict) -> dict:
     """
-    Task RESILIENTE do Celery para normalização de áudio.
-    GARANTIA: Esta task NUNCA derruba a API - todas as exceções são tratadas.
+    Task ULTRA-RESILIENTE do Celery para normalização de áudio.
+    GARANTIA ABSOLUTA: Esta task NUNCA derruba a API - TODAS as exceções são capturadas e tratadas.
     
     Args:
         job_dict (dict): Job serializado como dicionário.
     Returns:
         dict: Job atualizado como dicionário com status success/failure.
     """
+    from celery.exceptions import Ignore
+    
     job_id = job_dict.get('id', 'unknown')
+    logger.info(f"🚀 Task iniciada para job {job_id}")
     
     try:
         # 1. RECONSTITUIÇÃO DO JOB - PRIMEIRA LINHA DE DEFESA
@@ -66,8 +69,8 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             job = Job(**job_dict)
             logger.info(f"✅ Job {job_id} reconstitution successful")
         except ValidationError as ve:
-            logger.error(f"❌ Job {job_id} validation error: {ve}")
-            # Fallback: preenche campos ausentes
+            logger.error(f"❌ Job {job_id} validation error during reconstitution: {ve}")
+            # Fallback: preenche campos ausentes com defaults
             fields = {}
             for field in Job.model_fields:
                 if field in job_dict:
@@ -76,11 +79,22 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
                     default_val = Job.model_fields[field].default
                     fields[field] = default_val if default_val is not None else ""
             job = Job(**fields)
-            logger.info(f"⚠️ Job {job_id} reconstitution with defaults")
+            logger.info(f"⚠️ Job {job_id} reconstitution with default values")
+        except Exception as reconst_err:
+            logger.critical(f"🔥 CRITICAL: Unable to reconstitute job {job_id}: {reconst_err}")
+            # Atualiza Celery com erro fatal
+            self.update_state(state='FAILURE', meta={
+                'status': 'failed',
+                'job_id': job_id,
+                'error': f'Job reconstitution failed: {str(reconst_err)}',
+                'progress': 0.0
+            })
+            raise Ignore()  # Evita retry automático
         
         # 2. PROCESSAMENTO COMPLETO - SEGUNDA LINHA DE DEFESA
         try:
             logger.info(f"🔧 Starting audio processing for job {job_id}")
+            logger.info(f"📋 Processing params: noise={job.remove_noise}, highpass={job.apply_highpass_filter}, vocals={job.isolate_vocals}")
             
             # Atualiza para PROCESSING
             job.status = JobStatus.PROCESSING
@@ -88,10 +102,17 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             
             try:
                 self.job_store.update_job(job)
-                logger.info(f"📝 Job {job_id} marked as PROCESSING")
+                logger.info(f"📝 Job {job_id} marked as PROCESSING in store")
             except Exception as redis_err:
                 logger.warning(f"⚠️ Redis update failed for job {job_id}: {redis_err}")
                 # Continua processamento mesmo se Redis falhar
+            
+            # Atualiza estado do Celery para STARTED
+            self.update_state(state='STARTED', meta={
+                'status': 'processing',
+                'job_id': job_id,
+                'progress': 0.0
+            })
             
             # Configuração do loop assíncrono
             try:
@@ -104,9 +125,10 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             async def process_with_timeout():
                 return await self.processor.process_audio_job(job)
             
-            # Timeout de 10 minutos para evitar jobs infinitos
+            # Timeout de 15 minutos para evitar jobs infinitos
             try:
-                loop.run_until_complete(asyncio.wait_for(process_with_timeout(), timeout=600))
+                logger.info(f"⏱️ Starting processing with 15min timeout for job {job_id}")
+                loop.run_until_complete(asyncio.wait_for(process_with_timeout(), timeout=900))
                 
                 # Verifica se processamento foi bem-sucedido
                 if job.status == JobStatus.COMPLETED:
@@ -119,32 +141,36 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
                         'progress': 100.0
                     })
                 else:
-                    logger.error(f"❌ Job {job_id} processing failed - status: {job.status}")
+                    logger.error(f"❌ Job {job_id} processing failed - final status: {job.status}")
                     # Força status para FAILED se não foi marcado como COMPLETED
                     job.status = JobStatus.FAILED
                     if not job.error_message:
-                        job.error_message = "Processing completed but status is not COMPLETED"
+                        job.error_message = f"Processing ended with unexpected status: {job.status}"
                         
             except asyncio.TimeoutError:
-                logger.error(f"⏰ Job {job_id} timeout after 10 minutes")
+                logger.error(f"⏰ Job {job_id} TIMEOUT after 15 minutes")
                 job.status = JobStatus.FAILED
-                job.error_message = "Processing timeout - job exceeded 10 minutes"
+                job.error_message = "Processing timeout - job exceeded 15 minutes limit"
+            except Exception as process_inner_err:
+                logger.error(f"💥 Job {job_id} inner processing exception: {process_inner_err}", exc_info=True)
+                job.status = JobStatus.FAILED
+                job.error_message = f"Processing exception: {str(process_inner_err)}"
                 
         except Exception as process_err:
-            # TERCEIRA LINHA DE DEFESA - PROCESSAMENTO FALHOU
+            # TERCEIRA LINHA DE DEFESA - PROCESSAMENTO FALHOU COMPLETAMENTE
             error_msg = str(process_err)
-            logger.error(f"💥 Job {job_id} processing exception: {error_msg}", exc_info=True)
+            logger.error(f"💥 Job {job_id} OUTER processing exception: {error_msg}", exc_info=True)
             
             job.status = JobStatus.FAILED
-            job.error_message = f"Processing failed: {error_msg}"
+            job.error_message = f"Critical processing failure: {error_msg}"
             job.progress = 0.0
             
         # 3. ATUALIZAÇÃO FINAL DO STATUS - QUARTA LINHA DE DEFESA
         try:
             self.job_store.update_job(job)
-            logger.info(f"📝 Job {job_id} final status updated: {job.status}")
+            logger.info(f"📝 Job {job_id} final status updated in store: {job.status}")
         except Exception as redis_final_err:
-            logger.error(f"🔥 CRITICAL: Failed to update final status for job {job_id}: {redis_final_err}")
+            logger.error(f"🔥 CRITICAL: Failed to update final status in store for job {job_id}: {redis_final_err}")
             # Continua mesmo se Redis falhar - pelo menos o Celery terá o estado
         
         # 4. RESULTADO FINAL GARANTIDO
@@ -153,17 +179,23 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             self.update_state(state='FAILURE', meta={
                 'status': 'failed',
                 'job_id': job_id,
-                'error': job.error_message,
+                'error': job.error_message or 'Unknown processing error',
                 'progress': job.progress
             })
             logger.error(f"🚨 Job {job_id} FINAL STATUS: FAILED - {job.error_message}")
+            
+            # IMPORTANTE: Usa Ignore() para evitar retry automático
+            raise Ignore()
         else:
             logger.info(f"🎉 Job {job_id} FINAL STATUS: {job.status}")
         
         return job.model_dump()
         
+    except Ignore:
+        # Re-raise Ignore (é controlado)
+        raise
     except Exception as catastrophic_err:
-        # QUINTA LINHA DE DEFESA - FALHA CATASTRÓFICA
+        # QUINTA LINHA DE DEFESA - FALHA CATASTRÓFICA (ÚLTIMA BARREIRA)
         error_msg = f"CATASTROPHIC FAILURE in job {job_id}: {str(catastrophic_err)}"
         logger.critical(error_msg, exc_info=True)
         
@@ -175,13 +207,17 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             'progress': 0.0
         })
         
-        # Retorna job falho estruturado
-        return {
-            'id': job_id,
-            'status': 'failed',
-            'error_message': error_msg,
-            'progress': 0.0
-        }
+        # Tenta atualizar store se possível
+        try:
+            if 'job' in locals() and job:
+                job.status = JobStatus.FAILED
+                job.error_message = error_msg
+                self.job_store.update_job(job)
+        except Exception:
+            pass  # Ignora se falhar
+        
+        # NUNCA deixa exceção subir - usa Ignore()
+        raise Ignore()
 
 
 @celery_app.task(name='cleanup_expired_jobs')

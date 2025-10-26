@@ -262,14 +262,14 @@ async def create_audio_job(
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     """
-    🛡️ ENDPOINT RESILIENTE - Consulta status de um job
-    GARANTIA: Este endpoint NUNCA quebra, mesmo com jobs corrompidos
+    🛡️ ENDPOINT ULTRA-RESILIENTE - Consulta status de um job
+    GARANTIA ABSOLUTA: Este endpoint NUNCA quebra, mesmo com jobs corrompidos/falhos
     
     Args:
         job_id: ID do job a consultar
         
     Returns:
-        dict: Dados do job com status atual (formato flexível para resiliência)
+        dict: Dados do job com status atual (formato flexível para resiliência máxima)
     """
     # PRIMEIRA LINHA DE DEFESA - Validação de entrada
     if not job_id or len(job_id.strip()) == 0:
@@ -282,65 +282,111 @@ async def get_job_status(job_id: str):
     try:
         # SEGUNDA LINHA DE DEFESA - Busca no Redis/Store
         job = None
+        store_error = None
         try:
             job = job_store.get_job(job_id)
-            logger.info(f"📦 Job encontrado no store: {job_id}")
+            if job:
+                logger.info(f"📦 Job encontrado no store: {job_id}")
         except Exception as store_err:
+            store_error = str(store_err)
             logger.error(f"⚠️ Erro ao buscar job {job_id} no store: {store_err}")
             # Continua para tentar buscar no Celery
         
-        # TERCEIRA LINHA DE DEFESA - Consulta status no Celery se store falhou
+        # TERCEIRA LINHA DE DEFESA - Consulta status no Celery (SEMPRE)
         celery_status = None
         celery_meta = None
+        celery_error = None
         
         try:
             from .celery_config import celery_app
             task_result = celery_app.AsyncResult(job_id)
             celery_status = task_result.state
-            celery_meta = task_result.info if hasattr(task_result, 'info') else {}
             
-            logger.info(f"🔧 Celery status para job {job_id}: {celery_status}")
+            # Lê info/result de forma segura
+            if celery_status == 'FAILURE':
+                # Para FAILURE, o info contém a exceção ou meta
+                try:
+                    celery_meta = task_result.info if task_result.info else {}
+                    if isinstance(celery_meta, Exception):
+                        celery_meta = {'error': str(celery_meta)}
+                    elif not isinstance(celery_meta, dict):
+                        celery_meta = {'error': str(celery_meta)}
+                except Exception as meta_err:
+                    logger.warning(f"Erro ao ler meta do Celery: {meta_err}")
+                    celery_meta = {'error': 'Unable to retrieve error details'}
+            elif celery_status == 'SUCCESS':
+                try:
+                    celery_meta = task_result.result if task_result.result else {}
+                    if not isinstance(celery_meta, dict):
+                        celery_meta = {}
+                except Exception as result_err:
+                    logger.warning(f"Erro ao ler result do Celery: {result_err}")
+                    celery_meta = {}
+            else:
+                celery_meta = {}
             
-            # Se o Celery tem informações e o store não
-            if not job and celery_status in ['SUCCESS', 'FAILURE', 'PENDING', 'RETRY', 'REVOKED']:
-                logger.info(f"📋 Reconstruindo job {job_id} a partir do Celery")
-                
-                # Reconstrói informações básicas do job
-                if celery_status == 'FAILURE' and isinstance(celery_meta, dict):
-                    return {
-                        "id": job_id,
-                        "status": "failed",
-                        "error_message": celery_meta.get('error', 'Unknown error'),
-                        "progress": celery_meta.get('progress', 0.0),
-                        "created_at": None,
-                        "completed_at": None,
-                        "source": "celery_recovery"
-                    }
-                elif celery_status == 'SUCCESS' and isinstance(celery_meta, dict):
-                    return {
-                        "id": job_id,
-                        "status": "completed",
-                        "progress": celery_meta.get('progress', 100.0),
-                        "output_file": celery_meta.get('output_file'),
-                        "created_at": None,
-                        "completed_at": None,
-                        "source": "celery_recovery"
-                    }
-                elif celery_status == 'PENDING':
-                    return {
-                        "id": job_id,
-                        "status": "queued",
-                        "progress": 0.0,
-                        "created_at": None,
-                        "completed_at": None,
-                        "source": "celery_recovery"
-                    }
-                
+            logger.info(f"� Celery status para job {job_id}: {celery_status}")
+            
         except Exception as celery_err:
+            celery_error = str(celery_err)
             logger.error(f"⚠️ Erro ao consultar Celery para job {job_id}: {celery_err}")
             # Continua mesmo se Celery falhar
         
-        # QUARTA LINHA DE DEFESA - Validação do job encontrado
+        # QUARTA LINHA DE DEFESA - Reconstrução de job se apenas Celery respondeu
+        if not job and celery_status:
+            logger.info(f"📋 Reconstruindo job {job_id} APENAS a partir do Celery")
+            
+            if celery_status == 'FAILURE':
+                return {
+                    "id": job_id,
+                    "status": "failed",
+                    "error_message": celery_meta.get('error', 'Processing failed (Celery)'),
+                    "progress": celery_meta.get('progress', 0.0),
+                    "created_at": None,
+                    "completed_at": None,
+                    "source": "celery_only_failure"
+                }
+            elif celery_status == 'SUCCESS':
+                return {
+                    "id": job_id,
+                    "status": "completed",
+                    "progress": 100.0,
+                    "output_file": celery_meta.get('output_file'),
+                    "created_at": None,
+                    "completed_at": None,
+                    "source": "celery_only_success"
+                }
+            elif celery_status == 'PENDING':
+                return {
+                    "id": job_id,
+                    "status": "queued",
+                    "progress": 0.0,
+                    "created_at": None,
+                    "completed_at": None,
+                    "source": "celery_only_pending"
+                }
+            elif celery_status in ['STARTED', 'RETRY']:
+                return {
+                    "id": job_id,
+                    "status": "processing",
+                    "progress": celery_meta.get('progress', 0.0),
+                    "created_at": None,
+                    "completed_at": None,
+                    "source": f"celery_only_{celery_status.lower()}"
+                }
+            else:
+                # Estado desconhecido do Celery
+                return {
+                    "id": job_id,
+                    "status": "unknown",
+                    "error_message": f"Celery state: {celery_status}",
+                    "progress": 0.0,
+                    "created_at": None,
+                    "completed_at": None,
+                    "source": "celery_unknown_state"
+                }
+        
+        # QUINTA LINHA DE DEFESA - Validação e serialização do job do store
         if job:
             try:
                 # Verifica se job está expirado
@@ -349,69 +395,101 @@ async def get_job_status(job_id: str):
                     return {
                         "id": job_id,
                         "status": "expired",
-                        "error_message": "Job expired",
+                        "error_message": "Job expired (TTL exceeded)",
                         "progress": 0.0,
                         "source": "store_expired"
                     }
                 
-                # Converte job para dict de forma segura
-                if hasattr(job, 'model_dump'):
-                    job_dict = job.model_dump()
-                elif hasattr(job, 'dict'):
-                    job_dict = job.dict()
-                else:
-                    # Fallback manual
+                # Converte job para dict de forma ULTRA segura
+                job_dict = {}
+                try:
+                    if hasattr(job, 'model_dump'):
+                        job_dict = job.model_dump()
+                    elif hasattr(job, 'dict'):
+                        job_dict = job.dict()
+                    else:
+                        raise ValueError("Job object has no serialization method")
+                except Exception as serialize_err:
+                    logger.warning(f"Falha na serialização automática: {serialize_err}")
+                    # Fallback manual completo
                     job_dict = {
                         "id": getattr(job, 'id', job_id),
-                        "status": getattr(job, 'status', 'unknown'),
-                        "progress": getattr(job, 'progress', 0.0),
+                        "status": str(getattr(job, 'status', 'unknown')),
+                        "progress": float(getattr(job, 'progress', 0.0)),
                         "error_message": getattr(job, 'error_message', None),
-                        "created_at": getattr(job, 'created_at', None),
-                        "completed_at": getattr(job, 'completed_at', None),
-                        "source": "store_manual"
+                        "created_at": str(getattr(job, 'created_at', None)),
+                        "completed_at": str(getattr(job, 'completed_at', None)),
+                        "filename": getattr(job, 'filename', None),
+                        "output_file": getattr(job, 'output_file', None),
+                        "source": "store_manual_fallback"
                     }
                 
-                # Enriquece com informações do Celery se disponível
-                if celery_status and celery_meta:
-                    job_dict["celery_status"] = celery_status
-                    if celery_status == 'FAILURE' and isinstance(celery_meta, dict):
-                        if not job_dict.get("error_message"):
-                            job_dict["error_message"] = celery_meta.get('error', 'Processing failed')
+                # ENRIQUECIMENTO: Combina dados do store com Celery
+                if celery_status:
+                    job_dict["_celery_state"] = celery_status
+                    
+                    # Se Celery diz FAILURE mas store não registrou, corrige
+                    if celery_status == 'FAILURE':
+                        if job_dict.get('status') not in ['failed', 'error']:
+                            logger.warning(f"⚠️ Inconsistência: Store={job_dict.get('status')}, Celery=FAILURE")
+                            job_dict['status'] = 'failed'
+                            if not job_dict.get('error_message') and celery_meta:
+                                job_dict['error_message'] = celery_meta.get('error', 'Processing failed (Celery report)')
+                    
+                    # Se Celery diz SUCCESS mas store não registrou, corrige
+                    elif celery_status == 'SUCCESS':
+                        if job_dict.get('status') not in ['completed', 'success']:
+                            logger.warning(f"⚠️ Inconsistência: Store={job_dict.get('status')}, Celery=SUCCESS")
+                            # Não sobrescreve - confia mais no store neste caso
                 
                 logger.info(f"✅ Job {job_id} status: {job_dict.get('status', 'unknown')}")
                 return job_dict
                 
             except Exception as job_err:
-                logger.error(f"💥 Erro ao processar job {job_id}: {job_err}")
-                # Fallback para formato mínimo
+                logger.error(f"💥 Erro CRÍTICO ao processar job {job_id}: {job_err}", exc_info=True)
+                # Fallback mínimo absoluto
                 return {
                     "id": job_id,
                     "status": "error",
-                    "error_message": f"Job processing error: {str(job_err)}",
+                    "error_message": f"Job data corrupted: {str(job_err)}",
                     "progress": 0.0,
-                    "source": "error_fallback"
+                    "source": "error_critical_fallback"
                 }
         
-        # QUINTA LINHA DE DEFESA - Job completamente não encontrado
-        logger.warning(f"🚫 Job não encontrado: {job_id}")
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        # SEXTA LINHA DE DEFESA - Job não encontrado em lugar nenhum
+        if not job and not celery_status:
+            logger.warning(f"🚫 Job {job_id} não encontrado em NENHUM lugar (Store: {store_error}, Celery: {celery_error})")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Job não encontrado. Store error: {store_error or 'N/A'}, Celery error: {celery_error or 'N/A'}"
+            )
+        
+        # Fallback final (não deveria chegar aqui)
+        logger.error(f"🔥 Estado inesperado para job {job_id}")
+        return {
+            "id": job_id,
+            "status": "unknown",
+            "error_message": "Unexpected state in status endpoint",
+            "progress": 0.0,
+            "source": "unexpected_fallback"
+        }
         
     except HTTPException:
         # Re-raise HTTP exceptions (são controladas)
         raise
     except Exception as catastrophic_err:
-        # SEXTA LINHA DE DEFESA - Falha catastrófica
+        # SÉTIMA LINHA DE DEFESA - Falha CATASTRÓFICA
         error_msg = f"CATASTROPHIC ERROR querying job {job_id}: {str(catastrophic_err)}"
         logger.critical(error_msg, exc_info=True)
         
-        # Retorna erro estruturado em vez de quebrar
+        # NUNCA quebra - retorna erro estruturado
         raise HTTPException(
             status_code=500, 
             detail={
                 "error": "Internal server error",
                 "job_id": job_id,
-                "details": "Unable to retrieve job status due to internal error",
-                "support": "Check server logs for details"
+                "message": "Unable to retrieve job status due to critical internal error",
+                "support": "Contact support with this job_id. Check server logs for details."
             }
         )
 
