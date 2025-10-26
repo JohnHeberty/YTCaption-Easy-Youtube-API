@@ -5,10 +5,19 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List
+import logging
 
-from .models import Job, JobRequest, JobStatus
+from .models import Job, AudioProcessingRequest, JobStatus
 from .processor import AudioProcessor
 from .redis_store import RedisJobStore
+from .config import get_settings
+from .logging_config import setup_logging, get_logger
+from .exceptions import AudioProcessingError, ValidationError, SecurityError
+
+# Configuração inicial
+settings = get_settings()
+setup_logging("audio-normalization", settings['log_level'])
+logger = get_logger(__name__)
 
 # Instâncias globais
 app = FastAPI(
@@ -17,8 +26,37 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Importa e adiciona middleware de segurança
+from .security import SecurityMiddleware, validate_audio_file
+app.add_middleware(SecurityMiddleware)
+
+# Exception handlers
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request, exc):
+    logger.error(f"Validation error: {exc}")
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc), "type": "validation_error"}
+    )
+
+@app.exception_handler(SecurityError)
+async def security_exception_handler(request, exc):
+    logger.error(f"Security error: {exc}")
+    return JSONResponse(
+        status_code=403,
+        content={"detail": str(exc), "type": "security_error"}
+    )
+
+@app.exception_handler(AudioProcessingError)
+async def processing_exception_handler(request, exc):
+    logger.error(f"Processing error: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "type": "processing_error"}
+    )
+
 # Usa Redis como store compartilhado
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+redis_url = settings['redis_url']
 job_store = RedisJobStore(redis_url=redis_url)
 processor = AudioProcessor()
 
@@ -49,17 +87,36 @@ def submit_processing_task(job: Job):
 @app.post("/jobs", response_model=Job)
 async def create_audio_job(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    remove_noise: bool = False,
+    convert_to_mono: bool = False,
+    apply_highpass_filter: bool = False,
+    set_sample_rate_16k: bool = False,
+    isolate_vocals: bool = False
 ) -> Job:
     """
-    Cria um novo job de normalização de áudio
+    Cria um novo job de processamento de áudio
     
     - **file**: Arquivo de áudio para processar
-    """
-    # Cria job para extrair ID
-    new_job = Job.create_new(file.filename, "normalize")
+    - **remove_noise**: Remove ruído de fundo (padrão: False)
+    - **convert_to_mono**: Converte para mono (padrão: False)  
+    - **apply_highpass_filter**: Aplica filtro high-pass (padrão: False)
+    - **set_sample_rate_16k**: Define sample rate para 16kHz (padrão: False)
+    - **isolate_vocals**: Isola vocais usando OpenUnmix (padrão: False)
     
-    # Verifica se já existe job com mesmo ID
+    Se nenhum parâmetro for True, apenas salva o arquivo original.
+    """
+    # Cria job com parâmetros de processamento
+    new_job = Job.create_new(
+        filename=file.filename,
+        remove_noise=remove_noise,
+        convert_to_mono=convert_to_mono,
+        apply_highpass_filter=apply_highpass_filter,
+        set_sample_rate_16k=set_sample_rate_16k,
+        isolate_vocals=isolate_vocals
+    )
+    
+    # Verifica se já existe job com mesmo ID (cache baseado no arquivo + operações)
     existing_job = job_store.get_job(new_job.id)
     
     if existing_job:
@@ -79,16 +136,27 @@ async def create_audio_job(
             submit_processing_task(existing_job)
             return existing_job
     
-    # Job novo - salva arquivo
+    # Job novo - lê e valida arquivo
+    content = await file.read()
+    
+    # Validação de segurança
+    try:
+        validate_audio_file(file.filename, content)
+        logger.info(f"Arquivo validado com sucesso: {file.filename}")
+    except (ValidationError, SecurityError) as e:
+        logger.error(f"Validação falhou para {file.filename}: {e}")
+        raise
+    
+    # Salva arquivo
     upload_dir = Path("./uploads")
     upload_dir.mkdir(exist_ok=True)
     
     file_path = upload_dir / f"{new_job.id}_{file.filename}"
     with open(file_path, "wb") as f:
-        content = await file.read()
         f.write(content)
     
     new_job.input_file = str(file_path)
+    new_job.file_size_input = file_path.stat().st_size
     
     # Salva job e submete para processamento
     job_store.save_job(new_job)

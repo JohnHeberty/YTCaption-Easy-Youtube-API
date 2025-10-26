@@ -12,8 +12,13 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
-class JobRequest(BaseModel):
-    operation: Optional[str] = "normalize"  # normalize, denoise, etc.
+class AudioProcessingRequest(BaseModel):
+    """Request para processamento de áudio com parâmetros booleanos"""
+    remove_noise: bool = False
+    convert_to_mono: bool = False
+    apply_highpass_filter: bool = False
+    set_sample_rate_16k: bool = False
+    isolate_vocals: bool = False
 
 
 class Job(BaseModel):
@@ -21,7 +26,6 @@ class Job(BaseModel):
     input_file: str
     output_file: Optional[str] = None
     status: JobStatus
-    operation: str
     filename: Optional[str] = None
     file_size_input: Optional[int] = None
     file_size_output: Optional[int] = None
@@ -31,14 +35,53 @@ class Job(BaseModel):
     expires_at: datetime
     progress: float = 0.0  # Progresso de 0.0 a 100.0
     
+    # Parâmetros de processamento
+    remove_noise: bool = False
+    convert_to_mono: bool = False
+    apply_highpass_filter: bool = False
+    set_sample_rate_16k: bool = False
+    isolate_vocals: bool = False
+    
     @property
     def is_expired(self) -> bool:
         return datetime.now() > self.expires_at
     
+    @property
+    def processing_operations(self) -> str:
+        """Gera string identificadora das operações para cache"""
+        operations = []
+        if self.remove_noise:
+            operations.append("n")
+        if self.convert_to_mono:
+            operations.append("m")
+        if self.apply_highpass_filter:
+            operations.append("h")
+        if self.set_sample_rate_16k:
+            operations.append("s")
+        if self.isolate_vocals:
+            operations.append("v")
+        return "".join(operations) if operations else "none"
+    
     @classmethod
-    def create_new(cls, filename: str, operation: str = "normalize") -> "Job":
-        # Calcula hash do nome do arquivo + operação para criar ID único
-        content = f"{filename}_{operation}"
+    def create_new(
+        cls, 
+        filename: str, 
+        remove_noise: bool = False,
+        convert_to_mono: bool = False,
+        apply_highpass_filter: bool = False,
+        set_sample_rate_16k: bool = False,
+        isolate_vocals: bool = False
+    ) -> "Job":
+        # Calcula hash do nome do arquivo + operações para criar ID único
+        operations = [
+            "n" if remove_noise else "",
+            "m" if convert_to_mono else "",
+            "h" if apply_highpass_filter else "",
+            "s" if set_sample_rate_16k else "",
+            "v" if isolate_vocals else ""
+        ]
+        operation_string = "".join([op for op in operations if op])
+        content = f"{filename}_{operation_string}" if operation_string else filename
         job_id = hashlib.md5(content.encode()).hexdigest()[:12]
         
         now = datetime.now()
@@ -48,8 +91,12 @@ class Job(BaseModel):
             id=job_id,
             input_file="",  # será preenchido depois
             status=JobStatus.QUEUED,
-            operation=operation,
             filename=filename,
+            remove_noise=remove_noise,
+            convert_to_mono=convert_to_mono,
+            apply_highpass_filter=apply_highpass_filter,
+            set_sample_rate_16k=set_sample_rate_16k,
+            isolate_vocals=isolate_vocals,
             created_at=now,
             expires_at=now + timedelta(hours=cache_ttl_hours)
         )

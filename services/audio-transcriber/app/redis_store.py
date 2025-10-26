@@ -1,97 +1,160 @@
 import json
 import asyncio
 import os
-from typing import Optional
+import logging
+from typing import Optional, List
 from datetime import datetime
 from redis import Redis
-    
 from .models import Job
-import logging
-        
+
 logger = logging.getLogger(__name__)
 
 
 class RedisJobStore:
-    def backup_jobs(self, backup_dir: str = './backup') -> int:
-        """
-        Realiza backup dos jobs e arquivos processados.
-        Args:
-            backup_dir (str): Diretório de backup.
-        Returns:
-            int: Quantidade de jobs salvos.
-        """
-        from pathlib import Path
-        import shutil
-        backup_path = Path(backup_dir)
-        backup_path.mkdir(exist_ok=True)
-        count = 0
-        for key in self.redis.keys("audio_job:*"):
-            data = self.redis.get(key)
-            if not data:
-                continue
-            job = self._deserialize_job(data)
-            # Salva job em JSON
-            job_file = backup_path / f"{job.id}.json"
-            with open(job_file, 'w', encoding='utf-8') as f:
-                f.write(data)
-            # Copia arquivo processado se existir
-            if getattr(job, 'output_file', None):
-                src = Path(job.output_file)
-                if src.exists():
-                    shutil.copy2(src, backup_path / src.name)
-            count += 1
-        logger.info(f"Backup realizado: {count} jobs salvos em {backup_path}")
-        return count
     """Store compartilhado de jobs usando Redis"""
     
-    def __init__(self, redis_url: str = None):
-        from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
-        self.redis_url = redis_url or os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+        """
+        Inicializa store com Redis
+        
+        Args:
+            redis_url: URL de conexão do Redis
+        """
+        self.redis = Redis.from_url(redis_url, decode_responses=True)
         self._cleanup_task: Optional[asyncio.Task] = None
+        
+        # Lê configurações de cache das variáveis de ambiente
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CLEANUP_INTERVAL_MINUTES', '30'))
-        min_memory_bytes = int(os.getenv('REDIS_MIN_MEMORY_BYTES', '52428800'))  # 50MB padrão
-        @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=1, min=2, max=10))
-        def connect_redis():
-            redis = Redis.from_url(self.redis_url, decode_responses=True, socket_timeout=5)
-            redis.ping()
-            info = redis.info('memory')
-            used_memory = info.get('used_memory', 0)
-            if used_memory < min_memory_bytes:
-                logger.error("Redis está usando apenas %d bytes, mínimo exigido: %d bytes", used_memory, min_memory_bytes)  # pylint: disable=line-too-long
-                raise ConnectionError(f"Redis precisa de pelo menos {min_memory_bytes} bytes de memória disponível para iniciar.")  # pylint: disable=line-too-long
-            return redis
+        
+        # Testa conexão
         try:
-            self.redis = connect_redis()
-            logger.info("✅ Redis conectado: %s", self.redis_url)
-            logger.info("⏰ Cache TTL: %dh, Cleanup: %dmin", self.cache_ttl_hours, self.cleanup_interval_minutes)
-        except RetryError as e:
-            logger.error("❌ Falha ao conectar Redis após múltiplas tentativas: %s", e)
-            raise
-        except Exception as e:
-            logger.error("❌ Erro ao conectar Redis: %s", e)
+            self.redis.ping()
+            logger.info("✅ Redis conectado: %s", redis_url)
+            logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
+                       self.cache_ttl_hours, self.cleanup_interval_minutes)
+        except Exception as exc:
+            logger.error("❌ Erro ao conectar Redis: %s", exc)
             raise
     
     def _job_key(self, job_id: str) -> str:
-        return f"audio_job:{job_id}"
+        """Gera chave Redis para job"""
+        return f"transcription_job:{job_id}"
     
     def _serialize_job(self, job: Job) -> str:
+        """Serializa Job para JSON"""
         job_dict = job.model_dump(mode='json')
         return json.dumps(job_dict)
     
     def _deserialize_job(self, data: str) -> Job:
+        """Deserializa Job de JSON"""
         job_dict = json.loads(data)
-        for field in ['created_at', 'completed_at', 'expires_at']:
-            if job_dict.get(field):
-                job_dict[field] = datetime.fromisoformat(job_dict[field])
+        # Converte strings de datetime de volta para datetime objects
+        if 'created_at' in job_dict:
+            job_dict['created_at'] = datetime.fromisoformat(job_dict['created_at'])
+        if 'completed_at' in job_dict and job_dict['completed_at']:
+            job_dict['completed_at'] = datetime.fromisoformat(job_dict['completed_at'])
+        if 'expires_at' in job_dict:
+            job_dict['expires_at'] = datetime.fromisoformat(job_dict['expires_at'])
+        
         return Job(**job_dict)
     
+    def save_job(self, job: Job) -> None:
+        """Salva job no Redis"""
+        key = self._job_key(job.id)
+        data = self._serialize_job(job)
+        
+        # Define TTL em segundos
+        ttl_seconds = self.cache_ttl_hours * 3600
+        
+        self.redis.setex(key, ttl_seconds, data)
+        logger.debug("📝 Job salvo: %s", job.id)
+    
+    def get_job(self, job_id: str) -> Optional[Job]:
+        """Recupera job do Redis"""
+        key = self._job_key(job_id)
+        data = self.redis.get(key)
+        
+        if not data:
+            return None
+        
+        try:
+            job = self._deserialize_job(data)
+            
+            # Verifica se expirou
+            if job.is_expired:
+                self.redis.delete(key)
+                logger.debug("🗑️  Job expirado removido: %s", job_id)
+                return None
+            
+            return job
+        except Exception as exc:
+            logger.error("❌ Erro ao deserializar job %s: %s", job_id, exc)
+            self.redis.delete(key)  # Remove job corrompido
+            return None
+    
+    def update_job(self, job: Job) -> None:
+        """Atualiza job existente"""
+        self.save_job(job)  # Redis permite sobrescrever
+    
+    def list_jobs(self, limit: int = 50) -> List[Job]:
+        """Lista jobs recentes"""
+        keys = self.redis.keys(f"transcription_job:*")
+        jobs = []
+        
+        for key in keys[:limit]:
+            data = self.redis.get(key)
+            if data:
+                try:
+                    job = self._deserialize_job(data)
+                    if not job.is_expired:
+                        jobs.append(job)
+                    else:
+                        self.redis.delete(key)  # Remove expirado
+                except Exception as exc:
+                    logger.error("❌ Erro ao deserializar job: %s", exc)
+                    self.redis.delete(key)  # Remove corrompido
+        
+        # Ordena por data de criação (mais recente primeiro)
+        jobs.sort(key=lambda x: x.created_at, reverse=True)
+        return jobs
+    
+    def get_stats(self) -> dict:
+        """Estatísticas básicas do store"""
+        keys = self.redis.keys(f"transcription_job:*")
+        total_jobs = len(keys)
+        
+        status_count = {"queued": 0, "processing": 0, "completed": 0, "failed": 0}
+        
+        for key in keys:
+            data = self.redis.get(key)
+            if data:
+                try:
+                    job = self._deserialize_job(data)
+                    if not job.is_expired:
+                        status_count[job.status] += 1
+                    else:
+                        self.redis.delete(key)
+                        total_jobs -= 1
+                except:
+                    self.redis.delete(key)
+                    total_jobs -= 1
+        
+        return {
+            "total_jobs": total_jobs,
+            "by_status": status_count,
+            "cache_ttl_hours": self.cache_ttl_hours,
+            "timestamp": datetime.now().isoformat()
+        }
+    
     async def start_cleanup_task(self):
+        """Inicia tarefa de limpeza automática"""
         if self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            logger.info("🧹 Cleanup task iniciada")
+            logger.info("🧹 Limpeza automática iniciada")
     
     async def stop_cleanup_task(self):
+        """Para tarefa de limpeza"""
         if self._cleanup_task:
             self._cleanup_task.cancel()
             try:
@@ -99,118 +162,36 @@ class RedisJobStore:
             except asyncio.CancelledError:
                 pass
             self._cleanup_task = None
+            logger.info("🛑 Limpeza automática parada")
     
     async def _cleanup_loop(self):
-        """Loop de limpeza com intervalo configurável"""
-        cleanup_interval_seconds = self.cleanup_interval_minutes * 60
+        """Loop de limpeza de jobs expirados"""
         while True:
             try:
-                await asyncio.sleep(cleanup_interval_seconds)
-                await self.cleanup_expired()
+                await asyncio.sleep(self.cleanup_interval_minutes * 60)
+                removed = await self.cleanup_expired()
+                if removed > 0:
+                    logger.info("🧹 Limpeza automática: %d jobs removidos", removed)
             except asyncio.CancelledError:
                 break
-            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError) as e:
-                logger.error("Erro na limpeza: %s", e)
+            except Exception as exc:
+                logger.error("❌ Erro na limpeza automática: %s", exc)
     
     async def cleanup_expired(self) -> int:
-        from pathlib import Path
+        """Remove jobs expirados"""
+        keys = self.redis.keys(f"transcription_job:*")
+        removed = 0
         
-        now = datetime.now()
-        expired_count = 0
-        
-        for key in self.redis.keys("audio_job:*"):
-            try:
-                data = self.redis.get(key)
-                if not data:
-                    continue
-                job = self._deserialize_job(data)
-                if job.expires_at < now:
-                    # Remove arquivo se existir
-                    if job.output_file:
-                        file_path = Path(job.output_file)
-                        if file_path.exists():
-                            file_path.unlink()
-                            logger.info("🗑️  Arquivo removido: %s", file_path)
-                    self.redis.delete(key)
-                    expired_count += 1
-            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError) as e:
-                logger.error("Erro ao processar %s: %s", key, e)
-        
-        if expired_count > 0:
-            logger.info("� Removidos %d jobs expirados", expired_count)
-        
-        return expired_count
-    
-    def save_job(self, job: Job) -> Job:
-        from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
-        key = self._job_key(job.id)
-        data = self._serialize_job(job)
-        ttl_seconds = self.cache_ttl_hours * 3600  # Converte horas para segundos
-        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-        def set_job():
-            self.redis.setex(key, ttl_seconds, data)
-        try:
-            set_job()
-            logger.debug("💾 Job salvo: %s (TTL: %dh)", job.id, self.cache_ttl_hours)
-        except RetryError as e:
-            logger.error("❌ Falha ao salvar job no Redis: %s", e)
-        return job
-
-    def get_job(self, job_id: str) -> Optional[Job]:
-        from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
-        key = self._job_key(job_id)
-        @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
-        def get_data():
-            return self.redis.get(key)
-        try:
-            data = get_data()
-        except RetryError as e:
-            logger.error("❌ Falha ao buscar job no Redis: %s", e)
-            return None
-        if not data:
-            return None
-        try:
-            return self._deserialize_job(data)
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            logger.error("Erro ao deserializar job %s: %s", job_id, e)
-            return None
-    
-    def update_job(self, job: Job) -> Job:
-        return self.save_job(job)
-    
-    def list_jobs(self, limit: int = 100) -> list[Job]:
-        jobs = []
-        
-        for key in self.redis.keys("audio_job:*")[:limit * 2]:
-            try:
-                data = self.redis.get(key)
-                if data:
+        for key in keys:
+            data = self.redis.get(key)
+            if data:
+                try:
                     job = self._deserialize_job(data)
-                    jobs.append(job)
-            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError) as e:
-                logger.error("Erro ao deserializar %s: %s", key, e)
+                    if job.is_expired:
+                        self.redis.delete(key)
+                        removed += 1
+                except:
+                    self.redis.delete(key)  # Remove corrompido
+                    removed += 1
         
-        jobs.sort(key=lambda j: j.created_at, reverse=True)
-        return jobs[:limit]
-    
-    def get_stats(self) -> dict:
-        job_keys = self.redis.keys("audio_job:*")
-        total = len(job_keys)
-        by_status = {}
-        
-        for key in job_keys:
-            try:
-                data = self.redis.get(key)
-                if data:
-                    job = self._deserialize_job(data)
-                    status = job.status.value
-                    by_status[status] = by_status.get(status, 0) + 1
-            except (json.JSONDecodeError, TypeError, ValueError, ConnectionError, TimeoutError):
-                pass
-        
-        return {
-            "total_jobs": total,
-            "by_status": by_status,
-            "cleanup_active": self._cleanup_task is not None,
-            "redis_connected": True
-        }
+        return removed

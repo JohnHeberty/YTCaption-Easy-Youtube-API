@@ -1,0 +1,57 @@
+# Audio Transcriber Service - Enterprise Grade Dependencies
+setuptools==80.9.0
+
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# Resilience and Error Handling
+tenacity==8.2.2
+circuitbreaker==1.4.0
+
+# Data Storage and Caching
+celery==5.3.4
+redis==5.0.1
+
+# Audio Processing Core
+numpy==1.24.4
+librosa==0.10.1
+soundfile==0.12.1
+ffmpeg-python==0.2.0
+
+# AI/ML for Transcription
+torch==2.1.0
+torchaudio==2.1.0
+openai-whisper==20231117
+faster-whisper==1.2.0
+
+# Observability and Monitoring
+prometheus-client==0.19.0
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-exporter-prometheus==1.12.0rc1
+
+# Security and Validation
+python-magic==0.4.27
+cryptography==41.0.7
+
+# System Monitoring
+psutil==5.9.6
+
+# HTTP Client
+httpx==0.25.2
+requests==2.32.5
+
+# Development and Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-cov==4.1.0
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0

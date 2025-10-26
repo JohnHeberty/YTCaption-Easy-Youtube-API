@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Script de inicialização do serviço
+Script de inicialização do serviço de transcrição de áudio
 """
 import uvicorn
 from app.main import app

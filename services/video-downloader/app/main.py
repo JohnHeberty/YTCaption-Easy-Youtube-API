@@ -1,15 +1,25 @@
 import asyncio
 import os
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List
+import logging
 
 from .models import Job, JobRequest, JobStatus
 from .downloader import SimpleDownloader
 from .redis_store import RedisJobStore
 from .celery_tasks import download_video_task
+from .logging_config import setup_logging
+from .exceptions import VideoDownloadException, ServiceException, exception_handler
+from .security import SecurityMiddleware
+from .config import get_settings
+
+# Configuração de logging
+setup_logging()
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 # Instâncias globais
 app = FastAPI(
@@ -17,6 +27,13 @@ app = FastAPI(
     description="Microserviço com Celery + Redis para download de vídeos com cache de 24h",
     version="3.0.0"
 )
+
+# Middleware de segurança
+app.add_middleware(SecurityMiddleware)
+
+# Exception handlers
+app.add_exception_handler(VideoDownloadException, exception_handler)
+app.add_exception_handler(ServiceException, exception_handler)
 
 # Usa Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
@@ -30,15 +47,22 @@ downloader.job_store = job_store
 @app.on_event("startup")
 async def startup_event():
     """Inicializa sistema com Celery"""
-    await job_store.start_cleanup_task()
-    print("✅ Serviço com Celery + Redis iniciado")
+    try:
+        await job_store.start_cleanup_task()
+        logger.info("Video Download Service iniciado com sucesso")
+    except Exception as e:
+        logger.error("Erro durante inicialização: %s", e)
+        raise
 
 
 @app.on_event("shutdown") 
 async def shutdown_event():
     """Para sistema"""
-    await job_store.stop_cleanup_task()
-    print("🛑 Serviço parado graciosamente")
+    try:
+        await job_store.stop_cleanup_task()
+        logger.info("Video Download Service parado graciosamente")
+    except Exception as e:
+        logger.error("Erro durante shutdown: %s", e)
 
 
 def submit_celery_task(job: Job):
@@ -56,7 +80,7 @@ def submit_celery_task(job: Job):
 
 
 @app.post("/jobs", response_model=Job)
-async def create_download_job(request: JobRequest) -> Job:
+async def create_download_job(request_obj: Request, request: JobRequest) -> Job:
     """
     Cria um novo job de download com Celery + cache inteligente
     
@@ -65,36 +89,47 @@ async def create_download_job(request: JobRequest) -> Job:
     
     Se o mesmo vídeo já foi baixado, retorna o job existente.
     """
-    # Cria job para extrair ID
-    new_job = Job.create_new(request.url, request.quality)
-    
-    # Verifica se já existe job com mesmo ID
-    existing_job = job_store.get_job(new_job.id)
-    
-    if existing_job:
-        # Job já existe - verifica status
-        if existing_job.status == JobStatus.COMPLETED:
-            # Já foi baixado - retorna job existente
-            return existing_job
-        elif existing_job.status in [JobStatus.QUEUED, JobStatus.DOWNLOADING]:
-            # Ainda está baixando - retorna job em progresso
-            return existing_job
-        elif existing_job.status == JobStatus.FAILED:
-            # Falhou antes - tenta novamente
-            existing_job.status = JobStatus.QUEUED
-            existing_job.error_message = None
-            existing_job.progress = 0.0
-            job_store.update_job(existing_job)
-            
-            # Submete para Celery
-            submit_celery_task(existing_job)
-            return existing_job
-    
-    # Job novo - salva e submete para Celery
-    job_store.save_job(new_job)
-    submit_celery_task(new_job)
-    
-    return new_job
+    try:
+        logger.info(f"Criando job de download para URL: {request.url}")
+        
+        # Cria job para extrair ID
+        new_job = Job.create_new(request.url, request.quality)
+        
+        # Verifica se já existe job com mesmo ID
+        existing_job = job_store.get_job(new_job.id)
+        
+        if existing_job:
+            # Job já existe - verifica status
+            if existing_job.status == JobStatus.COMPLETED:
+                logger.info(f"Job {new_job.id} já completado")
+                return existing_job
+            elif existing_job.status in [JobStatus.QUEUED, JobStatus.DOWNLOADING]:
+                logger.info(f"Job {new_job.id} já em processamento")
+                return existing_job
+            elif existing_job.status == JobStatus.FAILED:
+                # Falhou antes - tenta novamente
+                logger.info(f"Reprocessando job falhado: {new_job.id}")
+                existing_job.status = JobStatus.QUEUED
+                existing_job.error_message = None
+                existing_job.progress = 0.0
+                job_store.update_job(existing_job)
+                
+                # Submete para Celery
+                submit_celery_task(existing_job)
+                return existing_job
+        
+        # Job novo - salva e submete para Celery
+        job_store.save_job(new_job)
+        submit_celery_task(new_job)
+        
+        logger.info(f"Job de download criado: {new_job.id}")
+        return new_job
+        
+    except Exception as e:
+        logger.error(f"Erro ao criar job de download: {e}")
+        if isinstance(e, (VideoDownloadException, ServiceException)):
+            raise
+        raise ServiceException(f"Erro interno ao processar request: {str(e)}")
 
 
 @app.get("/jobs/{job_id}", response_model=Job)
