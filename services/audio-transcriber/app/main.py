@@ -82,7 +82,9 @@ async def create_transcription_job(
     """
     try:
         # Validação de segurança
-        await validate_audio_file(file)
+        file_content = await file.read()
+        await file.seek(0)  # Reset para ler novamente depois
+        validate_audio_file(file.filename, file_content)
         logger.info(f"Criando job de transcrição para arquivo: {file.filename}")
         
         # Cria job para extrair ID
