@@ -1,5 +1,18 @@
-
 services:
+  # 1. Serviço Broker (Redis)
+  redis:
+    image: redis:6.2-alpine
+    container_name: audio-normalization-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck: # Healthcheck básico para garantir que o Redis está pronto
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+
+  # 2. Serviço da API (audio-normalization-service)
   audio-normalization-service:
     build: .
     container_name: audio-normalization-api
@@ -16,17 +29,23 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
+      # Certifique-se de que sua aplicação usa 'redis:6379' como broker
+      - CELERY_BROKER_URL=redis://redis:6379/0 
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy # Espera o Redis estar saudável antes de iniciar
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 20s # Reduzi para 20s, 60s é longo
     labels:
       - "com.example.service=audio-normalization"
       - "com.example.version=1.0.0"
 
+  # 3. Serviço do Worker (celery-worker)
   celery-worker:
     build: .
     container_name: audio-normalization-celery
@@ -43,12 +62,17 @@ services:
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
+      # Define o mesmo broker que a API usa
+      - CELERY_BROKER_URL=redis://redis:6379/0 
     restart: unless-stopped
     depends_on:
+      redis:
+        condition: service_healthy # O worker SÓ precisa do broker para começar a trabalhar.
       audio-normalization-service:
-        condition: service_healthy
+        condition: service_started # Altera para 'service_started' - não precisa esperar o Healthcheck da API.
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.celery_config inspect ping || exit 1"]
+      # Esse healthcheck é para o Celery Worker, mantido.
+      test: ["CMD-SHELL", "celery -A app.celery_config inspect ping --timeout=1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
