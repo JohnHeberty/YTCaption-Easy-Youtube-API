@@ -325,105 +325,189 @@ async def delete_job(job_id: str):
 
 
 async def _perform_cleanup():
-    """Executa limpeza de arquivos em background"""
+    """
+    Executa limpeza COMPLETA do sistema em background
+    
+    ZERA ABSOLUTAMENTE TUDO:
+    - TODOS os jobs do Redis (não só expirados)
+    - TODOS os arquivos de uploads/
+    - TODOS os arquivos de transcriptions/
+    - TODOS os arquivos temporários
+    - TODOS os modelos baixados em models/
+    """
     try:
-        cache_ttl_hours = settings.get('cache_ttl_hours', 24)
-        max_age_seconds = cache_ttl_hours * 3600
-        current_time = datetime.now().timestamp()
-        
         report = {
             "jobs_removed": 0,
             "files_deleted": 0,
             "space_freed_mb": 0.0,
+            "models_deleted": 0,
             "errors": []
         }
         
-        # 1. Limpar jobs expirados do Redis
-        try:
-            removed_jobs = await job_store.cleanup_expired()
-            report["jobs_removed"] = removed_jobs
-        except Exception as e:
-            logger.error(f"Erro ao limpar jobs expirados: {e}")
-            report["errors"].append(f"Jobs: {str(e)}")
+        logger.warning("🔥 INICIANDO LIMPEZA TOTAL DO SISTEMA - TUDO SERÁ REMOVIDO!")
         
-        # 2. Limpar arquivos de upload antigos
+        # 1. LIMPAR TODOS OS JOBS DO REDIS (não só expirados)
+        try:
+            keys = job_store.redis.keys("transcription_job:*")
+            if keys:
+                for key in keys:
+                    job_store.redis.delete(key)
+                report["jobs_removed"] = len(keys)
+                logger.info(f"🗑️  Redis: {len(keys)} jobs removidos")
+            else:
+                logger.info("✓ Redis: nenhum job encontrado")
+        except Exception as e:
+            logger.error(f"❌ Erro ao limpar Redis: {e}")
+            report["errors"].append(f"Redis: {str(e)}")
+        
+        # 2. LIMPAR TODOS OS ARQUIVOS DE UPLOADS
         upload_dir = Path(settings.get('upload_dir', './uploads'))
         if upload_dir.exists():
+            deleted_count = 0
             for file_path in upload_dir.iterdir():
                 if not file_path.is_file():
                     continue
                     
                 try:
-                    file_age = current_time - file_path.stat().st_mtime
-                    if file_age > max_age_seconds:
-                        size_mb = file_path.stat().st_size / (1024 * 1024)
-                        await asyncio.to_thread(file_path.unlink)
-                        report["files_deleted"] += 1
-                        report["space_freed_mb"] += size_mb
-                        logger.info(f"Removido arquivo antigo: {file_path.name} ({size_mb:.2f}MB)")
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
                 except Exception as e:
-                    logger.error(f"Erro ao remover {file_path.name}: {e}")
+                    logger.error(f"❌ Erro ao remover upload {file_path.name}: {e}")
                     report["errors"].append(f"Upload/{file_path.name}: {str(e)}")
+            
+            report["files_deleted"] += deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Uploads: {deleted_count} arquivos removidos")
+            else:
+                logger.info("✓ Uploads: nenhum arquivo encontrado")
         
-        # 3. Limpar arquivos de transcrição antigos
+        # 3. LIMPAR TODOS OS ARQUIVOS DE TRANSCRIPTIONS
         transcription_dir = Path(settings.get('transcription_dir', './transcriptions'))
         if transcription_dir.exists():
+            deleted_count = 0
             for file_path in transcription_dir.iterdir():
                 if not file_path.is_file():
                     continue
                     
                 try:
-                    file_age = current_time - file_path.stat().st_mtime
-                    if file_age > max_age_seconds:
-                        size_mb = file_path.stat().st_size / (1024 * 1024)
-                        await asyncio.to_thread(file_path.unlink)
-                        report["files_deleted"] += 1
-                        report["space_freed_mb"] += size_mb
-                        logger.info(f"Removido arquivo antigo: {file_path.name} ({size_mb:.2f}MB)")
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
                 except Exception as e:
-                    logger.error(f"Erro ao remover {file_path.name}: {e}")
+                    logger.error(f"❌ Erro ao remover transcrição {file_path.name}: {e}")
                     report["errors"].append(f"Transcription/{file_path.name}: {str(e)}")
+            
+            report["files_deleted"] += deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Transcriptions: {deleted_count} arquivos removidos")
+            else:
+                logger.info("✓ Transcriptions: nenhum arquivo encontrado")
+        
+        # 4. LIMPAR TODOS OS ARQUIVOS TEMPORÁRIOS
+        temp_dir = Path(settings.get('temp_dir', './temp'))
+        if temp_dir.exists():
+            deleted_count = 0
+            for file_path in temp_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
+                except Exception as e:
+                    logger.error(f"❌ Erro ao remover temp {file_path.name}: {e}")
+                    report["errors"].append(f"Temp/{file_path.name}: {str(e)}")
+            
+            report["files_deleted"] += deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Temp: {deleted_count} arquivos removidos")
+            else:
+                logger.info("✓ Temp: nenhum arquivo encontrado")
+        
+        # 5. LIMPAR TODOS OS MODELOS WHISPER BAIXADOS
+        models_dir = Path(settings.get('model_dir', './models'))
+        if models_dir.exists():
+            deleted_count = 0
+            for file_path in models_dir.rglob("*"):  # rglob para pegar subdiretórios também
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
+                    report["models_deleted"] += 1
+                except Exception as e:
+                    logger.error(f"❌ Erro ao remover modelo {file_path.name}: {e}")
+                    report["errors"].append(f"Models/{file_path.name}: {str(e)}")
+            
+            if deleted_count > 0:
+                logger.warning(f"🗑️  Models: {deleted_count} arquivos de modelo removidos ({size_mb:.2f}MB)")
+            else:
+                logger.info("✓ Models: nenhum modelo encontrado")
         
         # Formatar relatório
         report["space_freed_mb"] = round(report["space_freed_mb"], 2)
-        report["message"] = f"Limpeza concluída: {report['jobs_removed']} jobs e {report['files_deleted']} arquivos removidos ({report['space_freed_mb']}MB liberados)"
+        report["message"] = (
+            f"🔥 LIMPEZA TOTAL CONCLUÍDA: "
+            f"{report['jobs_removed']} jobs do Redis + "
+            f"{report['files_deleted']} arquivos + "
+            f"{report['models_deleted']} modelos removidos "
+            f"({report['space_freed_mb']}MB liberados)"
+        )
         
         if report["errors"]:
-            report["message"] += f" com {len(report['errors'])} erros"
+            report["message"] += f" ⚠️ com {len(report['errors'])} erros"
         
-        logger.info(report["message"])
+        logger.warning(report["message"])
         return report
         
     except Exception as e:
-        logger.error(f"Erro na limpeza manual: {e}")
-        return {"error": str(e), "jobs_removed": 0, "files_deleted": 0}
+        logger.error(f"❌ Erro na limpeza total: {e}")
+        return {"error": str(e), "jobs_removed": 0, "files_deleted": 0, "models_deleted": 0}
 
 
 @app.post("/admin/cleanup")
 async def manual_cleanup(background_tasks: BackgroundTasks):
     """
-    Força limpeza manual de arquivos expirados e antigos (RESILIENTE)
+    🔥 LIMPEZA TOTAL DO SISTEMA (RESILIENTE)
     
-    Remove em background:
-    - Jobs expirados do Redis
-    - Arquivos de upload antigos (> cache_ttl_hours)
-    - Arquivos de transcrição antigos (> cache_ttl_hours)
+    ⚠️ ATENÇÃO: Este endpoint ZERA ABSOLUTAMENTE TUDO:
     
-    Retorna job_id para acompanhar progresso.
+    1. TODOS os jobs do Redis (não só expirados)
+    2. TODOS os arquivos de uploads/
+    3. TODOS os arquivos de transcriptions/
+    4. TODOS os arquivos temporários em temp/
+    5. TODOS os modelos Whisper baixados em models/ (~500MB cada)
+    
+    Use este endpoint para resetar completamente o sistema.
+    A limpeza é executada em background e retorna imediatamente.
+    
+    Returns:
+        - cleanup_id: ID da operação de limpeza
+        - status: "processing"
+        - message: Mensagem informativa
     """
     # Cria um job para a limpeza
-    cleanup_job_id = f"cleanup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    cleanup_job_id = f"cleanup_total_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
-    # Agenda limpeza em background
+    # Agenda limpeza TOTAL em background
     background_tasks.add_task(_perform_cleanup)
     
-    logger.info(f"Limpeza agendada: {cleanup_job_id}")
+    logger.warning(f"🔥 LIMPEZA TOTAL agendada: {cleanup_job_id}")
     
     return {
-        "message": "Limpeza iniciada em background",
+        "message": "🔥 LIMPEZA TOTAL iniciada em background - TUDO será removido!",
         "cleanup_id": cleanup_job_id,
         "status": "processing",
-        "note": "A limpeza está sendo executada. Verifique os logs para resultados."
+        "warning": "Esta operação removerá TODOS os jobs, arquivos e modelos do sistema",
+        "note": "Verifique os logs para acompanhar o progresso e resultados."
     }
 
 

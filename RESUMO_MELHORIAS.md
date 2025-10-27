@@ -4,13 +4,55 @@
 
 Este documento resume todas as correções de bugs e melhorias de resiliência implementadas no projeto **YTCaption - Easy YouTube API**.
 
-**Data:** Janeiro 2025  
-**Escopo:** 9 tarefas concluídas (Imediato + Médio Prazo + Longo Prazo)  
-**Serviços Afetados:** audio-transcriber, audio-normalization, orchestrator (novo)
+**Data:** Outubro 2025  
+**Última Atualização:** 27 de Outubro de 2025  
+**Escopo:** 9 tarefas originais + 1 auditoria crítica = **10 tarefas concluídas**  
+**Serviços Afetados:** audio-transcriber, audio-normalization, video-downloader, orchestrator (novo)
 
 ---
 
-## ✅ Tarefas Completadas
+## 🔥 **NOVA: Auditoria e Correção do Endpoint /admin/cleanup**
+
+### ❌ Problema Crítico Identificado (27/10/2025)
+
+O endpoint `/admin/cleanup` dos 3 microserviços **NÃO estava limpando completamente o sistema**:
+- ❌ Redis: Apenas jobs expirados (não TODOS)
+- ❌ Arquivos: Apenas arquivos antigos baseado em TTL
+- ❌ Modelos Whisper: NUNCA eram removidos (~500MB cada)
+- ❌ Sistema: Nunca era completamente resetado
+
+### ✅ Solução Implementada
+
+Endpoint `/admin/cleanup` agora faz **LIMPEZA TOTAL** em todos os 3 microserviços:
+
+**Audio-Transcriber:**
+- ✅ TODOS os jobs do Redis (`transcription_job:*`)
+- ✅ TODOS os arquivos de `uploads/`, `transcriptions/`, `temp/`
+- ✅ TODOS os modelos Whisper em `models/` (~500MB cada)
+
+**Audio-Normalization:**
+- ✅ TODOS os jobs do Redis (`normalization_job:*`)
+- ✅ TODOS os arquivos de `uploads/`, `processed/`, `temp/`
+
+**Video-Downloader:**
+- ✅ TODOS os jobs do Redis (`video_job:*`)
+- ✅ TODOS os arquivos de `cache/`, `downloads/`, `temp/`
+
+**Características:**
+- ⚡ Resiliente: Retorna em < 500ms
+- 🔄 Background: BackgroundTasks do FastAPI
+- 📊 Logs detalhados: Cada operação é logada
+- 🛡️ Error handling: Continua mesmo com erros parciais
+
+**Documentação:** Ver `CLEANUP_AUDIT_FIX.md` para detalhes completos
+
+**Scripts de Teste:**
+- `test_cleanup.sh` (Linux/Mac)
+- `test_cleanup.ps1` (Windows/PowerShell)
+
+---
+
+## ✅ Tarefas Completadas (Original)
 
 ### 🔴 IMEDIATO (Tarefas 1-6) - ✅ 100% Concluído
 

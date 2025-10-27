@@ -551,10 +551,163 @@ async def delete_job(job_id: str):
 
 
 @app.post("/admin/cleanup")
-async def manual_cleanup():
-    """Força limpeza manual de arquivos expirados"""
-    removed = await job_store.cleanup_expired()
-    return {"message": f"Removidos {removed} jobs expirados"}
+async def manual_cleanup(background_tasks: BackgroundTasks):
+    """
+    🔥 LIMPEZA TOTAL DO SISTEMA (RESILIENTE)
+    
+    ⚠️ ATENÇÃO: Este endpoint ZERA ABSOLUTAMENTE TUDO:
+    
+    1. TODOS os jobs do Redis (não só expirados)
+    2. TODOS os arquivos de uploads/
+    3. TODOS os arquivos de processed/
+    4. TODOS os arquivos temporários em temp/
+    
+    Use este endpoint para resetar completamente o sistema.
+    A limpeza é executada em background e retorna imediatamente.
+    
+    Returns:
+        - cleanup_id: ID da operação de limpeza
+        - status: "processing"
+        - message: Mensagem informativa
+    """
+    # Cria um job para a limpeza
+    cleanup_job_id = f"cleanup_total_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # Agenda limpeza TOTAL em background
+    background_tasks.add_task(_perform_total_cleanup)
+    
+    logger.warning(f"🔥 LIMPEZA TOTAL agendada: {cleanup_job_id}")
+    
+    return {
+        "message": "🔥 LIMPEZA TOTAL iniciada em background - TUDO será removido!",
+        "cleanup_id": cleanup_job_id,
+        "status": "processing",
+        "warning": "Esta operação removerá TODOS os jobs e arquivos do sistema",
+        "note": "Verifique os logs para acompanhar o progresso e resultados."
+    }
+
+
+async def _perform_total_cleanup():
+    """
+    Executa limpeza COMPLETA do sistema em background
+    
+    ZERA ABSOLUTAMENTE TUDO:
+    - TODOS os jobs do Redis
+    - TODOS os arquivos de uploads/
+    - TODOS os arquivos de processed/
+    - TODOS os arquivos temporários
+    """
+    try:
+        report = {
+            "jobs_removed": 0,
+            "files_deleted": 0,
+            "space_freed_mb": 0.0,
+            "errors": []
+        }
+        
+        logger.warning("🔥 INICIANDO LIMPEZA TOTAL DO SISTEMA - TUDO SERÁ REMOVIDO!")
+        
+        # 1. LIMPAR TODOS OS JOBS DO REDIS
+        try:
+            keys = job_store.redis.keys("normalization_job:*")
+            if keys:
+                for key in keys:
+                    job_store.redis.delete(key)
+                report["jobs_removed"] = len(keys)
+                logger.info(f"🗑️  Redis: {len(keys)} jobs removidos")
+            else:
+                logger.info("✓ Redis: nenhum job encontrado")
+        except Exception as e:
+            logger.error(f"❌ Erro ao limpar Redis: {e}")
+            report["errors"].append(f"Redis: {str(e)}")
+        
+        # 2. LIMPAR TODOS OS ARQUIVOS DE UPLOADS
+        upload_dir = Path("./uploads")
+        if upload_dir.exists():
+            deleted_count = 0
+            for file_path in upload_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
+                except Exception as e:
+                    logger.error(f"❌ Erro ao remover upload {file_path.name}: {e}")
+                    report["errors"].append(f"Upload/{file_path.name}: {str(e)}")
+            
+            report["files_deleted"] += deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Uploads: {deleted_count} arquivos removidos")
+            else:
+                logger.info("✓ Uploads: nenhum arquivo encontrado")
+        
+        # 3. LIMPAR TODOS OS ARQUIVOS DE PROCESSED
+        processed_dir = Path("./processed")
+        if processed_dir.exists():
+            deleted_count = 0
+            for file_path in processed_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
+                except Exception as e:
+                    logger.error(f"❌ Erro ao remover processed {file_path.name}: {e}")
+                    report["errors"].append(f"Processed/{file_path.name}: {str(e)}")
+            
+            report["files_deleted"] += deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Processed: {deleted_count} arquivos removidos")
+            else:
+                logger.info("✓ Processed: nenhum arquivo encontrado")
+        
+        # 4. LIMPAR TODOS OS ARQUIVOS TEMPORÁRIOS
+        temp_dir = Path("./temp")
+        if temp_dir.exists():
+            deleted_count = 0
+            for file_path in temp_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    await asyncio.to_thread(file_path.unlink)
+                    deleted_count += 1
+                    report["space_freed_mb"] += size_mb
+                except Exception as e:
+                    logger.error(f"❌ Erro ao remover temp {file_path.name}: {e}")
+                    report["errors"].append(f"Temp/{file_path.name}: {str(e)}")
+            
+            report["files_deleted"] += deleted_count
+            if deleted_count > 0:
+                logger.info(f"🗑️  Temp: {deleted_count} arquivos removidos")
+            else:
+                logger.info("✓ Temp: nenhum arquivo encontrado")
+        
+        # Formatar relatório
+        report["space_freed_mb"] = round(report["space_freed_mb"], 2)
+        report["message"] = (
+            f"🔥 LIMPEZA TOTAL CONCLUÍDA: "
+            f"{report['jobs_removed']} jobs do Redis + "
+            f"{report['files_deleted']} arquivos removidos "
+            f"({report['space_freed_mb']}MB liberados)"
+        )
+        
+        if report["errors"]:
+            report["message"] += f" ⚠️ com {len(report['errors'])} erros"
+        
+        logger.warning(report["message"])
+        return report
+        
+    except Exception as e:
+        logger.error(f"❌ Erro na limpeza total: {e}")
+        return {"error": str(e), "jobs_removed": 0, "files_deleted": 0}
 
 
 @app.get("/admin/stats")
