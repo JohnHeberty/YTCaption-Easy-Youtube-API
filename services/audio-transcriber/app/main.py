@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List
@@ -10,15 +10,15 @@ import logging
 from .models import Job, JobRequest, JobStatus, TranscriptionResponse
 from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
-from .logging_config import setup_logging
+from .logging_config import setup_logging, get_logger
 from .exceptions import AudioTranscriptionException, ServiceException, exception_handler
 from .security import SecurityMiddleware, validate_audio_file
-from .config import get_settings
+from .config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
 
 # Configuração de logging
-setup_logging()
-logger = logging.getLogger(__name__)
 settings = get_settings()
+setup_logging("audio-transcriber", settings['log_level'])
+logger = get_logger(__name__)
 
 # Instâncias globais
 app = FastAPI(
@@ -65,30 +65,63 @@ async def shutdown_event():
 
 
 def submit_processing_task(job: Job):
-    """Submete job para processamento em background"""
-    asyncio.create_task(processor.process_transcription_job(job))
+    """Submete job para processamento em background via Celery"""
+    try:
+        from .celery_config import celery_app
+        from .celery_tasks import transcribe_audio_task
+        
+        # Envia job para o worker Celery
+        task_result = transcribe_audio_task.apply_async(
+            args=[job.model_dump()], 
+            task_id=job.id  # Usa o job ID como task ID
+        )
+        logger.info(f"📤 Job {job.id} enviado para Celery worker: {task_result.id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao enviar job {job.id} para Celery: {e}")
+        logger.error(f"❌ Fallback: processando diretamente job {job.id}")
+        # Fallback para processamento direto se Celery falhar
+        asyncio.create_task(processor.process_transcription_job(job))
 
 
 @app.post("/jobs", response_model=Job)
 async def create_transcription_job(
     request: Request,
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    language: str = Form("auto")
 ) -> Job:
     """
     Cria um novo job de transcrição de áudio
     
     - **file**: Arquivo de áudio para transcrever
+    - **language**: Código de idioma (ISO 639-1) ou 'auto' para detecção automática.
+                   Use GET /languages para ver idiomas suportados.
     """
     try:
+        # Validação de linguagem
+        if not is_language_supported(language):
+            supported = get_supported_languages()
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Linguagem não suportada",
+                    "language_provided": language,
+                    "supported_languages": supported[:10],  # Primeiros 10 para não sobrecarregar
+                    "total_supported": len(supported),
+                    "note": "Use GET /languages para ver todas as linguagens suportadas"
+                }
+            )
+        
         # Validação de segurança
         file_content = await file.read()
         await file.seek(0)  # Reset para ler novamente depois
         validate_audio_file(file.filename, file_content)
-        logger.info(f"Criando job de transcrição para arquivo: {file.filename}")
+        logger.info(f"Criando job de transcrição para arquivo: {file.filename}, idioma: {language}")
         
         # Cria job para extrair ID
         new_job = Job.create_new(file.filename, "transcribe")
+        new_job.language = language  # Define o idioma selecionado
         
         # Verifica se já existe job com mesmo ID
         existing_job = job_store.get_job(new_job.id)
@@ -136,6 +169,26 @@ async def create_transcription_job(
         if isinstance(e, (AudioTranscriptionException, ServiceException)):
             raise
         raise ServiceException(f"Erro interno ao processar arquivo: {str(e)}")
+
+
+@app.get("/languages")
+async def get_supported_languages():
+    """
+    Retorna lista de linguagens suportadas pelo Whisper.
+    
+    - **auto**: Detecção automática de idioma
+    - Códigos ISO 639-1 para idiomas específicos (en, pt, es, etc.)
+    """
+    languages = get_supported_languages()
+    models = get_whisper_models()
+    
+    return {
+        "supported_languages": languages,
+        "total_languages": len(languages),
+        "models": models,
+        "default_language": settings.get("whisper_default_language", "auto"),
+        "note": "Use 'auto' para detecção automática ou código ISO 639-1 específico"
+    }
 
 
 @app.get("/jobs/{job_id}", response_model=Job)
@@ -271,11 +324,107 @@ async def delete_job(job_id: str):
     return {"message": "Job removido com sucesso"}
 
 
+async def _perform_cleanup():
+    """Executa limpeza de arquivos em background"""
+    try:
+        cache_ttl_hours = settings.get('cache_ttl_hours', 24)
+        max_age_seconds = cache_ttl_hours * 3600
+        current_time = datetime.now().timestamp()
+        
+        report = {
+            "jobs_removed": 0,
+            "files_deleted": 0,
+            "space_freed_mb": 0.0,
+            "errors": []
+        }
+        
+        # 1. Limpar jobs expirados do Redis
+        try:
+            removed_jobs = await job_store.cleanup_expired()
+            report["jobs_removed"] = removed_jobs
+        except Exception as e:
+            logger.error(f"Erro ao limpar jobs expirados: {e}")
+            report["errors"].append(f"Jobs: {str(e)}")
+        
+        # 2. Limpar arquivos de upload antigos
+        upload_dir = Path(settings.get('upload_dir', './uploads'))
+        if upload_dir.exists():
+            for file_path in upload_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    file_age = current_time - file_path.stat().st_mtime
+                    if file_age > max_age_seconds:
+                        size_mb = file_path.stat().st_size / (1024 * 1024)
+                        await asyncio.to_thread(file_path.unlink)
+                        report["files_deleted"] += 1
+                        report["space_freed_mb"] += size_mb
+                        logger.info(f"Removido arquivo antigo: {file_path.name} ({size_mb:.2f}MB)")
+                except Exception as e:
+                    logger.error(f"Erro ao remover {file_path.name}: {e}")
+                    report["errors"].append(f"Upload/{file_path.name}: {str(e)}")
+        
+        # 3. Limpar arquivos de transcrição antigos
+        transcription_dir = Path(settings.get('transcription_dir', './transcriptions'))
+        if transcription_dir.exists():
+            for file_path in transcription_dir.iterdir():
+                if not file_path.is_file():
+                    continue
+                    
+                try:
+                    file_age = current_time - file_path.stat().st_mtime
+                    if file_age > max_age_seconds:
+                        size_mb = file_path.stat().st_size / (1024 * 1024)
+                        await asyncio.to_thread(file_path.unlink)
+                        report["files_deleted"] += 1
+                        report["space_freed_mb"] += size_mb
+                        logger.info(f"Removido arquivo antigo: {file_path.name} ({size_mb:.2f}MB)")
+                except Exception as e:
+                    logger.error(f"Erro ao remover {file_path.name}: {e}")
+                    report["errors"].append(f"Transcription/{file_path.name}: {str(e)}")
+        
+        # Formatar relatório
+        report["space_freed_mb"] = round(report["space_freed_mb"], 2)
+        report["message"] = f"Limpeza concluída: {report['jobs_removed']} jobs e {report['files_deleted']} arquivos removidos ({report['space_freed_mb']}MB liberados)"
+        
+        if report["errors"]:
+            report["message"] += f" com {len(report['errors'])} erros"
+        
+        logger.info(report["message"])
+        return report
+        
+    except Exception as e:
+        logger.error(f"Erro na limpeza manual: {e}")
+        return {"error": str(e), "jobs_removed": 0, "files_deleted": 0}
+
+
 @app.post("/admin/cleanup")
-async def manual_cleanup():
-    """Força limpeza manual de arquivos expirados"""
-    removed = await job_store.cleanup_expired()
-    return {"message": f"Removidos {removed} jobs expirados"}
+async def manual_cleanup(background_tasks: BackgroundTasks):
+    """
+    Força limpeza manual de arquivos expirados e antigos (RESILIENTE)
+    
+    Remove em background:
+    - Jobs expirados do Redis
+    - Arquivos de upload antigos (> cache_ttl_hours)
+    - Arquivos de transcrição antigos (> cache_ttl_hours)
+    
+    Retorna job_id para acompanhar progresso.
+    """
+    # Cria um job para a limpeza
+    cleanup_job_id = f"cleanup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # Agenda limpeza em background
+    background_tasks.add_task(_perform_cleanup)
+    
+    logger.info(f"Limpeza agendada: {cleanup_job_id}")
+    
+    return {
+        "message": "Limpeza iniciada em background",
+        "cleanup_id": cleanup_job_id,
+        "status": "processing",
+        "note": "A limpeza está sendo executada. Verifique os logs para resultados."
+    }
 
 
 @app.get("/admin/stats")

@@ -3,27 +3,55 @@ import asyncio
 from pathlib import Path
 import whisper
 import logging
+from pydub import AudioSegment
 from .models import Job, JobStatus, TranscriptionSegment
 from .exceptions import AudioTranscriptionException
+from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
 class TranscriptionProcessor:
-    def __init__(self):
+    def __init__(self, output_dir=None, model_dir=None):
         self.job_store = None  # Will be injected
         self.model = None  # Lazy loading
+        self.settings = get_settings()
+        self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
+        self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
     
     def _load_model(self):
         """Carrega modelo Whisper (lazy loading)"""
         if self.model is None:
             try:
-                logger.info("Carregando modelo Whisper...")
-                self.model = whisper.load_model("base")
+                model_name = self.settings.get('whisper_model', 'base')
+                device = self.settings.get('whisper_device', 'cpu')
+                download_root = self.model_dir
+                
+                logger.info(f"Carregando modelo Whisper: {model_name} no dispositivo {device}...")
+                logger.info(f"Diretório de modelos: {download_root}")
+                
+                # Garante que o diretório existe
+                Path(download_root).mkdir(parents=True, exist_ok=True)
+                
+                self.model = whisper.load_model(model_name, device=device, download_root=download_root)
                 logger.info("Modelo Whisper carregado com sucesso")
             except Exception as e:
                 logger.error(f"Erro ao carregar modelo Whisper: {e}")
                 raise AudioTranscriptionException(f"Falha ao carregar modelo: {str(e)}")
+    
+    def transcribe_audio(self, job: Job) -> Job:
+        """
+        Método síncrono para Celery task processar transcrição
+        Converte o processamento assíncrono em síncrono
+        """
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        loop.run_until_complete(self.process_transcription_job(job))
+        return job
     
     async def process_transcription_job(self, job: Job):
         """Processa um job de transcrição"""
@@ -59,9 +87,26 @@ class TranscriptionProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
-            # Processa transcrição
-            logger.info(f"Transcrevendo arquivo: {job.input_file}")
-            result = self.model.transcribe(job.input_file, language=None if job.language == "auto" else job.language)
+            # Decide se usa chunking baseado nas configurações e duração do áudio
+            enable_chunking = self.settings.get('enable_chunking', False)
+            
+            if enable_chunking:
+                # Verifica duração do áudio para decidir se vale a pena usar chunks
+                audio = AudioSegment.from_file(job.input_file)
+                duration_seconds = len(audio) / 1000.0
+                
+                # Usa chunking apenas para áudios > 5 minutos (300 segundos)
+                min_duration_for_chunks = 300
+                
+                if duration_seconds > min_duration_for_chunks:
+                    logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")
+                    result = await self._transcribe_with_chunking(job.input_file, job.language, audio)
+                else:
+                    logger.info(f"Áudio curto ({duration_seconds:.1f}s), transcrição direta")
+                    result = self._transcribe_direct(job.input_file, job.language)
+            else:
+                logger.info("Chunking desabilitado, transcrição direta")
+                result = self._transcribe_direct(job.input_file, job.language)
             
             # Atualiza progresso
             job.progress = 75.0
@@ -80,8 +125,8 @@ class TranscriptionProcessor:
                 transcription_segments.append(segment)
             
             # Salva arquivo de transcrição
-            transcription_dir = Path("./transcriptions")
-            transcription_dir.mkdir(exist_ok=True)
+            transcription_dir = Path(self.output_dir)
+            transcription_dir.mkdir(parents=True, exist_ok=True)
             
             output_path = transcription_dir / f"{job.id}_transcription.srt"
             
@@ -115,6 +160,182 @@ class TranscriptionProcessor:
             
             logger.error(f"Job {job.id} falhou: {e}")
             raise AudioTranscriptionException(f"Erro na transcrição: {str(e)}")
+    
+    def _transcribe_direct(self, audio_file: str, language: str = "auto"):
+        """Transcrição direta sem chunking"""
+        logger.info(f"Transcrevendo diretamente: {audio_file}")
+        
+        transcribe_options = {
+            "language": None if language == "auto" else language,
+            "fp16": self.settings.get('whisper_fp16', False),
+            "beam_size": self.settings.get('whisper_beam_size', 5),
+            "best_of": self.settings.get('whisper_best_of', 5),
+            "temperature": self.settings.get('whisper_temperature', 0.0)
+        }
+        
+        return self.model.transcribe(audio_file, **transcribe_options)
+    
+    async def _transcribe_with_chunking(self, audio_file: str, language: str, audio: AudioSegment = None):
+        """
+        Transcreve áudio longo usando chunking para acelerar o processamento
+        
+        Args:
+            audio_file: Caminho do arquivo de áudio
+            language: Idioma para transcrição
+            audio: AudioSegment já carregado (opcional, para evitar recarregar)
+        
+        Returns:
+            dict: Resultado com 'text' e 'segments' no formato Whisper
+        """
+        try:
+            # Carrega áudio se não foi fornecido
+            if audio is None:
+                audio = AudioSegment.from_file(audio_file)
+            
+            duration_ms = len(audio)
+            duration_seconds = duration_ms / 1000.0
+            
+            # Configurações de chunking
+            chunk_length_seconds = self.settings.get('chunk_length_seconds', 30)
+            overlap_seconds = self.settings.get('chunk_overlap_seconds', 1.0)
+            
+            chunk_length_ms = chunk_length_seconds * 1000
+            overlap_ms = overlap_seconds * 1000
+            
+            logger.info(f"Processando áudio de {duration_seconds:.1f}s em chunks de {chunk_length_seconds}s com overlap de {overlap_seconds}s")
+            
+            # Divide áudio em chunks com overlap
+            chunks = []
+            current_position = 0
+            chunk_number = 0
+            
+            while current_position < duration_ms:
+                # Define limites do chunk
+                end_position = min(current_position + chunk_length_ms, duration_ms)
+                
+                # Extrai chunk
+                chunk = audio[current_position:end_position]
+                chunks.append({
+                    'audio': chunk,
+                    'start_time': current_position / 1000.0,
+                    'number': chunk_number
+                })
+                
+                chunk_number += 1
+                
+                # Move para próximo chunk (com overlap)
+                current_position += chunk_length_ms - overlap_ms
+            
+            logger.info(f"Áudio dividido em {len(chunks)} chunks")
+            
+            # Processa cada chunk
+            all_segments = []
+            full_text_parts = []
+            
+            temp_dir = Path(self.settings.get('temp_dir', './temp'))
+            temp_dir.mkdir(exist_ok=True)
+            
+            for i, chunk_data in enumerate(chunks):
+                # Salva chunk temporariamente
+                chunk_file = temp_dir / f"chunk_{i}.wav"
+                chunk_data['audio'].export(chunk_file, format="wav")
+                
+                logger.info(f"Processando chunk {i+1}/{len(chunks)} (offset: {chunk_data['start_time']:.1f}s)")
+                
+                # Transcreve chunk
+                chunk_result = self._transcribe_direct(str(chunk_file), language)
+                
+                # Ajusta timestamps dos segmentos com o offset do chunk
+                for segment in chunk_result['segments']:
+                    adjusted_segment = segment.copy()
+                    adjusted_segment['start'] += chunk_data['start_time']
+                    adjusted_segment['end'] += chunk_data['start_time']
+                    all_segments.append(adjusted_segment)
+                
+                full_text_parts.append(chunk_result['text'])
+                
+                # Remove arquivo temporário
+                chunk_file.unlink()
+                
+                # Atualiza progresso (25% inicial + 50% durante chunks)
+                if self.job_store:
+                    progress = 25.0 + (50.0 * (i + 1) / len(chunks))
+                    job = self.job_store.get_job(self.current_job_id) if hasattr(self, 'current_job_id') else None
+                    if job:
+                        job.progress = progress
+                        self.job_store.update_job(job)
+            
+            # Mescla segmentos sobrepostos (remove duplicatas no overlap)
+            merged_segments = self._merge_overlapping_segments(all_segments, overlap_seconds)
+            
+            # Combina texto completo
+            full_text = " ".join(full_text_parts)
+            
+            logger.info(f"Chunking concluído: {len(merged_segments)} segmentos finais")
+            
+            return {
+                "text": full_text,
+                "segments": merged_segments
+            }
+            
+        except Exception as e:
+            logger.error(f"Erro no chunking: {e}")
+            raise AudioTranscriptionException(f"Falha no chunking: {str(e)}")
+    
+    def _merge_overlapping_segments(self, segments: list, overlap_seconds: float) -> list:
+        """
+        Mescla segmentos sobrepostos removendo duplicatas
+        
+        Args:
+            segments: Lista de segmentos com timestamps
+            overlap_seconds: Duração do overlap em segundos
+        
+        Returns:
+            list: Segmentos mesclados sem duplicatas
+        """
+        if not segments:
+            return []
+        
+        # Ordena por tempo de início
+        sorted_segments = sorted(segments, key=lambda s: s['start'])
+        
+        merged = []
+        for segment in sorted_segments:
+            # Se não há overlap com o último segmento adicionado, adiciona normalmente
+            if not merged or segment['start'] >= merged[-1]['end']:
+                merged.append(segment)
+            else:
+                # Há overlap - verifica se é texto duplicado
+                last_text = merged[-1]['text'].strip()
+                current_text = segment['text'].strip()
+                
+                # Se textos são muito similares (>80% igual), ignora o segmento duplicado
+                if self._text_similarity(last_text, current_text) > 0.8:
+                    # Atualiza apenas o tempo de fim se necessário
+                    if segment['end'] > merged[-1]['end']:
+                        merged[-1]['end'] = segment['end']
+                else:
+                    # Textos diferentes, adiciona o segmento
+                    merged.append(segment)
+        
+        return merged
+    
+    def _text_similarity(self, text1: str, text2: str) -> float:
+        """Calcula similaridade simples entre dois textos (0.0 a 1.0)"""
+        if not text1 or not text2:
+            return 0.0
+        
+        # Similaridade baseada em palavras em comum
+        words1 = set(text1.lower().split())
+        words2 = set(text2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union)
     
     def _convert_to_srt(self, segments):
         """Converte segmentos do Whisper para formato SRT"""

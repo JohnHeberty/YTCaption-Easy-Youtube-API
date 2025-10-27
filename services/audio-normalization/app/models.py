@@ -21,7 +21,7 @@ class AudioProcessingRequest(BaseModel):
     isolate_vocals: bool = False
 
 
-class Job(BaseModel):
+class  Job(BaseModel):
     id: str
     input_file: str
     output_file: Optional[str] = None

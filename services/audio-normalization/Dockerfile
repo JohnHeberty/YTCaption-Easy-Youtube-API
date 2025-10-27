@@ -36,7 +36,8 @@ COPY run.py .
 
 # Cria diretórios necessários com permissões adequadas
 RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
-    && chmod 777 /app/uploads /app/processed /app/temp /app/logs
+    && chmod 777 /app/uploads && chmod 777 /app/processed \ 
+    && chmod 777 /app/temp && chmod 777 /app/logs
 
 # Usuário não-root para segurança
 RUN useradd -m -u 1000 appuser \
