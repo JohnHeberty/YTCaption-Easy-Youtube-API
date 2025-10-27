@@ -7,6 +7,10 @@ python-multipart==0.0.6
 # === REDIS & STORAGE ===
 redis==5.0.1
 
+# === CELERY & ASYNC TASKS ===
+celery==5.3.4
+tenacity==8.2.3
+
 # === AI/ML for TRANSCRIPTION ===
 openai-whisper==20231117
 

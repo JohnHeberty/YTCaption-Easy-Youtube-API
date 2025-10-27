@@ -94,14 +94,11 @@ class Job(BaseModel):
         
         # Adiciona timestamp em microsegundos para garantir unicidade
         timestamp_str = now.strftime("%Y%m%d%H%M%S%f")
-        content = f"{filename}_{operation_string}_{timestamp_str}"
-        job_id = hashlib.md5(content.encode()).hexdigest()[:12]
+        job_id = "{}_{}".format(hashlib.md5(filename).hexdigest()[:12], operation_string)
         
         logger.info(f"🔍 DEBUG Job.create_new - operations: {operations}")
         logger.info(f"🔍 DEBUG Job.create_new - operation_string: '{operation_string}'")
         logger.info(f"🔍 DEBUG Job.create_new - timestamp: {timestamp_str}")
-        logger.info(f"🔍 DEBUG Job.create_new - timestamp: {timestamp_str}")
-        logger.info(f"🔍 DEBUG Job.create_new - content: '{content}'")
         logger.info(f"🔍 DEBUG Job.create_new - job_id: {job_id}")
         
         cache_ttl_hours = 24

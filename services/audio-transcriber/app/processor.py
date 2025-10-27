@@ -3,7 +3,7 @@ import asyncio
 from pathlib import Path
 import whisper
 import logging
-from .models import Job, JobStatus
+from .models import Job, JobStatus, TranscriptionSegment
 from .exceptions import AudioTranscriptionException
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,17 @@ class TranscriptionProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
+            # Converte segments para o formato com start, end, duration
+            transcription_segments = []
+            for seg in result["segments"]:
+                segment = TranscriptionSegment(
+                    text=seg["text"].strip(),
+                    start=seg["start"],
+                    end=seg["end"],
+                    duration=seg["end"] - seg["start"]
+                )
+                transcription_segments.append(segment)
+            
             # Salva arquivo de transcrição
             transcription_dir = Path("./transcriptions")
             transcription_dir.mkdir(exist_ok=True)
@@ -85,12 +96,14 @@ class TranscriptionProcessor:
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
             job.transcription_text = result["text"]
+            job.transcription_segments = transcription_segments  # Adiciona segments ao job
             job.file_size_output = output_path.stat().st_size
             
             if self.job_store:
                 self.job_store.update_job(job)
             
             logger.info(f"Job {job.id} transcrito com sucesso")
+            logger.info(f"Total de segmentos: {len(transcription_segments)}")
             
         except Exception as e:
             # Marca job como falhou

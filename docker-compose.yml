@@ -34,7 +34,7 @@ services:
   audio-normalization-celery:
     build: ./services/audio-normalization
     container_name: ytcaption-audio-normalization-celery
-    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
       - ./services/audio-normalization/uploads:/app/uploads
       - ./services/audio-normalization/processed:/app/processed
@@ -53,7 +53,14 @@ services:
       - "redis-server:192.168.18.110"
     restart: unless-stopped
     depends_on:
-      - audio-normalization
+      audio-normalization:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       - ytcaption-network
 
@@ -94,7 +101,7 @@ services:
   audio-transcriber-celery:
     build: ./services/audio-transcriber
     container_name: ytcaption-audio-transcriber-celery
-    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./services/audio-transcriber/uploads:/app/uploads
       - ./services/audio-transcriber/transcriptions:/app/transcriptions
@@ -115,7 +122,14 @@ services:
       - "redis-server:192.168.18.110"
     restart: unless-stopped
     depends_on:
-      - audio-transcriber
+      audio-transcriber:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       - ytcaption-network
 
@@ -155,7 +169,7 @@ services:
   video-downloader-celery:
     build: ./services/video-downloader
     container_name: ytcaption-video-downloader-celery
-    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=2 --pool=solo --max-tasks-per-child=100
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
       - ./services/video-downloader/cache:/app/cache
       - ./services/video-downloader/logs:/app/logs
@@ -175,7 +189,14 @@ services:
       - "redis-server:192.168.18.110"
     restart: unless-stopped
     depends_on:
-      - video-downloader
+      video-downloader:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       - ytcaption-network
 

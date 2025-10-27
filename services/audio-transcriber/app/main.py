@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import List
 import logging
 
-from .models import Job, JobRequest, JobStatus
+from .models import Job, JobRequest, JobStatus, TranscriptionResponse
 from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
 from .logging_config import setup_logging
@@ -195,6 +195,52 @@ async def get_transcription_text(job_id: str):
         )
     
     return {"text": job.transcription_text or ""}
+
+
+@app.get("/jobs/{job_id}/transcription", response_model=TranscriptionResponse)
+async def get_full_transcription(job_id: str) -> TranscriptionResponse:
+    """
+    Retorna transcrição completa com segments (start, end, duration).
+    Formato compatível com projeto v1.
+    """
+    job = job_store.get_job(job_id)
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    
+    if job.is_expired:
+        raise HTTPException(status_code=410, detail="Job expirado")
+        
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=425, 
+            detail=f"Transcrição não pronta. Status: {job.status}"
+        )
+    
+    if not job.transcription_segments:
+        raise HTTPException(
+            status_code=500, 
+            detail="Segments não disponíveis para este job"
+        )
+    
+    # Calcula duração total
+    duration = job.transcription_segments[-1].end if job.transcription_segments else 0.0
+    
+    # Calcula tempo de processamento
+    processing_time = None
+    if job.completed_at and job.created_at:
+        processing_time = (job.completed_at - job.created_at).total_seconds()
+    
+    return TranscriptionResponse(
+        transcription_id=job.id,
+        filename=job.filename or "unknown",
+        language=job.language,
+        full_text=job.transcription_text or "",
+        segments=job.transcription_segments,
+        total_segments=len(job.transcription_segments),
+        duration=duration,
+        processing_time=processing_time
+    )
 
 
 @app.get("/jobs", response_model=List[Job])

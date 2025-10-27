@@ -37,7 +37,7 @@ COPY user-agents*.txt ./
 
 # Cria diretórios necessários com permissões adequadas
 RUN mkdir -p /app/cache /app/logs \
-    && chmod 755 /app/cache /app/logs
+    && chmod 777 /app/cache /app/logs
 
 # Usuário não-root para segurança
 RUN useradd -m -u 1000 appuser \
