@@ -121,14 +121,18 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             
-            # PROCESSAMENTO REAL COM TIMEOUT DE SEGURANÇA
+            # PROCESSAMENTO REAL COM TIMEOUT DE SEGURANÇA (configurável)
+            from .config import get_settings
+            settings = get_settings()
+            async_timeout = int(settings.get('async_timeout_seconds', 900))
+            
             async def process_with_timeout():
                 return await self.processor.process_audio_job(job)
             
-            # Timeout de 15 minutos para evitar jobs infinitos
+            # Timeout configurável via env (padrão: 15 minutos)
             try:
-                logger.info(f"⏱️ Starting processing with 15min timeout for job {job_id}")
-                loop.run_until_complete(asyncio.wait_for(process_with_timeout(), timeout=900))
+                logger.info(f"⏱️ Starting processing with {async_timeout}s timeout for job {job_id}")
+                loop.run_until_complete(asyncio.wait_for(process_with_timeout(), timeout=async_timeout))
                 
                 # Verifica se processamento foi bem-sucedido
                 if job.status == JobStatus.COMPLETED:
@@ -148,9 +152,9 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
                         job.error_message = f"Processing ended with unexpected status: {job.status}"
                         
             except asyncio.TimeoutError:
-                logger.error(f"⏰ Job {job_id} TIMEOUT after 15 minutes")
+                logger.error(f"⏰ Job {job_id} TIMEOUT after {async_timeout}s")
                 job.status = JobStatus.FAILED
-                job.error_message = "Processing timeout - job exceeded 15 minutes limit"
+                job.error_message = f"Processing timeout - job exceeded {async_timeout}s limit"
             except Exception as process_inner_err:
                 logger.error(f"💥 Job {job_id} inner processing exception: {process_inner_err}", exc_info=True)
                 job.status = JobStatus.FAILED

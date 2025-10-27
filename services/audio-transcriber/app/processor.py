@@ -95,8 +95,8 @@ class TranscriptionProcessor:
                 audio = AudioSegment.from_file(job.input_file)
                 duration_seconds = len(audio) / 1000.0
                 
-                # Usa chunking apenas para áudios > 5 minutos (300 segundos)
-                min_duration_for_chunks = 300
+                # Usa chunking apenas para áudios longos (configurável, padrão 5 min = 300s)
+                min_duration_for_chunks = int(self.settings.get('whisper_min_duration_for_chunks', 300))
                 
                 if duration_seconds > min_duration_for_chunks:
                     logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")

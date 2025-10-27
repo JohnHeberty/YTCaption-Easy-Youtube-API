@@ -195,23 +195,45 @@ async def list_jobs(limit: int = 20) -> List[Job]:
 @app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str):
     """
-    Remove job e arquivo associado
+    Remove job e arquivos associados
+    
+    IMPORTANTE: Remove completamente o job do sistema:
+    - Job do Redis
+    - Arquivo de vídeo baixado
+    - Arquivos temporários
     """
     job = job_store.get_job(job_id)
     
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
     
-    # Remove arquivo se existir
-    if job.file_path:
-        file_path = Path(job.file_path)
-        if file_path.exists():
-            file_path.unlink()
-    
-    # Remove do store (simulação - em memória isso não é possível de forma simples)
-    # Em implementação real, marcaríamos como deletado
-    
-    return {"message": "Job removido com sucesso"}
+    try:
+        # Remove arquivo se existir
+        files_deleted = 0
+        
+        if job.file_path:
+            file_path = Path(job.file_path)
+            if file_path.exists():
+                file_path.unlink()
+                files_deleted += 1
+                logger.info(f"🗑️ Arquivo removido: {file_path.name}")
+        
+        # Remove job do Redis (CRÍTICO - estava faltando!)
+        job_store.redis.delete(f"video_job:{job_id}")
+        logger.info(f"🗑️ Job {job_id} removido do Redis")
+        
+        return {
+            "message": "Job removido com sucesso",
+            "job_id": job_id,
+            "files_deleted": files_deleted
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao remover job {job_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao remover job: {str(e)}"
+        )
 
 
 @app.post("/admin/cleanup")

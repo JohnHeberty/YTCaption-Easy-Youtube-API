@@ -6,7 +6,7 @@ redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
 # Inicializa Celery
 celery_app = Celery(
-    'audio_normalization_tasks',
+    'audio_transcriber_tasks',
     broker=redis_url,
     backend=redis_url
 )
@@ -34,7 +34,11 @@ celery_app.conf.update(
     # 🔧 FILA DEDICADA para audio-transcriber
     task_default_queue='audio_transcriber_queue',
     task_routes={
-        'transcribe_audio_task': {'queue': 'audio_transcriber_queue'},
+        'transcribe_audio': {'queue': 'audio_transcriber_queue'},
         'cleanup_expired_jobs': {'queue': 'audio_transcriber_queue'},
     },
 )
+
+# ✅ IMPORTANTE: Importa tasks para registrá-las no Celery
+# Isso garante que o worker reconheça as tasks ao inicializar
+from . import celery_tasks  # noqa: F401

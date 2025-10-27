@@ -113,11 +113,16 @@ def validate_audio_content_with_ffprobe(file_path: str) -> Dict[str, any]:
             str(file_path)
         ]
         
+        # Timeout configurável via env var (padrão: 30s)
+        from .config import get_settings
+        settings = get_settings()
+        ffprobe_timeout = int(settings.get('ffprobe_timeout_seconds', 30))
+        
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=ffprobe_timeout
         )
         
         if result.returncode != 0:
@@ -144,7 +149,7 @@ def validate_audio_content_with_ffprobe(file_path: str) -> Dict[str, any]:
         }
         
     except subprocess.TimeoutExpired:
-        raise ValidationError("Timeout ao analisar arquivo")
+        raise ValidationError(f"Timeout ao analisar arquivo (limite: {ffprobe_timeout}s)")
     except json.JSONDecodeError:
         raise ValidationError("Resposta inválida do ffprobe")
     except FileNotFoundError:

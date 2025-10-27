@@ -304,24 +304,54 @@ async def list_jobs(limit: int = 20) -> List[Job]:
 
 @app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str):
-    """Remove job e arquivo associado"""
+    """
+    Remove job e arquivos associados
+    
+    IMPORTANTE: Remove completamente o job do sistema:
+    - Job do Redis
+    - Arquivo de entrada (upload)
+    - Arquivo de saída (transcrição)
+    - Arquivos temporários
+    """
     job = job_store.get_job(job_id)
     
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
     
-    # Remove arquivos se existirem
-    if job.input_file:
-        input_path = Path(job.input_file)
-        if input_path.exists():
-            input_path.unlink()
-    
-    if job.output_file:
-        output_path = Path(job.output_file)
-        if output_path.exists():
-            output_path.unlink()
-    
-    return {"message": "Job removido com sucesso"}
+    try:
+        # Remove arquivos se existirem
+        files_deleted = 0
+        
+        if job.input_file:
+            input_path = Path(job.input_file)
+            if input_path.exists():
+                input_path.unlink()
+                files_deleted += 1
+                logger.info(f"🗑️ Arquivo de entrada removido: {input_path.name}")
+        
+        if job.output_file:
+            output_path = Path(job.output_file)
+            if output_path.exists():
+                output_path.unlink()
+                files_deleted += 1
+                logger.info(f"🗑️ Arquivo de saída removido: {output_path.name}")
+        
+        # Remove job do Redis (CRÍTICO - estava faltando!)
+        job_store.redis.delete(f"transcription_job:{job_id}")
+        logger.info(f"🗑️ Job {job_id} removido do Redis")
+        
+        return {
+            "message": "Job removido com sucesso",
+            "job_id": job_id,
+            "files_deleted": files_deleted
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao remover job {job_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao remover job: {str(e)}"
+        )
 
 
 async def _perform_cleanup():
