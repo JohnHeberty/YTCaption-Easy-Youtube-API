@@ -12,3 +12,12 @@ class ResourceError(Exception):
 
 class ProcessingTimeoutError(Exception):
     pass
+
+class VideoDownloadException(Exception):
+    pass
+
+class ServiceException(Exception):
+    pass
+
+class exception_handler(Exception):
+    pass
