@@ -62,8 +62,8 @@ COPY run.py .
 # Cria diretórios necessários com permissões adequadas
 # 777 para logs permite gravação mesmo com problemas de permissão
 RUN mkdir -p /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed \
-    && chmod 777 /app/uploads && chmod 777 /app/transcriptions && chmod 777 /app/models && chmod 777 /app/temp  \
-    && chmod 777 /app/logs && chmod 777 /app/processed
+    && chmod -R 777 /app/uploads && chmod -R 777 /app/transcriptions && chmod -R 777 /app/models && chmod -R 777 /app/temp  \
+    && chmod -R 777 /app/logs && chmod -R 777 /app/processed
 
 # Usuário não-root para segurança
 RUN useradd -m -u 1000 appuser \
