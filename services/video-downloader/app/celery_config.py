@@ -42,4 +42,14 @@ celery_app.conf.update(
     # Timeout de tasks (30 minutos para downloads grandes)
     task_time_limit=1800,
     task_soft_time_limit=1700,
+    
+    # Reconnect to broker
+    broker_connection_retry_on_startup=True,
+    
+    # 🔧 FILA DEDICADA para video-downloader
+    task_default_queue='video_downloader_queue',
+    task_routes={
+        'download_video_task': {'queue': 'video_downloader_queue'},
+        'cleanup_expired_jobs': {'queue': 'video_downloader_queue'},
+    },
 )
