@@ -28,6 +28,12 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=50,
     broker_connection_retry_on_startup=True,
+    # 🔧 FILA DEDICADA para audio-normalization
+    task_default_queue='audio_normalization_queue',
+    task_routes={
+        'normalize_audio_task': {'queue': 'audio_normalization_queue'},
+        'cleanup_expired_jobs': {'queue': 'audio_normalization_queue'},
+    },
     # Auto-discovery das tasks
     include=['app.celery_tasks']
 )

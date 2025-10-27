@@ -30,4 +30,11 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=50,
     broker_connection_retry_on_startup=True,
+    
+    # 🔧 FILA DEDICADA para audio-transcriber
+    task_default_queue='audio_transcriber_queue',
+    task_routes={
+        'transcribe_audio_task': {'queue': 'audio_transcriber_queue'},
+        'cleanup_expired_jobs': {'queue': 'audio_transcriber_queue'},
+    },
 )

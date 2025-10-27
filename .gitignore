@@ -11,6 +11,7 @@ run_test.ps1
 monitor_test.ps1
 test_output.txt
 *.webm
+*.wav
 
 # Distribution / packaging
 .Python

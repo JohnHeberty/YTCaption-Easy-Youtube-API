@@ -30,6 +30,107 @@ class AudioProcessor:
     def __init__(self):
         self.job_store = None  # Will be injected
         self._openunmix_model = None
+        self._load_config()
+    
+    def _load_config(self):
+        """Carrega configurações do .env"""
+        from .config import get_settings
+        settings = get_settings()
+        
+        self.config = {
+            'chunking_enabled': settings['audio_chunking']['enabled'],
+            'chunk_size_mb': settings['audio_chunking']['chunk_size_mb'],
+            'chunk_duration_sec': settings['audio_chunking']['chunk_duration_sec'],
+            'chunk_overlap_sec': settings['audio_chunking']['chunk_overlap_sec'],
+            'noise_reduction_max_duration': settings['noise_reduction']['max_duration_sec'],
+            'noise_reduction_sample_rate': settings['noise_reduction']['sample_rate'],
+            'noise_reduction_chunk_size': settings['noise_reduction']['chunk_size_sec'],
+            'vocal_isolation_max_duration': settings['vocal_isolation']['max_duration_sec'],
+            'vocal_isolation_sample_rate': settings['vocal_isolation']['sample_rate'],
+            'highpass_cutoff_hz': settings['highpass_filter']['cutoff_hz'],
+            'highpass_order': settings['highpass_filter']['order'],
+        }
+        
+        logger.info(f"🔧 Config carregada: chunking={self.config['chunking_enabled']}, chunk_size={self.config['chunk_size_mb']}MB")
+    
+    def _should_use_chunking(self, audio: AudioSegment) -> bool:
+        """Verifica se deve usar processamento em chunks"""
+        if not self.config['chunking_enabled']:
+            return False
+        
+        # Calcula tamanho do áudio em MB
+        audio_size_mb = len(audio.raw_data) / (1024 * 1024)
+        duration_sec = len(audio) / 1000  # pydub usa milissegundos
+        
+        # Usa chunks se exceder limites
+        should_chunk = (
+            audio_size_mb > self.config['chunk_size_mb'] or
+            duration_sec > self.config['chunk_duration_sec']
+        )
+        
+        if should_chunk:
+            logger.info(f"📦 Processamento em CHUNKS habilitado: {audio_size_mb:.1f}MB, {duration_sec:.1f}s")
+        
+        return should_chunk
+    
+    def _split_audio_into_chunks(self, audio: AudioSegment) -> list:
+        """
+        Divide áudio em chunks com overlap para processamento
+        
+        Returns:
+            List de tuplas (start_ms, end_ms, chunk_audio)
+        """
+        chunk_duration_ms = self.config['chunk_duration_sec'] * 1000
+        overlap_ms = self.config['chunk_overlap_sec'] * 1000
+        audio_duration_ms = len(audio)
+        
+        chunks = []
+        start_ms = 0
+        
+        while start_ms < audio_duration_ms:
+            end_ms = min(start_ms + chunk_duration_ms, audio_duration_ms)
+            chunk = audio[start_ms:end_ms]
+            chunks.append((start_ms, end_ms, chunk))
+            
+            # Próximo chunk começa com overlap
+            start_ms = end_ms - overlap_ms
+            
+            if start_ms >= audio_duration_ms - overlap_ms:
+                break
+        
+        logger.info(f"📦 Áudio dividido em {len(chunks)} chunks de ~{chunk_duration_ms/1000}s cada")
+        return chunks
+    
+    def _merge_chunks(self, chunks: list, overlap_ms: int) -> AudioSegment:
+        """
+        Mescla chunks processados de volta em um único áudio
+        
+        Args:
+            chunks: Lista de AudioSegments
+            overlap_ms: Overlap em milissegundos
+            
+        Returns:
+            AudioSegment mesclado
+        """
+        if len(chunks) == 1:
+            return chunks[0]
+        
+        logger.info(f"🔗 Mesclando {len(chunks)} chunks...")
+        
+        # Primeiro chunk completo
+        merged = chunks[0]
+        
+        # Mescla chunks seguintes com crossfade no overlap
+        for i in range(1, len(chunks)):
+            if overlap_ms > 0 and len(merged) > overlap_ms:
+                # Aplica crossfade suave no overlap
+                merged = merged.append(chunks[i], crossfade=overlap_ms)
+            else:
+                # Simplesmente concatena
+                merged = merged + chunks[i]
+        
+        logger.info(f"✅ Chunks mesclados: duração final = {len(merged)/1000:.1f}s")
+        return merged
     
     def _load_openunmix_model(self):
         """Carrega modelo openunmix para isolamento vocal - API CORRIGIDA e ROBUSTA"""
@@ -59,10 +160,10 @@ class AudioProcessor:
                     # API alternativa para versões antigas
                     logger.info("⚠️ API oficial não disponível, tentando API alternativa...")
                     
-                    from openunmix import predict
-                    # Usa função de predição diretamente
-                    self._openunmix_model = predict
-                    logger.info("✅ OpenUnmix carregado via API de predição")
+                    from openunmix.predict import separate
+                    # Usa função de separação diretamente
+                    self._openunmix_model = separate
+                    logger.info("✅ OpenUnmix carregado via API de separação")
                     
             except Exception as e:
                 logger.error(f"❌ Erro ao carregar modelo OpenUnmix: {e}")
@@ -280,7 +381,7 @@ class AudioProcessor:
         return audio
     
     async def _isolate_vocals(self, audio: AudioSegment) -> AudioSegment:
-        """Isola vocais usando OpenUnmix com PROTEÇÃO TOTAL contra erros e OOM"""
+        """Isola vocais usando OpenUnmix com PROCESSAMENTO EM CHUNKS e proteção total contra OOM"""
         if not OPENUNMIX_AVAILABLE:
             logger.error("❌ OpenUnmix não disponível")
             raise AudioNormalizationException("OpenUnmix não está instalado. Use: pip install openunmix-pytorch")
@@ -288,28 +389,33 @@ class AudioProcessor:
         try:
             logger.info(f"🎤 Iniciando isolamento vocal - duração: {len(audio)}ms, canais: {audio.channels}")
             
-            # PROTEÇÃO 1: Limita duração para evitar OOM (OpenUnmix é pesado)
-            max_duration_ms = 180000  # 3 minutos máximo para vocal isolation
+            # PROTEÇÃO 1: Verifica se deve usar chunking
+            if self._should_use_chunking(audio):
+                logger.info("📦 Processando vocal isolation em CHUNKS")
+                return await self._isolate_vocals_chunked(audio)
+            
+            # PROTEÇÃO 2: Limita duração para evitar OOM (OpenUnmix é pesado)
+            max_duration_ms = self.config['vocal_isolation_max_duration'] * 1000
             original_duration = len(audio)
             if original_duration > max_duration_ms:
                 logger.warning(f"⚠️ Áudio muito longo ({original_duration}ms), cortando para {max_duration_ms}ms")
                 audio = audio[:max_duration_ms]
             
-            # PROTEÇÃO 2: Prepara áudio no formato correto
+            # PROTEÇÃO 3: Prepara áudio no formato correto
             original_sample_rate = audio.frame_rate
-            target_sample_rate = 44100  # OpenUnmix funciona melhor com 44.1kHz
+            target_sample_rate = self.config['vocal_isolation_sample_rate']
             
             if audio.frame_rate != target_sample_rate:
                 logger.info(f"🔄 Ajustando sample rate de {audio.frame_rate} para {target_sample_rate}")
                 audio = audio.set_frame_rate(target_sample_rate)
             
-            # PROTEÇÃO 3: Garante que é estéreo (OpenUnmix precisa de estéreo)
+            # PROTEÇÃO 4: Garante que é estéreo (OpenUnmix precisa de estéreo)
             original_channels = audio.channels
             if audio.channels == 1:
                 logger.info("🔄 Convertendo mono para estéreo (OpenUnmix requer estéreo)")
                 audio = audio.set_channels(2)
             
-            # PROTEÇÃO 4: Converte para numpy array
+            # PROTEÇÃO 5: Converte para numpy array
             try:
                 samples = np.array(audio.get_array_of_samples())
                 
@@ -326,14 +432,14 @@ class AudioProcessor:
                 logger.error(f"💥 Erro ao preparar array: {array_err}")
                 raise AudioNormalizationException(f"Failed to prepare audio for vocal isolation: {str(array_err)}")
             
-            # PROTEÇÃO 5: Carrega modelo
+            # PROTEÇÃO 6: Carrega modelo
             try:
                 model = self._load_openunmix_model()
             except Exception as model_err:
                 logger.error(f"💥 Erro ao carregar modelo: {model_err}")
                 raise AudioNormalizationException(f"Failed to load OpenUnmix model: {str(model_err)}")
             
-            # PROTEÇÃO 6: Aplica isolamento vocal
+            # PROTEÇÃO 7: Aplica isolamento vocal
             try:
                 logger.info("🎯 Aplicando separação de fontes com OpenUnmix...")
                 
@@ -344,13 +450,20 @@ class AudioProcessor:
                 # Inferência sem gradientes (economia de memória)
                 with torch.no_grad():
                     # Aplica modelo
-                    if callable(model):
-                        # Se é função predict
-                        vocals_tensor = model(audio_tensor, rate=target_sample_rate)
-                        if isinstance(vocals_tensor, dict):
-                            vocals_tensor = vocals_tensor.get('vocals', audio_tensor)
+                    if hasattr(model, '__call__') and hasattr(model, '__name__') and model.__name__ == 'separate':
+                        # É a função separate() - precisa de outros parâmetros
+                        logger.info("🎯 Usando openunmix.predict.separate()")
+                        # separate() retorna dict com todas as fontes
+                        result = model(
+                            audio_tensor,
+                            rate=target_sample_rate,
+                            device='cpu'
+                        )
+                        # Extrai apenas vocais
+                        vocals_tensor = result.get('vocals', audio_tensor) if isinstance(result, dict) else result
                     else:
-                        # Se é modelo
+                        # É um modelo (callable direto)
+                        logger.info("🎯 Usando modelo OpenUnmix direto")
                         vocals_tensor = model(audio_tensor)
                     
                     logger.info(f"📊 Tensor de saída: shape={vocals_tensor.shape}")
@@ -364,7 +477,7 @@ class AudioProcessor:
                 logger.error(f"💥 OpenUnmix falhou: {openunmix_err}", exc_info=True)
                 raise AudioNormalizationException(f"Vocal isolation failed: {str(openunmix_err)}")
             
-            # PROTEÇÃO 7: Converte resultado de volta para AudioSegment
+            # PROTEÇÃO 8: Converte resultado de volta para AudioSegment
             try:
                 # Transpõe de volta (samples x channels)
                 vocals_np = vocals_np.T
@@ -428,19 +541,61 @@ class AudioProcessor:
             logger.error(f"💥 Erro crítico inesperado no isolamento vocal: {e}", exc_info=True)
             raise AudioNormalizationException(f"Critical error in vocal isolation: {str(e)}")
     
+    async def _isolate_vocals_chunked(self, audio: AudioSegment) -> AudioSegment:
+        """
+        Isola vocais processando áudio em chunks
+        Usado para áudios muito grandes que causariam OOM com OpenUnmix
+        """
+        logger.info("📦 Iniciando vocal isolation em CHUNKS")
+        
+        # Divide em chunks
+        chunks = self._split_audio_into_chunks(audio)
+        processed_chunks = []
+        
+        for i, (start_ms, end_ms, chunk) in enumerate(chunks):
+            logger.info(f"🔄 Processando chunk {i+1}/{len(chunks)} ({start_ms/1000:.1f}s - {end_ms/1000:.1f}s)")
+            
+            try:
+                # Processa chunk individualmente
+                original_chunking = self.config['chunking_enabled']
+                self.config['chunking_enabled'] = False
+                
+                processed_chunk = await self._isolate_vocals(chunk)
+                
+                self.config['chunking_enabled'] = original_chunking
+                
+                processed_chunks.append(processed_chunk)
+                
+            except Exception as chunk_err:
+                logger.error(f"💥 Erro ao processar chunk {i+1}: {chunk_err}")
+                # Se um chunk falhar, usa chunk original
+                processed_chunks.append(chunk)
+        
+        # Mescla chunks
+        overlap_ms = self.config['chunk_overlap_sec'] * 1000
+        merged_audio = self._merge_chunks(processed_chunks, overlap_ms)
+        
+        logger.info("✅ Vocal isolation em chunks concluída")
+        return merged_audio
+    
     async def _remove_noise(self, audio: AudioSegment) -> AudioSegment:
-        """Remove ruído usando noisereduce com PROTEÇÃO TOTAL contra erros de formato e memória"""
+        """Remove ruído usando noisereduce com PROCESSAMENTO EM CHUNKS e proteção total"""
         try:
             logger.info(f"🔇 Iniciando remoção de ruído - duração: {len(audio)}ms, canais: {audio.channels}, sample_rate: {audio.frame_rate}")
             
-            # PROTEÇÃO 1: Limita duração para evitar OOM
-            max_duration_ms = 300000  # 5 minutos máximo
+            # PROTEÇÃO 1: Verifica se deve usar chunking
+            if self._should_use_chunking(audio):
+                logger.info("📦 Processando noise reduction em CHUNKS")
+                return await self._remove_noise_chunked(audio)
+            
+            # PROTEÇÃO 2: Limita duração para processamento direto
+            max_duration_ms = self.config['noise_reduction_max_duration'] * 1000
             original_duration = len(audio)
             if original_duration > max_duration_ms:
                 logger.warning(f"⚠️ Áudio muito longo ({original_duration}ms), cortando para {max_duration_ms}ms")
                 audio = audio[:max_duration_ms]
             
-            # PROTEÇÃO 2: Converte para mono para reduzir uso de memória
+            # PROTEÇÃO 3: Converte para mono para reduzir uso de memória
             original_channels = audio.channels
             if audio.channels > 1:
                 logger.info("🔄 Convertendo para mono temporariamente para economizar memória")
@@ -448,14 +603,14 @@ class AudioProcessor:
             else:
                 audio_mono = audio
             
-            # PROTEÇÃO 3: Reduz sample rate se muito alto
-            target_sample_rate = 22050  # 22kHz é suficiente para noise reduction
+            # PROTEÇÃO 4: Reduz sample rate se muito alto
+            target_sample_rate = self.config['noise_reduction_sample_rate']
             original_sample_rate = audio_mono.frame_rate
             if audio_mono.frame_rate > target_sample_rate:
                 logger.info(f"🔄 Reduzindo sample rate de {audio_mono.frame_rate} para {target_sample_rate}")
                 audio_mono = audio_mono.set_frame_rate(target_sample_rate)
             
-            # PROTEÇÃO 4: Converte para numpy com tipo correto
+            # PROTEÇÃO 5: Converte para numpy com tipo correto
             try:
                 # Obtém samples como array
                 samples = np.array(audio_mono.get_array_of_samples())
@@ -476,7 +631,7 @@ class AudioProcessor:
                 
                 logger.info(f"📊 Array após normalização: shape={samples_float.shape}, dtype={samples_float.dtype}, range=[{samples_float.min():.3f}, {samples_float.max():.3f}]")
                 
-                # PROTEÇÃO 5: Verifica se tem valores válidos
+                # PROTEÇÃO 6: Verifica se tem valores válidos
                 if np.isnan(samples_float).any() or np.isinf(samples_float).any():
                     logger.error("❌ Array contém NaN ou Inf após normalização")
                     raise ValueError("Audio array contains invalid values (NaN or Inf)")
@@ -487,7 +642,7 @@ class AudioProcessor:
             
             logger.info(f"🎯 Aplicando noisereduce em {len(samples_float)} samples @ {audio_mono.frame_rate}Hz")
             
-            # PROTEÇÃO 6: Aplica redução de ruído com parâmetros conservadores e try/except
+            # PROTEÇÃO 7: Aplica redução de ruído com parâmetros conservadores e try/except
             try:
                 reduced_noise = nr.reduce_noise(
                     y=samples_float,
@@ -506,7 +661,7 @@ class AudioProcessor:
                 logger.error(f"💥 noisereduce falhou: {nr_err}", exc_info=True)
                 raise AudioNormalizationException(f"Noise reduction algorithm failed: {str(nr_err)}")
             
-            # PROTEÇÃO 7: Valida output e converte de volta para int16
+            # PROTEÇÃO 8: Valida output e converte de volta para int16
             try:
                 # Verifica se output é válido
                 if np.isnan(reduced_noise).any() or np.isinf(reduced_noise).any():
@@ -525,7 +680,7 @@ class AudioProcessor:
                 logger.error(f"💥 Erro ao converter resultado: {convert_err}")
                 raise AudioNormalizationException(f"Failed to convert processed audio: {str(convert_err)}")
             
-            # PROTEÇÃO 8: Cria AudioSegment processado
+            # PROTEÇÃO 9: Cria AudioSegment processado
             try:
                 processed_audio = AudioSegment(
                     reduced_noise_int16.tobytes(),
@@ -567,6 +722,45 @@ class AudioProcessor:
         except Exception as e:
             logger.error(f"💥 Erro crítico inesperado na remoção de ruído: {e}", exc_info=True)
             raise AudioNormalizationException(f"Critical error in noise removal: {str(e)}")
+    
+    async def _remove_noise_chunked(self, audio: AudioSegment) -> AudioSegment:
+        """
+        Remove ruído processando áudio em chunks
+        Usado para áudios muito grandes que não cabem na memória
+        """
+        logger.info("📦 Iniciando noise reduction em CHUNKS")
+        
+        # Divide em chunks
+        chunks = self._split_audio_into_chunks(audio)
+        processed_chunks = []
+        
+        for i, (start_ms, end_ms, chunk) in enumerate(chunks):
+            logger.info(f"🔄 Processando chunk {i+1}/{len(chunks)} ({start_ms/1000:.1f}s - {end_ms/1000:.1f}s)")
+            
+            try:
+                # Processa chunk individualmente (recursivamente chama método sem chunking)
+                # Temporariamente desabilita chunking para processar chunk individual
+                original_chunking = self.config['chunking_enabled']
+                self.config['chunking_enabled'] = False
+                
+                processed_chunk = await self._remove_noise(chunk)
+                
+                # Restaura setting
+                self.config['chunking_enabled'] = original_chunking
+                
+                processed_chunks.append(processed_chunk)
+                
+            except Exception as chunk_err:
+                logger.error(f"💥 Erro ao processar chunk {i+1}: {chunk_err}")
+                # Se um chunk falhar, usa chunk original
+                processed_chunks.append(chunk)
+        
+        # Mescla chunks
+        overlap_ms = self.config['chunk_overlap_sec'] * 1000
+        merged_audio = self._merge_chunks(processed_chunks, overlap_ms)
+        
+        logger.info("✅ Noise reduction em chunks concluída")
+        return merged_audio
     
     async def _apply_highpass_filter(self, audio: AudioSegment) -> AudioSegment:
         """Aplica filtro high-pass com tratamento robusto de erros e múltiplas estratégias"""

@@ -30,7 +30,7 @@ services:
   celery-worker:
     build: .
     container_name: audio-normalization-celery
-    command: celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo
+    command: celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
       # Monta código para hot reload em desenvolvimento
       - ./app:/app/app
@@ -42,9 +42,17 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
     restart: unless-stopped
     depends_on:
-      - audio-normalization-service
+      audio-normalization-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     labels:
       - "com.example.service=audio-normalization-worker"
       - "com.example.version=1.0.0"

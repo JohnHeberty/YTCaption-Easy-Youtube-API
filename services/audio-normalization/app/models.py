@@ -80,7 +80,9 @@ class Job(BaseModel):
         logger.info(f"🔍 DEBUG Job.create_new - apply_highpass_filter: {apply_highpass_filter}")
         logger.info(f"🔍 DEBUG Job.create_new - isolate_vocals: {isolate_vocals}")
         
-        # Calcula hash do nome do arquivo + operações para criar ID único
+        # Calcula hash ÚNICO do arquivo + operações + timestamp
+        # Isso garante que cada job tenha ID único, evitando colisões de cache
+        now = datetime.now()
         operations = [
             "n" if remove_noise else "",
             "m" if convert_to_mono else "",
@@ -89,15 +91,19 @@ class Job(BaseModel):
             "v" if isolate_vocals else ""
         ]
         operation_string = "".join([op for op in operations if op])
-        content = f"{filename}_{operation_string}" if operation_string else filename
+        
+        # Adiciona timestamp em microsegundos para garantir unicidade
+        timestamp_str = now.strftime("%Y%m%d%H%M%S%f")
+        content = f"{filename}_{operation_string}_{timestamp_str}"
         job_id = hashlib.md5(content.encode()).hexdigest()[:12]
         
         logger.info(f"🔍 DEBUG Job.create_new - operations: {operations}")
         logger.info(f"🔍 DEBUG Job.create_new - operation_string: '{operation_string}'")
+        logger.info(f"🔍 DEBUG Job.create_new - timestamp: {timestamp_str}")
+        logger.info(f"🔍 DEBUG Job.create_new - timestamp: {timestamp_str}")
         logger.info(f"🔍 DEBUG Job.create_new - content: '{content}'")
         logger.info(f"🔍 DEBUG Job.create_new - job_id: {job_id}")
         
-        now = datetime.now()
         cache_ttl_hours = 24
         
         return cls(
