@@ -1,62 +1,18 @@
-version: '3.8'
-
 services:
   orchestrator:
     build: .
     container_name: ytcaption-orchestrator
+    env_file:
+      - .env
+    # expõe a porta configurada no .env (fallback 8000)
     ports:
-      - "8000:8000"
-    environment:
-      - APP_NAME=youtube-caption-orchestrator
-      - APP_VERSION=1.0.0
-      - ENVIRONMENT=production
-      - DEBUG=false
-      - APP_HOST=0.0.0.0
-      - APP_PORT=8000
-      - WORKERS=4
-      
-      # Redis
-      - REDIS_HOST=192.168.18.110
-      - REDIS_PORT=6379
-      - REDIS_DB=0
-      - REDIS_URL=redis://192.168.18.110:6379/0
-      
-      # Cache e Jobs
-      - CACHE_TTL_HOURS=24
-      - JOB_TIMEOUT_MINUTES=60
-      
-      # Logging
-      - LOG_LEVEL=INFO
-      - LOG_DIR=/app/logs
-      
-      # Microserviços (ajuste as URLs conforme seu ambiente)
-      - VIDEO_DOWNLOADER_URL=http://192.168.18.110:8001
-      - AUDIO_NORMALIZATION_URL=http://192.168.18.110:8002
-      - AUDIO_TRANSCRIBER_URL=http://192.168.18.110:8003
-      
-      # Timeouts
-      - VIDEO_DOWNLOADER_TIMEOUT=300
-      - AUDIO_NORMALIZATION_TIMEOUT=180
-      - AUDIO_TRANSCRIBER_TIMEOUT=600
-      
-      # Polling
-      - POLL_INTERVAL=2
-      - MAX_POLL_ATTEMPTS=300
-      
-      # Defaults
-      - DEFAULT_LANGUAGE=auto
-      - DEFAULT_REMOVE_NOISE=true
-      - DEFAULT_CONVERT_MONO=true
-      - DEFAULT_SAMPLE_RATE_16K=true
-    
+      - "${APP_PORT:-8000}:8000"
+    # usa o diretório de logs indicado no .env (fallback ./logs) -> dentro do container é /app/logs
     volumes:
-      - ./logs:/app/logs
-    
+      - "${LOG_DIR:-./logs}:/app/logs"
     networks:
       - ytcaption-network
-    
     restart: unless-stopped
-    
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
       interval: 30s
