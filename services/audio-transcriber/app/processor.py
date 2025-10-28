@@ -181,7 +181,7 @@ class TranscriptionProcessor:
         logger.info(f"Transcrevendo diretamente: {audio_file}")
         
         # Se language_out for especificado e diferente de language_in, usa translate
-        needs_translation = language_out is not None and language_out != language_in
+        needs_translation = language_out is not None and language_out != language_in and language_in != ''
         
         if needs_translation:
             logger.info(f"Traduzindo de {language_in} para {language_out}")
