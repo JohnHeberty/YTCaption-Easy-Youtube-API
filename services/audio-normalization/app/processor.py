@@ -20,17 +20,74 @@ try:
     import torch
     import openunmix
     OPENUNMIX_AVAILABLE = True
-    logger.info("OpenUnmix disponível para isolamento vocal")
+    TORCH_AVAILABLE = True
+    logger.info("✅ PyTorch e OpenUnmix disponíveis para isolamento vocal")
 except ImportError:
     OPENUNMIX_AVAILABLE = False
-    logger.warning("OpenUnmix não disponível. Isolamento vocal será desabilitado")
+    TORCH_AVAILABLE = False
+    logger.warning("⚠️ OpenUnmix não disponível. Isolamento vocal será desabilitado")
 
 
 class AudioProcessor:
     def __init__(self):
         self.job_store = None  # Will be injected
         self._openunmix_model = None
+        self.device = None  # Will be set when loading model
         self._load_config()
+        self._detect_device()
+    
+    def _detect_device(self):
+        """Detecta e valida dispositivo (CUDA/CPU) disponível"""
+        if not TORCH_AVAILABLE:
+            self.device = 'cpu'
+            logger.info("ℹ️ PyTorch não disponível - usando CPU")
+            return
+        
+        # Verifica disponibilidade de CUDA
+        cuda_available = torch.cuda.is_available()
+        
+        if cuda_available:
+            device_count = torch.cuda.device_count()
+            device_name = torch.cuda.get_device_name(0)
+            cuda_version = torch.version.cuda
+            logger.info(f"🎮 CUDA DISPONÍVEL!")
+            logger.info(f"   └─ GPUs detectadas: {device_count}")
+            logger.info(f"   └─ GPU 0: {device_name}")
+            logger.info(f"   └─ CUDA Version: {cuda_version}")
+            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
+            self.device = 'cuda'
+            logger.info(f"✅ Usando GPU (CUDA) para processamento de áudio")
+        else:
+            self.device = 'cpu'
+            logger.info(f"ℹ️ CUDA não disponível - usando CPU")
+            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
+    
+    def _test_gpu(self):
+        """Testa se GPU está funcionando corretamente"""
+        if not TORCH_AVAILABLE or self.device != 'cuda':
+            return
+        
+        try:
+            # Cria tensor de teste na GPU
+            test_tensor = torch.randn(1000, 1000).to('cuda')
+            result = test_tensor @ test_tensor.T
+            
+            # Verifica memória GPU
+            memory_allocated = torch.cuda.memory_allocated(0) / 1024**2  # MB
+            memory_reserved = torch.cuda.memory_reserved(0) / 1024**2    # MB
+            
+            logger.info(f"🔥 GPU funcionando corretamente!")
+            logger.info(f"   └─ Memória Alocada: {memory_allocated:.2f} MB")
+            logger.info(f"   └─ Memória Reservada: {memory_reserved:.2f} MB")
+            
+            # Limpa tensor de teste
+            del test_tensor, result
+            torch.cuda.empty_cache()
+            
+        except Exception as e:
+            logger.error(f"⚠️ Erro ao testar GPU: {e}")
+            logger.warning("GPU pode não estar funcionando corretamente")
+            self.device = 'cpu'  # Fallback para CPU
     
     def _load_config(self):
         """Carrega configurações do .env"""
@@ -133,28 +190,33 @@ class AudioProcessor:
         return merged
     
     def _load_openunmix_model(self):
-        """Carrega modelo openunmix para isolamento vocal - API CORRIGIDA e ROBUSTA"""
+        """Carrega modelo openunmix para isolamento vocal com suporte a GPU"""
         if not OPENUNMIX_AVAILABLE:
             raise AudioNormalizationException("OpenUnmix não está disponível - instale com: pip install openunmix-pytorch")
             
         if self._openunmix_model is None:
             try:
-                logger.info("🎵 Carregando modelo OpenUnmix...")
+                logger.info(f"🎵 Carregando modelo OpenUnmix no {self.device.upper()}...")
                 
                 # ESTRATÉGIA 1: API oficial do OpenUnmix (openunmix-pytorch)
                 try:
                     import openunmix
                     
                     # Modelo UMX (Universal Music eXtractor)
-                    # Carrega modelo pré-treinado em CPU para evitar OOM
+                    # Carrega modelo no dispositivo detectado (CUDA ou CPU)
                     self._openunmix_model = openunmix.umx.load_pretrained(
                         target='vocals',  # Apenas vocais
-                        device='cpu',  # Força CPU para controle de memória
+                        device=self.device,  # Usa dispositivo detectado
                         pretrained=True
                     )
                     
                     self._openunmix_model.eval()  # Modo de inferência
-                    logger.info("✅ Modelo OpenUnmix carregado com sucesso (API oficial)")
+                    
+                    # Testa GPU se disponível
+                    if self.device == 'cuda':
+                        self._test_gpu()
+                    
+                    logger.info(f"✅ Modelo OpenUnmix carregado com sucesso no {self.device.upper()}")
                     
                 except AttributeError:
                     # API alternativa para versões antigas
@@ -167,6 +229,11 @@ class AudioProcessor:
                     
             except Exception as e:
                 logger.error(f"❌ Erro ao carregar modelo OpenUnmix: {e}")
+                # Fallback para CPU se GPU falhar
+                if self.device == 'cuda':
+                    logger.warning("⚠️ Tentando novamente com CPU...")
+                    self.device = 'cpu'
+                    return self._load_openunmix_model()
                 raise AudioNormalizationException(
                     f"Falha ao carregar OpenUnmix. Erro: {str(e)}. "
                     f"Certifique-se de que 'openunmix-pytorch' está instalado."

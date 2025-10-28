@@ -29,21 +29,29 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-      # Certifique-se de que sua aplicação usa 'redis:6379' como broker
-      - CELERY_BROKER_URL=redis://redis:6379/0 
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       redis:
-        condition: service_healthy # Espera o Redis estar saudável antes de iniciar
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 20s # Reduzi para 20s, 60s é longo
+      start_period: 20s
     labels:
       - "com.example.service=audio-normalization"
-      - "com.example.version=1.0.0"
+      - "com.example.version=2.0.0"
 
   # 3. Serviço do Worker (celery-worker)
   celery-worker:
@@ -62,16 +70,23 @@ services:
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
-      # Define o mesmo broker que a API usa
-      - CELERY_BROKER_URL=redis://redis:6379/0 
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       redis:
-        condition: service_healthy # O worker SÓ precisa do broker para começar a trabalhar.
+        condition: service_healthy
       audio-normalization-service:
-        condition: service_started # Altera para 'service_started' - não precisa esperar o Healthcheck da API.
+        condition: service_started
     healthcheck:
-      # Esse healthcheck é para o Celery Worker, mantido.
       test: ["CMD-SHELL", "celery -A app.celery_config inspect ping --timeout=1 || exit 1"]
       interval: 30s
       timeout: 10s
@@ -79,4 +94,4 @@ services:
       start_period: 60s
     labels:
       - "com.example.service=audio-normalization-worker"
-      - "com.example.version=1.0.0"
+      - "com.example.version=2.0.0"
