@@ -192,11 +192,14 @@ class TranscriptionProcessor:
                 # Fallback: apenas transcreve no idioma original
                 needs_translation = False
         
+        ##############################################################
+        #############################################################
+        ##########################################################
         base_options = {
             "fp16": self.settings.get('whisper_fp16', False),
-            "beam_size": self.settings.get('whisper_beam_size', 5),
-            "best_of": self.settings.get('whisper_best_of', 5),
-            "temperature": self.settings.get('whisper_temperature', 0.0)
+            #"beam_size": self.settings.get('whisper_beam_size', 5),
+            #"best_of": self.settings.get('whisper_best_of', 5),
+            #"temperature": self.settings.get('whisper_temperature', 0.0)
         }
         
         if needs_translation:
