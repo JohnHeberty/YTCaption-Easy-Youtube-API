@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import logging
 
 from .models import Job, JobRequest, JobStatus, TranscriptionResponse
@@ -89,39 +89,70 @@ async def create_transcription_job(
     request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    language: str = Form("auto")
+    language_in: str = Form("auto"),
+    language_out: Optional[str] = Form(None)
 ) -> Job:
     """
-    Cria um novo job de transcrição de áudio
+    Cria um novo job de transcrição/tradução de áudio
     
     - **file**: Arquivo de áudio para transcrever
-    - **language**: Código de idioma (ISO 639-1) ou 'auto' para detecção automática.
-                   Use GET /languages para ver idiomas suportados.
+    - **language_in**: Código do idioma de entrada (ISO 639-1) ou 'auto' para detecção automática.
+                       Exemplos: 'pt' (português), 'en' (inglês), 'es' (espanhol), 'auto' (detectar)
+    - **language_out**: (Opcional) Código do idioma de saída para tradução (ISO 639-1).
+                        Se omitido, usa o mesmo idioma detectado/especificado em language_in.
+                        Exemplos: 'pt', 'en', 'es', 'fr', etc.
+    
+    **Exemplos de uso**:
+    - Transcrever em português: language_in='pt', language_out=None
+    - Detectar idioma e transcrever: language_in='auto', language_out=None
+    - Traduzir inglês para português: language_in='en', language_out='pt'
+    - Detectar e traduzir para inglês: language_in='auto', language_out='en'
+    
+    Use GET /languages para ver todos os idiomas suportados.
     """
     try:
-        # Validação de linguagem
-        if not is_language_supported(language):
+        # Validação de linguagem de entrada
+        if not is_language_supported(language_in):
             supported = get_supported_languages()
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "error": "Linguagem não suportada",
-                    "language_provided": language,
-                    "supported_languages": supported[:10],  # Primeiros 10 para não sobrecarregar
+                    "error": "Linguagem de entrada não suportada",
+                    "language_provided": language_in,
+                    "supported_languages": supported[:10],
                     "total_supported": len(supported),
                     "note": "Use GET /languages para ver todas as linguagens suportadas"
                 }
             )
         
+        # Validação de linguagem de saída (se fornecida)
+        if language_out is not None:
+            if not is_language_supported(language_out):
+                supported = get_supported_languages()
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "Linguagem de saída não suportada",
+                        "language_provided": language_out,
+                        "supported_languages": supported[:10],
+                        "total_supported": len(supported),
+                        "note": "Use GET /languages para ver todas as linguagens suportadas"
+                    }
+                )
+            
+            # Aviso: language_out igual a language_in não faz sentido (exceto se in='auto')
+            if language_out == language_in and language_in != "auto":
+                logger.warning(f"language_out='{language_out}' igual a language_in='{language_in}', tradução não será aplicada")
+        
         # Validação de segurança
         file_content = await file.read()
         await file.seek(0)  # Reset para ler novamente depois
         validate_audio_file(file.filename, file_content)
-        logger.info(f"Criando job de transcrição para arquivo: {file.filename}, idioma: {language}")
+        
+        logger.info(f"Criando job: arquivo={file.filename}, language_in={language_in}, language_out={language_out or 'same'}")
         
         # Cria job para extrair ID
-        new_job = Job.create_new(file.filename, "transcribe")
-        new_job.language = language  # Define o idioma selecionado
+        new_job = Job.create_new(file.filename, "transcribe", language_in, language_out)
         
         # Verifica se já existe job com mesmo ID
         existing_job = job_store.get_job(new_job.id)
@@ -302,10 +333,16 @@ async def get_full_transcription(job_id: str) -> TranscriptionResponse:
     if job.completed_at and job.created_at:
         processing_time = (job.completed_at - job.created_at).total_seconds()
     
+    # Determina se houve tradução
+    was_translated = job.language_out is not None and job.language_out != job.language_in
+    
     return TranscriptionResponse(
         transcription_id=job.id,
         filename=job.filename or "unknown",
-        language=job.language,
+        language=job.language_detected or job.language_in,  # Prioriza idioma detectado
+        language_detected=job.language_detected,
+        language_out=job.language_out,
+        was_translated=was_translated,
         full_text=job.transcription_text or "",
         segments=job.transcription_segments,
         total_segments=len(job.transcription_segments),

@@ -100,13 +100,13 @@ class TranscriptionProcessor:
                 
                 if duration_seconds > min_duration_for_chunks:
                     logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")
-                    result = await self._transcribe_with_chunking(job.input_file, job.language, audio)
+                    result = await self._transcribe_with_chunking(job.input_file, job.language_in, job.language_out, audio)
                 else:
                     logger.info(f"Áudio curto ({duration_seconds:.1f}s), transcrição direta")
-                    result = self._transcribe_direct(job.input_file, job.language)
+                    result = self._transcribe_direct(job.input_file, job.language_in, job.language_out)
             else:
                 logger.info("Chunking desabilitado, transcrição direta")
-                result = self._transcribe_direct(job.input_file, job.language)
+                result = self._transcribe_direct(job.input_file, job.language_in, job.language_out)
             
             # Atualiza progresso
             job.progress = 75.0
@@ -144,6 +144,11 @@ class TranscriptionProcessor:
             job.transcription_segments = transcription_segments  # Adiciona segments ao job
             job.file_size_output = output_path.stat().st_size
             
+            # Armazena idioma detectado pelo Whisper (se disponível)
+            if "language" in result:
+                job.language_detected = result["language"]
+                logger.info(f"Idioma detectado pelo Whisper: {result['language']}")
+            
             if self.job_store:
                 self.job_store.update_job(job)
             
@@ -161,27 +166,61 @@ class TranscriptionProcessor:
             logger.error(f"Job {job.id} falhou: {e}")
             raise AudioTranscriptionException(f"Erro na transcrição: {str(e)}")
     
-    def _transcribe_direct(self, audio_file: str, language: str = "auto"):
-        """Transcrição direta sem chunking"""
+    def _transcribe_direct(self, audio_file: str, language_in: str = "auto", language_out: str = None):
+        """
+        Transcrição ou tradução direta sem chunking
+        
+        Args:
+            audio_file: Caminho do arquivo de áudio
+            language_in: Idioma de entrada ("auto" para detecção automática)
+            language_out: Idioma de saída para tradução (None = apenas transcrever)
+        
+        Returns:
+            dict: Resultado com 'text', 'segments' e 'language' detectado
+        """
         logger.info(f"Transcrevendo diretamente: {audio_file}")
         
-        transcribe_options = {
-            "language": None if language == "auto" else language,
+        # Se language_out for especificado e diferente de language_in, usa translate
+        needs_translation = language_out is not None and language_out != language_in
+        
+        if needs_translation:
+            logger.info(f"Traduzindo de {language_in} para {language_out}")
+            # Whisper translate() sempre traduz para inglês
+            # Se language_out não for inglês, teremos que fazer em 2 etapas
+            if language_out.lower() not in ['en', 'english']:
+                logger.warning(f"Whisper só traduz para inglês. Tradução para {language_out} não suportada diretamente.")
+                # Fallback: apenas transcreve no idioma original
+                needs_translation = False
+        
+        base_options = {
             "fp16": self.settings.get('whisper_fp16', False),
             "beam_size": self.settings.get('whisper_beam_size', 5),
             "best_of": self.settings.get('whisper_best_of', 5),
             "temperature": self.settings.get('whisper_temperature', 0.0)
         }
         
-        return self.model.transcribe(audio_file, **transcribe_options)
+        if needs_translation:
+            # model.translate() traduz para inglês
+            # Não precisa especificar language de entrada, Whisper detecta automaticamente
+            result = self.model.translate(audio_file, **base_options)
+            logger.info(f"Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
+        else:
+            # model.transcribe() transcreve no idioma original ou especificado
+            transcribe_options = base_options.copy()
+            transcribe_options["language"] = None if language_in == "auto" else language_in
+            result = self.model.transcribe(audio_file, **transcribe_options)
+            logger.info(f"Transcrição concluída. Idioma: {result.get('language', language_in)}")
+        
+        return result
     
-    async def _transcribe_with_chunking(self, audio_file: str, language: str, audio: AudioSegment = None):
+    async def _transcribe_with_chunking(self, audio_file: str, language_in: str, language_out: str = None, audio: AudioSegment = None):
         """
-        Transcreve áudio longo usando chunking para acelerar o processamento
+        Transcreve ou traduz áudio longo usando chunking para acelerar o processamento
         
         Args:
             audio_file: Caminho do arquivo de áudio
-            language: Idioma para transcrição
+            language_in: Idioma de entrada para transcrição ("auto" para detecção)
+            language_out: Idioma de saída para tradução (None = apenas transcrever)
             audio: AudioSegment já carregado (opcional, para evitar recarregar)
         
         Returns:
@@ -242,8 +281,8 @@ class TranscriptionProcessor:
                 
                 logger.info(f"Processando chunk {i+1}/{len(chunks)} (offset: {chunk_data['start_time']:.1f}s)")
                 
-                # Transcreve chunk
-                chunk_result = self._transcribe_direct(str(chunk_file), language)
+                # Transcreve ou traduz chunk
+                chunk_result = self._transcribe_direct(str(chunk_file), language_in, language_out)
                 
                 # Ajusta timestamps dos segmentos com o offset do chunk
                 for segment in chunk_result['segments']:

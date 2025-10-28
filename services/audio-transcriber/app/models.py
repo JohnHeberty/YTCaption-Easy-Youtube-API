@@ -40,7 +40,10 @@ class TranscriptionResponse(BaseModel):
     """
     transcription_id: str = Field(..., description="ID único da transcrição")
     filename: str = Field(..., description="Nome do arquivo original")
-    language: str = Field(..., description="Idioma detectado/especificado")
+    language: str = Field(..., description="Idioma detectado/especificado (entrada)")
+    language_detected: Optional[str] = Field(None, description="Idioma detectado pelo Whisper")
+    language_out: Optional[str] = Field(None, description="Idioma de saída (tradução)")
+    was_translated: bool = Field(False, description="Se o texto foi traduzido")
     full_text: str = Field(..., description="Texto completo da transcrição")
     segments: List[TranscriptionSegment] = Field(
         ...,
@@ -83,7 +86,8 @@ class TranscriptionResponse(BaseModel):
 
 class JobRequest(BaseModel):
     operation: Optional[str] = "transcribe"  # transcribe, translate, etc.
-    language: Optional[str] = "auto"  # auto, pt, en, etc.
+    language_in: Optional[str] = "auto"  # auto, pt, en, etc.
+    language_out: Optional[str] = None  # pt, en, es, etc. (None = mesmo que language_in)
 
 
 class Job(BaseModel):
@@ -92,7 +96,9 @@ class Job(BaseModel):
     output_file: Optional[str] = None
     status: JobStatus
     operation: str
-    language: str = "auto"
+    language_in: str = "auto"  # Idioma de entrada/origem
+    language_out: Optional[str] = None  # Idioma de saída/tradução (None = mesmo que language_in)
+    language_detected: Optional[str] = None  # Idioma detectado pelo Whisper (quando language_in="auto")
     filename: Optional[str] = None
     file_size_input: Optional[int] = None
     file_size_output: Optional[int] = None
@@ -104,14 +110,41 @@ class Job(BaseModel):
     transcription_text: Optional[str] = None  # Texto da transcrição
     transcription_segments: Optional[List[TranscriptionSegment]] = None  # Segmentos com timestamps
     
+    # Propriedade de compatibilidade com código antigo
+    @property
+    def language(self) -> str:
+        """Compatibilidade: retorna language_in"""
+        return self.language_in
+    
+    @language.setter
+    def language(self, value: str):
+        """Compatibilidade: define language_in"""
+        self.language_in = value
+    
     @property
     def is_expired(self) -> bool:
         return datetime.now() > self.expires_at
     
+    @property
+    def needs_translation(self) -> bool:
+        """Verifica se precisa traduzir (language_out diferente de language_in/detectado)"""
+        return self.language_out is not None and self.language_out != self.language_in
+    
     @classmethod
-    def create_new(cls, filename: str, operation: str = "transcribe", language: str = "auto") -> "Job":
-        # Calcula hash do nome do arquivo + operação para criar ID único
-        job_id = "{}_{}_{}".format(hashlib.md5(filename.encode()).hexdigest()[:12], operation, language)
+    def create_new(
+        cls, 
+        filename: str, 
+        operation: str = "transcribe", 
+        language_in: str = "auto",
+        language_out: Optional[str] = None
+    ) -> "Job":
+        # Calcula hash do nome do arquivo + operação + idiomas para criar ID único
+        hash_input = f"{filename}_{operation}_{language_in}_{language_out or 'none'}"
+        job_id = "{}_{}_{}".format(
+            hashlib.md5(hash_input.encode()).hexdigest()[:12], 
+            operation, 
+            language_out or language_in
+        )
         
         now = datetime.now()
         cache_ttl_hours = 24
@@ -121,7 +154,8 @@ class Job(BaseModel):
             input_file="",  # será preenchido depois
             status=JobStatus.QUEUED,
             operation=operation,
-            language=language,
+            language_in=language_in,
+            language_out=language_out,
             filename=filename,
             created_at=now,
             expires_at=now + timedelta(hours=cache_ttl_hours)
