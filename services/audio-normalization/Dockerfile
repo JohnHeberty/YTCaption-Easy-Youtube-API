@@ -47,12 +47,12 @@ COPY requirements.txt .
 COPY constraints.txt .
 
 # PyTorch cu121 + deps Python (respeitando constraints)
-RUN python -m pip install --no-cache-dir --upgrade pip \
- && python -m pip install --no-cache-dir \
+RUN python -m pip install --no-cache-dir --upgrade pip
+RUN python -m pip install --no-cache-dir \
       torch==2.1.2 torchaudio==2.1.2 \
       --index-url https://download.pytorch.org/whl/cu121 \
-      -c constraints.txt \
- && python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
+      -c constraints.txt 
+RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Copia código
 COPY app/ ./app/
