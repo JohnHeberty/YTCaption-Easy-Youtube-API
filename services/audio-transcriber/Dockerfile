@@ -1,27 +1,32 @@
-
-# Use NVIDIA CUDA base image para suporte GPU
+# Base com CUDA 12.1 + cuDNN p/ Ubuntu 22.04
 FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
-# Instala Python 3.11
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
-    python3-pip \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && rm -rf /var/lib/apt/lists/*
+# Evita prompts (tzdata) e define fuso
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
 
-# Metadata para identificação
+# --- Python 3.11 (via deadsnakes) ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl wget git \
+    software-properties-common \
+ && add-apt-repository ppa:deadsnakes/ppa -y \
+ && apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 python3.11-dev python3.11-distutils python3.11-venv \
+ # pip para o Python 3.11 (evita confusão com pip do 3.10)
+ && curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+ && python3.11 /tmp/get-pip.py \
+ # symlinks (muitos scripts esperam "python")
+ && ln -sf /usr/bin/python3.11 /usr/bin/python \
+ && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+ && rm -f /tmp/get-pip.py \
+ && rm -rf /var/lib/apt/lists/*
+
+# Labels
 LABEL maintainer="audio-transcriber-service" \
       version="2.0.0" \
       description="Audio Transcription Microservice with Whisper + CUDA Support"
 
-# Variáveis de ambiente para otimização e CUDA
+# Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -31,78 +36,54 @@ ENV PYTHONUNBUFFERED=1 \
     CUDA_VISIBLE_DEVICES=0 \
     FORCE_CUDA=1
 
-# Instala dependências do sistema para Whisper + CUDA
+# Dependências de sistema (ffmpeg etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg libsndfile1 build-essential pkg-config \
+    libavformat-dev libavcodec-dev libavdevice-dev \
+    libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
     curl \
-    wget \
-    git \
-    ffmpeg \
-    libsndfile1 \
-    build-essential \
-    pkg-config \
-    libavformat-dev \
-    libavcodec-dev \
-    libavdevice-dev \
-    libavutil-dev \
-    libavfilter-dev \
-    libswscale-dev \
-    libswresample-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+ && rm -rf /var/lib/apt/lists/*
 
-# Diretório de trabalho
 WORKDIR /app
 
-# Copia requirements primeiro (aproveita cache de layers)
+# Copia requirements antes p/ cache de layers
 COPY requirements.txt .
 
-# Instala dependências Python
-# PyTorch com CUDA 12.1 support + Whisper
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir \
-    torch==2.1.2 \
-    torchaudio==2.1.2 \
+# PyTorch cu121 + dependências Python
+RUN python -m pip install --no-cache-dir --upgrade pip \
+ && python -m pip install --no-cache-dir \
+    torch==2.1.2 torchaudio==2.1.2 \
     --index-url https://download.pytorch.org/whl/cu121 \
-    && pip install --no-cache-dir -r requirements.txt
+ && python -m pip install --no-cache-dir -r requirements.txt
 
-# Remove dependências de build após instalação (MANTÉM git para alguns pacotes)
+# Limpa toolchain pesado (mantém ffmpeg etc.)
 RUN apt-get purge -y --auto-remove \
-    build-essential \
-    pkg-config \
-    libavformat-dev \
-    libavcodec-dev \
-    libavdevice-dev \
-    libavutil-dev \
-    libavfilter-dev \
-    libswscale-dev \
-    libswresample-dev \
-    && apt-get autoremove -y \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential pkg-config \
+    libavformat-dev libavcodec-dev libavdevice-dev \
+    libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
+ && apt-get autoremove -y \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
 
-# Copia código da aplicação
+# Copia código
 COPY app/ ./app/
 COPY run.py .
 
-# Cria usuário não-root ANTES de criar diretórios
+# Usuário não-root
 RUN useradd -m -u 1000 appuser
 
-# Cria diretórios necessários e define permissões corretas
-# ORDEM CRÍTICA: mkdir -> chown -> chmod
+# Diretórios e permissões
 RUN mkdir -p /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed \
-    && chown -R appuser:appuser /app \
-    && chmod -R 755 /app \
-    && chmod -R 777 /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed
+ && chown -R appuser:appuser /app \
+ && chmod -R 755 /app \
+ && chmod -R 777 /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed
 
-# Muda para usuário não-root
 USER appuser
 
-# Expõe porta do serviço de transcrição
 EXPOSE 8002
 
-# Healthcheck para monitoramento
+# Healthcheck (usa o curl instalado)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8002/health || exit 1
+  CMD curl -f http://localhost:8002/health || exit 1
 
-# Comando padrão
 CMD ["python", "run.py"]

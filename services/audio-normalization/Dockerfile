@@ -1,26 +1,30 @@
-# Use NVIDIA CUDA base image para suporte GPU
+# Base com CUDA 12.1 + cuDNN p/ Ubuntu 22.04
 FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
-# Instala Python 3.11
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    && add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
-    python3.11 \
-    python3.11-dev \
-    python3.11-distutils \
-    python3-pip \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python \
-    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
-    && rm -rf /var/lib/apt/lists/*
+# Evita prompts (tzdata) e define fuso
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
 
-# Metadata para identificação
+# Python 3.11 (via deadsnakes) + pip para o 3.11
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl wget git \
+      software-properties-common \
+   && add-apt-repository ppa:deadsnakes/ppa -y \
+   && apt-get update && apt-get install -y --no-install-recommends \
+      python3.11 python3.11-dev python3.11-distutils python3.11-venv \
+   && curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+   && python3.11 /tmp/get-pip.py \
+   && ln -sf /usr/bin/python3.11 /usr/bin/python \
+   && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+   && rm -f /tmp/get-pip.py \
+   && rm -rf /var/lib/apt/lists/*
+
+# Metadata
 LABEL maintainer="audio-normalization-service" \
       version="2.0.0" \
       description="Audio Normalization Microservice with CUDA Support"
 
-# Variáveis de ambiente para otimização e CUDA
+# Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -30,55 +34,43 @@ ENV PYTHONUNBUFFERED=1 \
     CUDA_VISIBLE_DEVICES=0 \
     FORCE_CUDA=1
 
-# Instala dependências do sistema para processamento de áudio
+# Dependências de sistema para áudio
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    wget \
-    git \
-    ffmpeg \
-    libsndfile1 \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean \
-    && apt-get autoremove -y
+      ffmpeg libsndfile1 \
+   && rm -rf /var/lib/apt/lists/* \
+   && apt-get clean
 
-# Diretório de trabalho
 WORKDIR /app
 
-# Copia requirements primeiro (aproveita cache de layers)
+# Copia requirements antes para aproveitar cache
 COPY requirements.txt .
 
-# Instala dependências Python
-# PyTorch com CUDA 12.1 support primeiro
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir \
-    torch==2.1.2 \
-    torchaudio==2.1.2 \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    && pip install --no-cache-dir -r requirements.txt
+# PyTorch cu121 + deps Python
+RUN python -m pip install --no-cache-dir --upgrade pip \
+ && python -m pip install --no-cache-dir \
+      torch==2.1.2 torchaudio==2.1.2 \
+      --index-url https://download.pytorch.org/whl/cu121 \
+ && python -m pip install --no-cache-dir -r requirements.txt
 
-# Copia código da aplicação
+# Copia código
 COPY app/ ./app/
 COPY run.py .
 
-# Cria usuário não-root ANTES de criar diretórios
+# Usuário não-root
 RUN useradd -m -u 1000 appuser
 
-# Cria diretórios necessários e define permissões corretas
-# ORDEM CRÍTICA: mkdir -> chown -> chmod
+# Diretórios e permissões
 RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
-    && chown -R appuser:appuser /app \
-    && chmod -R 755 /app \
-    && chmod -R 777 /app/uploads /app/processed /app/temp /app/logs
+ && chown -R appuser:appuser /app \
+ && chmod -R 755 /app \
+ && chmod -R 777 /app/uploads /app/processed /app/temp /app/logs
 
-# Muda para usuário não-root
 USER appuser
 
-# Expõe porta do serviço
 EXPOSE 8001
 
-# Healthcheck para monitoramento
+# Healthcheck (usa o curl da base)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8001/health || exit 1
+  CMD curl -f http://localhost:8001/health || exit 1
 
-# Comando padrão
 CMD ["python", "run.py"]
