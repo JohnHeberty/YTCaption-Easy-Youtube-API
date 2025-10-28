@@ -35,14 +35,17 @@ COPY app/ ./app/
 COPY run.py .
 COPY user-agents*.txt ./
 
-# Cria diretórios necessários com permissões adequadas
-RUN mkdir -p /app/cache /app/logs \
-    && chmod -R 777 /app/cache \ 
-    && chmod -R 777 /app/logs
+# Cria usuário não-root ANTES de criar diretórios
+RUN useradd -m -u 1000 appuser
 
-# Usuário não-root para segurança
-RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /app
+# Cria diretórios necessários e define permissões corretas
+# ORDEM CRÍTICA: mkdir -> chown -> chmod
+RUN mkdir -p /app/cache /app/logs /app/downloads /app/temp \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app \
+    && chmod -R 777 /app/cache /app/logs /app/downloads /app/temp
+
+# Muda para usuário não-root
 USER appuser
 
 # Expõe porta do serviço

@@ -170,8 +170,26 @@ async def create_audio_job(
                 logger.info(f"Job {new_job.id} já completado - retornando do cache")
                 return existing_job
             elif existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
-                logger.info(f"Job {new_job.id} já em processamento")
-                return existing_job
+                # 🔧 CRÍTICO: Detecta jobs órfãos (processando por muito tempo)
+                from datetime import datetime, timedelta
+                
+                # Se job está processando há mais de 30 minutos, considera órfão
+                processing_timeout = timedelta(minutes=30)
+                job_age = datetime.now() - existing_job.created_at
+                
+                if job_age > processing_timeout:
+                    logger.warning(f"⚠️ Job {new_job.id} órfão detectado (processando há {job_age}), reprocessando...")
+                    existing_job.status = JobStatus.QUEUED
+                    existing_job.error_message = f"Job órfão detectado após {job_age}, reiniciando processamento"
+                    existing_job.progress = 0.0
+                    job_store.update_job(existing_job)
+                    
+                    # Submete para processamento novamente
+                    submit_processing_task(existing_job)
+                    return existing_job
+                else:
+                    logger.info(f"Job {new_job.id} já em processamento (idade: {job_age})")
+                    return existing_job
             elif existing_job.status == JobStatus.FAILED:
                 # Falhou antes - tenta novamente
                 logger.info(f"Reprocessando job falhado: {new_job.id}")

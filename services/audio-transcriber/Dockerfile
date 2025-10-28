@@ -59,15 +59,17 @@ RUN apt-get purge -y --auto-remove \
 COPY app/ ./app/
 COPY run.py .
 
-# Cria diretórios necessários com permissões adequadas
-# 777 para logs permite gravação mesmo com problemas de permissão
-RUN mkdir -p /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed \
-    && chmod -R 777 /app/uploads && chmod -R 777 /app/transcriptions && chmod -R 777 /app/models && chmod -R 777 /app/temp  \
-    && chmod -R 777 /app/logs && chmod -R 777 /app/processed
+# Cria usuário não-root ANTES de criar diretórios
+RUN useradd -m -u 1000 appuser
 
-# Usuário não-root para segurança
-RUN useradd -m -u 1000 appuser \
-    && chown -R appuser:appuser /app
+# Cria diretórios necessários e define permissões corretas
+# ORDEM CRÍTICA: mkdir -> chown -> chmod
+RUN mkdir -p /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed \
+    && chown -R appuser:appuser /app \
+    && chmod -R 755 /app \
+    && chmod -R 777 /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed
+
+# Muda para usuário não-root
 USER appuser
 
 # Expõe porta do serviço de transcrição
