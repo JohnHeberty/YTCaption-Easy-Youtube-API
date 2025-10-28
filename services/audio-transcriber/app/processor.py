@@ -200,14 +200,19 @@ class TranscriptionProcessor:
         }
         
         if needs_translation:
-            # model.translate() traduz para inglês
-            # Não precisa especificar language de entrada, Whisper detecta automaticamente
-            result = self.model.translate(audio_file, **base_options)
+            # Traduzir para inglês usando task="translate" explicitamente
+            transcribe_options = base_options.copy()
+            transcribe_options["task"] = "translate"  # Força tradução para inglês
+            # Não especifica language para deixar Whisper detectar automaticamente
+            logger.info("Usando Whisper com task='translate' para traduzir para inglês")
+            result = self.model.transcribe(audio_file, **transcribe_options)
             logger.info(f"Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
         else:
-            # model.transcribe() transcreve no idioma original ou especificado
+            # Transcrever no idioma original usando task="transcribe" explicitamente
             transcribe_options = base_options.copy()
+            transcribe_options["task"] = "transcribe"  # Força transcrição no idioma original
             transcribe_options["language"] = None if language_in == "auto" else language_in
+            logger.info(f"Usando Whisper com task='transcribe' para transcrever em {language_in}")
             result = self.model.transcribe(audio_file, **transcribe_options)
             logger.info(f"Transcrição concluída. Idioma: {result.get('language', language_in)}")
         

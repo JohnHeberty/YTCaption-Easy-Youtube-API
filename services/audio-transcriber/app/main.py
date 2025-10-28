@@ -221,22 +221,66 @@ async def create_transcription_job(
 
 
 @app.get("/languages")
-async def get_supported_languages():
+async def get_supported_languages_endpoint():
     """
-    Retorna lista de linguagens suportadas pelo Whisper.
+    Retorna lista de linguagens suportadas pelo Whisper para transcrição e tradução.
     
+    **Transcrição (language_in):**
     - **auto**: Detecção automática de idioma
-    - Códigos ISO 639-1 para idiomas específicos (en, pt, es, etc.)
+    - Códigos ISO 639-1 para idiomas específicos (en, pt, es, fr, de, it, ja, ko, zh, etc.)
+    - Suporta 99+ idiomas para transcrição no idioma original
+    
+    **Tradução (language_out):**
+    - **en** (English): Único idioma suportado para tradução pelo Whisper
+    - Whisper pode traduzir de qualquer idioma detectado para inglês
+    - Tradução para outros idiomas não é suportada nativamente
+    
+    **Exemplos de uso:**
+    - Transcrever em português: `language_in='pt'`, `language_out=None`
+    - Detectar e transcrever: `language_in='auto'`, `language_out=None`
+    - Traduzir para inglês: `language_in='auto'`, `language_out='en'`
+    - Traduzir PT→EN: `language_in='pt'`, `language_out='en'`
     """
     languages = get_supported_languages()
     models = get_whisper_models()
     
     return {
-        "supported_languages": languages,
-        "total_languages": len(languages),
+        "transcription": {
+            "supported_languages": languages,
+            "total_languages": len(languages),
+            "default_language": settings.get("whisper_default_language", "auto"),
+            "note": "Use 'auto' para detecção automática ou código ISO 639-1 específico",
+            "examples": ["auto", "pt", "en", "es", "fr", "de", "it", "ja", "ko", "zh"]
+        },
+        "translation": {
+            "supported_languages": ["en"],
+            "note": "Whisper só suporta tradução para inglês (en)",
+            "limitation": "Tradução para outros idiomas requer ferramentas externas",
+            "examples": ["en"]
+        },
         "models": models,
-        "default_language": settings.get("whisper_default_language", "auto"),
-        "note": "Use 'auto' para detecção automática ou código ISO 639-1 específico"
+        "usage_examples": {
+            "transcribe_portuguese": {
+                "language_in": "pt",
+                "language_out": None,
+                "description": "Transcreve áudio em português"
+            },
+            "auto_detect_transcribe": {
+                "language_in": "auto",
+                "language_out": None,
+                "description": "Detecta idioma e transcreve no idioma original"
+            },
+            "translate_to_english": {
+                "language_in": "auto",
+                "language_out": "en",
+                "description": "Detecta idioma e traduz para inglês"
+            },
+            "translate_pt_to_en": {
+                "language_in": "pt",
+                "language_out": "en",
+                "description": "Traduz áudio em português para inglês"
+            }
+        }
     }
 
 
