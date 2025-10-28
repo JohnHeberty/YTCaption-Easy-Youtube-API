@@ -42,15 +42,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copia requirements antes para aproveitar cache
+# Copia requirements antes p/ cache de layers
 COPY requirements.txt .
+COPY constraints.txt .
 
-# PyTorch cu121 + deps Python
+# PyTorch cu121 + deps Python (respeitando constraints)
 RUN python -m pip install --no-cache-dir --upgrade pip \
  && python -m pip install --no-cache-dir \
       torch==2.1.2 torchaudio==2.1.2 \
       --index-url https://download.pytorch.org/whl/cu121 \
- && python -m pip install --no-cache-dir -r requirements.txt
+      -c constraints.txt \
+ && python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Copia código
 COPY app/ ./app/

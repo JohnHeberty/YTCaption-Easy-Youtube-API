@@ -16,6 +16,3 @@ openai-whisper==20231117
 
 # === AUDIO PROCESSING ===
 pydub==0.25.1
-
-# === SECURITY ===
-# Rate limiting desabilitado - removido slowapi==0.1.9

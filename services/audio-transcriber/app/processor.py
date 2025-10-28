@@ -8,6 +8,7 @@ from pydub import AudioSegment
 from .models import Job, JobStatus, TranscriptionSegment
 from .exceptions import AudioTranscriptionException
 from .config import get_settings
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -61,31 +62,49 @@ class TranscriptionProcessor:
         if self.model is None:
             try:
                 model_name = self.settings.get('whisper_model', 'base')
+                tries = int(self.settings.get('model_load_retries', 3))
+                delay = float(self.settings.get('model_load_backoff', 2.0))
                 download_root = self.model_dir
+                last_err = None
                 
-                # Detecta dispositivo disponível
-                self.device = self._detect_device()
-                
-                logger.info(f"📦 Carregando modelo Whisper: {model_name}")
-                logger.info(f"   └─ Dispositivo: {self.device}")
-                logger.info(f"   └─ Diretório: {download_root}")
-                
-                # Garante que o diretório existe
-                Path(download_root).mkdir(parents=True, exist_ok=True)
-                
-                # Carrega modelo
-                self.model = whisper.load_model(model_name, device=self.device, download_root=download_root)
-                
-                logger.info(f"✅ Modelo Whisper carregado com sucesso no {self.device.upper()}")
-                
-                # Testa GPU se disponível
-                if self.device == 'cuda':
-                    self._test_gpu()
-                    
+                for i in range(tries):
+                    try:
+                        
+                        # Detecta dispositivo disponível
+                        self.device = self._detect_device()
+                        
+                        logger.info(f"📦 Carregando modelo Whisper: {model_name}")
+                        logger.info(f"   └─ Dispositivo: {self.device}")
+                        logger.info(f"   └─ Diretório: {download_root}")
+                        
+                        # Garante que o diretório existe
+                        Path(download_root).mkdir(parents=True, exist_ok=True)
+                        
+                        # Testa GPU se disponível
+                        if self.device == 'cuda':
+                            try:
+                                self._test_gpu()
+                            except Exception:
+                                self.logger.warning("Falha no teste da GPU, trocando para CPU…")
+                                self.device = 'cpu'
+                                
+                        # Carrega modelo
+                        self.model = whisper.load_model(model_name, device=self.device, download_root=download_root)
+                        
+                        logger.info(f"✅ Modelo Whisper carregado com sucesso no {self.device.upper()}")
+                            
+                        return
+                    except Exception as e:
+                        last_err = e
+                        logger.error(f"❌ Falha ao carregar modelo (tentativa {i+1}/{tries}): {e}")
+                        if i < tries - 1:
+                            time_sleep = delay * (2 ** i)
+                            logger.info(f"⏳ Retentando em {time_sleep} segundos...")
+                            time.sleep(time_sleep)
             except Exception as e:
                 logger.error(f"❌ Erro ao carregar modelo Whisper: {e}")
-                raise AudioTranscriptionException(f"Falha ao carregar modelo: {str(e)}")
-    
+                raise AudioTranscriptionException(f"Falha ao carregar modelo após {tries} tentativas: {last_err}")
+
     def _test_gpu(self):
         """Testa se GPU está realmente funcionando"""
         try:
