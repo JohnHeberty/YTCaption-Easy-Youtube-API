@@ -1,21 +1,41 @@
 
-# Use Python 3.11 slim (mais leve e moderno)
-FROM python:3.11-slim
+# Use NVIDIA CUDA base image para suporte GPU
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+
+# Instala Python 3.11
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-distutils \
+    python3-pip \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Metadata para identificação
 LABEL maintainer="audio-transcriber-service" \
-      version="1.0.0" \
-      description="Audio Transcription Microservice with Whisper"
+      version="2.0.0" \
+      description="Audio Transcription Microservice with Whisper + CUDA Support"
 
-# Variáveis de ambiente para otimização
+# Variáveis de ambiente para otimização e CUDA
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    CUDA_VISIBLE_DEVICES=0 \
+    FORCE_CUDA=1
 
-# Instala dependências do sistema para Whisper
+# Instala dependências do sistema para Whisper + CUDA
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    wget \
+    git \
     ffmpeg \
     libsndfile1 \
     build-essential \
@@ -37,10 +57,15 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Instala dependências Python
+# PyTorch com CUDA 12.1 support + Whisper
 RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
+    torch==2.1.2 \
+    torchaudio==2.1.2 \
+    --index-url https://download.pytorch.org/whl/cu121 \
     && pip install --no-cache-dir -r requirements.txt
 
-# Remove dependências de build após instalação
+# Remove dependências de build após instalação (MANTÉM git para alguns pacotes)
 RUN apt-get purge -y --auto-remove \
     build-essential \
     pkg-config \

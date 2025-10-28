@@ -2,6 +2,7 @@ import os
 import asyncio
 from pathlib import Path
 import whisper
+import torch
 import logging
 from pydub import AudioSegment
 from .models import Job, JobStatus, TranscriptionSegment
@@ -18,26 +19,95 @@ class TranscriptionProcessor:
         self.settings = get_settings()
         self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
+        self.device = None  # Will be set in _load_model
+    
+    def _detect_device(self):
+        """Detecta e valida dispositivo (CUDA/CPU) disponível"""
+        requested_device = self.settings.get('whisper_device', 'cpu').lower()
+        
+        # Verifica disponibilidade de CUDA
+        cuda_available = torch.cuda.is_available()
+        
+        if cuda_available:
+            device_count = torch.cuda.device_count()
+            device_name = torch.cuda.get_device_name(0)
+            cuda_version = torch.version.cuda
+            logger.info(f"🎮 CUDA DISPONÍVEL!")
+            logger.info(f"   └─ GPUs detectadas: {device_count}")
+            logger.info(f"   └─ GPU 0: {device_name}")
+            logger.info(f"   └─ CUDA Version: {cuda_version}")
+            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
+        else:
+            logger.warning("⚠️ CUDA NÃO DISPONÍVEL - usando CPU")
+            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
+            logger.info(f"   └─ CUDA Built: {torch.version.cuda}")
+        
+        # Decide qual dispositivo usar
+        if requested_device == 'cuda':
+            if cuda_available:
+                device = 'cuda'
+                logger.info(f"✅ Usando GPU (CUDA)")
+            else:
+                device = 'cpu'
+                logger.warning(f"⚠️ CUDA solicitado mas não disponível. Fallback para CPU.")
+        else:
+            device = 'cpu'
+            logger.info(f"ℹ️ Usando CPU (conforme configuração)")
+        
+        return device
     
     def _load_model(self):
-        """Carrega modelo Whisper (lazy loading)"""
+        """Carrega modelo Whisper (lazy loading) com detecção de GPU"""
         if self.model is None:
             try:
                 model_name = self.settings.get('whisper_model', 'base')
-                device = self.settings.get('whisper_device', 'cpu')
                 download_root = self.model_dir
                 
-                logger.info(f"Carregando modelo Whisper: {model_name} no dispositivo {device}...")
-                logger.info(f"Diretório de modelos: {download_root}")
+                # Detecta dispositivo disponível
+                self.device = self._detect_device()
+                
+                logger.info(f"📦 Carregando modelo Whisper: {model_name}")
+                logger.info(f"   └─ Dispositivo: {self.device}")
+                logger.info(f"   └─ Diretório: {download_root}")
                 
                 # Garante que o diretório existe
                 Path(download_root).mkdir(parents=True, exist_ok=True)
                 
-                self.model = whisper.load_model(model_name, device=device, download_root=download_root)
-                logger.info("Modelo Whisper carregado com sucesso")
+                # Carrega modelo
+                self.model = whisper.load_model(model_name, device=self.device, download_root=download_root)
+                
+                logger.info(f"✅ Modelo Whisper carregado com sucesso no {self.device.upper()}")
+                
+                # Testa GPU se disponível
+                if self.device == 'cuda':
+                    self._test_gpu()
+                    
             except Exception as e:
-                logger.error(f"Erro ao carregar modelo Whisper: {e}")
+                logger.error(f"❌ Erro ao carregar modelo Whisper: {e}")
                 raise AudioTranscriptionException(f"Falha ao carregar modelo: {str(e)}")
+    
+    def _test_gpu(self):
+        """Testa se GPU está realmente funcionando"""
+        try:
+            # Cria tensor de teste na GPU
+            test_tensor = torch.randn(1000, 1000).to('cuda')
+            result = test_tensor @ test_tensor.T
+            
+            # Verifica memória GPU
+            memory_allocated = torch.cuda.memory_allocated(0) / 1024**2  # MB
+            memory_reserved = torch.cuda.memory_reserved(0) / 1024**2    # MB
+            
+            logger.info(f"🔥 GPU funcionando corretamente!")
+            logger.info(f"   └─ Memória Alocada: {memory_allocated:.2f} MB")
+            logger.info(f"   └─ Memória Reservada: {memory_reserved:.2f} MB")
+            
+            # Limpa tensor de teste
+            del test_tensor, result
+            torch.cuda.empty_cache()
+            
+        except Exception as e:
+            logger.error(f"⚠️ Erro ao testar GPU: {e}")
+            logger.warning("GPU pode não estar funcionando corretamente")
     
     def transcribe_audio(self, job: Job) -> Job:
         """

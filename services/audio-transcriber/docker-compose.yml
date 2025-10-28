@@ -17,7 +17,16 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
@@ -26,7 +35,7 @@ services:
       start_period: 60s
     labels:
       - "com.example.service=audio-transcriber"
-      - "com.example.version=1.0.0"
+      - "com.example.version=2.0.0"
 
   celery-worker:
     build: .
@@ -45,7 +54,16 @@ services:
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     depends_on:
       audio-transcriber-service:
         condition: service_healthy
@@ -57,4 +75,4 @@ services:
       start_period: 60s
     labels:
       - "com.example.service=audio-transcriber-worker"
-      - "com.example.version=1.0.0"
+      - "com.example.version=2.0.0"
