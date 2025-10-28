@@ -49,7 +49,7 @@ services:
   celery-worker:
     build: .
     container_name: audio-normalization-celery
-    command: celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
       # Monta código para hot reload em desenvolvimento
       - ./app:/app/app
