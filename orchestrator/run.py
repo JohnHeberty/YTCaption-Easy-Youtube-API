@@ -47,7 +47,7 @@ def main():
         uvicorn.run(
             "main:app",
             host=settings["app_host"],
-            port=settings["app_port"],
+            port=8000,
             reload=settings["debug"],
             workers=settings["workers"] if not settings["debug"] else 1,
             log_level="info"
