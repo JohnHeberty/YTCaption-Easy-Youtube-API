@@ -12,7 +12,7 @@ redis==5.0.1
 # === AUDIO PROCESSING ===
 pydub==0.25.1
 scipy==1.11.4
-numpy==1.26.2
+numpy==1.26.4
 librosa==0.10.1
 soundfile==0.12.1
 
