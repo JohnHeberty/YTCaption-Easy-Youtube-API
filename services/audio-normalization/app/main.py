@@ -151,9 +151,15 @@ async def create_audio_job(
         logger.info(f"  apply_highpass_filter: '{apply_highpass_filter}' -> {apply_highpass_filter_bool}")
         logger.info(f"  isolate_vocals: '{isolate_vocals}' -> {isolate_vocals_bool}")
         
+        # Detecta extensão do arquivo original para manter formato
+        original_extension = Path(file.filename).suffix if file.filename else ".tmp"
+        if not original_extension:
+            # Fallback para extensões comuns de áudio
+            original_extension = ".webm"
+        
         # Cria job com parâmetros de processamento
         new_job = Job.create_new(
-            filename=file.filename,
+            filename=file.filename,  # Mantém original para referência
             remove_noise=remove_noise_bool,
             convert_to_mono=convert_to_mono_bool,
             apply_highpass_filter=apply_highpass_filter_bool,
@@ -234,7 +240,7 @@ async def create_audio_job(
         
         logger.info("IMPORTANTE: Validação real de formato será feita com ffprobe durante processamento")
         
-        # Salva arquivo
+        # Salva arquivo usando apenas job_id para evitar problemas com caracteres especiais
         upload_dir = Path("./uploads")
         try:
             upload_dir.mkdir(exist_ok=True, parents=True)
@@ -242,7 +248,7 @@ async def create_audio_job(
             logger.error(f"Erro ao criar diretório: {e}")
             raise HTTPException(status_code=500, detail="Erro ao criar diretório de upload")
         
-        file_path = upload_dir / f"{new_job.id}_{file.filename}"
+        file_path = upload_dir / f"{new_job.id}{original_extension}"
         try:
             with open(file_path, "wb") as f:
                 f.write(content)

@@ -199,7 +199,9 @@ async def create_transcription_job(
         upload_dir = Path("./uploads")
         upload_dir.mkdir(exist_ok=True)
         
-        file_path = upload_dir / f"{new_job.id}_{file.filename}"
+        # Usar apenas job_id para evitar problemas com caracteres especiais
+        original_extension = Path(file.filename).suffix if file.filename else ""
+        file_path = upload_dir / f"{new_job.id}{original_extension}"
         with open(file_path, "wb") as f:
             content = await file.read()
             f.write(content)

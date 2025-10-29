@@ -30,9 +30,8 @@ class SimpleDownloader:
     
     def _get_ydl_opts(self, job: Job) -> Dict[str, Any]:
         """Opções do yt-dlp otimizadas com User-Agent inteligente"""
-        # Usa job.id completo (já inclui video_id_quality)
-        # Isso garante que cada qualidade tenha arquivo separado
-        filename_template = f"{job.id}_%(title)s.%(ext)s"
+        # Usa apenas job.id para evitar problemas com caracteres especiais no título
+        filename_template = f"{job.id}.%(ext)s"
         
         # Obtém User-Agent do gerenciador inteligente
         user_agent = self.ua_manager.get_user_agent()
@@ -156,12 +155,9 @@ class SimpleDownloader:
                 title = info.get('title', 'unknown')
                 ext = info.get('ext', 'mp4')
                 
-                # Usa job.id completo (video_id_quality) no nome do arquivo
-                # Isso garante arquivos separados para cada qualidade
-                filename = f"{job.id}_{title}.{ext}"
+                # Usa apenas job.id para evitar problemas com caracteres especiais
+                filename = f"{job.id}.{ext}"
                 
-                # Sanitiza nome do arquivo
-                filename = self._sanitize_filename(filename)
                 job.filename = filename
                 job.file_path = str(self.cache_dir / filename)
                 
