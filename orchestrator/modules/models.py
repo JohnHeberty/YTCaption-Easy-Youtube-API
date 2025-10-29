@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import hashlib
 import json
 
@@ -90,13 +90,34 @@ class PipelineJob(BaseModel):
     
     # Resultado final
     transcription_text: Optional[str] = None
-    transcription_segments: Optional[List[TranscriptionSegment]] = None
+    transcription_segments: Optional[List[Union[TranscriptionSegment, Dict[str, Any]]]] = None
     transcription_file: Optional[str] = None
     audio_file: Optional[str] = None
     error_message: Optional[str] = None
     
     # Progresso geral
     overall_progress: float = 0.0
+    
+    @field_validator('transcription_segments', mode='before')
+    @classmethod
+    def convert_segments(cls, v):
+        """Converte dicts em TranscriptionSegment se necessário"""
+        if v is None:
+            return None
+        
+        result = []
+        for item in v:
+            if isinstance(item, dict):
+                # Converte dict para TranscriptionSegment
+                result.append(TranscriptionSegment(**item))
+            elif isinstance(item, TranscriptionSegment):
+                # Já é TranscriptionSegment
+                result.append(item)
+            else:
+                # Tipo inesperado, tenta converter
+                result.append(item)
+        
+        return result
     
     @classmethod
     def create_new(cls, youtube_url: str, **kwargs):
