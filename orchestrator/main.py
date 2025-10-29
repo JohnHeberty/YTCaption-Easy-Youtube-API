@@ -374,31 +374,75 @@ async def cleanup_old_jobs(
 @app.post("/admin/factory-reset", tags=["Admin"])
 async def factory_reset():
     """
-    ⚠️ FACTORY RESET - Remove TUDO: todos os jobs do Redis e todos os logs.
+    ⚠️ FACTORY RESET - Remove TUDO: todos os jobs do Redis, todos os logs,
+    e requisita cleanup de TODOS os microserviços.
     Use com cuidado! Esta ação é irreversível.
     """
     try:
         result = {
-            "message": "Factory reset executado",
-            "jobs_removed": 0,
-            "logs_cleaned": False,
-            "warning": "Todos os dados foram removidos"
+            "message": "Factory reset executado em todos os serviços",
+            "orchestrator": {
+                "jobs_removed": 0,
+                "logs_cleaned": False
+            },
+            "microservices": {},
+            "warning": "Todos os dados foram removidos de todos os serviços"
         }
         
-        # Remove todos os jobs do Redis (age=0)
+        # 1. Remove todos os jobs do Redis (age=0)
         removed = redis_store.cleanup_old_jobs(max_age_hours=0)
-        result["jobs_removed"] = removed
+        result["orchestrator"]["jobs_removed"] = removed
         
-        # Remove todos os logs
+        # 2. Remove todos os logs do orchestrator
         import shutil
         log_dir = Path(settings["log_dir"])
         if log_dir.exists():
             shutil.rmtree(log_dir)
             log_dir.mkdir(parents=True, exist_ok=True)
-            result["logs_cleaned"] = True
-            logger.warning("Factory reset: All logs removed")
+            result["orchestrator"]["logs_cleaned"] = True
+            logger.warning("Factory reset: All orchestrator logs removed")
         
-        logger.warning(f"Factory reset completed: {removed} jobs and logs removed")
+        # 3. Chama cleanup de cada microserviço
+        import httpx
+        microservices = [
+            ("video-downloader", orchestrator.download_client),
+            ("audio-normalization", orchestrator.normalization_client),
+            ("audio-transcriber", orchestrator.transcription_client)
+        ]
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for service_name, service_client in microservices:
+                try:
+                    cleanup_url = f"{service_client.base_url}/admin/cleanup"
+                    logger.info(f"Calling factory reset cleanup for {service_name}: {cleanup_url}")
+                    
+                    response = await client.post(
+                        cleanup_url,
+                        json={"deep": True}  # Deep cleanup nos microserviços
+                    )
+                    
+                    if response.status_code == 200:
+                        cleanup_data = response.json()
+                        result["microservices"][service_name] = {
+                            "status": "success",
+                            "data": cleanup_data
+                        }
+                        logger.info(f"Factory reset cleanup successful for {service_name}")
+                    else:
+                        result["microservices"][service_name] = {
+                            "status": "error",
+                            "error": f"HTTP {response.status_code}"
+                        }
+                        logger.error(f"Factory reset cleanup failed for {service_name}: {response.status_code}")
+                        
+                except Exception as e:
+                    result["microservices"][service_name] = {
+                        "status": "error",
+                        "error": str(e)
+                    }
+                    logger.error(f"Factory reset cleanup error for {service_name}: {str(e)}")
+        
+        logger.warning(f"Factory reset completed: orchestrator ({removed} jobs) + all microservices")
         return result
         
     except Exception as e:
