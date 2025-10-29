@@ -150,7 +150,7 @@ class PipelineJob(BaseModel):
 
 class PipelineRequest(BaseModel):
     """Request para iniciar pipeline"""
-    youtube_url: str = Field(..., description="URL do vídeo do YouTube")
+    youtube_url: str = Field("https://www.youtube.com/watch?v=_xhulIrM6hw", description="URL do vídeo do YouTube")
     language: Optional[str] = Field("auto", description="Idioma para transcrição (ISO 639-1) ou 'auto'")
     language_out: Optional[str] = Field("", description="Idioma de saída para tradução (ISO 639-1)")
     remove_noise: Optional[bool] = Field(False, description="Remover ruído de fundo")
