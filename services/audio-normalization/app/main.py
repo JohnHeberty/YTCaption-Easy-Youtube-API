@@ -599,40 +599,110 @@ async def delete_job(job_id: str):
 
 
 @app.post("/admin/cleanup")
-async def manual_cleanup(background_tasks: BackgroundTasks):
+async def manual_cleanup(
+    background_tasks: BackgroundTasks,
+    deep: bool = False
+):
     """
-    🔥 LIMPEZA TOTAL DO SISTEMA (RESILIENTE)
+    🧹 LIMPEZA DO SISTEMA
     
-    ⚠️ ATENÇÃO: Este endpoint ZERA ABSOLUTAMENTE TUDO:
+    **Modos de operação:**
     
-    1. TODOS os jobs do Redis (não só expirados)
-    2. TODOS os arquivos de uploads/
-    3. TODOS os arquivos de processed/
-    4. TODOS os arquivos temporários em temp/
+    1. **Limpeza básica** (deep=false ou omitido):
+       - Remove jobs expirados (>24h)
+       - Remove arquivos órfãos
     
-    Use este endpoint para resetar completamente o sistema.
+    2. **Limpeza profunda** (deep=true) - ⚠️ FACTORY RESET:
+       - TODOS os jobs do Redis (não só expirados)
+       - TODOS os arquivos de uploads/
+       - TODOS os arquivos de processed/
+       - TODOS os arquivos temporários em temp/
+       - TODOS os logs
+       - Purga fila Celery
+    
+    **Parâmetros:**
+    - deep (bool): Se true, faz limpeza COMPLETA (factory reset)
+    
     A limpeza é executada em background e retorna imediatamente.
-    
-    Returns:
-        - cleanup_id: ID da operação de limpeza
-        - status: "processing"
-        - message: Mensagem informativa
     """
-    # Cria um job para a limpeza
-    cleanup_job_id = f"cleanup_total_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    cleanup_type = "TOTAL" if deep else "básica"
+    cleanup_job_id = f"cleanup_{cleanup_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
-    # Agenda limpeza TOTAL em background
-    background_tasks.add_task(_perform_total_cleanup)
+    # Agenda limpeza em background
+    if deep:
+        background_tasks.add_task(_perform_total_cleanup)
+    else:
+        background_tasks.add_task(_perform_basic_cleanup)
     
-    logger.warning(f"🔥 LIMPEZA TOTAL agendada: {cleanup_job_id}")
+    logger.warning(f"🔥 Limpeza {cleanup_type} agendada: {cleanup_job_id}")
     
     return {
-        "message": "🔥 LIMPEZA TOTAL iniciada em background - TUDO será removido!",
+        "message": f"🔥 Limpeza {cleanup_type} iniciada em background",
         "cleanup_id": cleanup_job_id,
         "status": "processing",
-        "warning": "Esta operação removerá TODOS os jobs e arquivos do sistema",
-        "note": "Verifique os logs para acompanhar o progresso e resultados."
+        "deep": deep,
+        "warning": "TUDO será removido!" if deep else "Jobs expirados serão removidos",
+        "note": "Verifique os logs para acompanhar o progresso."
     }
+
+
+async def _perform_basic_cleanup():
+    """Executa limpeza BÁSICA: Remove apenas jobs expirados e arquivos órfãos"""
+    try:
+        from datetime import timedelta
+        report = {"jobs_removed": 0, "files_deleted": 0, "space_freed_mb": 0.0, "errors": []}
+        logger.info("🧹 Iniciando limpeza básica (jobs expirados)...")
+        
+        # Limpar jobs expirados
+        try:
+            keys = job_store.redis.keys("normalization_job:*")
+            now = datetime.now()
+            expired_count = 0
+            for key in keys:
+                job_data = job_store.redis.get(key)
+                if job_data:
+                    import json
+                    try:
+                        job = json.loads(job_data)
+                        created_at = datetime.fromisoformat(job.get("created_at", ""))
+                        if (now - created_at) > timedelta(hours=24):
+                            job_store.redis.delete(key)
+                            expired_count += 1
+                    except:
+                        pass
+            report["jobs_removed"] = expired_count
+            logger.info(f"🗑️  Redis: {expired_count} jobs expirados removidos")
+        except Exception as e:
+            logger.error(f"❌ Erro ao limpar Redis: {e}")
+            report["errors"].append(f"Redis: {str(e)}")
+        
+        # Limpar arquivos órfãos (>24h)
+        for dir_name, dir_path in [("uploads", Path("./uploads")), ("processed", Path("./processed")), ("temp", Path("./temp"))]:
+            if dir_path.exists():
+                deleted_count = 0
+                for file_path in dir_path.iterdir():
+                    if not file_path.is_file():
+                        continue
+                    try:
+                        age = datetime.now() - datetime.fromtimestamp(file_path.stat().st_mtime)
+                        if age > timedelta(hours=24):
+                            size_mb = file_path.stat().st_size / (1024 * 1024)
+                            await asyncio.to_thread(file_path.unlink)
+                            deleted_count += 1
+                            report["space_freed_mb"] += size_mb
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao remover {file_path.name}: {e}")
+                        report["errors"].append(f"{dir_name}/{file_path.name}: {str(e)}")
+                report["files_deleted"] += deleted_count
+                if deleted_count > 0:
+                    logger.info(f"🗑️  {dir_name.capitalize()}: {deleted_count} arquivos órfãos removidos")
+        
+        report["space_freed_mb"] = round(report["space_freed_mb"], 2)
+        logger.info(f"✓ Limpeza básica: {report['jobs_removed']} jobs + {report['files_deleted']} arquivos ({report['space_freed_mb']}MB)")
+        return report
+    except Exception as e:
+        logger.error(f"❌ ERRO na limpeza básica: {e}")
+        return {"error": str(e)}
 
 
 async def _perform_total_cleanup():
