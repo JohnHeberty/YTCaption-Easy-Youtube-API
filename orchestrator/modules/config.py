@@ -67,44 +67,51 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
             "url": settings["video_downloader_url"],
             "timeout": settings["video_downloader_timeout"],
             "endpoints": {
+                # POST JSON {url, quality?} -> cria job
                 "submit": "/jobs",
+                # GET -> status do job
                 "status": "/jobs/{job_id}",
+                # GET -> baixa o arquivo; para audio use params={"type":"audio"}
                 "download": "/jobs/{job_id}/download",
-                "health": "/health",
-            },
+                # compat: caminho antigo que alguns logs mostraram
+                "download_audio_alt": "/jobs/{job_id}/download/audio",
+                # health
+                "health": "/health"
+            }
         },
         "audio-normalization": {
             "url": settings["audio_normalization_url"],
             "timeout": settings["audio_normalization_timeout"],
             "endpoints": {
+                # POST multipart/form-data (file + flags em texto)
                 "submit": "/jobs",
                 "status": "/jobs/{job_id}",
                 "download": "/jobs/{job_id}/download",
-                "health": "/health",
+                "health": "/health"
             },
             "default_params": {
                 "remove_noise": settings["default_remove_noise"],
                 "convert_to_mono": settings["default_convert_mono"],
                 "set_sample_rate_16k": settings["default_sample_rate_16k"],
                 "apply_highpass_filter": False,
-                "isolate_vocals": False,
-            },
+                "isolate_vocals": False
+            }
         },
         "audio-transcriber": {
             "url": settings["audio_transcriber_url"],
             "timeout": settings["audio_transcriber_timeout"],
             "endpoints": {
+                # POST multipart/form-data (file + language_in/out)
                 "submit": "/jobs",
                 "status": "/jobs/{job_id}",
                 "download": "/jobs/{job_id}/download",
-                "text": "/jobs/{job_id}/text",                # extra
-                "full_transcription": "/jobs/{job_id}/transcription",  # extra
-                "health": "/health",
+                "text": "/jobs/{job_id}/text",
+                "health": "/health"
             },
             "default_params": {
-                "language_in": settings["default_language"],  # <— importante
-                "language_out": None,
-            },
-        },
+                # no microservice o parâmetro é language_in
+                "language_in": settings["default_language"]
+            }
+        }
     }
     return configs.get(service_name, {})
