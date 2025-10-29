@@ -46,87 +46,67 @@ def _is_failed(status_value: str) -> bool:
 
 
 class MicroserviceClient:
-    """Cliente para comunicação com microserviços com retries e backoff"""
-
+    
     def __init__(self, service_name: str):
         self.service_name = service_name
         self.config = get_microservice_config(service_name)
-        self.base_url = self.config["url"].rstrip("/")
-        self.timeout_seconds = self.config["timeout"]
+        self.base_url = self.config["url"]
+        self.timeout = self.config["timeout"]
         self.endpoints = self.config["endpoints"]
-        settings = get_orchestrator_settings()
-        self.max_retries = max(0, int(settings.get("http_max_retries", 3)))
-        self.backoff_base = float(settings.get("retry_backoff_base_seconds", 1.5))
 
-    def _resolve_submit_endpoint(self) -> str:
-        # Prioridade para 'submit', depois os aliases conhecidos
-        for k in ("submit", "transcribe", "process", "download", "jobs"):
-            if k in self.endpoints:
-                return self.endpoints[k]
-        raise KeyError(f"No submit-like endpoint defined for service '{self.service_name}'")
-
-    async def _request_with_retries(self, method: str, url: str, **kwargs) -> httpx.Response:
-        # Timeout do httpx refinado (connect/read/write) com total = timeout_seconds
-        timeout = httpx.Timeout(self.timeout_seconds, connect=10.0)
-        kwargs.setdefault("timeout", timeout)
-
-        attempt = 0
-        last_exc: Optional[Exception] = None
-        while attempt <= self.max_retries:
+    async def _request_with_retries(self, method: str, url: str, *, max_attempts=3, **kwargs) -> httpx.Response:
+        delay = 1.0
+        last_exc = None
+        for attempt in range(1, max_attempts + 1):
             try:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
                     resp = await client.request(method, url, **kwargs)
-                # Considera 5xx como retryable
-                if 500 <= resp.status_code < 600:
-                    raise httpx.HTTPStatusError("Server error", request=resp.request, response=resp)
+                resp.raise_for_status()
                 return resp
-            except (httpx.RequestError, httpx.HTTPStatusError) as e:
+            except httpx.HTTPError as e:
                 last_exc = e
-                if attempt == self.max_retries:
+                logger.warning(f"{self.service_name} {method} {url} failed (attempt {attempt}/{max_attempts}): {e}")
+                if attempt == max_attempts:
                     break
-                # Backoff exponencial com jitter
-                backoff = (self.backoff_base ** attempt) + random.uniform(0, 0.4)
-                logger.warning(
-                    f"[{self.service_name}] {method} {url} failed (attempt {attempt+1}/{self.max_retries+1}): {e}. "
-                    f"Retrying in {backoff:.2f}s"
-                )
-                await asyncio.sleep(backoff)
-                attempt += 1
-
-        # Se chegou aqui, falhou
-        assert last_exc is not None
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 10)
         raise last_exc
 
     async def submit_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Submete job ao microserviço (com retries)"""
-        endpoint = self._resolve_submit_endpoint()
+        endpoint = self.endpoints.get("submit")
         url = f"{self.base_url}{endpoint}"
-        logger.info(f"Submitting job to {self.service_name}: {url}")
-
-        resp = await self._request_with_retries("POST", url, json=payload)
-        resp.raise_for_status()
+        # Se vier _files, manda multipart. Caso contrário, JSON.
+        files = payload.pop("_files", None)
+        if files:
+            resp = await self._request_with_retries("POST", url, files=files, data=payload)
+        else:
+            resp = await self._request_with_retries("POST", url, json=payload)
         return resp.json()
 
     async def get_job_status(self, job_id: str) -> Dict[str, Any]:
-        """Consulta status do job (com retries)"""
-        endpoint_tmpl = self.endpoints.get("status", "/jobs/{job_id}")
-        url = f"{self.base_url}{endpoint_tmpl}".format(job_id=job_id)
-
+        url = f"{self.base_url}{self.endpoints['status']}".format(job_id=job_id)
         resp = await self._request_with_retries("GET", url)
-        resp.raise_for_status()
         return resp.json()
 
+    async def download_artifact(self, job_id: str, dest_path: str) -> str:
+        url = f"{self.base_url}{self.endpoints.get('artifact', f'/jobs/{job_id}/download')}".format(job_id=job_id)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", url) as r:
+                r.raise_for_status()
+                with open(dest_path, "wb") as f:
+                    async for chunk in r.aiter_bytes():
+                        f.write(chunk)
+        return dest_path
+
     async def check_health(self) -> bool:
-        """Verifica saúde do microserviço (com retries)"""
-        endpoint = self.endpoints.get("health", "/health")
-        url = f"{self.base_url}{endpoint}"
+        url = f"{self.base_url}{self.endpoints.get('health', '/health')}"
         try:
             resp = await self._request_with_retries("GET", url)
             return resp.status_code == 200
         except Exception as e:
-            logger.error(f"Health check failed for {self.service_name}: {str(e)}")
+            logger.error(f"Health check failed for {self.service_name}: {e}")
             return False
-
 
 class PipelineOrchestrator:
     """Orquestrador do pipeline completo"""
