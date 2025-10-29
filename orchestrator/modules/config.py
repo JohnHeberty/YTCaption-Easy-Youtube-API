@@ -64,44 +64,45 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
 
     configs = {
         "video-downloader": {
-            "url": settings["video_downloader_url"],    # ex: http://video-downloader:8000
+            "url": settings["video_downloader_url"],
             "timeout": settings["video_downloader_timeout"],
             "endpoints": {
-                "submit": "/download",                  # cria o job
-                "status": "/jobs/{job_id}",             # monitora o job
-                "artifact": "/jobs/{job_id}/download",  # baixa o resultado
-                "health": "/health",
-            },
-        },
-        "audio-normalization": {
-            "url": settings["audio_normalization_url"], # ex: http://audio-normalization:8001
-            "timeout": settings["audio_normalization_timeout"],
-            "endpoints": {
-                "submit": "/normalize",                 # multipart (arquivo)
+                "submit": "/jobs",
                 "status": "/jobs/{job_id}",
-                "artifact": "/jobs/{job_id}/download",
-                "health": "/health",
-            },
-            "default_params": {
-                "remove_noise": settings["default_remove_noise"],
-                "convert_to_mono": settings["default_convert_mono"],
-                "set_sample_rate_16k": settings["default_sample_rate_16k"],
-                "apply_highpass_filter": False,
-                "isolate_vocals": False,
-            },
+                "download": "/jobs/{job_id}/download",
+                "health": "/health"
+            }
+    },
+    "audio-normalization": {
+        "url": settings["audio_normalization_url"],
+        "timeout": settings["audio_normalization_timeout"],
+        "endpoints": {
+            "submit": "/jobs",
+            "status": "/jobs/{job_id}",
+            "download": "/jobs/{job_id}/download",
+            "health": "/health"
         },
-        "audio-transcriber": {
-            "url": settings["audio_transcriber_url"],   # ex: http://audio-transcriber:8002
-            "timeout": settings["audio_transcriber_timeout"],
-            "endpoints": {
-                "submit": "/transcribe",                # multipart (arquivo)
-                "status": "/jobs/{job_id}",
-                "artifact": "/jobs/{job_id}/download",
-                "languages": "/languages",
-                "health": "/health",
-            },
-            "default_params": {"language": settings["default_language"]},
+        "default_params": {
+            "remove_noise": settings["default_remove_noise"],
+            "convert_to_mono": settings["default_convert_mono"],
+            "set_sample_rate_16k": settings["default_sample_rate_16k"],
+            "apply_highpass_filter": False,
+            "isolate_vocals": False
+        }
+    },
+    "audio-transcriber": {
+        "url": settings["audio_transcriber_url"],
+        "timeout": settings["audio_transcriber_timeout"],
+        "endpoints": {
+            "submit": "/jobs",
+            "status": "/jobs/{job_id}",
+            "download": "/jobs/{job_id}/download",   # fallback para "result" já existe no client
+            "result": "/jobs/{job_id}/result",
+            "health": "/health"
         },
+        "default_params": {
+            "language": settings["default_language"]
+        }
     }
 
     return configs.get(service_name, {})

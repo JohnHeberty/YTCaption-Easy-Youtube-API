@@ -1,129 +1,170 @@
-#orchestrator.py
+# orchestrator/modules/orchestrator.py
 """
-Lógica de orquestração do pipeline completo
+Lógica de orquestração do pipeline completo (corrigida para fluxo /jobs)
 """
 import asyncio
 import httpx
 from typing import Optional, Dict, Any
-from datetime import datetime
+from pathlib import Path
 import logging
-import random
 import os
+import math
+from datetime import datetime
 
 from .models import (
     PipelineJob,
     PipelineStatus,
     StageStatus,
-    PipelineStage
+    PipelineStage,
 )
 from .config import get_orchestrator_settings, get_microservice_config
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_progress(value: Any) -> float:
-    """
-    Normaliza progresso vindo dos serviços:
-    - aceita 0-1 (fração) ou 0-100 (percentual)
-    - ignora valores inválidos
-    """
-    try:
-        p = float(value)
-    except Exception:
-        return 0.0
-    if p <= 1.0:
-        return max(0.0, min(100.0, p * 100.0))
-    return max(0.0, min(100.0, p))
-
-
-def _is_done(status_value: str) -> bool:
-    v = (status_value or "").lower()
-    return v in {"completed", "success", "done", "finished", "ok"}
-
-
-def _is_failed(status_value: str) -> bool:
-    v = (status_value or "").lower()
-    return v in {"failed", "error", "aborted", "cancelled", "canceled"}
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
 
 
 class MicroserviceClient:
-    
+    """Cliente para comunicação com microserviços no padrão:
+       - POST   /jobs                      (cria)
+       - GET    /jobs/{id}                 (status)
+       - GET    /jobs/{id}/download        (artefato)  [fallback: /jobs/{id}/result]
+       - GET    /health
+    """
+
     def __init__(self, service_name: str):
         self.service_name = service_name
         self.config = get_microservice_config(service_name)
-        self.base_url = self.config["url"]
-        self.timeout = self.config["timeout"]
-        self.endpoints = self.config["endpoints"]
+        self.base_url: str = self.config["url"].rstrip("/")
+        self.timeout: int = int(self.config.get("timeout", 300))
+        self.endpoints: Dict[str, str] = self.config["endpoints"]
 
-    async def _request_with_retries(self, method: str, url: str, *, max_attempts=3, **kwargs) -> httpx.Response:
+        # Normaliza/garante chaves padrão
+        self.submit_ep = self.endpoints.get("submit") or self.endpoints.get("process") or self.endpoints.get("download") or "/jobs"
+        self.status_ep = self.endpoints.get("status", "/jobs/{job_id}")
+        self.download_ep = self.endpoints.get("download", "/jobs/{job_id}/download")
+        self.result_ep = self.endpoints.get("result", "/jobs/{job_id}/result")
+        self.health_ep = self.endpoints.get("health", "/health")
+
+    def _url(self, ep: str, **fmt) -> str:
+        return f"{self.base_url}{ep.format(**fmt)}"
+
+    async def _request(self, method: str, url: str, **kwargs) -> httpx.Response:
+        # retries simples com backoff (1s, 2s, 4s)
+        retries = kwargs.pop("_retries", 2)
         delay = 1.0
         last_exc = None
-        for attempt in range(1, max_attempts + 1):
+        for attempt in range(retries + 1):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     resp = await client.request(method, url, **kwargs)
-                resp.raise_for_status()
-                return resp
-            except httpx.HTTPError as e:
+                    resp.raise_for_status()
+                    return resp
+            except Exception as e:
                 last_exc = e
-                logger.warning(f"{self.service_name} {method} {url} failed (attempt {attempt}/{max_attempts}): {e}")
-                if attempt == max_attempts:
+                if attempt < retries:
+                    await asyncio.sleep(delay)
+                    delay = min(8.0, delay * 2.0)
+                else:
                     break
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 10)
-        raise last_exc
+        raise last_exc  # propaga
 
-    async def submit_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        endpoint = self.endpoints.get("submit")
-        url = f"{self.base_url}{endpoint}"
-        # Se vier _files, manda multipart. Caso contrário, JSON.
-        files = payload.pop("_files", None)
+    async def submit_job(
+        self,
+        json_payload: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Submete job ao microserviço. Usa POST submit_ep (padrão: /jobs)."""
+        url = self._url(self.submit_ep)
+        logger.info(f"Submitting job to {self.service_name}: {url}")
+
+        kwargs: Dict[str, Any] = {"headers": headers or {}}
         if files:
-            resp = await self._request_with_retries("POST", url, files=files, data=payload)
+            kwargs["files"] = files
+            if data:
+                kwargs["data"] = data
         else:
-            resp = await self._request_with_retries("POST", url, json=payload)
+            kwargs["json"] = json_payload or {}
+
+        resp = await self._request("POST", url, **kwargs)
         return resp.json()
 
     async def get_job_status(self, job_id: str) -> Dict[str, Any]:
-        url = f"{self.base_url}{self.endpoints['status']}".format(job_id=job_id)
-        resp = await self._request_with_retries("GET", url)
+        """Consulta status do job em GET /jobs/{id}"""
+        url = self._url(self.status_ep, job_id=job_id)
+        resp = await self._request("GET", url)
         return resp.json()
 
-    async def download_artifact(self, job_id: str, dest_path: str) -> str:
-        url = f"{self.base_url}{self.endpoints.get('artifact', f'/jobs/{job_id}/download')}".format(job_id=job_id)
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", url) as r:
-                r.raise_for_status()
-                with open(dest_path, "wb") as f:
-                    async for chunk in r.aiter_bytes():
-                        f.write(chunk)
-        return dest_path
+    async def download_artifact(self, job_id: str, dest_dir: Path, filename: Optional[str] = None) -> Path:
+        """Baixa artefato final.
+           Tenta /jobs/{id}/download; se 404, tenta /jobs/{id}/result.
+        """
+        _ensure_dir(dest_dir)
+        # 1ª tentativa: download
+        for ep in (self.download_ep, self.result_ep):
+            url = self._url(ep, job_id=job_id)
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    async with client.stream("GET", url) as resp:
+                        if resp.status_code == 404:
+                            raise httpx.HTTPStatusError("Not Found", request=resp.request, response=resp)
+                        resp.raise_for_status()
+
+                        # tenta extrair nome de arquivo do header
+                        suggested = None
+                        cd = resp.headers.get("content-disposition", "")
+                        if "filename=" in cd:
+                            suggested = cd.split("filename=")[-1].strip('"; ')
+
+                        final_name = filename or suggested or f"{self.service_name}-{job_id}"
+                        # se não houver extensão, tenta inferir por content-type
+                        if "." not in final_name:
+                            ctype = (resp.headers.get("content-type") or "").lower()
+                            if "json" in ctype:
+                                final_name += ".json"
+                            elif "srt" in ctype:
+                                final_name += ".srt"
+                            elif "vtt" in ctype:
+                                final_name += ".vtt"
+                            elif "wav" in ctype:
+                                final_name += ".wav"
+                            elif "mp3" in ctype:
+                                final_name += ".mp3"
+                            elif "mp4" in ctype:
+                                final_name += ".mp4"
+                            else:
+                                final_name += ".bin"
+
+                        out_path = dest_dir / final_name
+                        with out_path.open("wb") as f:
+                            async for chunk in resp.aiter_bytes():
+                                f.write(chunk)
+                        logger.info(f"Downloaded artifact from {self.service_name} to: {out_path}")
+                        return out_path
+            except httpx.HTTPStatusError as e:
+                if e.response is not None and e.response.status_code == 404:
+                    logger.debug(f"{self.service_name}: {ep} not found, trying fallback...")
+                    continue
+                raise
+        raise RuntimeError(f"{self.service_name}: no artifact endpoint found for job {job_id}")
 
     async def check_health(self) -> bool:
-        url = f"{self.base_url}{self.endpoints.get('health', '/health')}"
+        """Verifica saúde do microserviço"""
+        url = self._url(self.health_ep)
         try:
-            resp = await self._request_with_retries("GET", url)
+            resp = await self._request("GET", url, _retries=0)
             return resp.status_code == 200
         except Exception as e:
             logger.error(f"Health check failed for {self.service_name}: {e}")
             return False
 
-    async def download_artifact(self, job_id: str, dest_path: str) -> str:
-        """Baixa o arquivo pronto em /jobs/{job_id}/download"""
-        endpoint = self.endpoints.get("artifact", "/jobs/{job_id}/download")
-        url = f"{self.base_url}{endpoint}".format(job_id=job_id)
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", url) as r:
-                r.raise_for_status()
-                with open(dest_path, "wb") as f:
-                    async for chunk in r.aiter_bytes():
-                        f.write(chunk)
-        return dest_path
 
 class PipelineOrchestrator:
-    """Orquestrador do pipeline completo"""
+    """Orquestrador do pipeline completo baseado no padrão /jobs"""
 
     def __init__(self):
         self.settings = get_orchestrator_settings()
@@ -131,8 +172,16 @@ class PipelineOrchestrator:
         self.audio_client = MicroserviceClient("audio-normalization")
         self.transcription_client = MicroserviceClient("audio-transcriber")
 
-        self.poll_interval = self.settings["poll_interval"]
-        self.max_attempts = self.settings["max_poll_attempts"]
+        self.poll_interval = int(self.settings["poll_interval"])
+        self.max_attempts = int(self.settings["max_poll_attempts"])
+
+        # diretórios para artefatos
+        base_artifacts = Path(os.getenv("ARTIFACTS_DIR", "/app/artifacts"))
+        self.dir_downloads = base_artifacts / "downloads"
+        self.dir_normalized = base_artifacts / "normalized"
+        self.dir_transcripts = base_artifacts / "transcripts"
+        for d in (self.dir_downloads, self.dir_normalized, self.dir_transcripts):
+            _ensure_dir(d)
 
     async def check_services_health(self) -> Dict[str, str]:
         """Verifica saúde de todos os serviços"""
@@ -151,108 +200,99 @@ class PipelineOrchestrator:
         try:
             logger.info(f"Starting pipeline for job {job.id}")
 
-            # (Opcional) Pré-checagem de saúde
-            health = await self.check_services_health()
-            for svc, st in health.items():
-                if st != "healthy":
-                    logger.warning(f"Service {svc} is {st}. Proceeding anyway.")
-
-            # 1) Download do vídeo
+            # Estágio 1: Download do vídeo (gera arquivo local)
             job.status = PipelineStatus.DOWNLOADING
-            video_file = await self._execute_download(job)
-            if not video_file:
+            video_or_audio_file = await self._execute_download(job)
+            if not video_or_audio_file:
                 job.mark_as_failed("Download failed")
                 return job
 
-            # 2) Normalização de áudio
+            # Estágio 2: Normalização de áudio (envia arquivo via multipart e baixa o normalizado)
             job.status = PipelineStatus.NORMALIZING
-            audio_file = await self._execute_normalization(job, video_file)
-            if not audio_file:
+            normalized_audio = await self._execute_normalization(job, video_or_audio_file)
+            if not normalized_audio:
                 job.mark_as_failed("Audio normalization failed")
                 return job
-            job.audio_file = audio_file
+            job.audio_file = str(normalized_audio)
 
-            # 3) Transcrição
+            # Estágio 3: Transcrição (envia o áudio via multipart e baixa/retorna transcript)
             job.status = PipelineStatus.TRANSCRIBING
-            transcription_result = await self._execute_transcription(job, audio_file)
-            if not transcription_result:
+            transcript = await self._execute_transcription(job, normalized_audio)
+            if not transcript:
                 job.mark_as_failed("Transcription failed")
                 return job
 
-            job.transcription_text = transcription_result.get("text")
-            job.transcription_file = transcription_result.get("file")
+            # transcript pode ser arquivo (.srt/.vtt/.txt) — guardamos o caminho;
+            # e opcionalmente extraímos o texto se for .txt ou .json
+            job.transcription_file = str(transcript)
+            if transcript.suffix.lower() in {".txt", ".json"}:
+                try:
+                    text = transcript.read_text(encoding="utf-8", errors="ignore")
+                    job.transcription_text = text[:100000]  # evita inflar Redis
+                except Exception:
+                    pass
 
-            # Final
             job.mark_as_completed()
             logger.info(f"Pipeline completed for job {job.id}")
             return job
 
         except Exception as e:
-            logger.error(f"Pipeline failed for job {job.id}: {str(e)}")
+            logger.error(f"Pipeline failed for job {job.id}: {e}")
             job.mark_as_failed(str(e))
             return job
 
-    async def _execute_download(self, job: PipelineJob) -> Optional[str]:
-        """Executa download do vídeo: submit -> poll -> baixa artefato"""
+    async def _execute_download(self, job: PipelineJob) -> Optional[Path]:
+        """1) POST /jobs (json {url}); 2) poll GET /jobs/{id}; 3) GET /jobs/{id}/download"""
         stage = job.download_stage
         stage.start()
 
         try:
             payload = {"url": job.youtube_url}
-            response = await self.video_client.submit_job(payload)
-            stage.job_id = response.get("job_id") or response.get("id")
+            resp = await self.video_client.submit_job(json_payload=payload)
+            stage.job_id = resp.get("job_id") or resp.get("id")
             if not stage.job_id:
-                raise RuntimeError(f"Video-downloader did not return a job_id: {response}")
+                raise RuntimeError(f"video-downloader did not return job_id: {resp}")
 
-            logger.info(f"Video download job submitted: {stage.job_id}")
+            logger.info(f"Video job submitted: {stage.job_id}")
 
             status = await self._wait_until_done(self.video_client, stage.job_id, stage)
             if not status:
                 stage.fail("Download timeout or failed")
                 return None
 
-            # Baixa o arquivo pronto em /jobs/{id}/download
-            dest_path = f"./artifacts/videos/{job.id}.mp4"
-            import os
-            os.makedirs("./artifacts/videos", exist_ok=True)
-
-            await self.video_client.download_artifact(stage.job_id, dest_path)
-
-            stage.complete(dest_path)
+            # baixa o artefato (pode ser vídeo ou áudio extraído)
+            out = await self.video_client.download_artifact(stage.job_id, self.dir_downloads, filename=f"{job.id}-download")
+            stage.complete(str(out))
             job.update_progress()
-            return dest_path
+            return out
 
         except Exception as e:
-            logger.error(f"Download stage failed: {str(e)}")
+            logger.error(f"Download stage failed: {e}")
             stage.fail(str(e))
             return None
 
-    async def _execute_normalization(self, job: PipelineJob, video_file: str) -> Optional[str]:
-        """Executa normalização de áudio: submit (multipart) -> poll -> baixa artefato"""
+    async def _execute_normalization(self, job: PipelineJob, input_path: Path) -> Optional[Path]:
+        """1) POST /jobs (multipart file + params); 2) poll GET /jobs/{id}; 3) GET /jobs/{id}/download"""
         stage = job.normalization_stage
         stage.start()
 
         try:
-            # Envia arquivo como multipart (_files) + flags no corpo (data)
             svc_cfg = get_microservice_config("audio-normalization")
             defaults = (svc_cfg.get("default_params") or {}).copy()
 
-            import os
-            os.makedirs("./artifacts/audio", exist_ok=True)
+            data = {
+                # mapeia para o que o serviço espera; mantive o nome usado no config: set_sample_rate_16k
+                "remove_noise": str(job.remove_noise).lower(),
+                "convert_to_mono": str(job.convert_to_mono).lower(),
+                "set_sample_rate_16k": str(job.sample_rate_16k).lower(),
+                **{k: (str(v).lower() if isinstance(v, bool) else v) for k, v in defaults.items()},
+            }
+            files = {"file": (os.path.basename(input_path), input_path.open("rb"))}
 
-            with open(video_file, "rb") as f:
-                payload = {
-                    **defaults,
-                    "remove_noise": job.remove_noise,
-                    "convert_to_mono": job.convert_to_mono,
-                    "set_sample_rate_16k": job.sample_rate_16k,
-                    "_files": {"file": ("input.mp4", f, "application/octet-stream")},
-                }
-                response = await self.audio_client.submit_job(payload)
-
-            stage.job_id = response.get("job_id") or response.get("id")
+            resp = await self.audio_client.submit_job(files=files, data=data)
+            stage.job_id = resp.get("job_id") or resp.get("id")
             if not stage.job_id:
-                raise RuntimeError(f"Audio-normalization did not return a job_id: {response}")
+                raise RuntimeError(f"audio-normalization did not return job_id: {resp}")
 
             logger.info(f"Audio normalization job submitted: {stage.job_id}")
 
@@ -261,20 +301,26 @@ class PipelineOrchestrator:
                 stage.fail("Normalization timeout or failed")
                 return None
 
-            dest_path = f"./artifacts/audio/{job.id}.wav"
-            await self.audio_client.download_artifact(stage.job_id, dest_path)
-
-            stage.complete(dest_path)
+            out = await self.audio_client.download_artifact(stage.job_id, self.dir_normalized, filename=f"{job.id}-normalized")
+            stage.complete(str(out))
             job.update_progress()
-            return dest_path
+            return out
 
         except Exception as e:
-            logger.error(f"Normalization stage failed: {str(e)}")
+            logger.error(f"Normalization stage failed: {e}")
             stage.fail(str(e))
             return None
+        finally:
+            # garante fechar o file descriptor se ainda aberto
+            try:
+                f = files["file"][1]  # type: ignore
+                if not f.closed:
+                    f.close()
+            except Exception:
+                pass
 
-    async def _execute_transcription(self, job: PipelineJob, audio_file: str) -> Optional[Dict[str, Any]]:
-        """Executa transcrição: submit (multipart) -> poll -> baixa artefato"""
+    async def _execute_transcription(self, job: PipelineJob, audio_path: Path) -> Optional[Path]:
+        """1) POST /jobs (multipart file + language); 2) poll GET /jobs/{id}; 3) GET /jobs/{id}/download"""
         stage = job.transcription_stage
         stage.start()
 
@@ -282,22 +328,16 @@ class PipelineOrchestrator:
             svc_cfg = get_microservice_config("audio-transcriber")
             defaults = (svc_cfg.get("default_params") or {}).copy()
 
-            import os
-            os.makedirs("./artifacts/transcriptions", exist_ok=True)
+            data: Dict[str, Any] = {**defaults}
+            if job.language and job.language != "auto":
+                data["language"] = job.language
 
-            with open(audio_file, "rb") as f:
-                payload: Dict[str, Any] = {
-                    **defaults,
-                    "_files": {"file": ("audio.wav", f, "application/octet-stream")},
-                }
-                if job.language and job.language != "auto":
-                    payload["language"] = job.language
+            files = {"file": (os.path.basename(audio_path), audio_path.open("rb"))}
 
-                response = await self.transcription_client.submit_job(payload)
-
-            stage.job_id = response.get("job_id") or response.get("id")
+            resp = await self.transcription_client.submit_job(files=files, data=data)
+            stage.job_id = resp.get("job_id") or resp.get("id")
             if not stage.job_id:
-                raise RuntimeError(f"Audio-transcriber did not return a job_id: {response}")
+                raise RuntimeError(f"audio-transcriber did not return job_id: {resp}")
 
             logger.info(f"Transcription job submitted: {stage.job_id}")
 
@@ -306,44 +346,53 @@ class PipelineOrchestrator:
                 stage.fail("Transcription timeout or failed")
                 return None
 
-            # Baixa legenda/arquivo final (ajuste extensão conforme o microserviço)
-            dest_path = f"./artifacts/transcriptions/{job.id}.srt"
-            await self.transcription_client.download_artifact(stage.job_id, dest_path)
-
-            stage.complete(dest_path)
+            out = await self.transcription_client.download_artifact(stage.job_id, self.dir_transcripts, filename=f"{job.id}-transcript")
+            stage.complete(str(out))
             job.update_progress()
-            return {"file": dest_path}
+            return out
 
         except Exception as e:
-            logger.error(f"Transcription stage failed: {str(e)}")
+            logger.error(f"Transcription stage failed: {e}")
             stage.fail(str(e))
             return None
+        finally:
+            try:
+                f = files["file"][1]  # type: ignore
+                if not f.closed:
+                    f.close()
+            except Exception:
+                pass
 
     async def _wait_until_done(
         self,
-        client: "MicroserviceClient",
+        client: MicroserviceClient,
         job_id: str,
         stage: PipelineStage,
     ) -> Optional[Dict[str, Any]]:
-        """Espera até o job terminar, consultando GET /jobs/{id}"""
+        """Polling GET /jobs/{id} até completed/success."""
         attempts = 0
         while attempts < self.max_attempts:
             try:
                 status = await client.get_job_status(job_id)
 
-                # progresso (0–1 ou 0–100)
-                if "progress" in status:
+                # progresso (aceita 0–1 ou 0–100)
+                p = status.get("progress")
+                if p is not None:
                     try:
-                        p = float(status["progress"])
-                        stage.progress = p * 100.0 if p <= 1.0 else p
+                        val = float(p)
+                        stage.progress = val * 100.0 if val <= 1.0 else val
+                        stage.progress = max(0.0, min(100.0, stage.progress))
                     except Exception:
                         pass
 
                 state = (status.get("status") or status.get("state") or "").lower()
                 if state in {"completed", "success", "done", "finished"}:
+                    logger.info(f"Job {job_id} completed")
                     return status
                 if state in {"failed", "error", "cancelled", "canceled", "aborted"}:
-                    stage.fail(status.get("error") or status.get("error_message", "Unknown error"))
+                    err = status.get("error") or status.get("error_message") or "Unknown error"
+                    logger.error(f"Job {job_id} failed: {err}")
+                    stage.fail(err)
                     return None
 
             except Exception as e:
@@ -354,4 +403,3 @@ class PipelineOrchestrator:
 
         logger.error(f"Job {job_id} timeout after {attempts} attempts")
         return None
-
