@@ -185,7 +185,7 @@ class PipelineOrchestrator:
         stage = job.download_stage
         stage.start()
         try:
-            payload = {"url": job.youtube_url, "quality": "best"}
+            payload = {"url": job.youtube_url, "quality": "audio"}
             resp = await self.video_client.submit_json(payload)
             stage.job_id = resp.get("job_id") or resp.get("id")
             if not stage.job_id:
