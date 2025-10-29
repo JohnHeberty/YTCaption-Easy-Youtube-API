@@ -1,14 +1,24 @@
 import os
 from celery import Celery
 
-# Configuração do Redis
+# Configuração do Redis via .env
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+celery_broker = os.getenv('CELERY_BROKER_URL', redis_url)
+celery_backend = os.getenv('CELERY_RESULT_BACKEND', redis_url)
+
+# Timeouts configuráveis
+task_time_limit = int(os.getenv('CELERY_TASK_TIME_LIMIT', '3600'))  # 1 hora
+task_soft_time_limit = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '3300'))  # 55 min
+
+# TTL dos resultados (baseado em CACHE_TTL_HOURS)
+cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
+result_expires = cache_ttl_hours * 3600
 
 # Inicializa Celery
 celery_app = Celery(
     'audio_transcriber_tasks',
-    broker=redis_url,
-    backend=redis_url
+    broker=celery_broker,
+    backend=celery_backend
 )
 
 # Configurações
@@ -19,12 +29,12 @@ celery_app.conf.update(
     timezone='UTC',
     enable_utc=True,
     
-    # TTL dos resultados (24 horas)
-    result_expires=86400,
+    # TTL dos resultados (configurável via CACHE_TTL_HOURS)
+    result_expires=result_expires,
     
-    # Timeout das tasks (30 minutos)
-    task_time_limit=1800,
-    task_soft_time_limit=1600,
+    # Timeout das tasks (configurável via .env)
+    task_time_limit=task_time_limit,
+    task_soft_time_limit=task_soft_time_limit,
     
     # Worker settings
     worker_prefetch_multiplier=1,
