@@ -1,1 +1,0 @@
-./scripts/start.sh --model base --memory 2048 --no-parallel --force-rebuild
