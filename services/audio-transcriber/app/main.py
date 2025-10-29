@@ -213,6 +213,9 @@ async def create_transcription_job(
         logger.info(f"Job de transcrição criado: {new_job.id}")
         return new_job
         
+    except HTTPException:
+        # HTTPException já tem mensagem apropriada, re-raise sem modificar
+        raise
     except Exception as e:
         logger.error(f"Erro ao criar job de transcrição: {e}")
         if isinstance(e, (AudioTranscriptionException, ServiceException)):

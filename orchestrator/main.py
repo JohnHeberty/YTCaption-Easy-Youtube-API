@@ -393,14 +393,19 @@ async def factory_reset():
         removed = redis_store.cleanup_old_jobs(max_age_hours=0)
         result["orchestrator"]["jobs_removed"] = removed
         
-        # 2. Remove todos os logs do orchestrator
+        # 2. Limpa arquivos de log (sem remover diretório que está em uso)
         import shutil
         log_dir = Path(settings["log_dir"])
         if log_dir.exists():
-            shutil.rmtree(log_dir)
-            log_dir.mkdir(parents=True, exist_ok=True)
+            # Remove apenas os arquivos dentro do diretório, não o diretório em si
+            for log_file in log_dir.glob("*.log*"):
+                try:
+                    log_file.unlink()
+                    logger.info(f"Removed log file: {log_file}")
+                except Exception as e:
+                    logger.warning(f"Could not remove {log_file}: {e}")
             result["orchestrator"]["logs_cleaned"] = True
-            logger.warning("Factory reset: All orchestrator logs removed")
+            logger.warning("Factory reset: All orchestrator logs cleaned")
         
         # 3. Chama cleanup de cada microserviço
         import httpx
