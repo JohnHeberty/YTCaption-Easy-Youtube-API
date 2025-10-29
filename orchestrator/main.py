@@ -410,8 +410,8 @@ async def factory_reset():
         # 3. Chama cleanup de cada microserviço
         import httpx
         microservices = [
-            ("video-downloader", orchestrator.download_client),
-            ("audio-normalization", orchestrator.normalization_client),
+            ("video-downloader", orchestrator.video_client),
+            ("audio-normalization", orchestrator.audio_client),
             ("audio-transcriber", orchestrator.transcription_client)
         ]
         
