@@ -9,7 +9,8 @@ Lógica de orquestração do pipeline completo (resiliente)
 import os
 import asyncio
 import logging
-from typing import Optional, Dict, Any
+from pathlib import Path
+from typing import Optional, Dict, Any  # (se já existirem, mantenha)
 from datetime import datetime
 
 import httpx
@@ -58,7 +59,7 @@ class MicroserviceClient:
             r.raise_for_status()
             return r.json()
 
-    async def get_job_status(self, job_id: string) -> Dict[str, Any]:
+    async def get_job_status(self, job_id: str) -> Dict[str, Any]:
         url = self._url("status", job_id=job_id)
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             r = await client.get(url)
