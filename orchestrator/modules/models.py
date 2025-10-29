@@ -152,11 +152,11 @@ class PipelineRequest(BaseModel):
     """Request para iniciar pipeline"""
     youtube_url: str = Field(..., description="URL do vídeo do YouTube")
     language: Optional[str] = Field("auto", description="Idioma para transcrição (ISO 639-1) ou 'auto'")
-    language_out: Optional[str] = Field(None, description="Idioma de saída para tradução (ISO 639-1)")
-    remove_noise: Optional[bool] = Field(True, description="Remover ruído de fundo")
+    language_out: Optional[str] = Field("", description="Idioma de saída para tradução (ISO 639-1)")
+    remove_noise: Optional[bool] = Field(False, description="Remover ruído de fundo")
     convert_to_mono: Optional[bool] = Field(True, description="Converter para mono")
-    apply_highpass_filter: Optional[bool] = Field(False, description="Aplicar filtro high-pass")
-    set_sample_rate_16k: Optional[bool] = Field(True, description="Sample rate 16kHz")
+    apply_highpass_filter: Optional[bool] = Field(True, description="Aplicar filtro high-pass")
+    set_sample_rate_16k: Optional[bool] = Field(False, description="Sample rate 16kHz")
     isolate_vocals: Optional[bool] = Field(False, description="Isolar vocais (separa voz de música)")
 
 
