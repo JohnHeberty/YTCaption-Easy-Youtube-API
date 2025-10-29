@@ -169,7 +169,6 @@ async def process_youtube_video(
         logger.error(f"Failed to create pipeline job: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao criar job: {str(e)}")
 
-
 async def execute_pipeline_background(job_id: str):
     """Executa pipeline em background"""
     try:
@@ -201,6 +200,38 @@ async def execute_pipeline_background(job_id: str):
         except:
             pass
 
+@app.get("/jobs", tags=["Jobs"])
+async def list_jobs(limit: int = 50):
+    """
+    Lista jobs recentes do pipeline.
+    
+    Retorna IDs dos últimos jobs criados (mais recentes primeiro).
+    """
+    try:
+        job_ids = redis_store.list_jobs(limit=limit)
+        
+        # Busca informações básicas de cada job
+        jobs = []
+        for job_id in job_ids:
+            job = redis_store.get_job(job_id)
+            if job:
+                jobs.append({
+                    "job_id": job.id,
+                    "youtube_url": job.youtube_url,
+                    "status": job.status.value,
+                    "progress": job.overall_progress,
+                    "created_at": job.created_at,
+                    "updated_at": job.updated_at
+                })
+        
+        return {
+            "total": len(jobs),
+            "jobs": jobs
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list jobs: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar jobs: {str(e)}")
 
 @app.get("/jobs/{job_id}", response_model=PipelineStatusResponse, tags=["Jobs"])
 async def get_job_status(job_id: str):
@@ -265,41 +296,6 @@ async def get_job_status(job_id: str):
     except Exception as e:
         logger.error(f"Failed to get job status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao consultar job: {str(e)}")
-
-
-@app.get("/jobs", tags=["Jobs"])
-async def list_jobs(limit: int = 50):
-    """
-    Lista jobs recentes do pipeline.
-    
-    Retorna IDs dos últimos jobs criados (mais recentes primeiro).
-    """
-    try:
-        job_ids = redis_store.list_jobs(limit=limit)
-        
-        # Busca informações básicas de cada job
-        jobs = []
-        for job_id in job_ids:
-            job = redis_store.get_job(job_id)
-            if job:
-                jobs.append({
-                    "job_id": job.id,
-                    "youtube_url": job.youtube_url,
-                    "status": job.status.value,
-                    "progress": job.overall_progress,
-                    "created_at": job.created_at,
-                    "updated_at": job.updated_at
-                })
-        
-        return {
-            "total": len(jobs),
-            "jobs": jobs
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to list jobs: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao listar jobs: {str(e)}")
-
 
 @app.get("/admin/stats", tags=["Admin"])
 async def get_stats():
