@@ -61,22 +61,23 @@ def get_orchestrator_settings() -> Dict[str, Any]:
 
 def get_microservice_config(service_name: str) -> Dict[str, Any]:
     settings = get_orchestrator_settings()
-    return {
+
+    configs = {
         "video-downloader": {
-            "url": settings["video_downloader_url"],
+            "url": settings["video_downloader_url"],    # ex: http://video-downloader:8000
             "timeout": settings["video_downloader_timeout"],
             "endpoints": {
-                "submit": "/download",                 # cria job
-                "status": "/jobs/{job_id}",            # consulta status
-                "artifact": "/jobs/{job_id}/download", # baixa arquivo pronto
+                "submit": "/download",                  # cria o job
+                "status": "/jobs/{job_id}",             # monitora o job
+                "artifact": "/jobs/{job_id}/download",  # baixa o resultado
                 "health": "/health",
             },
         },
         "audio-normalization": {
-            "url": settings["audio_normalization_url"],
+            "url": settings["audio_normalization_url"], # ex: http://audio-normalization:8001
             "timeout": settings["audio_normalization_timeout"],
             "endpoints": {
-                "submit": "/normalize",                # multipart (arquivo)
+                "submit": "/normalize",                 # multipart (arquivo)
                 "status": "/jobs/{job_id}",
                 "artifact": "/jobs/{job_id}/download",
                 "health": "/health",
@@ -90,10 +91,10 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
             },
         },
         "audio-transcriber": {
-            "url": settings["audio_transcriber_url"],
+            "url": settings["audio_transcriber_url"],   # ex: http://audio-transcriber:8002
             "timeout": settings["audio_transcriber_timeout"],
             "endpoints": {
-                "submit": "/transcribe",               # multipart (arquivo)
+                "submit": "/transcribe",                # multipart (arquivo)
                 "status": "/jobs/{job_id}",
                 "artifact": "/jobs/{job_id}/download",
                 "languages": "/languages",
@@ -101,5 +102,6 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
             },
             "default_params": {"language": settings["default_language"]},
         },
-    }.get(service_name, {})
+    }
 
+    return configs.get(service_name, {})

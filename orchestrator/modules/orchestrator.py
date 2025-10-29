@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 import logging
 import random
+import os
 
 from .models import (
     PipelineJob,
@@ -108,6 +109,19 @@ class MicroserviceClient:
             logger.error(f"Health check failed for {self.service_name}: {e}")
             return False
 
+    async def download_artifact(self, job_id: str, dest_path: str) -> str:
+        """Baixa o arquivo pronto em /jobs/{job_id}/download"""
+        endpoint = self.endpoints.get("artifact", "/jobs/{job_id}/download")
+        url = f"{self.base_url}{endpoint}".format(job_id=job_id)
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", url) as r:
+                r.raise_for_status()
+                with open(dest_path, "wb") as f:
+                    async for chunk in r.aiter_bytes():
+                        f.write(chunk)
+        return dest_path
+
 class PipelineOrchestrator:
     """Orquestrador do pipeline completo"""
 
@@ -123,15 +137,13 @@ class PipelineOrchestrator:
     async def check_services_health(self) -> Dict[str, str]:
         """Verifica saúde de todos os serviços"""
         results = {}
-
         for name, client in [
             ("video-downloader", self.video_client),
             ("audio-normalization", self.audio_client),
-            ("audio-transcriber", self.transcription_client)
+            ("audio-transcriber", self.transcription_client),
         ]:
             is_healthy = await client.check_health()
             results[name] = "healthy" if is_healthy else "unhealthy"
-
         return results
 
     async def execute_pipeline(self, job: PipelineJob) -> PipelineJob:
@@ -139,46 +151,40 @@ class PipelineOrchestrator:
         try:
             logger.info(f"Starting pipeline for job {job.id}")
 
-            # (Opcional) Pré-checagem de saúde — segue mesmo se algum estiver "unhealthy", mas loga
+            # (Opcional) Pré-checagem de saúde
             health = await self.check_services_health()
             for svc, st in health.items():
                 if st != "healthy":
-                    logger.warning(f"Service {svc} is {st}. Proceeding anyway due to resilience focus.")
+                    logger.warning(f"Service {svc} is {st}. Proceeding anyway.")
 
-            # Estágio 1: Download do vídeo
+            # 1) Download do vídeo
             job.status = PipelineStatus.DOWNLOADING
             video_file = await self._execute_download(job)
             if not video_file:
                 job.mark_as_failed("Download failed")
                 return job
 
-            # Estágio 2: Normalização de áudio
+            # 2) Normalização de áudio
             job.status = PipelineStatus.NORMALIZING
             audio_file = await self._execute_normalization(job, video_file)
             if not audio_file:
                 job.mark_as_failed("Audio normalization failed")
                 return job
-
             job.audio_file = audio_file
 
-            # Estágio 3: Transcrição
+            # 3) Transcrição
             job.status = PipelineStatus.TRANSCRIBING
-            transcription = await self._execute_transcription(job, audio_file)
-            if not transcription:
+            transcription_result = await self._execute_transcription(job, audio_file)
+            if not transcription_result:
                 job.mark_as_failed("Transcription failed")
                 return job
 
-            job.transcription_text = transcription.get("text") if isinstance(transcription, dict) else None
-            job.transcription_file = (
-                transcription.get("file")
-                if isinstance(transcription, dict)
-                else None
-            )
+            job.transcription_text = transcription_result.get("text")
+            job.transcription_file = transcription_result.get("file")
 
-            # Pipeline completo
+            # Final
             job.mark_as_completed()
             logger.info(f"Pipeline completed for job {job.id}")
-
             return job
 
         except Exception as e:
@@ -187,37 +193,34 @@ class PipelineOrchestrator:
             return job
 
     async def _execute_download(self, job: PipelineJob) -> Optional[str]:
-        """Executa download do vídeo"""
+        """Executa download do vídeo: submit -> poll -> baixa artefato"""
         stage = job.download_stage
         stage.start()
 
         try:
-            # Submete job ao video-downloader
             payload = {"url": job.youtube_url}
             response = await self.video_client.submit_job(payload)
-
             stage.job_id = response.get("job_id") or response.get("id")
             if not stage.job_id:
                 raise RuntimeError(f"Video-downloader did not return a job_id: {response}")
 
             logger.info(f"Video download job submitted: {stage.job_id}")
 
-            # Polling do status
-            video_file = await self._poll_job_status(
-                client=self.video_client,
-                job_id=stage.job_id,
-                stage=stage,
-                output_key="output_file",
-                job=job,
-            )
-
-            if video_file:
-                stage.complete(video_file if isinstance(video_file, str) else None)
-                job.update_progress()
-                return video_file if isinstance(video_file, str) else video_file.get("output_file")
-            else:
+            status = await self._wait_until_done(self.video_client, stage.job_id, stage)
+            if not status:
                 stage.fail("Download timeout or failed")
                 return None
+
+            # Baixa o arquivo pronto em /jobs/{id}/download
+            dest_path = f"./artifacts/videos/{job.id}.mp4"
+            import os
+            os.makedirs("./artifacts/videos", exist_ok=True)
+
+            await self.video_client.download_artifact(stage.job_id, dest_path)
+
+            stage.complete(dest_path)
+            job.update_progress()
+            return dest_path
 
         except Exception as e:
             logger.error(f"Download stage failed: {str(e)}")
@@ -225,25 +228,27 @@ class PipelineOrchestrator:
             return None
 
     async def _execute_normalization(self, job: PipelineJob, video_file: str) -> Optional[str]:
-        """Executa normalização de áudio"""
+        """Executa normalização de áudio: submit (multipart) -> poll -> baixa artefato"""
         stage = job.normalization_stage
         stage.start()
 
         try:
-            # Merge com default_params do serviço e mapeamento de chaves
+            # Envia arquivo como multipart (_files) + flags no corpo (data)
             svc_cfg = get_microservice_config("audio-normalization")
             defaults = (svc_cfg.get("default_params") or {}).copy()
 
-            payload = {
-                **defaults,
-                "input_file": video_file,
-                "remove_noise": job.remove_noise,
-                "convert_to_mono": job.convert_to_mono,
-                # serviço espera 'set_sample_rate_16k'
-                "set_sample_rate_16k": job.sample_rate_16k,
-            }
+            import os
+            os.makedirs("./artifacts/audio", exist_ok=True)
 
-            response = await self.audio_client.submit_job(payload)
+            with open(video_file, "rb") as f:
+                payload = {
+                    **defaults,
+                    "remove_noise": job.remove_noise,
+                    "convert_to_mono": job.convert_to_mono,
+                    "set_sample_rate_16k": job.sample_rate_16k,
+                    "_files": {"file": ("input.mp4", f, "application/octet-stream")},
+                }
+                response = await self.audio_client.submit_job(payload)
 
             stage.job_id = response.get("job_id") or response.get("id")
             if not stage.job_id:
@@ -251,23 +256,17 @@ class PipelineOrchestrator:
 
             logger.info(f"Audio normalization job submitted: {stage.job_id}")
 
-            # Polling do status
-            audio_file = await self._poll_job_status(
-                client=self.audio_client,
-                job_id=stage.job_id,
-                stage=stage,
-                output_key="output_file",
-                job=job,
-            )
-
-            if audio_file:
-                final_file = audio_file if isinstance(audio_file, str) else audio_file.get("output_file")
-                stage.complete(final_file)
-                job.update_progress()
-                return final_file
-            else:
+            status = await self._wait_until_done(self.audio_client, stage.job_id, stage)
+            if not status:
                 stage.fail("Normalization timeout or failed")
                 return None
+
+            dest_path = f"./artifacts/audio/{job.id}.wav"
+            await self.audio_client.download_artifact(stage.job_id, dest_path)
+
+            stage.complete(dest_path)
+            job.update_progress()
+            return dest_path
 
         except Exception as e:
             logger.error(f"Normalization stage failed: {str(e)}")
@@ -275,7 +274,7 @@ class PipelineOrchestrator:
             return None
 
     async def _execute_transcription(self, job: PipelineJob, audio_file: str) -> Optional[Dict[str, Any]]:
-        """Executa transcrição de áudio"""
+        """Executa transcrição: submit (multipart) -> poll -> baixa artefato"""
         stage = job.transcription_stage
         stage.start()
 
@@ -283,11 +282,18 @@ class PipelineOrchestrator:
             svc_cfg = get_microservice_config("audio-transcriber")
             defaults = (svc_cfg.get("default_params") or {}).copy()
 
-            payload: Dict[str, Any] = {"audio_file": audio_file, **defaults}
-            if job.language and job.language != "auto":
-                payload["language"] = job.language  # sobrescreve se definido no job
+            import os
+            os.makedirs("./artifacts/transcriptions", exist_ok=True)
 
-            response = await self.transcription_client.submit_job(payload)
+            with open(audio_file, "rb") as f:
+                payload: Dict[str, Any] = {
+                    **defaults,
+                    "_files": {"file": ("audio.wav", f, "application/octet-stream")},
+                }
+                if job.language and job.language != "auto":
+                    payload["language"] = job.language
+
+                response = await self.transcription_client.submit_job(payload)
 
             stage.job_id = response.get("job_id") or response.get("id")
             if not stage.job_id:
@@ -295,78 +301,57 @@ class PipelineOrchestrator:
 
             logger.info(f"Transcription job submitted: {stage.job_id}")
 
-            # Polling do status
-            result = await self._poll_job_status(
-                client=self.transcription_client,
-                job_id=stage.job_id,
-                stage=stage,
-                output_key="transcription",
-                job=job,
-            )
-
-            if result:
-                # result pode ser string (arquivo), ou dict com 'text'/'file'
-                output_file = None
-                if isinstance(result, dict):
-                    output_file = result.get("file") or result.get("output_file")
-                elif isinstance(result, str):
-                    output_file = result
-
-                stage.complete(output_file)
-                job.update_progress()
-                return result
-            else:
+            status = await self._wait_until_done(self.transcription_client, stage.job_id, stage)
+            if not status:
                 stage.fail("Transcription timeout or failed")
                 return None
+
+            # Baixa legenda/arquivo final (ajuste extensão conforme o microserviço)
+            dest_path = f"./artifacts/transcriptions/{job.id}.srt"
+            await self.transcription_client.download_artifact(stage.job_id, dest_path)
+
+            stage.complete(dest_path)
+            job.update_progress()
+            return {"file": dest_path}
 
         except Exception as e:
             logger.error(f"Transcription stage failed: {str(e)}")
             stage.fail(str(e))
             return None
 
-    async def _poll_job_status(
+    async def _wait_until_done(
         self,
-        client: MicroserviceClient,
+        client: "MicroserviceClient",
         job_id: str,
         stage: PipelineStage,
-        output_key: str,
-        job: Optional[PipelineJob] = None,
-    ) -> Optional[Any]:
-        """Faz polling do status do job até completar"""
+    ) -> Optional[Dict[str, Any]]:
+        """Espera até o job terminar, consultando GET /jobs/{id}"""
         attempts = 0
-
         while attempts < self.max_attempts:
             try:
                 status = await client.get_job_status(job_id)
 
-                # aceita 'status' ou 'state'
-                job_status = (status.get("status") or status.get("state") or "").lower()
-
-                # Atualiza progresso, aceitando 0–1 ou 0–100
+                # progresso (0–1 ou 0–100)
                 if "progress" in status:
-                    stage.progress = _normalize_progress(status["progress"])
-                    if job:
-                        job.update_progress()
+                    try:
+                        p = float(status["progress"])
+                        stage.progress = p * 100.0 if p <= 1.0 else p
+                    except Exception:
+                        pass
 
-                # Verifica fim
-                if _is_done(job_status):
-                    logger.info(f"Job {job_id} completed")
-                    # retorno flexível: output direto ou payload completo
-                    return status.get(output_key) or status
-
-                if _is_failed(job_status):
-                    error = status.get("error") or status.get("error_message", "Unknown error")
-                    logger.error(f"Job {job_id} failed: {error}")
+                state = (status.get("status") or status.get("state") or "").lower()
+                if state in {"completed", "success", "done", "finished"}:
+                    return status
+                if state in {"failed", "error", "cancelled", "canceled", "aborted"}:
+                    stage.fail(status.get("error") or status.get("error_message", "Unknown error"))
                     return None
 
-                # Ainda processando
-                await asyncio.sleep(self.poll_interval)
-                attempts += 1
-
             except Exception as e:
-                logger.error(f"Error polling job {job_id}: {str(e)}")
-                await asyncio.sleep(self.poll_interval)
-                attempts += 1
+                logger.error(f"Error polling job {job_id}: {e}")
+
+            await asyncio.sleep(self.poll_interval)
+            attempts += 1
 
         logger.error(f"Job {job_id} timeout after {attempts} attempts")
         return None
+
