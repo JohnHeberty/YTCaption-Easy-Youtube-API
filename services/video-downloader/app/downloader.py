@@ -170,8 +170,8 @@ class SimpleDownloader:
                 ydl.download([job.url])
                 
                 # Verifica se arquivo foi criado e pega o tamanho
-                # Busca por job.id completo (inclui qualidade)
-                downloaded_files = list(self.cache_dir.glob(f"{job.id}_*"))
+                # Busca por job.id (sem underscore, novo padrão)
+                downloaded_files = list(self.cache_dir.glob(f"{job.id}.*"))
                 if downloaded_files:
                     actual_file = downloaded_files[0]
                     job.file_path = str(actual_file)
