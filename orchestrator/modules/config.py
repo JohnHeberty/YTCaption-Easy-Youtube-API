@@ -48,8 +48,12 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "audio_transcriber_timeout": int(os.getenv("AUDIO_TRANSCRIBER_TIMEOUT", "600")),  # 10min
 
         # Polling intervals (segundos)
-        "poll_interval": int(os.getenv("POLL_INTERVAL", "2")),
-        "max_poll_attempts": int(os.getenv("MAX_POLL_ATTEMPTS", "300")),  # 10min com poll de 2s
+        "poll_interval": int(os.getenv("POLL_INTERVAL", "3")),  # Aumentado para 3s
+        "max_poll_attempts": int(os.getenv("MAX_POLL_ATTEMPTS", "600")),  # 30min com poll de 3s (jobs longos)
+
+        # Retry para requisições HTTP
+        "microservice_max_retries": int(os.getenv("MICROSERVICE_MAX_RETRIES", "3")),
+        "microservice_retry_delay": int(os.getenv("MICROSERVICE_RETRY_DELAY", "2")),  # segundos base para backoff
 
         # Parâmetros padrão dos microserviços
         "default_language": os.getenv("DEFAULT_LANGUAGE", "auto"),
@@ -66,6 +70,8 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
         "video-downloader": {
             "url": settings["video_downloader_url"],
             "timeout": settings["video_downloader_timeout"],
+            "max_retries": settings["microservice_max_retries"],
+            "retry_delay": settings["microservice_retry_delay"],
             "endpoints": {
                 # POST JSON {url, quality?} -> cria job
                 "submit": "/jobs",
@@ -82,6 +88,8 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
         "audio-normalization": {
             "url": settings["audio_normalization_url"],
             "timeout": settings["audio_normalization_timeout"],
+            "max_retries": settings["microservice_max_retries"],
+            "retry_delay": settings["microservice_retry_delay"],
             "endpoints": {
                 # POST multipart/form-data (file + flags em texto)
                 "submit": "/jobs",
@@ -100,6 +108,8 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
         "audio-transcriber": {
             "url": settings["audio_transcriber_url"],
             "timeout": settings["audio_transcriber_timeout"],
+            "max_retries": settings["microservice_max_retries"],
+            "retry_delay": settings["microservice_retry_delay"],
             "endpoints": {
                 # POST multipart/form-data (file + language_in/out)
                 "submit": "/jobs",

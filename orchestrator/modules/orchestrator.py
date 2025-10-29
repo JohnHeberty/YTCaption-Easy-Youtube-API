@@ -10,8 +10,9 @@ import os
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any  # (se já existirem, mantenha)
+from typing import Optional, Dict, Any, Callable
 from datetime import datetime
+import time
 
 import httpx
 
@@ -34,6 +35,40 @@ class MicroserviceClient:
         self.base_url = self.config["url"].rstrip("/")
         self.timeout = self.config["timeout"]
         self.endpoints = self.config["endpoints"]
+        self.max_retries = self.config.get("max_retries", 3)
+        self.retry_delay = self.config.get("retry_delay", 2)  # segundos
+
+    async def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
+        """Executa função com retry exponential backoff"""
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                return await func(*args, **kwargs)
+            except httpx.HTTPStatusError as e:
+                last_error = e
+                status = e.response.status_code
+                # Não faz retry em erros de cliente (4xx), apenas servidor (5xx) e network
+                if 400 <= status < 500:
+                    logger.error(f"[{self.service_name}] Client error {status}, not retrying: {e}")
+                    raise
+                
+                if attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"[{self.service_name}] Attempt {attempt + 1}/{self.max_retries} failed with {status}, retrying in {delay}s...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"[{self.service_name}] All {self.max_retries} attempts failed")
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout) as e:
+                last_error = e
+                if attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.warning(f"[{self.service_name}] Network error on attempt {attempt + 1}/{self.max_retries}, retrying in {delay}s: {type(e).__name__}")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"[{self.service_name}] All {self.max_retries} attempts failed with network errors")
+        
+        # Se chegou aqui, todas as tentativas falharam
+        raise RuntimeError(f"[{self.service_name}] Failed after {self.max_retries} retries: {last_error}")
 
     def _url(self, endpoint_key: str, **fmt):
         path = self.endpoints.get(endpoint_key)
@@ -42,22 +77,36 @@ class MicroserviceClient:
         return f"{self.base_url}{path.format(**fmt)}"
 
     async def submit_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """POST application/json"""
-        url = self._url("submit")
-        logger.info(f"Submitting JSON to {self.service_name}: {url}")
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(url, json=payload)
-            r.raise_for_status()
-            return r.json()
+        """POST application/json com retry"""
+        async def _do_request():
+            url = self._url("submit")
+            logger.info(f"Submitting JSON to {self.service_name}: {url}")
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.post(url, json=payload)
+                r.raise_for_status()
+                return r.json()
+        
+        try:
+            return await self._retry_with_backoff(_do_request)
+        except Exception as e:
+            logger.error(f"[{self.service_name}] submit_json failed: {e}")
+            raise RuntimeError(f"[{self.service_name}] Failed to submit JSON: {str(e)}") from e
 
     async def submit_multipart(self, files: Dict[str, Any], data: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        """POST multipart/form-data (para normalization e transcriber)"""
-        url = self._url("submit")
-        logger.info(f"Submitting multipart to {self.service_name}: {url}")
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.post(url, files=files, data=data or {})
-            r.raise_for_status()
-            return r.json()
+        """POST multipart/form-data com retry (para normalization e transcriber)"""
+        async def _do_request():
+            url = self._url("submit")
+            logger.info(f"Submitting multipart to {self.service_name}: {url}")
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.post(url, files=files, data=data or {})
+                r.raise_for_status()
+                return r.json()
+        
+        try:
+            return await self._retry_with_backoff(_do_request)
+        except Exception as e:
+            logger.error(f"[{self.service_name}] submit_multipart failed: {e}")
+            raise RuntimeError(f"[{self.service_name}] Failed to submit multipart: {str(e)}") from e
 
     async def get_job_status(self, job_id: str) -> Dict[str, Any]:
         url = self._url("status", job_id=job_id)
@@ -224,9 +273,9 @@ class PipelineOrchestrator:
                 # o serviço aceita 'true'/'false' em texto
                 "remove_noise": _bool_to_str(job.remove_noise if job.remove_noise is not None else defaults.get("remove_noise", False)),
                 "convert_to_mono": _bool_to_str(job.convert_to_mono if job.convert_to_mono is not None else defaults.get("convert_to_mono", False)),
-                "apply_highpass_filter": _bool_to_str(defaults.get("apply_highpass_filter", False)),
-                "set_sample_rate_16k": _bool_to_str(job.sample_rate_16k if job.sample_rate_16k is not None else defaults.get("set_sample_rate_16k", False)),
-                "isolate_vocals": _bool_to_str(defaults.get("isolate_vocals", False)),
+                "apply_highpass_filter": _bool_to_str(job.apply_highpass_filter if job.apply_highpass_filter is not None else defaults.get("apply_highpass_filter", False)),
+                "set_sample_rate_16k": _bool_to_str(job.set_sample_rate_16k if job.set_sample_rate_16k is not None else defaults.get("set_sample_rate_16k", False)),
+                "isolate_vocals": _bool_to_str(job.isolate_vocals if job.isolate_vocals is not None else defaults.get("isolate_vocals", False)),
             }
 
             resp = await self.audio_client.submit_multipart(files=files, data=data)
@@ -259,14 +308,17 @@ class PipelineOrchestrator:
             defaults = (cfg.get("default_params") or {}).copy()
 
             lang_in = job.language or defaults.get("language_in", "auto")
+            lang_out = job.language_out  # Pode ser None
 
             files = {
                 "file": (audio_name, audio_bytes, "application/octet-stream")
             }
             data = {
                 "language_in": lang_in
-                # se quiser forçar tradução: "language_out": "en"
             }
+            # Adiciona language_out apenas se especificado (tradução)
+            if lang_out:
+                data["language_out"] = lang_out
 
             resp = await self.transcription_client.submit_multipart(files=files, data=data)
             stage.job_id = resp.get("job_id") or resp.get("id")

@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
 from typing import Optional
+from pathlib import Path
 
 from modules.models import (
     PipelineRequest,
@@ -140,9 +141,12 @@ async def process_youtube_video(
         job = PipelineJob.create_new(
             youtube_url=request.youtube_url,
             language=request.language or settings["default_language"],
+            language_out=request.language_out,  # Tradução opcional
             remove_noise=request.remove_noise if request.remove_noise is not None else settings["default_remove_noise"],
             convert_to_mono=request.convert_to_mono if request.convert_to_mono is not None else settings["default_convert_mono"],
-            sample_rate_16k=request.sample_rate_16k if request.sample_rate_16k is not None else settings["default_sample_rate_16k"]
+            apply_highpass_filter=request.apply_highpass_filter if request.apply_highpass_filter is not None else False,
+            set_sample_rate_16k=request.set_sample_rate_16k if request.set_sample_rate_16k is not None else settings["default_sample_rate_16k"],
+            isolate_vocals=request.isolate_vocals if request.isolate_vocals is not None else False
         )
         
         # Salva job
@@ -322,19 +326,83 @@ async def get_stats():
 
 
 @app.post("/admin/cleanup", tags=["Admin"])
-async def cleanup_old_jobs(max_age_hours: int = None):
-    """Remove jobs antigos do Redis"""
+async def cleanup_old_jobs(
+    max_age_hours: int = None,
+    deep: bool = False,
+    remove_logs: bool = False
+):
+    """
+    Remove jobs antigos do Redis.
+    
+    - max_age_hours: idade máxima dos jobs (None = usa default de 24h)
+    - deep: se True, remove também arquivos de logs
+    - remove_logs: se True, remove arquivos de log do diretório logs/
+    """
     try:
-        removed = redis_store.cleanup_old_jobs(max_age_hours)
-        
-        return {
+        result = {
             "message": "Cleanup executado com sucesso",
-            "jobs_removed": removed
+            "jobs_removed": 0,
+            "logs_cleaned": False
         }
+        
+        # Limpa jobs do Redis
+        removed = redis_store.cleanup_old_jobs(max_age_hours)
+        result["jobs_removed"] = removed
+        
+        # Deep cleanup: limpa logs se solicitado
+        if deep or remove_logs:
+            import shutil
+            log_dir = Path(settings["log_dir"])
+            if log_dir.exists():
+                # Remove arquivos de log antigos
+                for log_file in log_dir.glob("*.log*"):
+                    try:
+                        log_file.unlink()
+                        logger.info(f"Removed log file: {log_file}")
+                    except Exception as e:
+                        logger.warning(f"Failed to remove {log_file}: {e}")
+                result["logs_cleaned"] = True
+        
+        return result
         
     except Exception as e:
         logger.error(f"Cleanup failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
+
+
+@app.post("/admin/factory-reset", tags=["Admin"])
+async def factory_reset():
+    """
+    ⚠️ FACTORY RESET - Remove TUDO: todos os jobs do Redis e todos os logs.
+    Use com cuidado! Esta ação é irreversível.
+    """
+    try:
+        result = {
+            "message": "Factory reset executado",
+            "jobs_removed": 0,
+            "logs_cleaned": False,
+            "warning": "Todos os dados foram removidos"
+        }
+        
+        # Remove todos os jobs do Redis (age=0)
+        removed = redis_store.cleanup_old_jobs(max_age_hours=0)
+        result["jobs_removed"] = removed
+        
+        # Remove todos os logs
+        import shutil
+        log_dir = Path(settings["log_dir"])
+        if log_dir.exists():
+            shutil.rmtree(log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            result["logs_cleaned"] = True
+            logger.warning("Factory reset: All logs removed")
+        
+        logger.warning(f"Factory reset completed: {removed} jobs and logs removed")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Factory reset failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao fazer factory reset: {str(e)}")
 
 
 if __name__ == "__main__":

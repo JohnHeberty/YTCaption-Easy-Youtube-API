@@ -71,9 +71,12 @@ class PipelineJob(BaseModel):
     
     # Parâmetros de configuração
     language: str = "auto"
+    language_out: Optional[str] = None  # Para tradução
     remove_noise: bool = True
     convert_to_mono: bool = True
-    sample_rate_16k: bool = True
+    apply_highpass_filter: bool = False
+    set_sample_rate_16k: bool = True
+    isolate_vocals: bool = False
     
     # Estágios do pipeline
     download_stage: PipelineStage = Field(default_factory=lambda: PipelineStage(name="download"))
@@ -143,9 +146,12 @@ class PipelineRequest(BaseModel):
     """Request para iniciar pipeline"""
     youtube_url: str = Field(..., description="URL do vídeo do YouTube")
     language: Optional[str] = Field("auto", description="Idioma para transcrição (ISO 639-1) ou 'auto'")
+    language_out: Optional[str] = Field(None, description="Idioma de saída para tradução (ISO 639-1)")
     remove_noise: Optional[bool] = Field(True, description="Remover ruído de fundo")
     convert_to_mono: Optional[bool] = Field(True, description="Converter para mono")
-    sample_rate_16k: Optional[bool] = Field(True, description="Sample rate 16kHz")
+    apply_highpass_filter: Optional[bool] = Field(False, description="Aplicar filtro high-pass")
+    set_sample_rate_16k: Optional[bool] = Field(True, description="Sample rate 16kHz")
+    isolate_vocals: Optional[bool] = Field(False, description="Isolar vocais (separa voz de música)")
 
 
 class PipelineResponse(BaseModel):
