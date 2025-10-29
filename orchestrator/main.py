@@ -316,7 +316,8 @@ async def get_stats():
             "settings": {
                 "cache_ttl_hours": settings["cache_ttl_hours"],
                 "job_timeout_minutes": settings["job_timeout_minutes"],
-                "poll_interval": settings["poll_interval"],
+                "poll_interval_initial": settings["poll_interval_initial"],
+                "poll_interval_max": settings["poll_interval_max"],
                 "max_poll_attempts": settings["max_poll_attempts"]
             }
         }

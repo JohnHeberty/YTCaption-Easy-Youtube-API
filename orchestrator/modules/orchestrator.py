@@ -11,7 +11,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 
 import httpx
@@ -27,7 +27,7 @@ from .config import get_orchestrator_settings, get_microservice_config
 logger = logging.getLogger(__name__)
 
 class MicroserviceClient:
-    """Cliente para comunicação com microserviços"""
+    """Cliente para comunicação com microserviços com circuit breaker"""
 
     def __init__(self, service_name: str):
         self.service_name = service_name
@@ -37,13 +37,58 @@ class MicroserviceClient:
         self.endpoints = self.config["endpoints"]
         self.max_retries = self.config.get("max_retries", 3)
         self.retry_delay = self.config.get("retry_delay", 2)  # segundos
+        
+        # Circuit breaker configurável
+        settings = get_orchestrator_settings()
+        self.failure_count = 0
+        self.max_failures = settings["circuit_breaker_max_failures"]
+        self.recovery_timeout = settings["circuit_breaker_recovery_timeout"]
+        self.last_failure_time = None
+        self._circuit_open = False
+
+    def _is_circuit_open(self) -> bool:
+        """Verifica se o circuit breaker está aberto"""
+        if not self._circuit_open:
+            return False
+            
+        # Se passou o tempo de recovery, tenta fechar o circuito
+        if self.last_failure_time and datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+            logger.info(f"[{self.service_name}] Circuit breaker attempting recovery after {self.recovery_timeout}s")
+            self._circuit_open = False
+            self.failure_count = 0
+            return False
+            
+        return True
+    
+    def _record_success(self):
+        """Registra sucesso - fecha circuit breaker se estava aberto"""
+        if self._circuit_open:
+            logger.info(f"[{self.service_name}] Circuit breaker closed - service recovered")
+        self._circuit_open = False
+        self.failure_count = 0
+        self.last_failure_time = None
+    
+    def _record_failure(self):
+        """Registra falha - pode abrir circuit breaker"""
+        self.failure_count += 1
+        self.last_failure_time = datetime.now()
+        
+        if self.failure_count >= self.max_failures and not self._circuit_open:
+            self._circuit_open = True
+            logger.error(f"[{self.service_name}] Circuit breaker OPENED after {self.failure_count} failures - service will be avoided for {self.recovery_timeout}s")
 
     async def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
-        """Executa função com retry exponential backoff"""
+        """Executa função com retry exponential backoff e circuit breaker"""
+        # Verifica circuit breaker
+        if self._is_circuit_open():
+            raise RuntimeError(f"[{self.service_name}] Circuit breaker is OPEN - service unavailable")
+        
         last_error = None
         for attempt in range(self.max_retries):
             try:
-                return await func(*args, **kwargs)
+                result = await func(*args, **kwargs)
+                self._record_success()  # Registra sucesso
+                return result
             except httpx.HTTPStatusError as e:
                 last_error = e
                 status = e.response.status_code
@@ -68,6 +113,7 @@ class MicroserviceClient:
                     logger.error(f"[{self.service_name}] All {self.max_retries} attempts failed with network errors")
         
         # Se chegou aqui, todas as tentativas falharam
+        self._record_failure()  # Registra falha para circuit breaker
         raise RuntimeError(f"[{self.service_name}] Failed after {self.max_retries} retries: {last_error}")
 
     def _url(self, endpoint_key: str, **fmt):
@@ -88,6 +134,15 @@ class MicroserviceClient:
         
         try:
             return await self._retry_with_backoff(_do_request)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                raise RuntimeError(f"[{self.service_name}] Bad request - check payload format: {e}")
+            elif e.response.status_code == 422:
+                raise RuntimeError(f"[{self.service_name}] Validation error - check payload data: {e}")
+            else:
+                raise RuntimeError(f"[{self.service_name}] HTTP error submitting JSON: {e}")
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise RuntimeError(f"[{self.service_name}] Network error submitting JSON - service may be down: {e}")
         except Exception as e:
             logger.error(f"[{self.service_name}] submit_json failed: {e}")
             raise RuntimeError(f"[{self.service_name}] Failed to submit JSON: {str(e)}") from e
@@ -104,41 +159,88 @@ class MicroserviceClient:
         
         try:
             return await self._retry_with_backoff(_do_request)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 400:
+                raise RuntimeError(f"[{self.service_name}] Bad request - check file format or parameters: {e}")
+            elif e.response.status_code == 413:
+                raise RuntimeError(f"[{self.service_name}] File too large for service: {e}")
+            elif e.response.status_code == 422:
+                raise RuntimeError(f"[{self.service_name}] Validation error - check file and parameters: {e}")
+            else:
+                raise RuntimeError(f"[{self.service_name}] HTTP error submitting multipart: {e}")
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            raise RuntimeError(f"[{self.service_name}] Network error submitting multipart - service may be down: {e}")
         except Exception as e:
             logger.error(f"[{self.service_name}] submit_multipart failed: {e}")
             raise RuntimeError(f"[{self.service_name}] Failed to submit multipart: {str(e)}") from e
 
     async def get_job_status(self, job_id: str) -> Dict[str, Any]:
-        url = self._url("status", job_id=job_id)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return r.json()
+        """GET /jobs/{id} com retry para verificar status"""
+        async def _do_request():
+            url = self._url("status", job_id=job_id)
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                return r.json()
+        
+        try:
+            return await self._retry_with_backoff(_do_request)
+        except Exception as e:
+            logger.error(f"[{self.service_name}] get_job_status failed for job {job_id}: {e}")
+            raise
 
     async def download_file(self, job_id: str) -> tuple[bytes, str]:
         """
-        GET /jobs/{id}/download -> retorna (conteudo, filename)
+        GET /jobs/{id}/download -> retorna (conteudo, filename) com verificação de tamanho
         """
         url = self._url("download", job_id=job_id)
+        max_size_bytes = get_orchestrator_settings()["max_file_size_mb"] * 1024 * 1024
         
         async def _download():
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 r = await client.get(url)
                 r.raise_for_status()
+                
+                # Verifica Content-Length se disponível
+                content_length = r.headers.get("Content-Length")
+                if content_length:
+                    size_mb = int(content_length) / (1024 * 1024)
+                    if int(content_length) > max_size_bytes:
+                        raise RuntimeError(f"[{self.service_name}] File too large: {size_mb:.1f}MB > {max_size_bytes/(1024*1024)}MB limit")
+                
                 filename = _filename_from_cd(r.headers.get("Content-Disposition")) or f"{self.service_name}-{job_id}"
-                return r.content, filename
+                content = r.content
+                
+                # Verifica tamanho real do conteúdo baixado
+                actual_size_mb = len(content) / (1024 * 1024)
+                if len(content) > max_size_bytes:
+                    raise RuntimeError(f"[{self.service_name}] Downloaded file too large: {actual_size_mb:.1f}MB > {max_size_bytes/(1024*1024)}MB limit")
+                
+                logger.info(f"[{self.service_name}] Downloaded {filename}: {actual_size_mb:.1f}MB")
+                return content, filename
         
         return await self._retry_with_backoff(_download)
 
     async def check_health(self) -> bool:
+        # Se circuit breaker está aberto, serviço é considerado unhealthy
+        if self._is_circuit_open():
+            logger.warning(f"Health check for {self.service_name}: CIRCUIT BREAKER OPEN")
+            return False
+            
         endpoint = self.endpoints.get("health", "/health")
         url = f"{self.base_url}{endpoint}"
         try:
-            async with httpx.AsyncClient(timeout=5) as client:
+            async with httpx.AsyncClient(timeout=10) as client:  # Timeout maior para health check
                 r = await client.get(url)
-                return r.status_code == 200
+                healthy = r.status_code == 200
+                if healthy:
+                    self._record_success()  # Health check bem-sucedido conta como sucesso
+                else:
+                    logger.warning(f"Health check for {self.service_name} returned status {r.status_code}")
+                return healthy
         except Exception as e:
             logger.error(f"Health check failed for {self.service_name}: {e}")
+            self._record_failure()  # Health check falho conta como falha
             return False
 
 # --- utilidades locais (adicione abaixo dos imports, antes do PipelineOrchestrator) ---
@@ -162,7 +264,8 @@ class PipelineOrchestrator:
         self.audio_client = MicroserviceClient("audio-normalization")
         self.transcription_client = MicroserviceClient("audio-transcriber")
 
-        self.poll_interval = self.settings["poll_interval"]
+        self.poll_interval_initial = self.settings["poll_interval_initial"]
+        self.poll_interval_max = self.settings["poll_interval_max"]
         self.max_attempts = self.settings["max_poll_attempts"]
 
     async def check_services_health(self) -> Dict[str, str]:
@@ -181,39 +284,52 @@ class PipelineOrchestrator:
         try:
             logger.info(f"Starting pipeline for job {job.id}")
 
-            # 0) (Opcional) pré-checagem de saúde
+            # 0) Pré-checagem de saúde crítica
             health = await self.check_services_health()
-            for svc, st in health.items():
-                if st != "healthy":
-                    logger.warning(f"Service {svc} is {st}. Proceeding anyway due to resilience focus.")
+            unhealthy_services = [svc for svc, st in health.items() if st != "healthy"]
+            
+            if unhealthy_services:
+                logger.warning(f"Unhealthy services detected: {unhealthy_services}")
+                # Não bloqueia, mas registra para monitoramento
+                for svc in unhealthy_services:
+                    logger.warning(f"Service {svc} is {health[svc]} - pipeline may fail")
 
             # 1) DOWNLOAD (retorna bytes e nome do arquivo de áudio)
             job.status = PipelineStatus.DOWNLOADING
+            logger.info(f"[PIPELINE:{job.id}] Starting DOWNLOAD stage for URL: {job.youtube_url}")
             dl = await self._execute_download(job)
             if not dl:
+                logger.error(f"[PIPELINE:{job.id}] DOWNLOAD stage failed")
                 job.mark_as_failed("Download failed")
                 return job
             audio_bytes, audio_name = dl  # <<< AQUI desempacota
+            logger.info(f"[PIPELINE:{job.id}] DOWNLOAD completed: {audio_name} ({len(audio_bytes)/(1024*1024):.1f}MB)")
 
             # 2) NORMALIZAÇÃO (envia multipart; retorna bytes e nome do arquivo normalizado)
             job.status = PipelineStatus.NORMALIZING
+            logger.info(f"[PIPELINE:{job.id}] Starting NORMALIZATION stage")
             norm = await self._execute_normalization(job, audio_bytes, audio_name)
             if not norm:
+                logger.error(f"[PIPELINE:{job.id}] NORMALIZATION stage failed")
                 job.mark_as_failed("Audio normalization failed")
                 return job
             norm_bytes, norm_name = norm  # <<< AQUI desempacota
             job.audio_file = norm_name     # opcional: mantemos compat com seu modelo
+            logger.info(f"[PIPELINE:{job.id}] NORMALIZATION completed: {norm_name} ({len(norm_bytes)/(1024*1024):.1f}MB)")
 
             # 3) TRANSCRIÇÃO (envia multipart; retorna dict com texto/arquivo/segments)
             job.status = PipelineStatus.TRANSCRIBING
+            logger.info(f"[PIPELINE:{job.id}] Starting TRANSCRIPTION stage")
             tr = await self._execute_transcription(job, norm_bytes, norm_name)
             if not tr:
+                logger.error(f"[PIPELINE:{job.id}] TRANSCRIPTION stage failed")
                 job.mark_as_failed("Transcription failed")
                 return job
 
             job.transcription_text = tr.get("text")
             job.transcription_segments = tr.get("segments")
             job.transcription_file = tr.get("file_name")
+            logger.info(f"[PIPELINE:{job.id}] TRANSCRIPTION completed: {len(job.transcription_text or '')} chars, {len(job.transcription_segments or [])} segments")
 
             # 4) FECHAMENTO
             job.mark_as_completed()
@@ -234,9 +350,12 @@ class PipelineOrchestrator:
             resp = await self.video_client.submit_json(payload)
             stage.job_id = resp.get("job_id") or resp.get("id")
             if not stage.job_id:
-                raise RuntimeError(f"video-downloader não retornou job_id: {resp}")
+                raise RuntimeError(f"video-downloader não retornou job_id válido: {resp}")
 
             logger.info(f"Video job submitted: {stage.job_id}")
+            
+            # Aguarda um momento para o job ser processado antes de verificar status
+            await asyncio.sleep(1)
 
             status = await self._wait_until_done(self.video_client, stage.job_id, stage)
             if not status:
@@ -381,9 +500,14 @@ class PipelineOrchestrator:
     async def _wait_until_done(self, client: MicroserviceClient, job_id: str, stage: PipelineStage) -> Optional[Dict[str, Any]]:
         """Polling GET /jobs/{id} até completed/failed, com progresso 0..1 ou 0..100."""
         attempts = 0
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
         while attempts < self.max_attempts:
             try:
                 status = await client.get_job_status(job_id)
+                consecutive_errors = 0  # Reset contador de erros em caso de sucesso
+                
                 # progresso
                 if "progress" in status:
                     try:
@@ -391,15 +515,59 @@ class PipelineOrchestrator:
                         stage.progress = p * 100.0 if p <= 1.0 else p
                     except Exception:
                         pass
+                
                 state = (status.get("status") or status.get("state") or "").lower()
                 if state in {"completed", "success", "done", "finished"}:
+                    logger.info(f"Job {job_id} completed successfully")
                     return status
                 if state in {"failed", "error", "cancelled", "canceled", "aborted"}:
-                    stage.fail(status.get("error") or status.get("error_message", "Unknown error"))
+                    error_msg = status.get("error") or status.get("error_message", f"Job failed with state: {state}")
+                    logger.error(f"Job {job_id} failed: {error_msg}")
+                    stage.fail(error_msg)
                     return None
+                    
+                # Estado em progresso
+                logger.debug(f"Job {job_id} status: {state}, progress: {stage.progress}%")
+                
+            except httpx.HTTPStatusError as e:
+                consecutive_errors += 1
+                if e.response.status_code == 404:
+                    if attempts < 3:  # Nos primeiros attempts, 404 pode ser normal (job ainda sendo criado)
+                        logger.warning(f"Job {job_id} not found yet (attempt {attempts + 1}), retrying...")
+                    else:
+                        logger.error(f"Job {job_id} not found after {attempts} attempts - may have been deleted or expired")
+                        stage.fail(f"Job not found: {e}")
+                        return None
+                elif e.response.status_code >= 500:
+                    logger.warning(f"Server error polling job {job_id} (attempt {attempts + 1}): {e}")
+                else:
+                    logger.error(f"Client error polling job {job_id}: {e}")
+                    stage.fail(f"Polling failed: {e}")
+                    return None
+            except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout) as e:
+                consecutive_errors += 1
+                logger.warning(f"Network error polling job {job_id} (attempt {attempts + 1}): {type(e).__name__}")
             except Exception as e:
-                logger.error(f"Error polling job {job_id}: {e}")
-            await asyncio.sleep(self.poll_interval)
+                consecutive_errors += 1
+                logger.error(f"Unexpected error polling job {job_id} (attempt {attempts + 1}): {e}")
+            
+                # Se muitos erros consecutivos, aborta
+            if consecutive_errors >= max_consecutive_errors:
+                logger.error(f"Too many consecutive errors ({consecutive_errors}) polling job {job_id}, giving up")
+                stage.fail(f"Too many polling errors - service may be down")
+                return None
+            
+            # Polling adaptativo: começa rápido, fica mais lento com o tempo
+            if attempts < 10:
+                poll_delay = self.poll_interval_initial
+            elif attempts < 50:
+                poll_delay = min(self.poll_interval_initial * 2, self.poll_interval_max)
+            else:
+                poll_delay = self.poll_interval_max
+                
+            await asyncio.sleep(poll_delay)
             attempts += 1
+            
         logger.error(f"Job {job_id} timeout after {attempts} attempts")
+        stage.fail(f"Timeout after {attempts} polling attempts")
         return None

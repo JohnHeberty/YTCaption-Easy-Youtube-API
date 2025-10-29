@@ -28,32 +28,34 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         # Cache e TTL
         "cache_ttl_hours": int(os.getenv("CACHE_TTL_HOURS", "24")),
         "job_timeout_minutes": int(os.getenv("JOB_TIMEOUT_MINUTES", "60")),
-
-        # HTTP/Resiliência
-        "http_max_retries": int(os.getenv("HTTP_MAX_RETRIES", "3")),
-        "retry_backoff_base_seconds": float(os.getenv("RETRY_BACKOFF_BASE_SECONDS", "1.5")),
+        
+        # Limitações de recursos
+        "max_file_size_mb": int(os.getenv("MAX_FILE_SIZE_MB", "500")),  # 500MB max por arquivo
 
         # Logging
         "log_level": os.getenv("LOG_LEVEL", "INFO"),
         "log_dir": os.getenv("LOG_DIR", "./orchestrator/logs"),
 
-        # Microserviços URLs
-        "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.18.203:8000"),
-        "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.18.203:8001"),
-        "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.18.203:8002"),
+        # Microserviços URLs - URLs corretas baseadas no log de erro
+        "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.18.132:8000"),
+        "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.18.132:8001"),
+        "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.18.132:8002"),
 
-        # Timeouts dos microserviços (segundos)
-        "video_downloader_timeout": int(os.getenv("VIDEO_DOWNLOADER_TIMEOUT", "300")),   # 5min
-        "audio_normalization_timeout": int(os.getenv("AUDIO_NORMALIZATION_TIMEOUT", "180")),  # 3min
-        "audio_transcriber_timeout": int(os.getenv("AUDIO_TRANSCRIBER_TIMEOUT", "600")),  # 10min
+        # Timeouts dos microserviços (segundos) - Aumentados para maior resiliência
+        "video_downloader_timeout": int(os.getenv("VIDEO_DOWNLOADER_TIMEOUT", "900")),   # 15min
+        "audio_normalization_timeout": int(os.getenv("AUDIO_NORMALIZATION_TIMEOUT", "600")),  # 10min
+        "audio_transcriber_timeout": int(os.getenv("AUDIO_TRANSCRIBER_TIMEOUT", "1200")),  # 20min
 
-        # Polling intervals (segundos)
-        "poll_interval": int(os.getenv("POLL_INTERVAL", "3")),  # Aumentado para 3s
-        "max_poll_attempts": int(os.getenv("MAX_POLL_ATTEMPTS", "600")),  # 30min com poll de 3s (jobs longos)
+        # Polling intervals (segundos) - Polling adaptativo
+        "poll_interval_initial": int(os.getenv("POLL_INTERVAL_INITIAL", "2")),  # Polling inicial rápido
+        "poll_interval_max": int(os.getenv("POLL_INTERVAL_MAX", "30")),  # Polling máximo após várias tentativas
+        "max_poll_attempts": int(os.getenv("MAX_POLL_ATTEMPTS", "600")),  # 30min max com polling adaptativo
 
-        # Retry para requisições HTTP
-        "microservice_max_retries": int(os.getenv("MICROSERVICE_MAX_RETRIES", "3")),
-        "microservice_retry_delay": int(os.getenv("MICROSERVICE_RETRY_DELAY", "2")),  # segundos base para backoff
+        # Retry para requisições HTTP - Configuração unificada e mais robusta
+        "microservice_max_retries": int(os.getenv("MICROSERVICE_MAX_RETRIES", "5")),  # Aumentado para 5
+        "microservice_retry_delay": int(os.getenv("MICROSERVICE_RETRY_DELAY", "3")),  # 3s base para backoff
+        "circuit_breaker_max_failures": int(os.getenv("CIRCUIT_BREAKER_MAX_FAILURES", "5")),
+        "circuit_breaker_recovery_timeout": int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", "300")),  # 5min
 
         # Parâmetros padrão dos microserviços
         "default_language": os.getenv("DEFAULT_LANGUAGE", "auto"),
