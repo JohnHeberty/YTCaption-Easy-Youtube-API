@@ -275,6 +275,19 @@ async def get_job_status(job_id: str):
             }
         }
         
+        # Converte TranscriptionSegment objects para dicts
+        segments_as_dicts = None
+        if job.transcription_segments:
+            segments_as_dicts = [
+                {
+                    "text": seg.text,
+                    "start": seg.start,
+                    "end": seg.end,
+                    "duration": seg.duration
+                }
+                for seg in job.transcription_segments
+            ]
+        
         return PipelineStatusResponse(
             job_id=job.id,
             youtube_url=job.youtube_url,
@@ -285,7 +298,7 @@ async def get_job_status(job_id: str):
             completed_at=job.completed_at,
             stages=stages,
             transcription_text=job.transcription_text,
-            transcription_segments=job.transcription_segments,
+            transcription_segments=segments_as_dicts,
             transcription_file=job.transcription_file,
             audio_file=job.audio_file,
             error_message=job.error_message
