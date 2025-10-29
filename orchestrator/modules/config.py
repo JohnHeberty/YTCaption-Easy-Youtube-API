@@ -73,15 +73,9 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
             "max_retries": settings["microservice_max_retries"],
             "retry_delay": settings["microservice_retry_delay"],
             "endpoints": {
-                # POST JSON {url, quality?} -> cria job
                 "submit": "/jobs",
-                # GET -> status do job
                 "status": "/jobs/{job_id}",
-                # GET -> baixa o arquivo; para audio use params={"type":"audio"}
                 "download": "/jobs/{job_id}/download",
-                # compat: caminho antigo que alguns logs mostraram
-                "download_audio_alt": "/jobs/{job_id}/download/audio",
-                # health
                 "health": "/health"
             }
         },

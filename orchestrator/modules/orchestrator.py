@@ -115,25 +115,20 @@ class MicroserviceClient:
             r.raise_for_status()
             return r.json()
 
-    async def download_file(self, job_id: str, params: Dict[str, Any] | None = None) -> tuple[bytes, str]:
+    async def download_file(self, job_id: str) -> tuple[bytes, str]:
         """
         GET /jobs/{id}/download -> retorna (conteudo, filename)
-        Para downloader de áudio, passe params={"type": "audio"}.
-        Tenta automaticamente o endpoint alternativo /download/audio se 404.
         """
         url = self._url("download", job_id=job_id)
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            r = await client.get(url, params=params or {})
-            if r.status_code == 404 and self.service_name == "video-downloader" and (params or {}).get("type") == "audio":
-                # compatibilidade: caminho antigo
-                alt = self.endpoints.get("download_audio_alt")
-                if alt:
-                    alt_url = f"{self.base_url}{alt.format(job_id=job_id)}"
-                    logger.warning(f"[{self.service_name}] download via {url} deu 404; tentando {alt_url}")
-                    r = await client.get(alt_url)
-            r.raise_for_status()
-            filename = _filename_from_cd(r.headers.get("Content-Disposition")) or f"{self.service_name}-{job_id}"
-            return r.content, filename
+        
+        async def _download():
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                filename = _filename_from_cd(r.headers.get("Content-Disposition")) or f"{self.service_name}-{job_id}"
+                return r.content, filename
+        
+        return await self._retry_with_backoff(_download)
 
     async def check_health(self) -> bool:
         endpoint = self.endpoints.get("health", "/health")
@@ -248,8 +243,8 @@ class PipelineOrchestrator:
                 stage.fail("Download job failed/timeout")
                 return None
 
-            # baixa só o áudio do vídeo
-            content, filename = await self.video_client.download_file(stage.job_id, params={"type": "audio"})
+            # baixa o áudio do vídeo
+            content, filename = await self.video_client.download_file(stage.job_id)
             stage.complete(filename)
             job.update_progress()
             return content, filename
