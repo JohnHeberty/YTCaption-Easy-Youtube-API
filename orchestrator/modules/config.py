@@ -58,7 +58,7 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "default_sample_rate_16k": os.getenv("DEFAULT_SAMPLE_RATE_16K", "true").lower() == "true",
     }
 
-
+# orchestrator/modules/config.py  (trecho sugerido)
 def get_microservice_config(service_name: str) -> Dict[str, Any]:
     settings = get_orchestrator_settings()
 
@@ -70,39 +70,41 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
                 "submit": "/jobs",
                 "status": "/jobs/{job_id}",
                 "download": "/jobs/{job_id}/download",
-                "health": "/health"
-            }
-    },
-    "audio-normalization": {
-        "url": settings["audio_normalization_url"],
-        "timeout": settings["audio_normalization_timeout"],
-        "endpoints": {
-            "submit": "/jobs",
-            "status": "/jobs/{job_id}",
-            "download": "/jobs/{job_id}/download",
-            "health": "/health"
+                "health": "/health",
+            },
         },
-        "default_params": {
-            "remove_noise": settings["default_remove_noise"],
-            "convert_to_mono": settings["default_convert_mono"],
-            "set_sample_rate_16k": settings["default_sample_rate_16k"],
-            "apply_highpass_filter": False,
-            "isolate_vocals": False
-        }
-    },
-    "audio-transcriber": {
-        "url": settings["audio_transcriber_url"],
-        "timeout": settings["audio_transcriber_timeout"],
-        "endpoints": {
-            "submit": "/jobs",
-            "status": "/jobs/{job_id}",
-            "download": "/jobs/{job_id}/download",   # fallback para "result" já existe no client
-            "result": "/jobs/{job_id}/result",
-            "health": "/health"
+        "audio-normalization": {
+            "url": settings["audio_normalization_url"],
+            "timeout": settings["audio_normalization_timeout"],
+            "endpoints": {
+                "submit": "/jobs",
+                "status": "/jobs/{job_id}",
+                "download": "/jobs/{job_id}/download",
+                "health": "/health",
+            },
+            "default_params": {
+                "remove_noise": settings["default_remove_noise"],
+                "convert_to_mono": settings["default_convert_mono"],
+                "set_sample_rate_16k": settings["default_sample_rate_16k"],
+                "apply_highpass_filter": False,
+                "isolate_vocals": False,
+            },
         },
-        "default_params": {
-            "language": settings["default_language"]
-        }
+        "audio-transcriber": {
+            "url": settings["audio_transcriber_url"],
+            "timeout": settings["audio_transcriber_timeout"],
+            "endpoints": {
+                "submit": "/jobs",
+                "status": "/jobs/{job_id}",
+                "download": "/jobs/{job_id}/download",
+                "text": "/jobs/{job_id}/text",                # extra
+                "full_transcription": "/jobs/{job_id}/transcription",  # extra
+                "health": "/health",
+            },
+            "default_params": {
+                "language_in": settings["default_language"],  # <— importante
+                "language_out": None,
+            },
+        },
     }
-
     return configs.get(service_name, {})

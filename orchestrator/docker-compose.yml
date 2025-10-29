@@ -4,17 +4,17 @@ services:
     container_name: ytcaption-orchestrator
     env_file:
       - .env
-    # expõe a porta configurada no .env (fallback 8000)
     ports:
-      - "${APP_PORT:-8000}:8000"
-    # usa o diretório de logs indicado no .env (fallback ./logs) -> dentro do container é /app/logs
+      - "${HOST_PORT:-8004}:${CONTAINER_PORT:-8000}"  # host:container
     volumes:
       - "${LOG_DIR:-./logs}:/app/logs"
+      - "./artifacts:/app/artifacts"                  # útil p/ ver saídas
     networks:
       - ytcaption-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health')"]
+      # usa a porta interna do container (CONTAINER_PORT)
+      test: ["CMD-SHELL", "python -c \"import os,sys,httpx; p=os.getenv('CONTAINER_PORT','8000'); r=httpx.get(f'http://localhost:{p}/health'); sys.exit(0 if r.status_code==200 else 1)\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -22,5 +22,4 @@ services:
 
 networks:
   ytcaption-network:
-    external: true
     name: ytcaption-network
