@@ -133,47 +133,50 @@ class PipelineOrchestrator:
         return results
 
     async def execute_pipeline(self, job: PipelineJob) -> PipelineJob:
-        """Executa pipeline com resiliência completa."""
+        """Executa pipeline completo com fluxo: download -> normalize -> transcribe"""
         try:
             logger.info(f"Starting pipeline for job {job.id}")
+
+            # 0) (Opcional) pré-checagem de saúde
             health = await self.check_services_health()
             for svc, st in health.items():
                 if st != "healthy":
-                    logger.warning(f"Service {svc} is {st}. Proceeding due to resilience policy.")
+                    logger.warning(f"Service {svc} is {st}. Proceeding anyway due to resilience focus.")
 
-            # 1) VIDEO → criar job e aguardar
+            # 1) DOWNLOAD (retorna bytes e nome do arquivo de áudio)
             job.status = PipelineStatus.DOWNLOADING
-            audio_from_video = await self._execute_download(job)
-            if not audio_from_video:
+            dl = await self._execute_download(job)
+            if not dl:
                 job.mark_as_failed("Download failed")
                 return job
+            audio_bytes, audio_name = dl  # <<< AQUI desempacota
 
-            # 2) NORMALIZE → enviar arquivo e aguardar
+            # 2) NORMALIZAÇÃO (envia multipart; retorna bytes e nome do arquivo normalizado)
             job.status = PipelineStatus.NORMALIZING
-            normalized_audio = await self._execute_normalization(job, audio_from_video)
-            if not normalized_audio:
+            norm = await self._execute_normalization(job, audio_bytes, audio_name)
+            if not norm:
                 job.mark_as_failed("Audio normalization failed")
                 return job
-            job.audio_file = normalized_audio
+            norm_bytes, norm_name = norm  # <<< AQUI desempacota
+            job.audio_file = norm_name     # opcional: mantemos compat com seu modelo
 
-            # 3) TRANSCRIBE → enviar arquivo e aguardar
+            # 3) TRANSCRIÇÃO (envia multipart; retorna dict com texto/arquivo)
             job.status = PipelineStatus.TRANSCRIBING
-            transcription = await self._execute_transcription(job, normalized_audio)
-            if not transcription:
+            tr = await self._execute_transcription(job, norm_bytes, norm_name)
+            if not tr:
                 job.mark_as_failed("Transcription failed")
                 return job
 
-            # preencher resultados
-            if isinstance(transcription, dict):
-                job.transcription_text = transcription.get("text")
-                job.transcription_file = transcription.get("file") or transcription.get("srt_file")
+            job.transcription_text = tr.get("text")
+            job.transcription_file = tr.get("file_name")
 
+            # 4) FECHAMENTO
             job.mark_as_completed()
             logger.info(f"Pipeline completed for job {job.id}")
             return job
 
         except Exception as e:
-            logger.error(f"Pipeline failed for job {job.id}: {e}")
+            logger.error(f"Pipeline failed for job {job.id}: {str(e)}")
             job.mark_as_failed(str(e))
             return job
 
