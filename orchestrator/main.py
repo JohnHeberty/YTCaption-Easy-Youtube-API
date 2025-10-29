@@ -254,6 +254,7 @@ async def get_job_status(job_id: str):
             completed_at=job.completed_at,
             stages=stages,
             transcription_text=job.transcription_text,
+            transcription_segments=job.transcription_segments,
             transcription_file=job.transcription_file,
             audio_file=job.audio_file,
             error_message=job.error_message

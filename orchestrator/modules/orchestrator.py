@@ -209,7 +209,7 @@ class PipelineOrchestrator:
             norm_bytes, norm_name = norm  # <<< AQUI desempacota
             job.audio_file = norm_name     # opcional: mantemos compat com seu modelo
 
-            # 3) TRANSCRIÇÃO (envia multipart; retorna dict com texto/arquivo)
+            # 3) TRANSCRIÇÃO (envia multipart; retorna dict com texto/arquivo/segments)
             job.status = PipelineStatus.TRANSCRIBING
             tr = await self._execute_transcription(job, norm_bytes, norm_name)
             if not tr:
@@ -217,6 +217,7 @@ class PipelineOrchestrator:
                 return job
 
             job.transcription_text = tr.get("text")
+            job.transcription_segments = tr.get("segments")
             job.transcription_file = tr.get("file_name")
 
             # 4) FECHAMENTO
@@ -332,22 +333,44 @@ class PipelineOrchestrator:
                 stage.fail("Transcription job failed/timeout")
                 return None
 
-            # tenta texto direto (se existir)
+            # Busca o texto da transcrição (endpoint retorna JSON: {"text": "..."})
             text = None
+            segments = None
+            
             try:
                 text_url = self.transcription_client._url("text", job_id=stage.job_id)
                 async with httpx.AsyncClient(timeout=self.transcription_client.timeout) as client:
                     tr = await client.get(text_url)
                     if tr.status_code == 200:
-                        text = tr.text
-            except Exception:
-                pass
+                        # Parse JSON response para extrair apenas o texto
+                        text_data = tr.json()
+                        text = text_data.get("text", "")
+                        logger.info(f"Transcription text retrieved: {len(text) if text else 0} chars")
+            except Exception as e:
+                logger.warning(f"Failed to get transcription text: {e}")
+
+            # Busca os segments com timestamps (endpoint /transcription)
+            try:
+                transcription_url = self.transcription_client._url("transcription", job_id=stage.job_id)
+                async with httpx.AsyncClient(timeout=self.transcription_client.timeout) as client:
+                    tr = await client.get(transcription_url)
+                    if tr.status_code == 200:
+                        # Parse JSON completo com segments
+                        transcription_data = tr.json()
+                        segments = transcription_data.get("segments", [])
+                        # Se não pegou o texto antes, pega agora do full_text
+                        if not text:
+                            text = transcription_data.get("full_text", "")
+                        logger.info(f"Transcription segments retrieved: {len(segments)} segments")
+            except Exception as e:
+                logger.warning(f"Failed to get transcription segments: {e}")
 
             # baixa o arquivo de transcrição (SRT/VTT/TXT conforme o serviço gerar)
             out_bytes, out_name = await self.transcription_client.download_file(stage.job_id)
 
             result = {
                 "text": text,
+                "segments": segments,
                 "file_name": out_name,
                 "file_bytes_len": len(out_bytes)
             }

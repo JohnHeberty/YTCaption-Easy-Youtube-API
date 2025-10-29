@@ -116,6 +116,7 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
                 "status": "/jobs/{job_id}",
                 "download": "/jobs/{job_id}/download",
                 "text": "/jobs/{job_id}/text",
+                "transcription": "/jobs/{job_id}/transcription",
                 "health": "/health"
             },
             "default_params": {

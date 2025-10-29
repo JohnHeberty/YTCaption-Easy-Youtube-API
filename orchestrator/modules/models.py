@@ -1,12 +1,17 @@
-"""
-Modelos de dados para a API Orquestradora
-"""
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, Field
 import hashlib
 import json
+
+
+class TranscriptionSegment(BaseModel):
+    """Segmento de transcrição com timestamps"""
+    text: str
+    start: float
+    end: float
+    duration: float
 
 
 class PipelineStatus(str, Enum):
@@ -85,6 +90,7 @@ class PipelineJob(BaseModel):
     
     # Resultado final
     transcription_text: Optional[str] = None
+    transcription_segments: Optional[List[TranscriptionSegment]] = None
     transcription_file: Optional[str] = None
     audio_file: Optional[str] = None
     error_message: Optional[str] = None
@@ -178,6 +184,7 @@ class PipelineStatusResponse(BaseModel):
     
     # Resultado
     transcription_text: Optional[str]
+    transcription_segments: Optional[List[Dict[str, Any]]]
     transcription_file: Optional[str]
     audio_file: Optional[str]
     error_message: Optional[str]
