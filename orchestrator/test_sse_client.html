@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Caption Orchestrator - SSE Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #444;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            flex: 1;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+        .btn-secondary:hover {
+            background: #d0d0d0;
+        }
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .progress-container {
+            margin-bottom: 30px;
+            display: none;
+        }
+        .progress-container.active {
+            display: block;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #f0f0f0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .stage-indicators {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .stage {
+            padding: 15px;
+            border-radius: 8px;
+            background: #f5f5f5;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .stage.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            transform: scale(1.05);
+        }
+        .stage.completed {
+            background: #4caf50;
+            color: white;
+        }
+        .stage-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        .stage-progress {
+            font-size: 20px;
+            font-weight: 700;
+        }
+        .status-box {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-weight: 500;
+        }
+        .status-box.info {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status-box.success {
+            background: #e8f5e9;
+            color: #388e3c;
+        }
+        .status-box.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .status-box.warning {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+        .log-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px 0;
+        }
+        .log-time {
+            color: #858585;
+            margin-right: 10px;
+        }
+        .log-event {
+            color: #4ec9b0;
+            font-weight: 600;
+            margin-right: 10px;
+        }
+        .log-event.connected { color: #569cd6; }
+        .log-event.progress { color: #4ec9b0; }
+        .log-event.completed { color: #4caf50; }
+        .log-event.error { color: #f44336; }
+        .log-event.timeout { color: #ff9800; }
+        .result-container {
+            margin-top: 30px;
+            display: none;
+        }
+        .result-container.active {
+            display: block;
+        }
+        .result-text {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            line-height: 1.6;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 12px;
+            text-transform: uppercase;
+            opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 YouTube Caption Orchestrator</h1>
+        <p class="subtitle">Test SSE (Server-Sent Events) - Progresso em Tempo Real</p>
+
+        <div class="input-group">
+            <label for="jobId">Job ID:</label>
+            <input type="text" id="jobId" placeholder="Cole o job_id aqui (ex: a1b2c3d4e5f6)">
+        </div>
+
+        <div class="input-group">
+            <label for="timeout">Timeout (segundos):</label>
+            <input type="number" id="timeout" value="600" min="60" max="3600">
+        </div>
+
+        <div class="button-group">
+            <button class="btn-primary" id="startBtn" onclick="startStream()">
+                🚀 Iniciar Stream SSE
+            </button>
+            <button class="btn-secondary" id="pollBtn" onclick="startLongPolling()">
+                ⏳ Long Polling (/sleep)
+            </button>
+            <button class="btn-danger" id="stopBtn" onclick="stopStream()" disabled>
+                ⏹️ Parar Stream
+            </button>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="status-box info" id="statusBox">
+                Aguardando conexão...
+            </div>
+
+            <div class="stage-indicators">
+                <div class="stage" id="stageDownload">
+                    <div class="stage-name">📥 Download</div>
+                    <div class="stage-progress">0%</div>
+                </div>
+                <div class="stage" id="stageNormalization">
+                    <div class="stage-name">🎵 Normalização</div>
+                    <div class="stage-progress">0%</div>
+                </div>
+                <div class="stage" id="stageTranscription">
+                    <div class="stage-name">📝 Transcrição</div>
+                    <div class="stage-progress">0%</div>
+                </div>
+            </div>
+
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+            </div>
+        </div>
+
+        <div class="result-container" id="resultContainer">
+            <h3>📊 Resultado Final</h3>
+            <div class="stats" id="statsContainer"></div>
+            <h4>Texto da Transcrição:</h4>
+            <div class="result-text" id="resultText"></div>
+        </div>
+
+        <h3>📋 Event Log</h3>
+        <div class="log-container" id="logContainer">
+            <div class="log-entry">
+                <span class="log-time">--:--:--</span>
+                <span class="log-event">SYSTEM</span>
+                <span>Aguardando início do stream...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let startTime = null;
+
+        function log(event, message, data = null) {
+            const logContainer = document.getElementById('logContainer');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            
+            let content = `<span class="log-time">${time}</span>`;
+            content += `<span class="log-event ${event.toLowerCase()}">${event.toUpperCase()}</span>`;
+            content += `<span>${message}</span>`;
+            
+            if (data) {
+                content += `<pre style="margin-top: 5px; color: #858585;">${JSON.stringify(data, null, 2)}</pre>`;
+            }
+            
+            entry.innerHTML = content;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function updateProgress(progress, stages = null) {
+            const fill = document.getElementById('progressFill');
+            fill.style.width = `${progress}%`;
+            fill.textContent = `${progress.toFixed(1)}%`;
+
+            if (stages) {
+                updateStage('stageDownload', stages.download);
+                updateStage('stageNormalization', stages.normalization);
+                updateStage('stageTranscription', stages.transcription);
+            }
+        }
+
+        function updateStage(stageId, progress) {
+            const stage = document.getElementById(stageId);
+            const progressText = stage.querySelector('.stage-progress');
+            progressText.textContent = `${progress.toFixed(0)}%`;
+            
+            if (progress > 0 && progress < 100) {
+                stage.className = 'stage active';
+            } else if (progress === 100) {
+                stage.className = 'stage completed';
+            }
+        }
+
+        function updateStatus(message, type = 'info') {
+            const statusBox = document.getElementById('statusBox');
+            statusBox.textContent = message;
+            statusBox.className = `status-box ${type}`;
+        }
+
+        function showResult(data) {
+            const resultContainer = document.getElementById('resultContainer');
+            const statsContainer = document.getElementById('statsContainer');
+            const resultText = document.getElementById('resultText');
+            
+            resultContainer.classList.add('active');
+            
+            // Stats
+            const elapsedTime = startTime ? ((Date.now() - startTime) / 1000).toFixed(1) : '?';
+            statsContainer.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">✅</div>
+                    <div class="stat-label">Status</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${elapsedTime}s</div>
+                    <div class="stat-label">Tempo Total</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${data.audio_file ? '🎵' : '-'}</div>
+                    <div class="stat-label">Áudio</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${data.transcription_file ? '📄' : '-'}</div>
+                    <div class="stat-label">Transcrição</div>
+                </div>
+            `;
+            
+            // Texto (será preenchido por requisição adicional)
+            resultText.textContent = 'Carregando texto da transcrição...';
+            fetchTranscriptionText(data.job_id);
+        }
+
+        async function fetchTranscriptionText(jobId) {
+            try {
+                const response = await fetch(`http://localhost:8000/jobs/${jobId}`);
+                const data = await response.json();
+                const resultText = document.getElementById('resultText');
+                
+                if (data.transcription_text) {
+                    resultText.textContent = data.transcription_text;
+                } else {
+                    resultText.textContent = 'Texto não disponível.';
+                }
+            } catch (error) {
+                document.getElementById('resultText').textContent = `Erro ao buscar texto: ${error.message}`;
+            }
+        }
+
+        function startStream() {
+            const jobId = document.getElementById('jobId').value.trim();
+            const timeout = document.getElementById('timeout').value;
+            
+            if (!jobId) {
+                alert('Por favor, insira um Job ID válido!');
+                return;
+            }
+
+            startTime = Date.now();
+            document.getElementById('progressContainer').classList.add('active');
+            document.getElementById('resultContainer').classList.remove('active');
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('pollBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            
+            log('SYSTEM', `Iniciando SSE stream para job: ${jobId}`);
+            updateStatus('Conectando ao servidor...', 'info');
+            updateProgress(0);
+
+            const url = `http://localhost:8000/jobs/${jobId}/stream?timeout=${timeout}`;
+            eventSource = new EventSource(url);
+
+            eventSource.addEventListener('connected', (e) => {
+                const data = JSON.parse(e.data);
+                log('connected', 'Conectado ao servidor!', data);
+                updateStatus('Conectado! Aguardando progresso...', 'info');
+            });
+
+            eventSource.addEventListener('progress', (e) => {
+                const data = JSON.parse(e.data);
+                log('progress', `Progresso: ${data.progress.toFixed(1)}% (${data.stage})`, data);
+                updateStatus(`Processando: ${data.stage}`, 'info');
+                updateProgress(data.progress, data.stages);
+            });
+
+            eventSource.addEventListener('completed', (e) => {
+                const data = JSON.parse(e.data);
+                log('completed', 'Job concluído com sucesso! 🎉', data);
+                updateStatus('✅ Pipeline concluído com sucesso!', 'success');
+                updateProgress(100);
+                showResult(data);
+                stopStream();
+            });
+
+            eventSource.addEventListener('error', (e) => {
+                const data = e.data ? JSON.parse(e.data) : { error: 'Erro desconhecido' };
+                log('error', `Erro no job: ${data.error}`, data);
+                updateStatus(`❌ Erro: ${data.error}`, 'error');
+                stopStream();
+            });
+
+            eventSource.addEventListener('timeout', (e) => {
+                const data = JSON.parse(e.data);
+                log('timeout', 'Timeout atingido!', data);
+                updateStatus('⏱️ Timeout: use /jobs/{id} para verificar status', 'warning');
+                stopStream();
+            });
+
+            eventSource.onerror = (e) => {
+                log('error', 'Erro na conexão SSE', e);
+                updateStatus('❌ Erro na conexão', 'error');
+                stopStream();
+            };
+        }
+
+        async function startLongPolling() {
+            const jobId = document.getElementById('jobId').value.trim();
+            const timeout = document.getElementById('timeout').value;
+            
+            if (!jobId) {
+                alert('Por favor, insira um Job ID válido!');
+                return;
+            }
+
+            startTime = Date.now();
+            document.getElementById('progressContainer').classList.add('active');
+            document.getElementById('resultContainer').classList.remove('active');
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('pollBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = true;
+            
+            log('SYSTEM', `Iniciando long polling para job: ${jobId}`);
+            updateStatus('Aguardando conclusão do job... (pode demorar)', 'warning');
+
+            try {
+                const url = `http://localhost:8000/jobs/${jobId}/sleep?timeout=${timeout}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    log('completed', 'Job concluído!', data);
+                    updateStatus('✅ Pipeline concluído com sucesso!', 'success');
+                    updateProgress(data.overall_progress);
+                    
+                    if (data.transcription_text) {
+                        document.getElementById('resultText').textContent = data.transcription_text;
+                        document.getElementById('resultContainer').classList.add('active');
+                    }
+                } else {
+                    log('error', `Erro: ${data.detail}`, data);
+                    updateStatus(`❌ Erro: ${data.detail}`, 'error');
+                }
+            } catch (error) {
+                log('error', `Erro na requisição: ${error.message}`);
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+            } finally {
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('pollBtn').disabled = false;
+            }
+        }
+
+        function stopStream() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+                log('SYSTEM', 'Stream fechado');
+            }
+            
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('pollBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+        }
+    </script>
+</body>
+</html>

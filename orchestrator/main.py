@@ -3,11 +3,14 @@ API principal do orquestrador
 """
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from contextlib import asynccontextmanager
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from pathlib import Path
+import json
+import asyncio
 
 from modules.models import (
     PipelineRequest,
@@ -85,12 +88,13 @@ async def root():
         "endpoints": {
             "health": "/health",
             "process": "/process (POST)",
-            "job_status": "/jobs/{job_id} (GET)",
+            "job_status": "/jobs/{job_id} (GET) - Consulta rápida",
+            "wait_completion": "/jobs/{job_id}/wait (GET) - Long polling até conclusão",
+            "stream_progress": "/jobs/{job_id}/stream (GET) - Server-Sent Events em tempo real",
             "list_jobs": "/jobs (GET)",
             "docs": "/docs"
         }
     }
-
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
@@ -119,7 +123,6 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
-
 
 @app.post("/process", response_model=PipelineResponse, tags=["Pipeline"])
 async def process_youtube_video(
@@ -310,6 +313,268 @@ async def get_job_status(job_id: str):
         logger.error(f"Failed to get job status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao consultar job: {str(e)}")
 
+@app.get("/jobs/{job_id}/wait", response_model=PipelineStatusResponse, tags=["Jobs"])
+async def wait_for_job_completion(
+    job_id: str,
+    timeout: int = 1800  # 30 minutos padrão
+):
+    """
+    🔄 **Aguarda a conclusão do job (long polling)**
+    
+    Este endpoint mantém a conexão aberta até que:
+    - ✅ O job seja concluído com sucesso
+    - ❌ O job falhe
+    - ⏱️ O timeout seja atingido (padrão: 600s = 10min)
+    
+    **Parâmetros:**
+    - `timeout`: Tempo máximo de espera em segundos (padrão: 600)
+    
+    **Exemplo:**
+    ```
+    GET /jobs/{job_id}/wait?timeout=300
+    ```
+    
+    **Comportamento:**
+    - Verifica o status a cada 2 segundos
+    - Retorna imediatamente se o job já estiver concluído/falho
+    - Mantém conexão com keep-alive
+    
+    **Retorna:** Status completo do pipeline quando finalizado
+    """
+    import asyncio
+    from datetime import datetime, timedelta
+    
+    start_time = datetime.now()
+    max_wait = timedelta(seconds=timeout)
+    poll_interval = 5  # Verifica a cada 5 segundos
+    
+    logger.info(f"Client waiting for job {job_id} completion (timeout: {timeout}s)")
+    
+    try:
+        while datetime.now() - start_time < max_wait:
+            job = redis_store.get_job(job_id)
+            
+            if not job:
+                raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado")
+            
+            # Verifica se job finalizou (sucesso ou erro)
+            if job.status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(f"Job {job_id} finished with status {job.status.value} after {elapsed:.1f}s")
+                
+                # Monta resposta completa
+                stages = {
+                    "download": {
+                        "status": job.download_stage.status.value,
+                        "job_id": job.download_stage.job_id,
+                        "progress": job.download_stage.progress,
+                        "started_at": job.download_stage.started_at,
+                        "completed_at": job.download_stage.completed_at,
+                        "error": job.download_stage.error_message
+                    },
+                    "normalization": {
+                        "status": job.normalization_stage.status.value,
+                        "job_id": job.normalization_stage.job_id,
+                        "progress": job.normalization_stage.progress,
+                        "started_at": job.normalization_stage.started_at,
+                        "completed_at": job.normalization_stage.completed_at,
+                        "error": job.normalization_stage.error_message
+                    },
+                    "transcription": {
+                        "status": job.transcription_stage.status.value,
+                        "job_id": job.transcription_stage.job_id,
+                        "progress": job.transcription_stage.progress,
+                        "started_at": job.transcription_stage.started_at,
+                        "completed_at": job.transcription_stage.completed_at,
+                        "error": job.transcription_stage.error_message
+                    }
+                }
+                
+                # Converte TranscriptionSegment objects para dicts
+                segments_as_dicts = None
+                if job.transcription_segments:
+                    segments_as_dicts = [
+                        {
+                            "text": seg.text,
+                            "start": seg.start,
+                            "end": seg.end,
+                            "duration": seg.duration
+                        }
+                        for seg in job.transcription_segments
+                    ]
+                
+                return PipelineStatusResponse(
+                    job_id=job.id,
+                    youtube_url=job.youtube_url,
+                    status=job.status,
+                    overall_progress=job.overall_progress,
+                    created_at=job.created_at,
+                    updated_at=job.updated_at,
+                    completed_at=job.completed_at,
+                    stages=stages,
+                    transcription_text=job.transcription_text,
+                    transcription_segments=segments_as_dicts,
+                    transcription_file=job.transcription_file,
+                    audio_file=job.audio_file,
+                    error_message=job.error_message
+                )
+            
+            # Job ainda processando - aguarda próximo poll
+            logger.debug(f"Job {job_id} still processing: {job.status.value} ({job.overall_progress:.1f}%)")
+            await asyncio.sleep(poll_interval)
+        
+        # Timeout atingido
+        elapsed = (datetime.now() - start_time).total_seconds()
+        logger.warning(f"Timeout waiting for job {job_id} after {elapsed:.1f}s")
+        raise HTTPException(
+            status_code=408,  # Request Timeout
+            detail=f"Timeout aguardando conclusão do job após {timeout}s. Use GET /jobs/{job_id} para verificar status atual."
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error waiting for job {job_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao aguardar job: {str(e)}")
+
+@app.get("/jobs/{job_id}/stream", tags=["Jobs"])
+async def stream_job_progress(
+    job_id: str,
+    timeout: int = 600
+):
+    """
+    📡 **Stream de progresso em tempo real (Server-Sent Events)**
+    
+    Este endpoint retorna um **stream de eventos** com atualizações do progresso:
+    - Conexão permanece aberta
+    - Envia eventos SSE a cada atualização
+    - Cliente recebe progresso em tempo real
+    - Fecha automaticamente quando job finaliza ou timeout
+    
+    **Formato de eventos:**
+    ```
+    event: progress
+    data: {"status": "processing", "progress": 45.5, "stage": "transcribing"}
+    
+    event: completed
+    data: {"status": "completed", "progress": 100.0, "message": "Job finalizado!"}
+    
+    event: error
+    data: {"status": "failed", "error": "Erro na transcrição"}
+    ```
+    
+    **Uso com JavaScript:**
+    ```javascript
+    const eventSource = new EventSource('/jobs/{job_id}/stream');
+    
+    eventSource.addEventListener('progress', (e) => {
+        const data = JSON.parse(e.data);
+        console.log(`Progresso: ${data.progress}%`);
+    });
+    
+    eventSource.addEventListener('completed', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Job concluído!', data);
+        eventSource.close();
+    });
+    ```
+    
+    **Parâmetros:**
+    - `timeout`: Tempo máximo em segundos (padrão: 600)
+    """
+    async def event_generator():
+        """Gera eventos SSE com progresso do job"""
+        start_time = datetime.now()
+        max_wait = timedelta(seconds=timeout)
+        poll_interval = 1  # Atualiza a cada 1 segundo
+        last_progress = -1
+        
+        logger.info(f"Starting SSE stream for job {job_id}")
+        
+        try:
+            # Envia evento inicial
+            yield f"event: connected\ndata: {json.dumps({'message': 'Conectado ao stream', 'job_id': job_id})}\n\n"
+            
+            while datetime.now() - start_time < max_wait:
+                job = redis_store.get_job(job_id)
+                
+                if not job:
+                    yield f"event: error\ndata: {json.dumps({'error': 'Job não encontrado', 'job_id': job_id})}\n\n"
+                    break
+                
+                # Envia evento de progresso (apenas se mudou)
+                if job.overall_progress != last_progress:
+                    current_stage = job.get_current_stage()
+                    stage_name = current_stage.name if current_stage else "waiting"
+                    
+                    progress_data = {
+                        "job_id": job.id,
+                        "status": job.status.value,
+                        "progress": job.overall_progress,
+                        "stage": stage_name,
+                        "stages": {
+                            "download": job.download_stage.progress,
+                            "normalization": job.normalization_stage.progress,
+                            "transcription": job.transcription_stage.progress
+                        }
+                    }
+                    
+                    yield f"event: progress\ndata: {json.dumps(progress_data)}\n\n"
+                    last_progress = job.overall_progress
+                
+                # Verifica se finalizou
+                if job.status == PipelineStatus.COMPLETED:
+                    completed_data = {
+                        "job_id": job.id,
+                        "status": "completed",
+                        "progress": 100.0,
+                        "message": "Pipeline concluído com sucesso!",
+                        "transcription_file": job.transcription_file,
+                        "audio_file": job.audio_file,
+                        "completed_at": job.completed_at.isoformat() if job.completed_at else None
+                    }
+                    yield f"event: completed\ndata: {json.dumps(completed_data)}\n\n"
+                    logger.info(f"Job {job_id} completed - closing SSE stream")
+                    break
+                
+                elif job.status in [PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
+                    error_data = {
+                        "job_id": job.id,
+                        "status": job.status.value,
+                        "error": job.error_message or "Job falhou",
+                        "completed_at": job.completed_at.isoformat() if job.completed_at else None
+                    }
+                    yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
+                    logger.warning(f"Job {job_id} failed - closing SSE stream")
+                    break
+                
+                # Aguarda próximo poll
+                await asyncio.sleep(poll_interval)
+            
+            # Timeout
+            if datetime.now() - start_time >= max_wait:
+                timeout_data = {
+                    "job_id": job_id,
+                    "error": f"Timeout após {timeout}s",
+                    "message": f"Use GET /jobs/{job_id} para verificar status"
+                }
+                yield f"event: timeout\ndata: {json.dumps(timeout_data)}\n\n"
+                logger.warning(f"SSE stream timeout for job {job_id}")
+                
+        except Exception as e:
+            logger.error(f"Error in SSE stream for job {job_id}: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Nginx: desabilita buffering
+        }
+    )
+
 @app.get("/admin/stats", tags=["Admin"])
 async def get_stats():
     """Retorna estatísticas do orquestrador"""
@@ -334,7 +599,6 @@ async def get_stats():
     except Exception as e:
         logger.error(f"Failed to get stats: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {str(e)}")
-
 
 @app.post("/admin/cleanup", tags=["Admin"])
 async def cleanup_old_jobs(
@@ -379,7 +643,6 @@ async def cleanup_old_jobs(
     except Exception as e:
         logger.error(f"Cleanup failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
-
 
 @app.post("/admin/factory-reset", tags=["Admin"])
 async def factory_reset():
@@ -463,7 +726,6 @@ async def factory_reset():
     except Exception as e:
         logger.error(f"Factory reset failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro ao fazer factory reset: {str(e)}")
-
 
 if __name__ == "__main__":
     import uvicorn
