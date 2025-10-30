@@ -518,7 +518,7 @@ async def _perform_basic_cleanup():
         return {"error": str(e)}
 
 
-async def _perform_cleanup():
+async def _perform_cleanup(purge_celery_queue: bool = False):
     """
     Executa limpeza COMPLETA do sistema em background
     
@@ -528,6 +528,7 @@ async def _perform_cleanup():
     - TODOS os arquivos de transcriptions/
     - TODOS os arquivos temporários
     - TODOS os modelos baixados em models/
+    - (OPCIONAL) TODOS os jobs da fila Celery
     """
     try:
         report = {
@@ -535,6 +536,8 @@ async def _perform_cleanup():
             "files_deleted": 0,
             "space_freed_mb": 0.0,
             "models_deleted": 0,
+            "celery_queue_purged": False,
+            "celery_tasks_purged": 0,
             "errors": []
         }
         
@@ -554,7 +557,37 @@ async def _perform_cleanup():
             logger.error(f"❌ Erro ao limpar Redis: {e}")
             report["errors"].append(f"Redis: {str(e)}")
         
-        # 2. LIMPAR TODOS OS ARQUIVOS DE UPLOADS
+        # 2. LIMPAR FILA CELERY (SE SOLICITADO)
+        if purge_celery_queue:
+            try:
+                from redis import Redis
+                
+                logger.warning("🔥 Limpando fila Celery 'audio_transcriber_queue'...")
+                
+                # Conecta ao Redis Celery
+                redis_celery = job_store.redis  # Usa o mesmo Redis do job_store
+                
+                # Nome da fila no Redis (formato Celery)
+                queue_key = "audio_transcriber_queue"
+                
+                # Limpa a lista do Redis (fila Celery usa LPUSH/RPOP)
+                tasks_purged = redis_celery.delete(queue_key)
+                
+                # Também limpa keys relacionados (unacked tasks, etc)
+                unacked_key = f"unacked_{queue_key}"
+                redis_celery.delete(unacked_key)
+                
+                report["celery_queue_purged"] = True
+                report["celery_tasks_purged"] = tasks_purged
+                logger.warning(f"🔥 Fila Celery purgada: {tasks_purged} tasks removidas")
+                
+            except Exception as e:
+                logger.error(f"❌ Erro ao limpar fila Celery: {e}")
+                report["errors"].append(f"Celery: {str(e)}")
+        else:
+            logger.info("⏭️  Fila Celery NÃO será limpa (purge_celery_queue=false)")
+        
+        # 3. LIMPAR TODOS OS ARQUIVOS DE UPLOADS
         upload_dir = Path(settings.get('upload_dir', './uploads'))
         if upload_dir.exists():
             deleted_count = 0
@@ -670,7 +703,8 @@ async def _perform_cleanup():
 @app.post("/admin/cleanup")
 async def manual_cleanup(
     background_tasks: BackgroundTasks,
-    deep: bool = False
+    deep: bool = False,
+    purge_celery_queue: bool = False
 ):
     """
     🧹 LIMPEZA DO SISTEMA
@@ -688,10 +722,11 @@ async def manual_cleanup(
        - TODOS os arquivos temporários em temp/
        - TODOS os modelos Whisper baixados (~500MB cada)
        - TODOS os logs
-       - Purga fila Celery
+       - **OPCIONAL:** Purga fila Celery (purge_celery_queue=true)
     
     **Parâmetros:**
     - deep (bool): Se true, faz limpeza COMPLETA (factory reset)
+    - purge_celery_queue (bool): Se true, limpa FILA CELERY também
     
     A limpeza é executada em background e retorna imediatamente.
     """
@@ -700,17 +735,18 @@ async def manual_cleanup(
     
     # Agenda limpeza em background
     if deep:
-        background_tasks.add_task(_perform_cleanup)  # Já é total
+        background_tasks.add_task(_perform_cleanup, purge_celery_queue)  # Já é total
     else:
         background_tasks.add_task(_perform_basic_cleanup)
     
-    logger.warning(f"🔥 Limpeza {cleanup_type} agendada: {cleanup_job_id}")
+    logger.warning(f"🔥 Limpeza {cleanup_type} agendada: {cleanup_job_id} (purge_celery={purge_celery_queue})")
     
     return {
         "message": f"🔥 Limpeza {cleanup_type} iniciada em background",
         "cleanup_id": cleanup_job_id,
         "status": "processing",
         "deep": deep,
+        "purge_celery_queue": purge_celery_queue,
         "warning": "TUDO será removido!" if deep else "Jobs expirados serão removidos",
         "note": "Verifique os logs para acompanhar o progresso."
     }

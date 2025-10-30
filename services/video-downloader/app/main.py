@@ -239,7 +239,8 @@ async def delete_job(job_id: str):
 @app.post("/admin/cleanup")
 async def manual_cleanup(
     background_tasks: BackgroundTasks,
-    deep: bool = False
+    deep: bool = False,
+    purge_celery_queue: bool = False
 ):
     """
     🧹 LIMPEZA DO SISTEMA
@@ -256,9 +257,11 @@ async def manual_cleanup(
        - TODOS os arquivos de downloads/
        - TODOS os arquivos temporários
        - TODOS os logs
+       - **OPCIONAL:** TODOS os jobs da fila Celery (purge_celery_queue=true)
     
     **Parâmetros:**
     - deep (bool): Se true, faz limpeza COMPLETA (factory reset)
+    - purge_celery_queue (bool): Se true, limpa FILA CELERY também (recomendado com deep=true)
     
     A limpeza é executada em background e retorna imediatamente.
     """
@@ -268,17 +271,18 @@ async def manual_cleanup(
     
     # Agenda limpeza em background
     if deep:
-        background_tasks.add_task(_perform_total_cleanup)
+        background_tasks.add_task(_perform_total_cleanup, purge_celery_queue)
     else:
         background_tasks.add_task(_perform_basic_cleanup)
     
-    logger.warning(f"🔥 Limpeza {cleanup_type} agendada: {cleanup_job_id}")
+    logger.warning(f"🔥 Limpeza {cleanup_type} agendada: {cleanup_job_id} (purge_celery={purge_celery_queue})")
     
     return {
         "message": f"🔥 Limpeza {cleanup_type} iniciada em background",
         "cleanup_id": cleanup_job_id,
         "status": "processing",
         "deep": deep,
+        "purge_celery_queue": purge_celery_queue,
         "warning": "TUDO será removido!" if deep else "Jobs expirados serão removidos",
         "note": "Verifique os logs para acompanhar o progresso."
     }
@@ -371,7 +375,7 @@ async def _perform_basic_cleanup():
         return {"error": str(e)}
 
 
-async def _perform_total_cleanup():
+async def _perform_total_cleanup(purge_celery_queue: bool = False):
     """
     Executa limpeza COMPLETA do sistema em background
     
@@ -380,6 +384,7 @@ async def _perform_total_cleanup():
     - TODOS os arquivos de cache/
     - TODOS os arquivos de downloads/
     - TODOS os arquivos temporários
+    - (OPCIONAL) TODOS os jobs da fila Celery
     """
     try:
         from redis import Redis
@@ -388,6 +393,8 @@ async def _perform_total_cleanup():
             "jobs_removed": 0,
             "files_deleted": 0,
             "space_freed_mb": 0.0,
+            "celery_queue_purged": False,
+            "celery_tasks_purged": 0,
             "errors": []
         }
         
@@ -408,7 +415,45 @@ async def _perform_total_cleanup():
             logger.error(f"❌ Erro ao limpar Redis: {e}")
             report["errors"].append(f"Redis: {str(e)}")
         
-        # 2. LIMPAR TODOS OS ARQUIVOS DE CACHE
+        # 2. LIMPAR FILA CELERY (SE SOLICITADO)
+        if purge_celery_queue:
+            try:
+                from celery import Celery
+                from app.celery_config import celery_app
+                
+                logger.warning("🔥 Limpando fila Celery 'video_downloader_queue'...")
+                
+                # Método 1: Usar control.purge() - Remove TODAS as tasks de TODAS as filas
+                # purged = celery_app.control.purge()
+                
+                # Método 2: Limpar fila específica usando kombu (MELHOR)
+                from kombu import Connection
+                from redis import Redis
+                
+                # Conecta ao Redis Celery
+                redis_celery = Redis.from_url(redis_url)
+                
+                # Nome da fila no Redis (formato Celery)
+                queue_key = "video_downloader_queue"
+                
+                # Limpa a lista do Redis (fila Celery usa LPUSH/RPOP)
+                tasks_purged = redis_celery.delete(queue_key)
+                
+                # Também limpa keys relacionados (unacked tasks, etc)
+                unacked_key = f"unacked_{queue_key}"
+                redis_celery.delete(unacked_key)
+                
+                report["celery_queue_purged"] = True
+                report["celery_tasks_purged"] = tasks_purged
+                logger.warning(f"🔥 Fila Celery purgada: {tasks_purged} tasks removidas")
+                
+            except Exception as e:
+                logger.error(f"❌ Erro ao limpar fila Celery: {e}")
+                report["errors"].append(f"Celery: {str(e)}")
+        else:
+            logger.info("⏭️  Fila Celery NÃO será limpa (purge_celery_queue=false)")
+        
+        # 3. LIMPAR TODOS OS ARQUIVOS DE CACHE
         cache_dir = Path("./cache")
         if cache_dir.exists():
             deleted_count = 0

@@ -696,7 +696,7 @@ async def factory_reset():
             result["orchestrator"]["logs_cleaned"] = True
             logger.warning("Factory reset: All orchestrator logs cleaned")
         
-        # 3. Chama cleanup de cada microserviço
+        # 3. Chama cleanup de cada microserviço COM LIMPEZA DE FILA CELERY
         import httpx
         microservices = [
             ("video-downloader", orchestrator.video_client),
@@ -708,11 +708,14 @@ async def factory_reset():
             for service_name, service_client in microservices:
                 try:
                     cleanup_url = f"{service_client.base_url}/admin/cleanup"
-                    logger.info(f"Calling factory reset cleanup for {service_name}: {cleanup_url}")
+                    logger.warning(f"🔥 Calling FACTORY RESET for {service_name}: {cleanup_url}")
                     
                     response = await client.post(
                         cleanup_url,
-                        json={"deep": True}  # Deep cleanup nos microserviços
+                        json={
+                            "deep": True,  # Factory reset: remove TUDO
+                            "purge_celery_queue": True  # ← NOVO: Limpa fila Celery também!
+                        }
                     )
                     
                     if response.status_code == 200:
