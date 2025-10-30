@@ -433,14 +433,42 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
         if purge_celery_queue:
             try:
                 from redis import Redis
+                from celery import current_app
                 
                 logger.warning("🔥 Limpando fila Celery 'video_downloader_queue'...")
                 
                 # Conecta ao Redis Celery
                 redis_celery = Redis.from_url(redis_url)
                 
+                # ✅ CRÍTICO: Primeiro REVOKE todas as tasks ativas/agendadas
+                try:
+                    # Pega todas as tasks ativas (sendo processadas)
+                    inspect = current_app.control.inspect()
+                    active_tasks = inspect.active()
+                    
+                    if active_tasks:
+                        for worker, tasks in active_tasks.items():
+                            for task in tasks:
+                                task_id = task.get('id')
+                                logger.warning(f"   🛑 Revogando task ativa: {task_id}")
+                                current_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
+                        logger.info(f"   ✓ {sum(len(t) for t in active_tasks.values())} tasks ativas revogadas")
+                    
+                    # Pega tasks agendadas (scheduled)
+                    scheduled_tasks = inspect.scheduled()
+                    if scheduled_tasks:
+                        for worker, tasks in scheduled_tasks.items():
+                            for task in tasks:
+                                task_id = task.get('id') or task.get('request', {}).get('id')
+                                if task_id:
+                                    logger.warning(f"   🛑 Revogando task agendada: {task_id}")
+                                    current_app.control.revoke(task_id, terminate=True)
+                        logger.info(f"   ✓ {sum(len(t) for t in scheduled_tasks.values())} tasks agendadas revogadas")
+                    
+                except Exception as e:
+                    logger.warning(f"   ⚠️ Não foi possível revogar tasks: {e}")
+                
                 # Nome da fila no Redis (Celery usa formato: celery ou nome customizado)
-                # A fila Celery é uma lista Redis, então precisamos deletar a lista inteira
                 queue_keys = [
                     "video_downloader_queue",           # Fila principal
                     "celery",                            # Fila default do Celery
@@ -550,6 +578,26 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
         
         # Formatar relatório
         report["space_freed_mb"] = round(report["space_freed_mb"], 2)
+        
+        # ✅ CRÍTICO: SEGUNDO FLUSHDB para garantir limpeza total
+        # (Remove jobs que foram salvos DURANTE a limpeza por workers Celery)
+        try:
+            redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
+            
+            # Verifica se há keys novas (salvos durante a limpeza)
+            keys_after = redis.keys("video_job:*")
+            if keys_after:
+                logger.warning(f"⚠️ {len(keys_after)} jobs foram salvos DURANTE a limpeza! Executando FLUSHDB novamente...")
+                redis.flushdb()
+                report["jobs_removed"] += len(keys_after)
+                logger.info(f"✅ SEGUNDO FLUSHDB executado: {len(keys_after)} jobs adicionais removidos")
+            else:
+                logger.info("✓ Nenhum job novo detectado após limpeza")
+                
+        except Exception as e:
+            logger.error(f"❌ Erro no segundo FLUSHDB: {e}")
+            report["errors"].append(f"Segundo FLUSHDB: {str(e)}")
+        
         report["message"] = (
             f"🔥 LIMPEZA TOTAL CONCLUÍDA: "
             f"{report['jobs_removed']} jobs do Redis + "

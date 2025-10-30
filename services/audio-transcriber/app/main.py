@@ -721,6 +721,24 @@ async def _perform_cleanup(purge_celery_queue: bool = False):
         
         # Formatar relatório
         report["space_freed_mb"] = round(report["space_freed_mb"], 2)
+        
+        # ✅ CRÍTICO: SEGUNDO FLUSHDB para garantir limpeza total
+        # (Remove jobs que foram salvos DURANTE a limpeza por workers Celery)
+        try:
+            # Verifica se há keys novas (salvos durante a limpeza)
+            keys_after = job_store.redis.keys("transcription_job:*")
+            if keys_after:
+                logger.warning(f"⚠️ {len(keys_after)} jobs foram salvos DURANTE a limpeza! Executando FLUSHDB novamente...")
+                job_store.redis.flushdb()
+                report["jobs_removed"] += len(keys_after)
+                logger.info(f"✅ SEGUNDO FLUSHDB executado: {len(keys_after)} jobs adicionais removidos")
+            else:
+                logger.info("✓ Nenhum job novo detectado após limpeza")
+                
+        except Exception as e:
+            logger.error(f"❌ Erro no segundo FLUSHDB: {e}")
+            report["errors"].append(f"Segundo FLUSHDB: {str(e)}")
+        
         report["message"] = (
             f"🔥 LIMPEZA TOTAL CONCLUÍDA: "
             f"{report['jobs_removed']} jobs do Redis + "

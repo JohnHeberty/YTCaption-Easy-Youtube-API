@@ -1,0 +1,30 @@
+# Hotfix: Limpeza síncrona com FLUSHDB
+
+## Problema
+- Endpoints `/admin/cleanup` usavam background tasks/Celery
+- Job de limpeza se auto-destruía antes de completar (ciclo vicioso)
+- Limpeza parcial: apenas deletava jobs, deixava cache/locks
+
+## Solução
+- **Execução síncrona**: Cliente aguarda conclusão completa
+- **FLUSHDB**: Limpa TODO o banco Redis (usando DIVISOR do .env)
+- **Timeout aumentado**: 120s no orchestrator para aguardar microserviços
+
+## Arquivos modificados
+- `services/video-downloader/app/main.py`: Endpoint síncrono + FLUSHDB
+- `services/audio-normalization/app/main.py`: Endpoint síncrono + FLUSHDB
+- `services/audio-transcriber/app/main.py`: Endpoint síncrono + FLUSHDB
+- `orchestrator/main.py`: Factory reset síncrono + FLUSHDB + timeout 120s
+
+## Teste
+```bash
+docker-compose build
+docker-compose up -d
+time curl -X POST http://localhost:8004/admin/factory-reset
+# Deve retornar em 30-60s com redis_flushed: true
+```
+
+## Breaking changes
+Nenhum (API retrocompatível). Apenas tempo de resposta aumentado.
+
+Co-authored-by: GitHub Copilot <copilot@github.com>
