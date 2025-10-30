@@ -17,7 +17,7 @@ services:
     build: .
     container_name: audio-normalization-api
     ports:
-      - "${PORT:-8002}:8001"
+      - "${PORT:-8001}:8001"
     volumes:
       - ./app:/app/app
       - ./uploads:/app/uploads
@@ -29,9 +29,9 @@ services:
     environment:
       - PYTHONPATH=/app
       - CELERY_BROKER_URL=redis://redis:6379/0
-      - FORCE_CUDA=0
-      - CUDA_VISIBLE_DEVICES=""
-      - USE_GPU=false
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    gpus: all            # << usar GPU no Compose clássico
     restart: unless-stopped
     depends_on:
       redis:
@@ -44,13 +44,13 @@ services:
       start_period: 20s
     labels:
       - "com.example.service=audio-normalization"
-      - "com.example.version=2.0.0-cpu"
+      - "com.example.version=2.0.0"
 
-  # 3) Worker Celery (CPU-only)
+  # 3) Worker Celery
   celery-worker:
     build: .
     container_name: audio-normalization-celery
-    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=2 --pool=prefork --queues=audio_normalization_queue
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
       - ./app:/app/app
       - ./uploads:/app/uploads
@@ -63,9 +63,9 @@ services:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
       - CELERY_BROKER_URL=redis://redis:6379/0
-      - FORCE_CUDA=0
-      - CUDA_VISIBLE_DEVICES=""
-      - USE_GPU=false
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    gpus: all            # << usar GPU no Compose clássico
     restart: unless-stopped
     depends_on:
       redis:
@@ -80,4 +80,4 @@ services:
       start_period: 60s
     labels:
       - "com.example.service=audio-normalization-worker"
-      - "com.example.version=2.0.0-cpu"
+      - "com.example.version=2.0.0"

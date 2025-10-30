@@ -1,30 +1,38 @@
-# Base Ubuntu 22.04 (CPU-only, mais leve)
-FROM ubuntu:22.04
+# Base com CUDA 12.1 + cuDNN p/ Ubuntu 22.04
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 # Evita prompts (tzdata) e define fuso
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
-# Python 3.10 (padrão Ubuntu 22.04) + pip
+# Python 3.11 (via deadsnakes) + pip para o 3.11
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget git \
-      python3 python3-dev python3-pip python3-venv \
-      python3-distutils \
-   && ln -sf /usr/bin/python3 /usr/bin/python \
+      software-properties-common \
+   && add-apt-repository ppa:deadsnakes/ppa -y \
+   && apt-get update && apt-get install -y --no-install-recommends \
+      python3.11 python3.11-dev python3.11-distutils python3.11-venv \
+   && curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
+   && python3.11 /tmp/get-pip.py \
+   && ln -sf /usr/bin/python3.11 /usr/bin/python \
+   && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
+   && rm -f /tmp/get-pip.py \
    && rm -rf /var/lib/apt/lists/*
 
 # Metadata
 LABEL maintainer="audio-normalization-service" \
-      version="2.0.0-cpu" \
-      description="Audio Normalization Microservice - CPU Only"
+      version="2.0.0" \
+      description="Audio Normalization Microservice with CUDA Support"
 
-# Ambiente (CPU-only)
+# Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    CUDA_VISIBLE_DEVICES="" \
-    FORCE_CUDA=0
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    CUDA_VISIBLE_DEVICES=0 \
+    FORCE_CUDA=1
 
 # Dependências de sistema para áudio
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -38,11 +46,11 @@ WORKDIR /app
 COPY requirements.txt .
 COPY constraints.txt .
 
-# PyTorch CPU-only + deps Python (mais leve e rápido)
+# PyTorch cu121 + deps Python (respeitando constraints)
 RUN python -m pip install --no-cache-dir --upgrade pip
 RUN python -m pip install --no-cache-dir \
       torch==2.1.2 torchaudio==2.1.2 \
-      --index-url https://download.pytorch.org/whl/cpu \
+      --index-url https://download.pytorch.org/whl/cu121 \
       -c constraints.txt 
 RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
@@ -63,7 +71,7 @@ USER appuser
 
 EXPOSE 8001
 
-# Healthcheck
+# Healthcheck (usa o curl da base)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:8001/health || exit 1
 
