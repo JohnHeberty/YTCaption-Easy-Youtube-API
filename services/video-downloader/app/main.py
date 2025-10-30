@@ -418,30 +418,42 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
         # 2. LIMPAR FILA CELERY (SE SOLICITADO)
         if purge_celery_queue:
             try:
-                from celery import Celery
-                from app.celery_config import celery_app
+                from redis import Redis
                 
                 logger.warning("🔥 Limpando fila Celery 'video_downloader_queue'...")
-                
-                # Método 1: Usar control.purge() - Remove TODAS as tasks de TODAS as filas
-                # purged = celery_app.control.purge()
-                
-                # Método 2: Limpar fila específica usando kombu (MELHOR)
-                from kombu import Connection
-                from redis import Redis
                 
                 # Conecta ao Redis Celery
                 redis_celery = Redis.from_url(redis_url)
                 
-                # Nome da fila no Redis (formato Celery)
-                queue_key = "video_downloader_queue"
+                # Nome da fila no Redis (Celery usa formato: celery ou nome customizado)
+                # A fila Celery é uma lista Redis, então precisamos deletar a lista inteira
+                queue_keys = [
+                    "video_downloader_queue",           # Fila principal
+                    "celery",                            # Fila default do Celery
+                    "_kombu.binding.video_downloader_queue",  # Bindings
+                    "_kombu.binding.celery",            # Bindings default
+                    "unacked",                          # Tasks não reconhecidas
+                    "unacked_index",                    # Índice de unacked
+                ]
                 
-                # Limpa a lista do Redis (fila Celery usa LPUSH/RPOP)
-                tasks_purged = redis_celery.delete(queue_key)
+                tasks_purged = 0
+                for queue_key in queue_keys:
+                    # LLEN para verificar se existe
+                    queue_len = redis_celery.llen(queue_key)
+                    if queue_len > 0:
+                        logger.info(f"   Fila '{queue_key}': {queue_len} tasks")
+                        tasks_purged += queue_len
+                    
+                    # DELETE remove a key inteira (inclui listas)
+                    deleted = redis_celery.delete(queue_key)
+                    if deleted:
+                        logger.info(f"   ✓ Fila '{queue_key}' removida")
                 
-                # Também limpa keys relacionados (unacked tasks, etc)
-                unacked_key = f"unacked_{queue_key}"
-                redis_celery.delete(unacked_key)
+                # Também remove keys de resultados e metadados Celery
+                celery_result_keys = redis_celery.keys("celery-task-meta-*")
+                if celery_result_keys:
+                    redis_celery.delete(*celery_result_keys)
+                    logger.info(f"   ✓ {len(celery_result_keys)} resultados Celery removidos")
                 
                 report["celery_queue_purged"] = True
                 report["celery_tasks_purged"] = tasks_purged
@@ -540,40 +552,6 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
     except Exception as e:
         logger.error(f"❌ Erro na limpeza total: {e}")
         return {"error": str(e), "jobs_removed": 0, "files_deleted": 0}
-
-
-@app.delete("/admin/cache")
-async def clear_all_cache():
-    """
-    Limpa TODO o cache (jobs + arquivos)
-    ⚠️ CUIDADO: Remove todos os jobs e arquivos em cache
-    """
-    from redis import Redis
-    
-    # Limpa todos os jobs do Redis
-    redis = Redis.from_url(redis_url, decode_responses=True)
-    keys = redis.keys("video_job:*")
-    deleted_keys = 0
-    
-    for key in keys:
-        redis.delete(key)
-        deleted_keys += 1
-    
-    # Remove todos os arquivos do cache
-    cache_dir = Path("./cache")
-    deleted_files = 0
-    if cache_dir.exists():
-        for file in cache_dir.iterdir():
-            if file.is_file():
-                file.unlink()
-                deleted_files += 1
-    
-    return {
-        "message": "Cache completamente limpo",
-        "redis_keys_deleted": deleted_keys,
-        "cache_files_deleted": deleted_files,
-        "timestamp": datetime.now().isoformat()
-    }
 
 
 @app.get("/admin/stats")

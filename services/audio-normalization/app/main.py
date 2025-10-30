@@ -761,15 +761,37 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
                 # Conecta ao Redis Celery
                 redis_celery = job_store.redis  # Usa o mesmo Redis do job_store
                 
-                # Nome da fila no Redis (formato Celery)
-                queue_key = "audio_normalization_queue"
+                # Nome da fila no Redis (Celery usa formato customizado ou default)
+                queue_keys = [
+                    "audio_normalization_queue",        # Fila principal
+                    "celery",                           # Fila default do Celery
+                    "_kombu.binding.audio_normalization_queue",  # Bindings
+                    "_kombu.binding.celery",            # Bindings default
+                    "unacked",                          # Tasks não reconhecidas
+                    "unacked_index",                    # Índice de unacked
+                ]
                 
-                # Limpa a lista do Redis (fila Celery usa LPUSH/RPOP)
-                tasks_purged = redis_celery.delete(queue_key)
+                tasks_purged = 0
+                for queue_key in queue_keys:
+                    # LLEN para verificar se existe (funciona apenas para listas)
+                    try:
+                        queue_len = redis_celery.llen(queue_key)
+                        if queue_len > 0:
+                            logger.info(f"   Fila '{queue_key}': {queue_len} tasks")
+                            tasks_purged += queue_len
+                    except:
+                        pass  # Não é uma lista, pode ser outro tipo de key
+                    
+                    # DELETE remove a key inteira (funciona para qualquer tipo)
+                    deleted = redis_celery.delete(queue_key)
+                    if deleted:
+                        logger.info(f"   ✓ Fila '{queue_key}' removida")
                 
-                # Também limpa keys relacionados (unacked tasks, etc)
-                unacked_key = f"unacked_{queue_key}"
-                redis_celery.delete(unacked_key)
+                # Também remove keys de resultados e metadados Celery
+                celery_result_keys = redis_celery.keys("celery-task-meta-*")
+                if celery_result_keys:
+                    redis_celery.delete(*celery_result_keys)
+                    logger.info(f"   ✓ {len(celery_result_keys)} resultados Celery removidos")
                 
                 report["celery_queue_purged"] = True
                 report["celery_tasks_purged"] = tasks_purged
