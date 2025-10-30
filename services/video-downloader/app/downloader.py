@@ -28,34 +28,7 @@ class SimpleDownloader:
         # Referência para o job store será injetada
         self.job_store = None
     
-    def _get_ydl_opts(self, job: Job) -> Dict[str, Any]:
-        """Opções do yt-dlp otimizadas com User-Agent inteligente"""
-        # Usa apenas job.id para evitar problemas com caracteres especiais no título
-        filename_template = f"{job.id}.%(ext)s"
-        
-        # Obtém User-Agent do gerenciador inteligente
-        user_agent = self.ua_manager.get_user_agent()
-        
-        opts = {
-            'outtmpl': str(self.cache_dir / filename_template),
-            'format': self._get_format_selector(job.quality),
-            'noplaylist': True,
-            'extractaudio': False,
-            'writeinfojson': False,
-            'writedescription': False,
-            'writesubtitles': False,
-            'writeautomaticsub': False,
-            'ignoreerrors': False,
-            'progress_hooks': [lambda d: self._progress_hook(d, job)],
-            'http_headers': {
-                'User-Agent': user_agent
-            }
-        }
-        
-        # Armazena UA usado para report de erro se necessário
-        job.current_user_agent = user_agent
-        
-        return opts
+
     
     def _get_format_selector(self, quality: str) -> str:
         """Converte qualidade em seletor de formato"""
@@ -127,79 +100,166 @@ class SimpleDownloader:
             return job
     
     def _sync_download(self, job: Job) -> Job:
-        """Download síncrono (executado em thread) com report de erro para UA"""
-        current_ua = None
+        """
+        Download síncrono RESILIENTE com multiple user agents e backoff exponencial
         
-        try:
-            opts = self._get_ydl_opts(job)
-            current_ua = getattr(job, 'current_user_agent', None)
-            
+        Estratégia:
+        - 3 user agents diferentes
+        - 3 tentativas por user agent = 9 tentativas total
+        - Backoff exponencial: 2^(2+i) onde i vai de 0 a 8
+        - User agent em quarentena após 3 falhas
+        """
+        import time
+        import math
+        
+        max_user_agents = 3
+        max_attempts_per_ua = 3
+        total_attempts = max_user_agents * max_attempts_per_ua
+        
+        logger.info(f"🚀 Iniciando download RESILIENTE: {max_user_agents} UAs × {max_attempts_per_ua} tentativas = {total_attempts} tentativas máximas")
+        
+        # Progresso inicial
+        job.progress = 5.0
+        if self.job_store:
+            self.job_store.update_job(job)
+        
+        last_error = None
+        current_ua = None
+        attempt_global = 0
+        
+        # Loop por cada user agent
+        for ua_index in range(max_user_agents):
+            # Pega um novo user agent para esta rodada
+            current_ua = self.ua_manager.get_user_agent()
             ua_display = current_ua[:50] if current_ua else 'N/A'
-            logger.info("Iniciando download com UA: %s...", ua_display)
             
-            # Progresso inicial
-            job.progress = 5.0
-            if self.job_store:
-                self.job_store.update_job(job)
+            logger.info(f"📱 User Agent {ua_index + 1}/{max_user_agents}: {ua_display}...")
             
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                # Extrai informações primeiro
-                info = ydl.extract_info(job.url, download=False)
+            # Loop de tentativas para este user agent
+            for attempt_ua in range(max_attempts_per_ua):
+                attempt_global += 1
                 
-                # Progresso após extrair info
-                job.progress = 15.0
-                if self.job_store:
-                    self.job_store.update_job(job)
+                logger.info(f"🔄 Tentativa {attempt_ua + 1}/{max_attempts_per_ua} com UA {ua_index + 1} (global: {attempt_global}/{total_attempts})")
                 
-                # Atualiza job com informações
-                title = info.get('title', 'unknown')
-                ext = info.get('ext', 'mp4')
-                
-                # Usa apenas job.id para evitar problemas com caracteres especiais
-                filename = f"{job.id}.{ext}"
-                
-                job.filename = filename
-                job.file_path = str(self.cache_dir / filename)
-                
-                # Progresso antes do download real
-                job.progress = 20.0
-                if self.job_store:
-                    self.job_store.update_job(job)
-                
-                # Faz o download (progresso será atualizado pelo hook)
-                ydl.download([job.url])
-                
-                # Verifica se arquivo foi criado e pega o tamanho
-                # Busca por job.id (sem underscore, novo padrão)
-                downloaded_files = list(self.cache_dir.glob(f"{job.id}.*"))
-                if downloaded_files:
-                    actual_file = downloaded_files[0]
-                    job.file_path = str(actual_file)
-                    job.filename = actual_file.name
-                    job.file_size = actual_file.stat().st_size
+                try:
+                    # Calcula delay do backoff ANTES da tentativa (exceto primeira)
+                    if attempt_global > 1:
+                        # Fórmula: 2^(2 + i) onde i começa em 0
+                        delay_seconds = math.pow(2, 2 + (attempt_global - 2))
+                        logger.warning(f"⏳ Aguardando {delay_seconds:.0f}s (backoff exponencial)...")
+                        time.sleep(delay_seconds)
                     
-                    job.status = JobStatus.COMPLETED
-                    job.completed_at = job.created_at.__class__.now()
-                    job.progress = 100.0
+                    # Atualiza UA no job
+                    job.current_user_agent = current_ua
                     
-                    logger.info("Download concluído com sucesso: %s", job.filename)
-                else:
-                    raise FileNotFoundError("Arquivo não encontrado após download")
+                    # Progresso baseado na tentativa global (5% a 20%)
+                    progress_base = 5 + (15 * attempt_global / total_attempts)
+                    job.progress = min(progress_base, 20.0)
+                    if self.job_store:
+                        self.job_store.update_job(job)
                     
-        except Exception as exc:
-            job.status = JobStatus.FAILED
-            job.error_message = str(exc)
-            
-            logger.error("Erro no download: %s", str(exc))
-            
-            # Reporta erro ao UserAgentManager se UA estava sendo usado
-            if current_ua:
-                error_details = f"Download failed: {str(exc)}"
-                self.ua_manager.report_error(current_ua, error_details)
-                ua_display = str(current_ua)[:50] if len(str(current_ua)) > 50 else str(current_ua)
-                logger.warning("Erro reportado para UA: %s...", ua_display)
+                    # Prepara opções do yt-dlp
+                    opts = self._get_ydl_opts_with_ua(job, current_ua)
+                    
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        # Extrai informações primeiro
+                        logger.info(f"📥 Extraindo informações do vídeo (tentativa {attempt_global})...")
+                        info = ydl.extract_info(job.url, download=False)
+                        
+                        # Progresso após extrair info
+                        job.progress = min(progress_base + 5, 25.0)
+                        if self.job_store:
+                            self.job_store.update_job(job)
+                        
+                        # Atualiza job com informações
+                        title = info.get('title', 'unknown')
+                        ext = info.get('ext', 'mp4')
+                        
+                        # Usa apenas job.id para evitar problemas com caracteres especiais
+                        filename = f"{job.id}.{ext}"
+                        
+                        job.filename = filename
+                        job.file_path = str(self.cache_dir / filename)
+                        
+                        # Progresso antes do download real
+                        job.progress = 30.0
+                        if self.job_store:
+                            self.job_store.update_job(job)
+                        
+                        logger.info(f"⬇️ Iniciando download do arquivo: {filename}")
+                        
+                        # Faz o download (progresso será atualizado pelo hook)
+                        ydl.download([job.url])
+                        
+                        # Verifica se arquivo foi criado e pega o tamanho
+                        downloaded_files = list(self.cache_dir.glob(f"{job.id}.*"))
+                        if downloaded_files:
+                            actual_file = downloaded_files[0]
+                            job.file_path = str(actual_file)
+                            job.filename = actual_file.name
+                            job.file_size = actual_file.stat().st_size
+                            
+                            job.status = JobStatus.COMPLETED
+                            job.completed_at = job.created_at.__class__.now()
+                            job.progress = 100.0
+                            
+                            logger.info(f"✅ Download SUCESSO após {attempt_global} tentativas: {job.filename} ({job.file_size} bytes)")
+                            logger.info(f"🎯 UA vencedor: {ua_display}...")
+                            
+                            return job  # ✅ SUCESSO! Retorna imediatamente
+                        else:
+                            raise FileNotFoundError("Arquivo não encontrado após download")
+                            
+                except Exception as exc:
+                    last_error = exc
+                    error_msg = str(exc)
+                    
+                    logger.error(f"❌ Erro na tentativa {attempt_global}: {error_msg}")
+                    
+                    # Se não é a última tentativa com este UA, apenas continua
+                    if attempt_ua < max_attempts_per_ua - 1:
+                        logger.warning(f"🔁 Tentando novamente com o mesmo UA em {math.pow(2, 2 + (attempt_global - 1)):.0f}s...")
+                        continue
+                    else:
+                        # Última tentativa com este UA - reporta erro e coloca em quarentena
+                        error_details = f"Failed after {max_attempts_per_ua} attempts: {error_msg}"
+                        self.ua_manager.report_error(current_ua, error_details)
+                        logger.warning(f"🚫 UA colocado em quarentena após {max_attempts_per_ua} falhas: {ua_display}...")
+                        break  # Vai para o próximo UA
+        
+        # Se chegou aqui, todas as tentativas falharam
+        logger.error(f"💥 FALHA TOTAL após {total_attempts} tentativas com {max_user_agents} user agents diferentes")
+        
+        job.status = JobStatus.FAILED
+        job.error_message = f"Download failed after {total_attempts} attempts across {max_user_agents} user agents. Last error: {str(last_error)}"
+        
+        # Reporta erro final se temos UA atual
+        if current_ua:
+            self.ua_manager.report_error(current_ua, f"Final failure: {str(last_error)}")
         
         return job
+    
+    def _get_ydl_opts_with_ua(self, job: Job, user_agent: str) -> Dict[str, Any]:
+        """Opções do yt-dlp com User-Agent específico"""
+        filename_template = f"{job.id}.%(ext)s"
+        
+        opts = {
+            'outtmpl': str(self.cache_dir / filename_template),
+            'format': self._get_format_selector(job.quality),
+            'noplaylist': True,
+            'extractaudio': False,
+            'writeinfojson': False,
+            'writedescription': False,
+            'writesubtitles': False,
+            'writeautomaticsub': False,
+            'ignoreerrors': False,
+            'progress_hooks': [lambda d: self._progress_hook(d, job)],
+            'http_headers': {
+                'User-Agent': user_agent
+            }
+        }
+        
+        return opts
     
     def _sanitize_filename(self, filename: str) -> str:
         """Remove caracteres inválidos do nome do arquivo"""
