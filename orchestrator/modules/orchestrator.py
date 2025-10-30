@@ -258,7 +258,7 @@ def _bool_to_str(v: bool) -> str:
 class PipelineOrchestrator:
     """Orquestrador do pipeline completo"""
 
-    def __init__(self):
+    def __init__(self, redis_store=None):
         self.settings = get_orchestrator_settings()
         self.video_client = MicroserviceClient("video-downloader")
         self.audio_client = MicroserviceClient("audio-normalization")
@@ -267,6 +267,9 @@ class PipelineOrchestrator:
         self.poll_interval_initial = self.settings["poll_interval_initial"]
         self.poll_interval_max = self.settings["poll_interval_max"]
         self.max_attempts = self.settings["max_poll_attempts"]
+        
+        # Redis store para salvar progresso em tempo real
+        self.redis_store = redis_store
 
     async def check_services_health(self) -> Dict[str, str]:
         results = {}
@@ -296,22 +299,30 @@ class PipelineOrchestrator:
 
             # 1) DOWNLOAD (retorna bytes e nome do arquivo de áudio)
             job.status = PipelineStatus.DOWNLOADING
+            if self.redis_store:
+                self.redis_store.save_job(job)  # Salva status atualizado
             logger.info(f"[PIPELINE:{job.id}] Starting DOWNLOAD stage for URL: {job.youtube_url}")
             dl = await self._execute_download(job)
             if not dl:
                 logger.error(f"[PIPELINE:{job.id}] DOWNLOAD stage failed")
                 job.mark_as_failed("Download failed")
+                if self.redis_store:
+                    self.redis_store.save_job(job)
                 return job
             audio_bytes, audio_name = dl  # <<< AQUI desempacota
             logger.info(f"[PIPELINE:{job.id}] DOWNLOAD completed: {audio_name} ({len(audio_bytes)/(1024*1024):.1f}MB)")
 
             # 2) NORMALIZAÇÃO (envia multipart; retorna bytes e nome do arquivo normalizado)
             job.status = PipelineStatus.NORMALIZING
+            if self.redis_store:
+                self.redis_store.save_job(job)  # Salva status atualizado
             logger.info(f"[PIPELINE:{job.id}] Starting NORMALIZATION stage")
             norm = await self._execute_normalization(job, audio_bytes, audio_name)
             if not norm:
                 logger.error(f"[PIPELINE:{job.id}] NORMALIZATION stage failed")
                 job.mark_as_failed("Audio normalization failed")
+                if self.redis_store:
+                    self.redis_store.save_job(job)
                 return job
             norm_bytes, norm_name = norm  # <<< AQUI desempacota
             job.audio_file = norm_name     # opcional: mantemos compat com seu modelo
@@ -319,6 +330,8 @@ class PipelineOrchestrator:
 
             # 3) TRANSCRIÇÃO (envia multipart; retorna dict com texto/arquivo/segments)
             job.status = PipelineStatus.TRANSCRIBING
+            if self.redis_store:
+                self.redis_store.save_job(job)  # Salva status atualizado
             logger.info(f"[PIPELINE:{job.id}] Starting TRANSCRIPTION stage")
             tr = await self._execute_transcription(job, norm_bytes, norm_name)
             if not tr:
@@ -366,6 +379,11 @@ class PipelineOrchestrator:
             content, filename = await self.video_client.download_file(stage.job_id)
             stage.complete(filename)
             job.update_progress()
+            
+            # Salva progresso no Redis
+            if self.redis_store:
+                self.redis_store.save_job(job)
+                
             return content, filename
         except Exception as e:
             logger.error(f"Download stage failed: {e}")
@@ -408,6 +426,11 @@ class PipelineOrchestrator:
             out_bytes, out_name = await self.audio_client.download_file(stage.job_id)
             stage.complete(out_name)
             job.update_progress()
+            
+            # Salva progresso no Redis
+            if self.redis_store:
+                self.redis_store.save_job(job)
+                
             return out_bytes, out_name
         except Exception as e:
             logger.error(f"Normalization stage failed: {e}")
@@ -491,6 +514,11 @@ class PipelineOrchestrator:
 
             stage.complete(out_name)
             job.update_progress()
+            
+            # Salva progresso no Redis
+            if self.redis_store:
+                self.redis_store.save_job(job)
+                
             return result
         except Exception as e:
             logger.error(f"Transcription stage failed: {e}")

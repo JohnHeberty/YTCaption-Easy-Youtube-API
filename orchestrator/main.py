@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     
     try:
         redis_store = get_store()
-        orchestrator = PipelineOrchestrator()
+        orchestrator = PipelineOrchestrator(redis_store=redis_store)
         logger.info("Orchestrator initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize orchestrator: {str(e)}")
@@ -87,10 +87,8 @@ async def root():
         "status": "running",
         "endpoints": {
             "health": "/health",
-            "process": "/process (POST)",
-            "job_status": "/jobs/{job_id} (GET) - Consulta rápida",
-            "wait_completion": "/jobs/{job_id}/wait (GET) - Long polling até conclusão",
-            "stream_progress": "/jobs/{job_id}/stream (GET) - Server-Sent Events em tempo real",
+            "process": "/process (POST) - Inicia novo pipeline",
+            "job_status": "/jobs/{job_id} (GET) - Consulta status com progresso em tempo real",
             "list_jobs": "/jobs (GET)",
             "docs": "/docs"
         }
@@ -152,11 +150,13 @@ async def process_youtube_video(
             isolate_vocals=request.isolate_vocals if request.isolate_vocals is not None else False
         )
         
-        # Salva job
+        # Salva job inicial
         redis_store.save_job(job)
+        logger.info(f"Pipeline job {job.id} created and saved to Redis")
         
         # Agenda execução em background
         background_tasks.add_task(execute_pipeline_background, job.id)
+        logger.info(f"Background task scheduled for job {job.id}")
         
         logger.info(f"Pipeline job {job.id} created for URL: {request.youtube_url}")
         
@@ -174,17 +174,32 @@ async def process_youtube_video(
 
 async def execute_pipeline_background(job_id: str):
     """Executa pipeline em background"""
+    logger.info(f"⚡ BACKGROUND TASK STARTED for job {job_id}")
+    
     try:
         logger.info(f"Starting background pipeline for job {job_id}")
         
         # Recupera job
         job = redis_store.get_job(job_id)
         if not job:
-            logger.error(f"Job {job_id} not found")
+            logger.error(f"❌ Job {job_id} not found in Redis!")
             return
+        
+        logger.info(f"✅ Job {job_id} retrieved from Redis, status: {job.status}")
+        
+        # Verifica se orchestrator está disponível
+        if not orchestrator:
+            logger.error(f"❌ Orchestrator not initialized!")
+            job.mark_as_failed("Orchestrator not available")
+            redis_store.save_job(job)
+            return
+        
+        logger.info(f"🚀 Executing pipeline for job {job_id}...")
         
         # Executa pipeline
         job = await orchestrator.execute_pipeline(job)
+        
+        logger.info(f"✅ Pipeline execution finished for job {job_id}, status: {job.status}")
         
         # Salva resultado
         redis_store.save_job(job)
@@ -192,7 +207,7 @@ async def execute_pipeline_background(job_id: str):
         logger.info(f"Pipeline for job {job_id} finished with status: {job.status}")
         
     except Exception as e:
-        logger.error(f"Pipeline execution failed for job {job_id}: {str(e)}")
+        logger.error(f"❌ Pipeline execution failed for job {job_id}: {str(e)}", exc_info=True)
         
         # Tenta recuperar e marcar como falho
         try:
@@ -200,8 +215,9 @@ async def execute_pipeline_background(job_id: str):
             if job:
                 job.mark_as_failed(str(e))
                 redis_store.save_job(job)
-        except:
-            pass
+                logger.info(f"Job {job_id} marked as failed in Redis")
+        except Exception as save_error:
+            logger.error(f"Failed to save error state for job {job_id}: {save_error}")
 
 @app.get("/jobs", tags=["Jobs"])
 async def list_jobs(limit: int = 50):
