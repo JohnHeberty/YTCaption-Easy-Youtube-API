@@ -520,10 +520,13 @@ async def _perform_basic_cleanup():
 
 async def _perform_cleanup(purge_celery_queue: bool = False):
     """
-    Executa limpeza COMPLETA do sistema em background
+    Executa limpeza COMPLETA do sistema SÍNCRONAMENTE (sem background tasks)
+    
+    ⚠️ CRÍTICO: Executa no handler HTTP para evitar ciclo vicioso onde
+    o próprio job de limpeza seria deletado antes de terminar.
     
     ZERA ABSOLUTAMENTE TUDO:
-    - TODOS os jobs do Redis (não só expirados)
+    - TODO o banco Redis (FLUSHDB usando DIVISOR do .env)
     - TODOS os arquivos de uploads/
     - TODOS os arquivos de transcriptions/
     - TODOS os arquivos temporários
@@ -531,8 +534,12 @@ async def _perform_cleanup(purge_celery_queue: bool = False):
     - (OPCIONAL) TODOS os jobs da fila Celery
     """
     try:
+        from redis import Redis
+        from urllib.parse import urlparse
+        
         report = {
             "jobs_removed": 0,
+            "redis_flushed": False,
             "files_deleted": 0,
             "space_freed_mb": 0.0,
             "models_deleted": 0,
@@ -543,19 +550,28 @@ async def _perform_cleanup(purge_celery_queue: bool = False):
         
         logger.warning("🔥 INICIANDO LIMPEZA TOTAL DO SISTEMA - TUDO SERÁ REMOVIDO!")
         
-        # 1. LIMPAR TODOS OS JOBS DO REDIS (não só expirados)
+        # 1. FLUSHDB NO REDIS (limpa TODO o banco de dados)
         try:
-            keys = job_store.redis.keys("transcription_job:*")
-            if keys:
-                for key in keys:
-                    job_store.redis.delete(key)
-                report["jobs_removed"] = len(keys)
-                logger.info(f"🗑️  Redis: {len(keys)} jobs removidos")
-            else:
-                logger.info("✓ Redis: nenhum job encontrado")
+            # Extrai host, port e db do REDIS_URL (que usa DIVISOR)
+            redis_url = job_store.redis.connection_pool.connection_kwargs.get('host') or 'localhost'
+            redis_port = job_store.redis.connection_pool.connection_kwargs.get('port') or 6379
+            redis_db = job_store.redis.connection_pool.connection_kwargs.get('db') or 0
+            
+            logger.warning(f"🔥 Executando FLUSHDB no Redis {redis_url}:{redis_port} DB={redis_db}")
+            
+            # Conta jobs ANTES de limpar
+            keys_before = job_store.redis.keys("transcription_job:*")
+            report["jobs_removed"] = len(keys_before)
+            
+            # FLUSHDB - Remove TODO o conteúdo do banco atual
+            job_store.redis.flushdb()
+            report["redis_flushed"] = True
+            
+            logger.info(f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs + todas as outras keys removidas")
+            
         except Exception as e:
             logger.error(f"❌ Erro ao limpar Redis: {e}")
-            report["errors"].append(f"Redis: {str(e)}")
+            report["errors"].append(f"Redis FLUSHDB: {str(e)}")
         
         # 2. LIMPAR FILA CELERY (SE SOLICITADO)
         if purge_celery_queue:
@@ -726,54 +742,55 @@ async def _perform_cleanup(purge_celery_queue: bool = False):
 
 @app.post("/admin/cleanup")
 async def manual_cleanup(
-    background_tasks: BackgroundTasks,
     deep: bool = False,
     purge_celery_queue: bool = False
 ):
     """
     🧹 LIMPEZA DO SISTEMA
     
+    ⚠️ IMPORTANTE: Execução SÍNCRONA (sem background tasks ou Celery)
+    O cliente AGUARDA a conclusão completa antes de receber a resposta.
+    
+    **Por que síncrono?**
+    Se usássemos Celery/background tasks, o job de limpeza seria deletado
+    antes de terminar (ciclo vicioso). Por isso executa DIRETAMENTE no handler HTTP.
+    
     **Modos de operação:**
     
-    1. **Limpeza básica** (deep=false ou omitido):
+    1. **Limpeza básica** (deep=false):
        - Remove jobs expirados (>24h)
        - Remove arquivos órfãos
     
     2. **Limpeza profunda** (deep=true) - ⚠️ FACTORY RESET:
-       - TODOS os jobs do Redis (não só expirados)
+       - TODO o banco Redis (FLUSHDB usando DIVISOR do .env)
        - TODOS os arquivos de uploads/
        - TODOS os arquivos de transcriptions/
        - TODOS os arquivos temporários em temp/
        - TODOS os modelos Whisper baixados (~500MB cada)
-       - TODOS os logs
        - **OPCIONAL:** Purga fila Celery (purge_celery_queue=true)
     
     **Parâmetros:**
     - deep (bool): Se true, faz limpeza COMPLETA (factory reset)
     - purge_celery_queue (bool): Se true, limpa FILA CELERY também
     
-    A limpeza é executada em background e retorna imediatamente.
+    **Retorna apenas APÓS conclusão completa!**
     """
     cleanup_type = "TOTAL" if deep else "básica"
-    cleanup_job_id = f"cleanup_{cleanup_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    logger.warning(f"🔥 Iniciando limpeza {cleanup_type} SÍNCRONA (purge_celery={purge_celery_queue})")
     
-    # Agenda limpeza em background
-    if deep:
-        background_tasks.add_task(_perform_cleanup, purge_celery_queue)  # Já é total
-    else:
-        background_tasks.add_task(_perform_basic_cleanup)
-    
-    logger.warning(f"🔥 Limpeza {cleanup_type} agendada: {cleanup_job_id} (purge_celery={purge_celery_queue})")
-    
-    return {
-        "message": f"🔥 Limpeza {cleanup_type} iniciada em background",
-        "cleanup_id": cleanup_job_id,
-        "status": "processing",
-        "deep": deep,
-        "purge_celery_queue": purge_celery_queue,
-        "warning": "TUDO será removido!" if deep else "Jobs expirados serão removidos",
-        "note": "Verifique os logs para acompanhar o progresso."
-    }
+    try:
+        # Executa DIRETAMENTE (sem background tasks ou Celery)
+        if deep:
+            result = await _perform_cleanup(purge_celery_queue)
+        else:
+            result = await _perform_basic_cleanup()
+        
+        logger.info(f"✅ Limpeza {cleanup_type} CONCLUÍDA com sucesso")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ ERRO na limpeza {cleanup_type}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
 
 
 @app.get("/admin/stats")

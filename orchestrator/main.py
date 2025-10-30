@@ -663,24 +663,56 @@ async def cleanup_old_jobs(
 @app.post("/admin/factory-reset", tags=["Admin"])
 async def factory_reset():
     """
-    ⚠️ FACTORY RESET - Remove TUDO: todos os jobs do Redis, todos os logs,
+    ⚠️ FACTORY RESET - Remove TUDO: todo o banco Redis (FLUSHDB), todos os logs,
     e requisita cleanup de TODOS os microserviços.
+    
+    ⚠️ CRÍTICO: Execução SÍNCRONA (sem background tasks)
+    O cliente AGUARDA a conclusão completa antes de receber resposta.
+    
     Use com cuidado! Esta ação é irreversível.
     """
     try:
+        from redis import Redis
+        from urllib.parse import urlparse
+        
         result = {
-            "message": "Factory reset executado em todos os serviços",
+            "message": "Factory reset executado SÍNCRONAMENTE em todos os serviços",
             "orchestrator": {
                 "jobs_removed": 0,
+                "redis_flushed": False,
                 "logs_cleaned": False
             },
             "microservices": {},
             "warning": "Todos os dados foram removidos de todos os serviços"
         }
         
-        # 1. Remove todos os jobs do Redis (age=0)
-        removed = redis_store.cleanup_old_jobs(max_age_hours=0)
-        result["orchestrator"]["jobs_removed"] = removed
+        logger.warning("🔥 FACTORY RESET: Iniciando limpeza COMPLETA do Orchestrator")
+        
+        # 1. FLUSHDB NO REDIS (limpa TODO o banco de dados do orchestrator)
+        try:
+            # Extrai host, port e db do REDIS_URL
+            redis_url = settings["redis_url"]
+            parsed = urlparse(redis_url)
+            redis_host = parsed.hostname or 'localhost'
+            redis_port = parsed.port or 6379
+            redis_db = int(parsed.path.strip('/')) if parsed.path else 0
+            
+            logger.warning(f"🔥 Executando FLUSHDB no Redis {redis_host}:{redis_port} DB={redis_db}")
+            
+            redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
+            
+            # Conta jobs ANTES de limpar
+            keys_before = redis.keys("pipeline_job:*")
+            result["orchestrator"]["jobs_removed"] = len(keys_before)
+            
+            # FLUSHDB - Remove TODO o conteúdo do banco atual
+            redis.flushdb()
+            result["orchestrator"]["redis_flushed"] = True
+            
+            logger.info(f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs + todas as outras keys removidas")
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao limpar Redis do orchestrator: {e}")
         
         # 2. Limpa arquivos de log (sem remover diretório que está em uso)
         import shutil
@@ -739,7 +771,8 @@ async def factory_reset():
                     }
                     logger.error(f"Factory reset cleanup error for {service_name}: {str(e)}")
         
-        logger.warning(f"Factory reset completed: orchestrator ({removed} jobs) + all microservices")
+        jobs_removed = result["orchestrator"]["jobs_removed"]
+        logger.warning(f"✅ Factory reset CONCLUÍDO: orchestrator ({jobs_removed} jobs) + all microservices")
         return result
         
     except Exception as e:
