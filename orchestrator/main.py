@@ -744,7 +744,7 @@ async def factory_reset():
                     
                     response = await client.post(
                         cleanup_url,
-                        json={
+                        params={
                             "deep": True,  # Factory reset: remove TUDO
                             "purge_celery_queue": True  # ← NOVO: Limpa fila Celery também!
                         }
