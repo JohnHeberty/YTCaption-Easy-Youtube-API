@@ -57,7 +57,6 @@ def get_settings():
             'max_duration_sec': int(os.getenv('NOISE_REDUCTION_MAX_DURATION_SEC', '300')),
             'sample_rate': int(os.getenv('NOISE_REDUCTION_SAMPLE_RATE', '22050')),
             'chunk_size_sec': int(os.getenv('NOISE_REDUCTION_CHUNK_SIZE_SEC', '30')),
-            'strength': float(os.getenv('PROCESSING__NOISE_REDUCTION_STRENGTH', '0.8')),
         },
         
         'vocal_isolation': {
@@ -69,13 +68,6 @@ def get_settings():
         'highpass_filter': {
             'cutoff_hz': int(os.getenv('HIGHPASS_FILTER_CUTOFF_HZ', '80')),
             'order': int(os.getenv('HIGHPASS_FILTER_ORDER', '5')),
-        },
-        
-        # ===== PROCESSAMENTO - MEMÓRIA =====
-        'memory': {
-            'max_usage_mb': int(os.getenv('MAX_MEMORY_USAGE_MB', '2048')),
-            'check_interval_sec': int(os.getenv('MEMORY_CHECK_INTERVAL_SEC', '5')),
-            'protection_enabled': os.getenv('ENABLE_MEMORY_PROTECTION', 'true').lower() == 'true',
         },
         
         # ===== TIMEOUTS =====

@@ -5,6 +5,10 @@ from pydantic import BaseModel, Field, field_validator
 import hashlib
 import json
 
+from modules.config import get_orchestrator_settings
+
+# Configuração da aplicação
+settings = get_orchestrator_settings()
 
 class TranscriptionSegment(BaseModel):
     """Segmento de transcrição com timestamps"""
@@ -172,14 +176,13 @@ class PipelineJob(BaseModel):
 class PipelineRequest(BaseModel):
     """Request para iniciar pipeline"""
     youtube_url: str = Field("https://www.youtube.com/watch?v=_xhulIrM6hw", description="URL do vídeo do YouTube")
-    language: Optional[str] = Field("auto", description="Idioma para transcrição (ISO 639-1) ou 'auto'")
-    language_out: Optional[str] = Field("", description="Idioma de saída para tradução (ISO 639-1)")
-    remove_noise: Optional[bool] = Field(False, description="Remover ruído de fundo")
-    convert_to_mono: Optional[bool] = Field(True, description="Converter para mono")
-    apply_highpass_filter: Optional[bool] = Field(True, description="Aplicar filtro high-pass")
-    set_sample_rate_16k: Optional[bool] = Field(False, description="Sample rate 16kHz")
-    isolate_vocals: Optional[bool] = Field(False, description="Isolar vocais (separa voz de música)")
-
+    language: Optional[str] = Field(settings["default_language"], description="Idioma para transcrição (ISO 639-1) ou 'auto'")
+    language_out: Optional[str] = Field(settings["default_language"], description="Idioma de saída para tradução (ISO 639-1)")
+    remove_noise: Optional[bool] = Field(settings["default_remove_noise"], description="Remover ruído de fundo")
+    convert_to_mono: Optional[bool] = Field(settings["default_convert_mono"], description="Converter para mono")
+    apply_highpass_filter: Optional[bool] = Field(settings["default_highpass_filter"], description="Aplicar filtro high-pass")
+    set_sample_rate_16k: Optional[bool] = Field(settings["default_sample_rate_16k"], description="Sample rate 16kHz")
+    isolate_vocals: Optional[bool] = Field(settings["default_isolate_vocals"], description="Isolar vocais (separa voz de música)")
 
 class PipelineResponse(BaseModel):
     """Resposta da criação do pipeline"""

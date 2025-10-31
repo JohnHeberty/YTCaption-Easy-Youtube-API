@@ -61,7 +61,9 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "default_language": os.getenv("DEFAULT_LANGUAGE", "auto"),
         "default_remove_noise": os.getenv("DEFAULT_REMOVE_NOISE", "true").lower() == "true",
         "default_convert_mono": os.getenv("DEFAULT_CONVERT_MONO", "true").lower() == "true",
+        "default_highpass_filter": os.getenv("DEFAULT_HIGHPASS_FILTER", "true").lower() == "true",
         "default_sample_rate_16k": os.getenv("DEFAULT_SAMPLE_RATE_16K", "true").lower() == "true",
+        "default_isolate_vocals": os.getenv("DEFAULT_ISOLATE_VOCALS", "true").lower() == "true",
     }
 
 # orchestrator/modules/config.py  (trecho sugerido)
