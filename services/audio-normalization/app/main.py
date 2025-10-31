@@ -26,6 +26,31 @@ app = FastAPI(
     version="2.0.0"
 )
 
+# Configurar limite de body size baseado no settings
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
+import json
+
+class BodySizeMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, max_size: int):
+        super().__init__(app)
+        self.max_size = max_size
+
+    async def dispatch(self, request: Request, call_next):
+        # Verificar Content-Length se presente
+        content_length = request.headers.get('content-length')
+        if content_length and int(content_length) > self.max_size:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": f"Request body too large. Maximum: {self.max_size // 1024 // 1024}MB"}
+            )
+        return await call_next(request)
+
+# Adicionar middleware de tamanho de body (baseado na configuração)
+max_body_size = settings['max_file_size_mb'] * 1024 * 1024
+app.add_middleware(BodySizeMiddleware, max_size=max_body_size)
+
 # Importa e adiciona middleware de segurança
 from .security import SecurityMiddleware, validate_audio_file
 app.add_middleware(SecurityMiddleware)
@@ -221,13 +246,14 @@ async def create_audio_job(
             logger.error("Arquivo vazio")
             raise HTTPException(status_code=400, detail="Arquivo está vazio")
         
-        # Validação 4: Arquivo não excede limite de tamanho?
-        max_size = 100 * 1024 * 1024  # 100MB
+        # Validação 4: Arquivo não excede limite de tamanho? (usar configuração do .env)
+        max_size_mb = settings['max_file_size_mb']
+        max_size = max_size_mb * 1024 * 1024
         if len(content) > max_size:
-            logger.error(f"Arquivo muito grande: {len(content)} bytes")
+            logger.error(f"Arquivo muito grande: {len(content)} bytes (máximo: {max_size_mb}MB)")
             raise HTTPException(
                 status_code=413,
-                detail=f"Arquivo muito grande. Máximo: {max_size//1024//1024}MB"
+                detail=f"Arquivo muito grande. Máximo: {max_size_mb}MB"
             )
         
         # Validação básica de segurança (apenas tamanho - sem validar formato)
