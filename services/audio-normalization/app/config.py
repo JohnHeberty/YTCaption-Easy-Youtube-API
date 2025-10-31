@@ -47,9 +47,10 @@ def get_settings():
         # ===== PROCESSAMENTO - CHUNKS =====
         'audio_chunking': {
             'enabled': os.getenv('AUDIO_ENABLE_CHUNKING', 'true').lower() == 'true',
-            'chunk_size_mb': int(os.getenv('AUDIO_CHUNK_SIZE_MB', '100')),
-            'chunk_duration_sec': int(os.getenv('AUDIO_CHUNK_DURATION_SEC', '120')),
-            'chunk_overlap_sec': int(os.getenv('AUDIO_CHUNK_OVERLAP_SEC', '2')),
+            'chunk_size_mb': int(os.getenv('AUDIO_CHUNK_SIZE_MB', '30')),
+            'chunk_duration_sec': int(os.getenv('AUDIO_CHUNK_DURATION_SEC', '60')),
+            'chunk_overlap_sec': int(os.getenv('AUDIO_CHUNK_OVERLAP_SEC', '1')),
+            'streaming_threshold_mb': int(os.getenv('AUDIO_STREAMING_THRESHOLD_MB', '50')),
         },
         
         # ===== PROCESSAMENTO - OPERAÇÕES =====

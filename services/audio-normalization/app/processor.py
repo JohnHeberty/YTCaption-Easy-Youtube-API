@@ -3,6 +3,7 @@ import asyncio
 import tempfile
 import numpy as np
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from pydub import AudioSegment
@@ -95,6 +96,7 @@ class AudioProcessor:
         settings = get_settings()
         
         self.config = {
+            'streaming_threshold_mb': settings['audio_chunking']['streaming_threshold_mb'],
             'chunking_enabled': settings['audio_chunking']['enabled'],
             'chunk_size_mb': settings['audio_chunking']['chunk_size_mb'],
             'chunk_duration_sec': settings['audio_chunking']['chunk_duration_sec'],
@@ -108,8 +110,18 @@ class AudioProcessor:
             'highpass_order': settings['highpass_filter']['order'],
         }
         
-        logger.info(f"🔧 Config carregada: chunking={self.config['chunking_enabled']}, chunk_size={self.config['chunk_size_mb']}MB")
+        logger.info(f"🔧 Config carregada: chunking={self.config['chunking_enabled']}, chunk_size={self.config['chunk_size_mb']}MB, streaming_threshold={self.config['streaming_threshold_mb']}MB")
     
+    def _should_use_streaming_processing(self, file_path: str) -> bool:
+        """Verifica se o processamento via streaming deve ser usado com base no tamanho do arquivo."""
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        threshold_mb = self.config['streaming_threshold_mb']
+        
+        if file_size_mb > threshold_mb:
+            logger.info(f"📦 Arquivo grande detectado ({file_size_mb:.2f}MB > {threshold_mb}MB). Usando processamento via streaming.")
+            return True
+        return False
+
     def _should_use_chunking(self, audio: AudioSegment) -> bool:
         """Verifica se deve usar processamento em chunks"""
         if not self.config['chunking_enabled']:
@@ -158,6 +170,24 @@ class AudioProcessor:
         logger.info(f"📦 Áudio dividido em {len(chunks)} chunks de ~{chunk_duration_ms/1000}s cada")
         return chunks
     
+    def _merge_processed_chunks(self, chunk_paths: list) -> AudioSegment:
+        """Mescla múltiplos arquivos de áudio (chunks) em um único AudioSegment."""
+        if not chunk_paths:
+            raise AudioNormalizationException("Nenhum chunk processado para mesclar.")
+
+        logger.info(f"🔗 Mesclando {len(chunk_paths)} chunks processados...")
+        
+        # Carrega o primeiro chunk
+        final_audio = AudioSegment.from_file(chunk_paths[0])
+
+        # Concatena os chunks restantes
+        for chunk_path in chunk_paths[1:]:
+            chunk_audio = AudioSegment.from_file(chunk_path)
+            final_audio += chunk_audio
+        
+        logger.info(f"✅ Chunks mesclados com sucesso. Duração final: {len(final_audio)/1000:.1f}s")
+        return final_audio
+
     def _merge_chunks(self, chunks: list, overlap_ms: int) -> AudioSegment:
         """
         Mescla chunks processados de volta em um único áudio
@@ -243,19 +273,15 @@ class AudioProcessor:
     
     async def process_audio_job(self, job: Job):
         """
-        Processa um job de áudio com operações condicionais.
-        IMPORTANTE: Aceita QUALQUER formato de entrada e SEMPRE salva como .webm
+        Processa um job de áudio, decidindo entre carregamento direto ou streaming.
         """
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
-            
-            # Atualiza status para processando
             job.status = JobStatus.PROCESSING
             job.progress = 2.0
-            if self.job_store:
-                self.job_store.update_job(job)
-            
-            # VALIDAÇÃO COM FFPROBE (a verdadeira validação)
+            if self.job_store: self.job_store.update_job(job)
+
+            # Validação do arquivo
             try:
                 from .security import validate_audio_content_with_ffprobe
                 logger.info(f"Validando arquivo com ffprobe: {job.input_file}")
@@ -264,110 +290,163 @@ class AudioProcessor:
             except Exception as e:
                 logger.error(f"Validação ffprobe falhou: {e}")
                 raise AudioNormalizationException(str(e))
-            
+
             job.progress = 5.0
-            if self.job_store:
-                self.job_store.update_job(job)
-            
-            # Carrega arquivo - com extração automática de áudio se for vídeo
-            try:
-                logger.info(f"Carregando arquivo: {job.input_file}")
-                
-                # Se contém vídeo, extrai apenas o áudio automaticamente
-                if file_info['has_video']:
-                    logger.info("Arquivo contém vídeo - extraindo stream de áudio automaticamente")
-                    # pydub automaticamente extrai áudio usando ffmpeg
-                    audio = AudioSegment.from_file(job.input_file, parameters=["-vn"])
-                else:
-                    # Arquivo só de áudio
-                    audio = AudioSegment.from_file(job.input_file)
-                
-                logger.info(f"Áudio carregado com sucesso. Formato: {Path(job.input_file).suffix}")
-                
-            except Exception as e:
-                logger.error(f"Erro ao carregar arquivo: {e}")
-                raise AudioNormalizationException(f"Não foi possível carregar o arquivo: {str(e)}")
-            
-            job.progress = 10.0
-            if self.job_store:
-                self.job_store.update_job(job)
-            
-            # Verifica se alguma operação foi solicitada
-            any_operation = (job.remove_noise or job.convert_to_mono or 
-                           job.apply_highpass_filter or job.set_sample_rate_16k or 
-                           job.isolate_vocals)
-            
-            if not any_operation:
-                logger.info("Nenhuma operação solicitada - salvando arquivo sem modificações")
-                job.progress = 50.0
-                if self.job_store:
-                    self.job_store.update_job(job)
+            if self.job_store: self.job_store.update_job(job)
+
+            # DECISÃO CRÍTICA: Usar streaming ou carregar na memória?
+            if self._should_use_streaming_processing(job.input_file):
+                processed_audio = await self._process_audio_with_streaming(job, file_info)
             else:
-                logger.info(f"Aplicando operações: {job.processing_operations}")
-                
-                try:
-                    # Aplicar operações condicionalmente
-                    processed_audio = await self._apply_processing_operations(audio, job)
-                    audio = processed_audio
-                except Exception as e:
-                    logger.error(f"Erro durante processamento de áudio: {e}")
-                    raise AudioNormalizationException(f"Falha no processamento: {str(e)}")
-            
+                processed_audio = await self._process_audio_in_memory(job, file_info)
+
             # CRÍTICO: Salva arquivo processado SEMPRE como .webm
             output_dir = Path("./processed")
-            try:
-                output_dir.mkdir(exist_ok=True, parents=True)
-            except Exception as e:
-                logger.error(f"Erro ao criar diretório de saída: {e}")
-                raise AudioNormalizationException(f"Não foi possível criar diretório: {str(e)}")
+            output_dir.mkdir(exist_ok=True, parents=True)
             
-            # Nome do arquivo baseado nas operações
             operations_suffix = f"_{job.processing_operations}" if job.processing_operations != "none" else ""
             output_path = output_dir / f"{job.id}{operations_suffix}.webm"
             
-            try:
-                logger.info(f"Salvando arquivo processado como WebM: {output_path}")
-                # SEMPRE exporta como .webm com codec opus
-                audio.export(
-                    str(output_path), 
-                    format="webm",
-                    codec="libopus",
-                    parameters=["-strict", "-2"]
-                )
-                logger.info(f"Arquivo WebM salvo com sucesso. Tamanho: {output_path.stat().st_size} bytes")
-            except Exception as e:
-                logger.error(f"Erro ao salvar arquivo WebM: {e}")
-                raise AudioNormalizationException(f"Falha ao salvar arquivo de saída: {str(e)}")
-            
+            logger.info(f"Salvando arquivo processado como WebM: {output_path}")
+            processed_audio.export(
+                str(output_path), 
+                format="webm",
+                codec="libopus",
+                parameters=["-strict", "-2"]
+            )
+            logger.info(f"Arquivo WebM salvo com sucesso. Tamanho: {output_path.stat().st_size} bytes")
+
             # Finaliza job
             job.output_file = str(output_path)
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
             job.file_size_output = output_path.stat().st_size
             job.completed_at = datetime.now()
-            
-            if self.job_store:
-                self.job_store.update_job(job)
+            if self.job_store: self.job_store.update_job(job)
             
             logger.info(f"Job {job.id} processado com sucesso. Output: {output_path.name}")
-            
+
         except AudioNormalizationException:
-            # Re-raise exceções específicas
             raise
         except Exception as e:
-            # Captura qualquer erro inesperado
             error_msg = f"Erro inesperado no processamento: {str(e)}"
             logger.error(f"Job {job.id} falhou: {error_msg}", exc_info=True)
-            
             job.status = JobStatus.FAILED
             job.error_message = error_msg
-            
-            if self.job_store:
-                self.job_store.update_job(job)
-            
+            if self.job_store: self.job_store.update_job(job)
             raise AudioNormalizationException(error_msg)
+
+    async def _process_audio_in_memory(self, job: Job, file_info: dict) -> AudioSegment:
+        """Carrega o áudio inteiro na memória e o processa."""
+        logger.info("🧠 Processando áudio em memória (arquivo pequeno).")
+        try:
+            logger.info(f"Carregando arquivo: {job.input_file}")
+            if file_info['has_video']:
+                logger.info("Arquivo contém vídeo - extraindo stream de áudio.")
+                audio = AudioSegment.from_file(job.input_file, parameters=["-vn"])
+            else:
+                audio = AudioSegment.from_file(job.input_file)
+            logger.info(f"Áudio carregado com sucesso. Formato: {Path(job.input_file).suffix}")
+        except Exception as e:
+            logger.error(f"Erro ao carregar arquivo: {e}")
+            raise AudioNormalizationException(f"Não foi possível carregar o arquivo: {str(e)}")
+
+        job.progress = 10.0
+        if self.job_store: self.job_store.update_job(job)
+
+        any_operation = (job.remove_noise or job.convert_to_mono or 
+                       job.apply_highpass_filter or job.set_sample_rate_16k or 
+                       job.isolate_vocals)
+        
+        if not any_operation:
+            logger.info("Nenhuma operação solicitada.")
+            job.progress = 90.0
+        else:
+            logger.info(f"Aplicando operações: {job.processing_operations}")
+            audio = await self._apply_processing_operations(audio, job)
+        
+        if self.job_store: self.job_store.update_job(job)
+        return audio
+
+    async def _process_audio_with_streaming(self, job: Job, file_info: dict) -> AudioSegment:
+        """Processa o áudio em chunks lidos do disco para economizar memória."""
+        logger.info("🌊 Processando áudio via streaming (arquivo grande).")
+        
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"job_{job.id}_"))
+        chunk_paths = []
+        processed_chunk_paths = []
+
+        try:
+            # 1. Dividir o arquivo em chunks usando ffmpeg
+            logger.info(f"Dividindo {job.input_file} em chunks de {self.config['chunk_duration_sec']}s...")
+            chunk_filename_pattern = str(temp_dir / "chunk_%04d.webm")
+            
+            ffmpeg_cmd = [
+                "ffmpeg", "-i", str(job.input_file),
+                "-f", "segment",
+                "-segment_time", str(self.config['chunk_duration_sec']),
+                "-c", "copy",
+                chunk_filename_pattern
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *ffmpeg_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                raise AudioNormalizationException(f"Falha ao segmentar áudio com ffmpeg: {stderr.decode()}")
+
+            chunk_paths = sorted(list(temp_dir.glob("chunk_*.webm")))
+            if not chunk_paths:
+                raise AudioNormalizationException("Nenhum chunk de áudio foi criado pelo ffmpeg.")
+            
+            logger.info(f"Áudio dividido em {len(chunk_paths)} chunks.")
+            job.progress = 20.0
+            if self.job_store: self.job_store.update_job(job)
+
+            # 2. Processar cada chunk individualmente
+            total_chunks = len(chunk_paths)
+            for i, chunk_path in enumerate(chunk_paths):
+                progress = 20.0 + (i / total_chunks) * 70.0
+                job.progress = progress
+                logger.info(f"🔄 Processando chunk {i+1}/{total_chunks} [{progress:.1f}%]...")
+                
+                try:
+                    chunk_audio = AudioSegment.from_file(chunk_path)
+                    
+                    # Aplica as mesmas operações, mas no chunk
+                    processed_chunk = await self._apply_processing_operations(chunk_audio, job, is_chunk=True)
+                    
+                    # Salva o chunk processado
+                    processed_chunk_path = chunk_path.with_name(f"processed_{chunk_path.name}")
+                    processed_chunk.export(processed_chunk_path, format="webm", codec="libopus")
+                    processed_chunk_paths.append(processed_chunk_path)
+
+                except Exception as e:
+                    logger.error(f"Erro ao processar o chunk {chunk_path}: {e}")
+                    # Se um chunk falhar, podemos decidir pular ou parar. Por segurança, vamos parar.
+                    raise AudioNormalizationException(f"Falha no processamento do chunk {i+1}: {e}")
+            
+            job.progress = 90.0
+            if self.job_store: self.job_store.update_job(job)
+
+            # 3. Mesclar os chunks processados
+            if not processed_chunk_paths:
+                raise AudioNormalizationException("Nenhum chunk foi processado com sucesso.")
+            
+            final_audio = self._merge_processed_chunks(processed_chunk_paths)
+            return final_audio
+
+        finally:
+            # 4. Limpeza dos arquivos temporários
+            import shutil
+            logger.info(f"🧹 Limpando diretório temporário: {temp_dir}")
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
-    async def _apply_processing_operations(self, audio: AudioSegment, job: Job) -> AudioSegment:
+    async def _apply_processing_operations(self, audio: AudioSegment, job: Job, is_chunk: bool = False) -> AudioSegment:
         """Aplica operações de processamento condicionalmente com tratamento robusto de erros"""
         operations_count = sum([
             job.remove_noise, job.convert_to_mono, job.apply_highpass_filter,
@@ -376,19 +455,22 @@ class AudioProcessor:
         
         if operations_count == 0:
             return audio
-            
-        progress_step = 80.0 / operations_count
-        current_progress = 10.0
+        
+        # Se for um chunk, o progresso é gerenciado pelo loop de streaming
+        if not is_chunk:
+            progress_step = 80.0 / operations_count
+            current_progress = 10.0
         
         # 1. Isolamento vocal (primeiro, pois pode afetar outras operações)
         if job.isolate_vocals:
             try:
                 logger.info("Aplicando isolamento vocal...")
                 audio = await self._isolate_vocals(audio)
-                current_progress += progress_step
-                job.progress = current_progress
-                if self.job_store:
-                    self.job_store.update_job(job)
+                if not is_chunk:
+                    current_progress += progress_step
+                    job.progress = current_progress
+                    if self.job_store:
+                        self.job_store.update_job(job)
             except Exception as e:
                 logger.error(f"Erro no isolamento vocal: {e}")
                 raise AudioNormalizationException(f"Falha no isolamento vocal: {str(e)}")
@@ -398,10 +480,11 @@ class AudioProcessor:
             try:
                 logger.info("Removendo ruído...")
                 audio = await self._remove_noise(audio)
-                current_progress += progress_step
-                job.progress = current_progress
-                if self.job_store:
-                    self.job_store.update_job(job)
+                if not is_chunk:
+                    current_progress += progress_step
+                    job.progress = current_progress
+                    if self.job_store:
+                        self.job_store.update_job(job)
             except Exception as e:
                 logger.error(f"Erro na remoção de ruído: {e}")
                 raise AudioNormalizationException(f"Falha na remoção de ruído: {str(e)}")
@@ -411,10 +494,11 @@ class AudioProcessor:
             try:
                 logger.info("Convertendo para mono...")
                 audio = audio.set_channels(1)
-                current_progress += progress_step
-                job.progress = current_progress
-                if self.job_store:
-                    self.job_store.update_job(job)
+                if not is_chunk:
+                    current_progress += progress_step
+                    job.progress = current_progress
+                    if self.job_store:
+                        self.job_store.update_job(job)
             except Exception as e:
                 logger.error(f"Erro ao converter para mono: {e}")
                 raise AudioNormalizationException(f"Falha na conversão para mono: {str(e)}")
@@ -424,10 +508,11 @@ class AudioProcessor:
             try:
                 logger.info("Aplicando filtro high-pass...")
                 audio = await self._apply_highpass_filter(audio)
-                current_progress += progress_step
-                job.progress = current_progress
-                if self.job_store:
-                    self.job_store.update_job(job)
+                if not is_chunk:
+                    current_progress += progress_step
+                    job.progress = current_progress
+                    if self.job_store:
+                        self.job_store.update_job(job)
             except Exception as e:
                 logger.error(f"Erro no filtro high-pass: {e}")
                 raise AudioNormalizationException(f"Falha no filtro high-pass: {str(e)}")
@@ -437,10 +522,11 @@ class AudioProcessor:
             try:
                 logger.info("Reduzindo sample rate para 16kHz...")
                 audio = audio.set_frame_rate(16000)
-                current_progress += progress_step
-                job.progress = current_progress
-                if self.job_store:
-                    self.job_store.update_job(job)
+                if not is_chunk:
+                    current_progress += progress_step
+                    job.progress = current_progress
+                    if self.job_store:
+                        self.job_store.update_job(job)
             except Exception as e:
                 logger.error(f"Erro ao ajustar sample rate: {e}")
                 raise AudioNormalizationException(f"Falha ao ajustar sample rate: {str(e)}")
