@@ -22,6 +22,33 @@ class TranscriptionProcessor:
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
         self.device = None  # Will be set in _load_model
     
+    def _check_disk_space(self, file_path: str, output_dir: str) -> bool:
+        """Verifica se há espaço em disco suficiente para transcrição."""
+        try:
+            import shutil
+            
+            file_size = os.path.getsize(file_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # Estima espaço necessário: 2x o tamanho do arquivo (transcripts são pequenos, mas previne)
+            estimated_space_needed = file_size * 2
+            
+            stat = shutil.disk_usage(output_dir)
+            available_space = stat.free
+            available_space_mb = available_space / (1024 * 1024)
+            
+            logger.info(f"💾 Espaço em disco - Disponível: {available_space_mb:.2f}MB, Estimado necessário: {estimated_space_needed/(1024*1024):.2f}MB")
+            
+            if available_space < estimated_space_needed:
+                logger.error(f"❌ Espaço em disco insuficiente! Disponível: {available_space_mb:.2f}MB")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
+            return True  # fail-open
+    
     def _detect_device(self):
         """Detecta e valida dispositivo (CUDA/CPU) disponível"""
         requested_device = self.settings.get('whisper_device', 'cpu').lower()
@@ -146,6 +173,13 @@ class TranscriptionProcessor:
         """Processa um job de transcrição"""
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
+            
+            # Verifica espaço em disco
+            if not self._check_disk_space(job.input_file, self.output_dir):
+                raise AudioTranscriptionException(
+                    "Espaço em disco insuficiente para transcrição. "
+                    "Libere espaço ou tente novamente mais tarde."
+                )
             
             # Atualiza status para processando
             job.status = JobStatus.PROCESSING

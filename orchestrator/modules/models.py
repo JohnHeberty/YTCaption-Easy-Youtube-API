@@ -85,7 +85,6 @@ class PipelineJob(BaseModel):
     convert_to_mono: bool = True
     apply_highpass_filter: bool = False
     set_sample_rate_16k: bool = True
-    isolate_vocals: bool = False
     
     # Estágios do pipeline
     download_stage: PipelineStage = Field(default_factory=lambda: PipelineStage(name="download"))
@@ -182,7 +181,6 @@ class PipelineRequest(BaseModel):
     convert_to_mono: Optional[bool] = Field(settings["default_convert_mono"], description="Converter para mono")
     apply_highpass_filter: Optional[bool] = Field(settings["default_highpass_filter"], description="Aplicar filtro high-pass")
     set_sample_rate_16k: Optional[bool] = Field(settings["default_sample_rate_16k"], description="Sample rate 16kHz")
-    isolate_vocals: Optional[bool] = Field(settings["default_isolate_vocals"], description="Isolar vocais (separa voz de música)")
 
 class PipelineResponse(BaseModel):
     """Resposta da criação do pipeline"""

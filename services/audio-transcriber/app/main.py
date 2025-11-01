@@ -839,10 +839,116 @@ async def get_stats():
 
 @app.get("/health")
 async def health_check():
-    """Health check simples"""
-    return {
+    """Health check profundo - valida recursos críticos"""
+    import shutil
+    import subprocess
+    from fastapi.responses import JSONResponse
+    
+    health_status = {
         "status": "healthy",
         "service": "audio-transcription", 
         "version": "2.0.0",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
     }
+    
+    is_healthy = True
+    
+    # 1. Verifica Redis
+    try:
+        await job_store.redis.ping()
+        health_status["checks"]["redis"] = {"status": "ok", "message": "Connected"}
+    except Exception as e:
+        health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 2. Verifica espaço em disco
+    try:
+        output_dir = Path(settings['transcription_dir'])
+        output_dir.mkdir(exist_ok=True, parents=True)
+        stat = shutil.disk_usage(output_dir)
+        free_gb = stat.free / (1024**3)
+        total_gb = stat.total / (1024**3)
+        percent_free = (stat.free / stat.total) * 100
+        
+        disk_status = "ok" if percent_free > 10 else "warning" if percent_free > 5 else "critical"
+        if percent_free <= 5:
+            is_healthy = False
+            
+        health_status["checks"]["disk_space"] = {
+            "status": disk_status,
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(total_gb, 2),
+            "percent_free": round(percent_free, 2)
+        }
+    except Exception as e:
+        health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 3. Verifica ffmpeg
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version = result.stdout.split('\n')[0]
+            health_status["checks"]["ffmpeg"] = {"status": "ok", "version": version}
+        else:
+            health_status["checks"]["ffmpeg"] = {"status": "error", "message": "ffmpeg not responding"}
+            is_healthy = False
+    except FileNotFoundError:
+        health_status["checks"]["ffmpeg"] = {"status": "error", "message": "ffmpeg not installed"}
+        is_healthy = False
+    except Exception as e:
+        health_status["checks"]["ffmpeg"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 4. Verifica Celery workers
+    try:
+        from .celery_config import celery_app
+        inspect = celery_app.control.inspect()
+        active_workers = inspect.active()
+        
+        if active_workers and len(active_workers) > 0:
+            health_status["checks"]["celery_workers"] = {
+                "status": "ok",
+                "active_workers": len(active_workers),
+                "workers": list(active_workers.keys())
+            }
+        else:
+            health_status["checks"]["celery_workers"] = {
+                "status": "warning",
+                "message": "No active workers detected"
+            }
+    except Exception as e:
+        health_status["checks"]["celery_workers"] = {"status": "error", "message": str(e)}
+    
+    # 5. Verifica modelo Whisper (não carrega, apenas verifica se existe)
+    try:
+        model_dir = Path(settings.get('whisper_download_root', './models'))
+        model_name = settings.get('whisper_model', 'base')
+        model_path = model_dir / f"{model_name}.pt"
+        
+        if model_path.exists():
+            health_status["checks"]["whisper_model"] = {
+                "status": "ok",
+                "model": model_name,
+                "path": str(model_path)
+            }
+        else:
+            health_status["checks"]["whisper_model"] = {
+                "status": "warning",
+                "message": f"Model {model_name} não encontrado (será baixado no primeiro uso)"
+            }
+    except Exception as e:
+        health_status["checks"]["whisper_model"] = {"status": "error", "message": str(e)}
+    
+    # Atualiza status geral
+    health_status["status"] = "healthy" if is_healthy else "unhealthy"
+    
+    status_code = 200 if is_healthy else 503
+    
+    return JSONResponse(content=health_status, status_code=status_code)

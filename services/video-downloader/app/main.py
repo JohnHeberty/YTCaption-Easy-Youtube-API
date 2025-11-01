@@ -686,40 +686,106 @@ async def get_queue_stats():
 @app.get("/health")
 async def health_check():
     """
-    Health check avançado com Celery
+    Health check profundo - valida recursos críticos
     """
+    import shutil
+    from fastapi.responses import JSONResponse
     from .celery_config import celery_app
     
-    # Verifica Celery
-    celery_healthy = False
-    workers_active = 0
+    health_status = {
+        "status": "healthy",
+        "service": "video-download-service", 
+        "version": "3.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
+    }
     
+    is_healthy = True
+    
+    # 1. Verifica Redis
+    try:
+        await job_store.redis.ping()
+        health_status["checks"]["redis"] = {"status": "ok", "message": "Connected"}
+    except Exception as e:
+        health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 2. Verifica espaço em disco
+    try:
+        cache_dir = Path(settings.get('cache_dir', './cache'))
+        cache_dir.mkdir(exist_ok=True, parents=True)
+        stat = shutil.disk_usage(cache_dir)
+        free_gb = stat.free / (1024**3)
+        total_gb = stat.total / (1024**3)
+        percent_free = (stat.free / stat.total) * 100
+        
+        disk_status = "ok" if percent_free > 10 else "warning" if percent_free > 5 else "critical"
+        if percent_free <= 5:
+            is_healthy = False
+            
+        health_status["checks"]["disk_space"] = {
+            "status": disk_status,
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(total_gb, 2),
+            "percent_free": round(percent_free, 2)
+        }
+    except Exception as e:
+        health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 3. Verifica Celery workers
     try:
         inspect = celery_app.control.inspect()
         active_workers = inspect.active()
-        celery_healthy = active_workers is not None
-        workers_active = len(active_workers) if active_workers else 0
-    except:
-        celery_healthy = False
+        
+        if active_workers and len(active_workers) > 0:
+            health_status["checks"]["celery_workers"] = {
+                "status": "ok",
+                "active_workers": len(active_workers),
+                "workers": list(active_workers.keys())
+            }
+        else:
+            health_status["checks"]["celery_workers"] = {
+                "status": "warning",
+                "message": "No active workers detected"
+            }
+    except Exception as e:
+        health_status["checks"]["celery_workers"] = {"status": "error", "message": str(e)}
     
-    overall_status = "healthy" if celery_healthy else "degraded"
+    # 4. Verifica yt-dlp
+    try:
+        import yt_dlp
+        version = yt_dlp.version.__version__
+        health_status["checks"]["yt_dlp"] = {"status": "ok", "version": version}
+    except Exception as e:
+        health_status["checks"]["yt_dlp"] = {"status": "error", "message": str(e)}
+        is_healthy = False
     
-    return {
-        "status": overall_status,
-        "service": "video-download-service", 
-        "version": "3.0.0",
-        "celery": {
-            "healthy": celery_healthy,
-            "workers_active": workers_active,
-            "broker": "redis"
-        },
-        "details": {
-            "celery_workers": "✅ Ativo" if celery_healthy else "❌ Problema",
-            "redis_broker": "✅ Ativo" if celery_healthy else "❌ Problema",
-            "job_store": "✅ Ativo",
-            "cache_cleanup": "✅ Ativo"
-        }
-    }
+    # 5. Verifica user agents
+    try:
+        stats = downloader.ua_manager.get_stats()
+        if stats["total"] > 0:
+            health_status["checks"]["user_agents"] = {
+                "status": "ok",
+                "total": stats["total"],
+                "active": stats["active"],
+                "quarantined": stats["quarantined"]
+            }
+        else:
+            health_status["checks"]["user_agents"] = {
+                "status": "warning",
+                "message": "No user agents available"
+            }
+    except Exception as e:
+        health_status["checks"]["user_agents"] = {"status": "error", "message": str(e)}
+    
+    # Atualiza status geral
+    health_status["status"] = "healthy" if is_healthy else "unhealthy"
+    
+    status_code = 200 if is_healthy else 503
+    
+    return JSONResponse(content=health_status, status_code=status_code)
+
 
 
 @app.get("/user-agents/stats")

@@ -54,8 +54,9 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         # Retry para requisições HTTP - Configuração unificada e mais robusta
         "microservice_max_retries": int(os.getenv("MICROSERVICE_MAX_RETRIES", "5")),  # Aumentado para 5
         "microservice_retry_delay": int(os.getenv("MICROSERVICE_RETRY_DELAY", "3")),  # 3s base para backoff
-        "circuit_breaker_max_failures": int(os.getenv("CIRCUIT_BREAKER_MAX_FAILURES", "5")),
-        "circuit_breaker_recovery_timeout": int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", "300")),  # 5min
+        "circuit_breaker_max_failures": int(os.getenv("CIRCUIT_BREAKER_MAX_FAILURES", "10")),  # Aumentado para 10
+        "circuit_breaker_recovery_timeout": int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", "60")),  # Reduzido para 1min
+        "circuit_breaker_half_open_max_requests": int(os.getenv("CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "3")),  # Tentativas no half-open
 
         # Parâmetros padrão dos microserviços
         "default_language": os.getenv("DEFAULT_LANGUAGE", "auto"),
@@ -63,7 +64,6 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "default_convert_mono": os.getenv("DEFAULT_CONVERT_MONO", "true").lower() == "true",
         "default_highpass_filter": os.getenv("DEFAULT_HIGHPASS_FILTER", "true").lower() == "true",
         "default_sample_rate_16k": os.getenv("DEFAULT_SAMPLE_RATE_16K", "true").lower() == "true",
-        "default_isolate_vocals": os.getenv("DEFAULT_ISOLATE_VOCALS", "true").lower() == "true",
     }
 
 # orchestrator/modules/config.py  (trecho sugerido)
@@ -99,8 +99,7 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
                 "remove_noise": settings["default_remove_noise"],
                 "convert_to_mono": settings["default_convert_mono"],
                 "set_sample_rate_16k": settings["default_sample_rate_16k"],
-                "apply_highpass_filter": False,
-                "isolate_vocals": False
+                "apply_highpass_filter": False
             }
         },
         "audio-transcriber": {

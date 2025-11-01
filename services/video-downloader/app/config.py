@@ -15,7 +15,7 @@ def get_settings():
         'processed_dir': os.getenv('PROCESSED_DIR', './processed'),
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),
         'security': {
-            'rate_limit_requests': int(os.getenv('SECURITY__RATE_LIMIT_REQUESTS', '100')),
+            'rate_limit_requests': int(os.getenv('SECURITY__RATE_LIMIT_REQUESTS', '5000')),
             'rate_limit_window': int(os.getenv('SECURITY__RATE_LIMIT_WINDOW', '60')),
             'enable_file_validation': os.getenv('SECURITY__ENABLE_FILE_CONTENT_VALIDATION', 'true').lower() == 'true',
             'validate_audio_headers': os.getenv('SECURITY__VALIDATE_AUDIO_HEADERS', 'true').lower() == 'true'

@@ -88,8 +88,7 @@ Inicia processamento completo de vídeo do YouTube.
   "remove_noise": true,           // Opcional: remover ruído
   "convert_to_mono": true,        // Opcional: converter para mono
   "apply_highpass_filter": false, // Opcional: filtro high-pass
-  "set_sample_rate_16k": true,    // Opcional: sample rate 16kHz
-  "isolate_vocals": false         // Opcional: isolar vocais
+  "set_sample_rate_16k": true     // Opcional: sample rate 16kHz
 }
 ```
 

@@ -146,8 +146,7 @@ async def process_youtube_video(
             remove_noise=request.remove_noise if request.remove_noise is not None else settings["default_remove_noise"],
             convert_to_mono=request.convert_to_mono if request.convert_to_mono is not None else settings["default_convert_mono"],
             apply_highpass_filter=request.apply_highpass_filter if request.apply_highpass_filter is not None else False,
-            set_sample_rate_16k=request.set_sample_rate_16k if request.set_sample_rate_16k is not None else settings["default_sample_rate_16k"],
-            isolate_vocals=request.isolate_vocals if request.isolate_vocals is not None else False
+            set_sample_rate_16k=request.set_sample_rate_16k if request.set_sample_rate_16k is not None else settings["default_sample_rate_16k"]
         )
         
         # Salva job inicial

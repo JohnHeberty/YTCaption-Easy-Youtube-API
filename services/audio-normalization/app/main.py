@@ -248,13 +248,17 @@ async def create_audio_job(
         
         # Validação 4: Arquivo não excede limite de tamanho? (usar configuração do .env)
         max_size_mb = settings['max_file_size_mb']
-        max_size = max_size_mb * 1024 * 1024
-        if len(content) > max_size:
-            logger.error(f"Arquivo muito grande: {len(content)} bytes (máximo: {max_size_mb}MB)")
+        max_size_bytes = max_size_mb * 1024 * 1024
+        file_size_mb = len(content) / (1024 * 1024)
+        
+        if len(content) > max_size_bytes:
+            logger.error(f"Arquivo muito grande: {len(content)} bytes ({file_size_mb:.2f}MB) - máximo permitido: {max_size_mb}MB")
             raise HTTPException(
                 status_code=413,
-                detail=f"Arquivo muito grande. Máximo: {max_size_mb}MB"
+                detail=f"Arquivo muito grande ({file_size_mb:.2f}MB). Máximo permitido: {max_size_mb}MB"
             )
+        
+        logger.info(f"✅ Validação de tamanho: {file_size_mb:.2f}MB / {max_size_mb}MB permitidos")
         
         # Validação básica de segurança (apenas tamanho - sem validar formato)
         try:
@@ -981,10 +985,98 @@ async def get_stats():
 
 @app.get("/health")
 async def health_check():
-    """Health check simples"""
-    return {
+    """Health check profundo - valida recursos críticos"""
+    import shutil
+    import subprocess
+    
+    health_status = {
         "status": "healthy",
         "service": "audio-normalization", 
         "version": "2.0.0",
-        "timestamp": datetime.now().isoformat()
+        "timestamp": datetime.now().isoformat(),
+        "checks": {}
     }
+    
+    is_healthy = True
+    
+    # 1. Verifica Redis
+    try:
+        await job_store.redis.ping()
+        health_status["checks"]["redis"] = {"status": "ok", "message": "Connected"}
+    except Exception as e:
+        health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 2. Verifica espaço em disco
+    try:
+        temp_dir = Path(settings['temp_dir'])
+        temp_dir.mkdir(exist_ok=True, parents=True)
+        stat = shutil.disk_usage(temp_dir)
+        free_gb = stat.free / (1024**3)
+        total_gb = stat.total / (1024**3)
+        percent_free = (stat.free / stat.total) * 100
+        
+        disk_status = "ok" if percent_free > 10 else "warning" if percent_free > 5 else "critical"
+        if percent_free <= 5:
+            is_healthy = False
+            
+        health_status["checks"]["disk_space"] = {
+            "status": disk_status,
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(total_gb, 2),
+            "percent_free": round(percent_free, 2)
+        }
+    except Exception as e:
+        health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 3. Verifica ffmpeg
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            version = result.stdout.split('\n')[0]
+            health_status["checks"]["ffmpeg"] = {"status": "ok", "version": version}
+        else:
+            health_status["checks"]["ffmpeg"] = {"status": "error", "message": "ffmpeg not responding"}
+            is_healthy = False
+    except FileNotFoundError:
+        health_status["checks"]["ffmpeg"] = {"status": "error", "message": "ffmpeg not installed"}
+        is_healthy = False
+    except Exception as e:
+        health_status["checks"]["ffmpeg"] = {"status": "error", "message": str(e)}
+        is_healthy = False
+    
+    # 4. Verifica Celery workers
+    try:
+        from .celery_config import celery_app
+        inspect = celery_app.control.inspect()
+        active_workers = inspect.active()
+        
+        if active_workers and len(active_workers) > 0:
+            health_status["checks"]["celery_workers"] = {
+                "status": "ok",
+                "active_workers": len(active_workers),
+                "workers": list(active_workers.keys())
+            }
+        else:
+            health_status["checks"]["celery_workers"] = {
+                "status": "warning",
+                "message": "No active workers detected"
+            }
+            # Não marca como unhealthy - workers podem estar temporariamente indisponíveis
+    except Exception as e:
+        health_status["checks"]["celery_workers"] = {"status": "error", "message": str(e)}
+        # Não marca como unhealthy - pode ser timeout temporário
+    
+    # Atualiza status geral
+    health_status["status"] = "healthy" if is_healthy else "unhealthy"
+    
+    # Retorna código HTTP apropriado
+    status_code = 200 if is_healthy else 503
+    
+    return JSONResponse(content=health_status, status_code=status_code)

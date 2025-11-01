@@ -8,6 +8,7 @@ import logging
 import asyncio
 from pydantic import ValidationError
 from celery import Task
+from celery import signals
 from .celery_config import celery_app
 from .models import Job, JobStatus
 from .processor import AudioProcessor
@@ -15,6 +16,75 @@ from .redis_store import RedisJobStore
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 
 logger = logging.getLogger(__name__)
+
+
+# ==========================================
+# SIGNAL HANDLERS PARA SINCRONIZAÇÃO REDIS
+# ==========================================
+
+@signals.task_failure.connect
+def task_failure_handler(sender=None, task_id=None, exception=None, args=None, kwargs=None, traceback=None, einfo=None, **kw):
+    """
+    Signal handler disparado quando uma task falha
+    Garante que o Redis Store seja atualizado mesmo em falhas inesperadas
+    """
+    logger.error(f"🔴 SIGNAL: Task failure detected for task_id={task_id}, exception={exception}")
+    
+    try:
+        # Extrai job_dict dos args
+        if args and len(args) > 0 and isinstance(args[0], dict):
+            job_dict = args[0]
+            job_id = job_dict.get('id', 'unknown')
+            
+            # Atualiza Redis Store
+            redis_url = os.getenv('REDIS_URL', None)
+            store = RedisJobStore(redis_url=redis_url)
+            
+            try:
+                # Reconstrói job e marca como FAILED
+                job = Job(**job_dict)
+                job.status = JobStatus.FAILED
+                job.error_message = f"Task failed: {str(exception)}"
+                job.progress = 0.0
+                
+                store.update_job(job)
+                logger.info(f"✅ SIGNAL: Updated Redis Store for failed job {job_id}")
+            except Exception as update_err:
+                logger.error(f"❌ SIGNAL: Failed to update Redis Store: {update_err}")
+    except Exception as handler_err:
+        logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
+
+
+@signals.task_revoked.connect
+def task_revoked_handler(sender=None, request=None, terminated=None, signum=None, expired=None, **kw):
+    """
+    Signal handler disparado quando uma task é revogada (killed, canceled)
+    """
+    task_id = request.id if request else 'unknown'
+    logger.error(f"🔴 SIGNAL: Task revoked task_id={task_id}, terminated={terminated}, signum={signum}")
+    
+    try:
+        # Tenta extrair job_dict do request
+        if request and hasattr(request, 'args') and request.args and len(request.args) > 0:
+            job_dict = request.args[0]
+            if isinstance(job_dict, dict):
+                job_id = job_dict.get('id', 'unknown')
+                
+                redis_url = os.getenv('REDIS_URL', None)
+                store = RedisJobStore(redis_url=redis_url)
+                
+                try:
+                    job = Job(**job_dict)
+                    job.status = JobStatus.FAILED
+                    job.error_message = f"Task revoked: terminated={terminated}, signal={signum}"
+                    job.progress = 0.0
+                    
+                    store.update_job(job)
+                    logger.info(f"✅ SIGNAL: Updated Redis Store for revoked job {job_id}")
+                except Exception as update_err:
+                    logger.error(f"❌ SIGNAL: Failed to update Redis Store: {update_err}")
+    except Exception as handler_err:
+        logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
 
 class CallbackTask(Task):
     def run(self, *args, **kwargs) -> None:
@@ -47,21 +117,40 @@ class CallbackTask(Task):
         return self._job_store
 
 
-@celery_app.task(bind=True, base=CallbackTask, name='normalize_audio_task')
+@celery_app.task(
+    bind=True, 
+    base=CallbackTask, 
+    name='normalize_audio_task',
+    autoretry_for=(ConnectionError, IOError, OSError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+    soft_time_limit=1500,
+    time_limit=1800
+)
 def normalize_audio_task(self, job_dict: dict) -> dict:
     """
     Task ULTRA-RESILIENTE do Celery para normalização de áudio.
     GARANTIA ABSOLUTA: Esta task NUNCA derruba a API - TODAS as exceções são capturadas e tratadas.
+    
+    Retry Policy:
+    - Auto-retry em: ConnectionError, IOError, OSError (falhas recuperáveis)
+    - Max retries: 3
+    - Backoff exponencial com jitter
+    - Soft timeout: 25 minutos
+    - Hard timeout: 30 minutos
     
     Args:
         job_dict (dict): Job serializado como dicionário.
     Returns:
         dict: Job atualizado como dicionário com status success/failure.
     """
-    from celery.exceptions import Ignore
+    from celery.exceptions import Ignore, WorkerLostError, SoftTimeLimitExceeded
     
     job_id = job_dict.get('id', 'unknown')
-    logger.info(f"🚀 Task iniciada para job {job_id}")
+    retry_count = self.request.retries
+    logger.info(f"🚀 Task iniciada para job {job_id} (tentativa {retry_count + 1}/{self.max_retries + 1})")
     
     try:
         # 1. RECONSTITUIÇÃO DO JOB - PRIMEIRA LINHA DE DEFESA
@@ -155,11 +244,39 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
                 logger.error(f"⏰ Job {job_id} TIMEOUT after {async_timeout}s")
                 job.status = JobStatus.FAILED
                 job.error_message = f"Processing timeout - job exceeded {async_timeout}s limit"
+            except SoftTimeLimitExceeded:
+                logger.error(f"⏰ Job {job_id} SOFT TIME LIMIT exceeded")
+                job.status = JobStatus.FAILED
+                job.error_message = "Processing exceeded soft time limit (25 minutes)"
             except Exception as process_inner_err:
                 logger.error(f"💥 Job {job_id} inner processing exception: {process_inner_err}", exc_info=True)
                 job.status = JobStatus.FAILED
                 job.error_message = f"Processing exception: {str(process_inner_err)}"
                 
+        except WorkerLostError as worker_lost_err:
+            # TRATAMENTO ESPECÍFICO PARA WORKER PERDIDO (OOM KILL, SIGKILL)
+            error_msg = f"Worker lost during processing (likely OOM or crash): {str(worker_lost_err)}"
+            logger.critical(f"💀 Job {job_id} WORKER LOST: {error_msg}")
+            
+            job.status = JobStatus.FAILED
+            job.error_message = error_msg
+            job.progress = 0.0
+            
+            # Atualiza store imediatamente
+            try:
+                self.job_store.update_job(job)
+            except Exception as redis_err:
+                logger.error(f"Failed to update job status after worker loss: {redis_err}")
+            
+            # Não tenta retry em caso de worker loss
+            self.update_state(state='FAILURE', meta={
+                'status': 'worker_lost',
+                'job_id': job_id,
+                'error': error_msg,
+                'progress': 0.0
+            })
+            raise Ignore()
+            
         except Exception as process_err:
             # TERCEIRA LINHA DE DEFESA - PROCESSAMENTO FALHOU COMPLETAMENTE
             error_msg = str(process_err)

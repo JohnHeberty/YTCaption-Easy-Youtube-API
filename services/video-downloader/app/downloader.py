@@ -28,6 +28,30 @@ class SimpleDownloader:
         # Referência para o job store será injetada
         self.job_store = None
     
+    def _check_disk_space(self, output_dir: str) -> bool:
+        """Verifica se há espaço em disco suficiente para download."""
+        try:
+            import shutil
+            
+            stat = shutil.disk_usage(output_dir)
+            available_space = stat.free
+            available_space_gb = available_space / (1024**3)
+            
+            # Verifica se há pelo menos 1GB livre
+            min_space_gb = 1.0
+            
+            logger.info(f"💾 Espaço em disco - Disponível: {available_space_gb:.2f}GB")
+            
+            if available_space_gb < min_space_gb:
+                logger.error(f"❌ Espaço em disco insuficiente! Disponível: {available_space_gb:.2f}GB, Mínimo: {min_space_gb}GB")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
+            return True  # fail-open
+
 
     
     def _get_format_selector(self, quality: str) -> str:
@@ -111,6 +135,14 @@ class SimpleDownloader:
         """
         import time
         import math
+        
+        # Verifica espaço em disco antes de começar
+        if not self._check_disk_space(str(self.cache_dir)):
+            job.status = JobStatus.FAILED
+            job.error_message = "Espaço em disco insuficiente para download (mínimo 1GB necessário)"
+            if self.job_store:
+                self.job_store.update_job(job)
+            return job
         
         max_user_agents = 3
         max_attempts_per_ua = 3

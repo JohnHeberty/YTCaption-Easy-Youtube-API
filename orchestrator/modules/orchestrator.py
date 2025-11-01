@@ -38,50 +38,95 @@ class MicroserviceClient:
         self.max_retries = self.config.get("max_retries", 3)
         self.retry_delay = self.config.get("retry_delay", 2)  # segundos
         
-        # Circuit breaker configurável
+        # Circuit breaker configurável com half-open state
         settings = get_orchestrator_settings()
         self.failure_count = 0
         self.max_failures = settings["circuit_breaker_max_failures"]
         self.recovery_timeout = settings["circuit_breaker_recovery_timeout"]
+        self.half_open_max_requests = settings.get("circuit_breaker_half_open_max_requests", 3)
         self.last_failure_time = None
-        self._circuit_open = False
+        self._circuit_state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
+        self._half_open_attempts = 0
+    
+    async def check_health(self) -> Dict[str, Any]:
+        """
+        Verifica health do microserviço
+        IMPORTANTE: Health checks NÃO afetam o circuit breaker
+        """
+        try:
+            url = f"{self.base_url}/health"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(url)
+                r.raise_for_status()
+                return r.json()
+        except Exception as e:
+            logger.warning(f"[{self.service_name}] Health check failed: {e}")
+            return {"status": "unhealthy", "error": str(e)}
 
     def _is_circuit_open(self) -> bool:
-        """Verifica se o circuit breaker está aberto"""
-        if not self._circuit_open:
+        """
+        Verifica se o circuit breaker está aberto
+        Implementa três estados: CLOSED, HALF_OPEN, OPEN
+        """
+        if self._circuit_state == "CLOSED":
             return False
-            
-        # Se passou o tempo de recovery, tenta fechar o circuito
-        if self.last_failure_time and datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
-            logger.info(f"[{self.service_name}] Circuit breaker attempting recovery after {self.recovery_timeout}s")
-            self._circuit_open = False
-            self.failure_count = 0
-            return False
-            
-        return True
+        
+        if self._circuit_state == "OPEN":
+            # Se passou o tempo de recovery, transiciona para HALF_OPEN
+            if self.last_failure_time and datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+                logger.info(f"[{self.service_name}] Circuit breaker transitioning to HALF_OPEN - testing recovery")
+                self._circuit_state = "HALF_OPEN"
+                self._half_open_attempts = 0
+                return False  # Permite tentativas no estado HALF_OPEN
+            return True  # Ainda está OPEN
+        
+        # Estado HALF_OPEN: permite algumas tentativas de teste
+        if self._circuit_state == "HALF_OPEN":
+            if self._half_open_attempts >= self.half_open_max_requests:
+                logger.warning(f"[{self.service_name}] Circuit breaker HALF_OPEN limit reached, reopening")
+                self._circuit_state = "OPEN"
+                self.last_failure_time = datetime.now()
+                return True
+            return False  # Permite tentativa
+        
+        return False
     
     def _record_success(self):
-        """Registra sucesso - fecha circuit breaker se estava aberto"""
-        if self._circuit_open:
-            logger.info(f"[{self.service_name}] Circuit breaker closed - service recovered")
-        self._circuit_open = False
+        """Registra sucesso - fecha circuit breaker completamente"""
+        if self._circuit_state != "CLOSED":
+            logger.info(f"[{self.service_name}] Circuit breaker CLOSED - service recovered (was {self._circuit_state})")
+        self._circuit_state = "CLOSED"
         self.failure_count = 0
+        self._half_open_attempts = 0
         self.last_failure_time = None
     
     def _record_failure(self):
         """Registra falha - pode abrir circuit breaker"""
-        self.failure_count += 1
         self.last_failure_time = datetime.now()
         
-        if self.failure_count >= self.max_failures and not self._circuit_open:
-            self._circuit_open = True
-            logger.error(f"[{self.service_name}] Circuit breaker OPENED after {self.failure_count} failures - service will be avoided for {self.recovery_timeout}s")
+        if self._circuit_state == "HALF_OPEN":
+            # Se falhar no HALF_OPEN, volta para OPEN
+            self._half_open_attempts += 1
+            if self._half_open_attempts >= self.half_open_max_requests:
+                self._circuit_state = "OPEN"
+                logger.error(f"[{self.service_name}] Circuit breaker OPENED - recovery failed after {self._half_open_attempts} attempts")
+            return
+        
+        if self._circuit_state == "CLOSED":
+            self.failure_count += 1
+            if self.failure_count >= self.max_failures:
+                self._circuit_state = "OPEN"
+                logger.error(f"[{self.service_name}] Circuit breaker OPENED after {self.failure_count} consecutive failures - will retry in {self.recovery_timeout}s")
 
     async def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
         """Executa função com retry exponential backoff e circuit breaker"""
         # Verifica circuit breaker
         if self._is_circuit_open():
-            raise RuntimeError(f"[{self.service_name}] Circuit breaker is OPEN - service unavailable")
+            raise RuntimeError(f"[{self.service_name}] Circuit breaker is {self._circuit_state} - service unavailable")
+        
+        # Incrementa contador se está em HALF_OPEN
+        if self._circuit_state == "HALF_OPEN":
+            self._half_open_attempts += 1
         
         last_error = None
         for attempt in range(self.max_retries):
@@ -408,7 +453,6 @@ class PipelineOrchestrator:
                 "convert_to_mono": _bool_to_str(job.convert_to_mono if job.convert_to_mono is not None else defaults.get("convert_to_mono", False)),
                 "apply_highpass_filter": _bool_to_str(job.apply_highpass_filter if job.apply_highpass_filter is not None else defaults.get("apply_highpass_filter", False)),
                 "set_sample_rate_16k": _bool_to_str(job.set_sample_rate_16k if job.set_sample_rate_16k is not None else defaults.get("set_sample_rate_16k", False)),
-                "isolate_vocals": _bool_to_str(job.isolate_vocals if job.isolate_vocals is not None else defaults.get("isolate_vocals", False)),
             }
 
             resp = await self.audio_client.submit_multipart(files=files, data=data)

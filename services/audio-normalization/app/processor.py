@@ -16,79 +16,11 @@ from .exceptions import AudioNormalizationException
 
 logger = logging.getLogger(__name__)
 
-# Para isolamento vocal com openunmix
-try:
-    import torch
-    import openunmix
-    OPENUNMIX_AVAILABLE = True
-    TORCH_AVAILABLE = True
-    logger.info("✅ PyTorch e OpenUnmix disponíveis para isolamento vocal")
-except ImportError:
-    OPENUNMIX_AVAILABLE = False
-    TORCH_AVAILABLE = False
-    logger.warning("⚠️ OpenUnmix não disponível. Isolamento vocal será desabilitado")
-
 
 class AudioProcessor:
     def __init__(self):
         self.job_store = None  # Will be injected
-        self._openunmix_model = None
-        self.device = None  # Will be set when loading model
         self._load_config()
-        self._detect_device()
-    
-    def _detect_device(self):
-        """Detecta e valida dispositivo (CUDA/CPU) disponível"""
-        if not TORCH_AVAILABLE:
-            self.device = 'cpu'
-            logger.info("ℹ️ PyTorch não disponível - usando CPU")
-            return
-        
-        # Verifica disponibilidade de CUDA
-        cuda_available = torch.cuda.is_available()
-        
-        if cuda_available:
-            device_count = torch.cuda.device_count()
-            device_name = torch.cuda.get_device_name(0)
-            cuda_version = torch.version.cuda
-            logger.info(f"🎮 CUDA DISPONÍVEL!")
-            logger.info(f"   └─ GPUs detectadas: {device_count}")
-            logger.info(f"   └─ GPU 0: {device_name}")
-            logger.info(f"   └─ CUDA Version: {cuda_version}")
-            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
-            self.device = 'cuda'
-            logger.info(f"✅ Usando GPU (CUDA) para processamento de áudio")
-        else:
-            self.device = 'cpu'
-            logger.info(f"ℹ️ CUDA não disponível - usando CPU")
-            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
-    
-    def _test_gpu(self):
-        """Testa se GPU está funcionando corretamente"""
-        if not TORCH_AVAILABLE or self.device != 'cuda':
-            return
-        
-        try:
-            # Cria tensor de teste na GPU
-            test_tensor = torch.randn(1000, 1000).to('cuda')
-            result = test_tensor @ test_tensor.T
-            
-            # Verifica memória GPU
-            memory_allocated = torch.cuda.memory_allocated(0) / 1024**2  # MB
-            memory_reserved = torch.cuda.memory_reserved(0) / 1024**2    # MB
-            
-            logger.info(f"🔥 GPU funcionando corretamente!")
-            logger.info(f"   └─ Memória Alocada: {memory_allocated:.2f} MB")
-            logger.info(f"   └─ Memória Reservada: {memory_reserved:.2f} MB")
-            
-            # Limpa tensor de teste
-            del test_tensor, result
-            torch.cuda.empty_cache()
-            
-        except Exception as e:
-            logger.error(f"⚠️ Erro ao testar GPU: {e}")
-            logger.warning("GPU pode não estar funcionando corretamente")
-            self.device = 'cpu'  # Fallback para CPU
     
     def _load_config(self):
         """Carrega configurações do .env"""
@@ -96,6 +28,7 @@ class AudioProcessor:
         settings = get_settings()
         
         self.config = {
+            'temp_dir': settings['temp_dir'],
             'streaming_threshold_mb': settings['audio_chunking']['streaming_threshold_mb'],
             'chunking_enabled': settings['audio_chunking']['enabled'],
             'chunk_size_mb': settings['audio_chunking']['chunk_size_mb'],
@@ -111,6 +44,36 @@ class AudioProcessor:
         }
         
         logger.info(f"🔧 Config carregada: chunking={self.config['chunking_enabled']}, chunk_size={self.config['chunk_size_mb']}MB, streaming_threshold={self.config['streaming_threshold_mb']}MB")
+    
+    def _check_disk_space(self, file_path: str, temp_dir: Path) -> bool:
+        """Verifica se há espaço em disco suficiente para processar o arquivo."""
+        try:
+            import shutil
+            
+            # Obtém tamanho do arquivo de entrada
+            file_size = os.path.getsize(file_path)
+            file_size_mb = file_size / (1024 * 1024)
+            
+            # Estima espaço necessário: 3x o tamanho do arquivo (margem de segurança)
+            estimated_space_needed = file_size * 3
+            
+            # Verifica espaço disponível
+            stat = shutil.disk_usage(temp_dir)
+            available_space = stat.free
+            available_space_mb = available_space / (1024 * 1024)
+            
+            logger.info(f"💾 Espaço em disco - Disponível: {available_space_mb:.2f}MB, Necessário: {estimated_space_needed/(1024*1024):.2f}MB")
+            
+            if available_space < estimated_space_needed:
+                logger.error(f"❌ Espaço em disco insuficiente! Disponível: {available_space_mb:.2f}MB, Necessário: {estimated_space_needed/(1024*1024):.2f}MB")
+                return False
+            
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
+            # Em caso de erro na verificação, prossegue (fail-open)
+            return True
     
     def _should_use_streaming_processing(self, file_path: str) -> bool:
         """Verifica se o processamento via streaming deve ser usado com base no tamanho do arquivo."""
@@ -372,7 +335,22 @@ class AudioProcessor:
         """Processa o áudio em chunks lidos do disco para economizar memória."""
         logger.info("🌊 Processando áudio via streaming (arquivo grande).")
         
-        temp_dir = Path(tempfile.mkdtemp(prefix=f"job_{job.id}_"))
+        # Usa diretório temporário configurado
+        base_temp_dir = Path(self.config['temp_dir'])
+        base_temp_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Verifica espaço em disco antes de começar
+        if not self._check_disk_space(job.input_file, base_temp_dir):
+            raise AudioNormalizationException(
+                "Espaço em disco insuficiente para processar o arquivo. "
+                "Por favor, libere espaço ou tente novamente mais tarde."
+            )
+        
+        # Cria subdiretório para este job
+        temp_dir = base_temp_dir / f"job_{job.id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        temp_dir.mkdir(exist_ok=True, parents=True)
+        logger.info(f"📁 Diretório temporário criado: {temp_dir}")
+        
         chunk_paths = []
         processed_chunk_paths = []
 
@@ -441,10 +419,25 @@ class AudioProcessor:
             return final_audio
 
         finally:
-            # 4. Limpeza dos arquivos temporários
+            # 4. Limpeza dos arquivos temporários (SEMPRE executa)
             import shutil
-            logger.info(f"🧹 Limpando diretório temporário: {temp_dir}")
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            try:
+                if temp_dir.exists():
+                    logger.info(f"🧹 Limpando diretório temporário: {temp_dir}")
+                    shutil.rmtree(temp_dir, ignore_errors=False)
+                    logger.info(f"✅ Diretório temporário removido com sucesso")
+            except Exception as cleanup_error:
+                logger.error(f"⚠️ Erro ao limpar diretório temporário {temp_dir}: {cleanup_error}")
+                # Tenta remover arquivos individualmente
+                try:
+                    for file_path in temp_dir.glob("*"):
+                        try:
+                            file_path.unlink()
+                            logger.info(f"   🗑️ Arquivo removido: {file_path.name}")
+                        except Exception as file_error:
+                            logger.warning(f"   ⚠️ Falha ao remover {file_path.name}: {file_error}")
+                except Exception as final_error:
+                    logger.error(f"❌ Falha crítica na limpeza: {final_error}")
     
     async def _apply_processing_operations(self, audio: AudioSegment, job: Job, is_chunk: bool = False) -> AudioSegment:
         """Aplica operações de processamento condicionalmente com tratamento robusto de erros"""
