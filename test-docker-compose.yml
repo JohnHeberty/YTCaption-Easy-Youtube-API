@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:6.2-alpine
+    container_name: test-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    networks:
+      - test-network
+
+  audio-transcriber:
+    build: ./services/audio-transcriber
+    container_name: test-audio-transcriber
+    ports:
+      - "8021:8002"
+    volumes:
+      - ./services/audio-transcriber/uploads:/app/uploads
+      - ./services/audio-transcriber/processed:/app/processed
+      - ./services/audio-transcriber/temp:/app/temp
+      - ./services/audio-transcriber/logs:/app/logs
+      - ./services/audio-transcriber/transcriptions:/app/transcriptions
+      - ./services/audio-transcriber/models:/app/models
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/3
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/transcriptions
+      - TEMP_DIR=/app/temp
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - test-network
+
+  audio-transcriber-celery:
+    build: ./services/audio-transcriber
+    container_name: test-audio-transcriber-celery
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcription_queue
+    volumes:
+      - ./services/audio-transcriber/uploads:/app/uploads
+      - ./services/audio-transcriber/processed:/app/processed
+      - ./services/audio-transcriber/temp:/app/temp
+      - ./services/audio-transcriber/logs:/app/logs
+      - ./services/audio-transcriber/transcriptions:/app/transcriptions
+      - ./services/audio-transcriber/models:/app/models
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://redis:6379/3
+      - CACHE_TTL_HOURS=24
+      - CLEANUP_INTERVAL_MINUTES=30
+      - LOG_LEVEL=INFO
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/transcriptions
+      - TEMP_DIR=/app/temp
+    depends_on:
+      - redis
+      - audio-transcriber
+    restart: unless-stopped
+    networks:
+      - test-network
+
+networks:
+  test-network:
+    driver: bridge

@@ -189,7 +189,7 @@ def download_video_task(self, job_dict: dict) -> dict:
                 self.update_state(state='SUCCESS', meta={
                     'status': 'completed',
                     'job_id': job_id,
-                    'output_file': result_job.output_file,
+                    'output_file': result_job.file_path,
                     'progress': 100.0
                 })
             else:
