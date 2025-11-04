@@ -12,7 +12,7 @@ from .processor import AudioProcessor
 from .redis_store import RedisJobStore
 from .config import get_settings
 from .logging_config import setup_logging, get_logger
-from .exceptions import AudioProcessingError, ValidationError, SecurityError
+from .exceptions import AudioProcessingError
 
 # Configuração inicial
 settings = get_settings()
@@ -51,27 +51,7 @@ class BodySizeMiddleware(BaseHTTPMiddleware):
 max_body_size = settings['max_file_size_mb'] * 1024 * 1024
 app.add_middleware(BodySizeMiddleware, max_size=max_body_size)
 
-# Importa e adiciona middleware de segurança
-from .security import SecurityMiddleware, validate_audio_file
-app.add_middleware(SecurityMiddleware)
-
 # Exception handlers
-@app.exception_handler(ValidationError)
-async def validation_exception_handler(request, exc):
-    logger.error(f"Validation error: {exc}")
-    return JSONResponse(
-        status_code=400,
-        content={"detail": str(exc), "type": "validation_error"}
-    )
-
-@app.exception_handler(SecurityError)
-async def security_exception_handler(request, exc):
-    logger.error(f"Security error: {exc}")
-    return JSONResponse(
-        status_code=403,
-        content={"detail": str(exc), "type": "security_error"}
-    )
-
 @app.exception_handler(AudioProcessingError)
 async def processing_exception_handler(request, exc):
     logger.error(f"Processing error: {exc}")
@@ -260,15 +240,7 @@ async def create_audio_job(
         
         logger.info(f"✅ Validação de tamanho: {file_size_mb:.2f}MB / {max_size_mb}MB permitidos")
         
-        # Validação básica de segurança (apenas tamanho - sem validar formato)
-        try:
-            validate_audio_file(file.filename, content)
-            logger.info(f"Validação básica concluída: {file.filename}")
-        except (ValidationError, SecurityError) as e:
-            logger.error(f"Validação básica falhou para {file.filename}: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
-        
-        logger.info("IMPORTANTE: Validação real de formato será feita com ffprobe durante processamento")
+        logger.info("Validação de formato será feita durante processamento com ffprobe/ffmpeg")
         
         # Salva arquivo usando apenas job_id para evitar problemas com caracteres especiais
         upload_dir = Path("./uploads")

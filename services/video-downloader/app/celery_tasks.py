@@ -147,7 +147,6 @@ def download_video_task(self, job_dict: dict) -> dict:
         Job atualizado como dicionário
     """
     from celery.exceptions import Ignore, WorkerLostError, SoftTimeLimitExceeded
-    from pydantic import ValidationError
     
     job_id = job_dict.get('id', 'unknown')
     retry_count = self.request.retries
@@ -158,7 +157,7 @@ def download_video_task(self, job_dict: dict) -> dict:
         try:
             job = Job(**job_dict)
             logger.info(f"✅ Job {job_id} reconstituído com sucesso")
-        except ValidationError as ve:
+        except Exception as ve:
             logger.error(f"❌ Erro de validação ao reconstituir job {job_id}: {ve}")
             self.update_state(state='FAILURE', meta={
                 'status': 'failed',

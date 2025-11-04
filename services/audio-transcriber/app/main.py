@@ -12,7 +12,6 @@ from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
 from .logging_config import setup_logging, get_logger
 from .exceptions import AudioTranscriptionException, ServiceException, exception_handler
-from .security import SecurityMiddleware, validate_audio_file
 from .config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
 
 # Configuração de logging
@@ -26,9 +25,6 @@ app = FastAPI(
     description="Microserviço para transcrição de áudio com cache de 24h",
     version="2.0.0"
 )
-
-# Middleware de segurança
-app.add_middleware(SecurityMiddleware)
 
 # Exception handlers
 app.add_exception_handler(AudioTranscriptionException, exception_handler)
@@ -143,11 +139,6 @@ async def create_transcription_job(
             # Aviso: language_out igual a language_in não faz sentido (exceto se in='auto')
             if language_out == language_in and language_in != "auto":
                 logger.warning(f"language_out='{language_out}' igual a language_in='{language_in}', tradução não será aplicada")
-        
-        # Validação de segurança
-        file_content = await file.read()
-        await file.seek(0)  # Reset para ler novamente depois
-        validate_audio_file(file.filename, file_content)
         
         logger.info(f"Criando job: arquivo={file.filename}, language_in={language_in}, language_out={language_out or 'same'}")
         

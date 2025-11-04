@@ -186,21 +186,7 @@ class TranscriptionProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
-            # Validação robusta do arquivo com ffprobe
-            from .security import validate_audio_content_with_ffprobe
-            try:
-                file_info = validate_audio_content_with_ffprobe(job.input_file)
-                logger.info(f"Arquivo validado com ffprobe: {file_info['type']}")
-                
-                # Se for vídeo, extrai áudio automaticamente
-                if file_info['type'] == 'video_with_audio':
-                    logger.info("Arquivo de vídeo detectado, extraindo áudio...")
-                    job.input_file = await self._extract_audio_from_video(job.input_file)
-                    logger.info(f"Áudio extraído para: {job.input_file}")
-                    
-            except Exception as e:
-                logger.error(f"Validação ffprobe falhou: {e}")
-                raise AudioTranscriptionException(str(e))
+            logger.info(f"Processando arquivo (validação será feita pelo whisper): {job.input_file}")
             
             # Carrega modelo se necessário
             self._load_model()

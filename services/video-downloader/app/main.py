@@ -13,7 +13,6 @@ from .redis_store import RedisJobStore
 from .celery_tasks import download_video_task
 from .logging_config import setup_logging
 from .exceptions import VideoDownloadException, ServiceException, exception_handler
-from .security import SecurityMiddleware
 from .config import get_settings
 
 # Configuração de logging
@@ -27,9 +26,6 @@ app = FastAPI(
     description="Microserviço com Celery + Redis para download de vídeos com cache de 24h",
     version="3.0.0"
 )
-
-# Middleware de segurança
-app.add_middleware(SecurityMiddleware)
 
 # Exception handlers
 app.add_exception_handler(VideoDownloadException, exception_handler)

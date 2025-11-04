@@ -6,7 +6,6 @@ Tasks do Celery para normalização de áudio
 import os
 import logging
 import asyncio
-from pydantic import ValidationError
 from celery import Task
 from celery import signals
 from .celery_config import celery_app
@@ -157,7 +156,7 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
         try:
             job = Job(**job_dict)
             logger.info(f"✅ Job {job_id} reconstitution successful")
-        except ValidationError as ve:
+        except Exception as ve:
             logger.error(f"❌ Job {job_id} validation error during reconstitution: {ve}")
             # Fallback: preenche campos ausentes com defaults
             fields = {}

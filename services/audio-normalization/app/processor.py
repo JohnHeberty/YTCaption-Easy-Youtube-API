@@ -244,20 +244,13 @@ class AudioProcessor:
             job.progress = 2.0
             if self.job_store: self.job_store.update_job(job)
 
-            # Validação do arquivo
-            try:
-                from .security import validate_audio_content_with_ffprobe
-                logger.info(f"Validando arquivo com ffprobe: {job.input_file}")
-                file_info = validate_audio_content_with_ffprobe(job.input_file)
-                logger.info(f"Arquivo válido - Áudio: {file_info['has_audio']}, Vídeo: {file_info['has_video']}")
-            except Exception as e:
-                logger.error(f"Validação ffprobe falhou: {e}")
-                raise AudioNormalizationException(str(e))
+            logger.info(f"Processando arquivo (validação será feita pelo ffmpeg): {job.input_file}")
 
             job.progress = 5.0
             if self.job_store: self.job_store.update_job(job)
 
             # DECISÃO CRÍTICA: Usar streaming ou carregar na memória?
+            file_info = {'has_audio': True, 'has_video': False}  # Assume áudio por padrão
             if self._should_use_streaming_processing(job.input_file):
                 processed_audio = await self._process_audio_with_streaming(job, file_info)
             else:

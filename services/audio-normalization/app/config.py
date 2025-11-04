@@ -97,17 +97,6 @@ def get_settings():
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),
         'log_format': os.getenv('LOG_FORMAT', 'json'),
         'log_rotation': os.getenv('LOG_ROTATION', '1 day'),
-        'log_retention': os.getenv('LOG_RETENTION', '30 days'),
-        
-        # ===== SEGURANÇA =====
-        'security': {
-            'rate_limit_requests': int(os.getenv('SECURITY__RATE_LIMIT_REQUESTS', '5000')),
-            'rate_limit_window': int(os.getenv('SECURITY__RATE_LIMIT_WINDOW', '60')),
-            'enable_file_validation': os.getenv('SECURITY__ENABLE_FILE_CONTENT_VALIDATION', 'true').lower() == 'true',
-            'validate_audio_headers': os.getenv('SECURITY__VALIDATE_AUDIO_HEADERS', 'true').lower() == 'true',
-            'enable_virus_scan': os.getenv('SECURITY__ENABLE_VIRUS_SCAN', 'false').lower() == 'true',
-            'max_upload_attempts': int(os.getenv('SECURITY__MAX_UPLOAD_ATTEMPTS', '3')),
-            'check_file_entropy': os.getenv('SECURITY__CHECK_FILE_ENTROPY', 'false').lower() == 'true',
-        }
+        'log_retention': os.getenv('LOG_RETENTION', '30 days')
     }
 
