@@ -700,7 +700,7 @@ async def health_check():
     
     # 1. Verifica Redis
     try:
-        await job_store.redis.ping()
+        job_store.redis.ping()
         health_status["checks"]["redis"] = {"status": "ok", "message": "Connected"}
     except Exception as e:
         health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
