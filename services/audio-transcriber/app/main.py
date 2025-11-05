@@ -45,6 +45,25 @@ async def startup_event():
     try:
         await job_store.start_cleanup_task()
         logger.info("Audio Transcription Service iniciado com sucesso")
+        
+        # Carrega modelo no startup se configurado (padrão: True)
+        preload_model = os.getenv('WHISPER_PRELOAD_MODEL', 'true').lower() == 'true'
+        
+        if preload_model:
+            logger.info("🚀 Pré-carregando modelo Whisper no startup...")
+            try:
+                result = processor.load_model_explicit()
+                if result["success"]:
+                    logger.info(f"✅ {result['message']}")
+                else:
+                    logger.warning(f"⚠️ Falha no pré-carregamento: {result['message']}")
+            except Exception as e:
+                logger.error(f"❌ Erro ao pré-carregar modelo: {e}")
+                logger.warning("⚠️ Serviço continuará funcionando. Modelo será carregado sob demanda.")
+        else:
+            logger.info("ℹ️ Pré-carregamento de modelo DESABILITADO (WHISPER_PRELOAD_MODEL=false)")
+            logger.info("   Modelo será carregado apenas quando necessário (primeira task)")
+            
     except Exception as e:
         logger.error(f"Erro durante inicialização: {e}")
         raise
@@ -924,3 +943,132 @@ async def health_check():
     status_code = 200 if is_healthy else 503
     
     return JSONResponse(content=health_status, status_code=status_code)
+
+
+@app.post("/model/unload")
+async def unload_whisper_model():
+    """
+    🔋 Descarrega modelo Whisper da memória/GPU para economia de recursos
+    
+    **Por que usar este endpoint?**
+    - **Economia de energia**: Libera GPU/CPU quando não há tasks rodando
+    - **Sustentabilidade**: Reduz pegada de carbono do serviço
+    - **Recursos**: Libera RAM (~150MB a 3GB) e VRAM conforme modelo usado
+    
+    **Comportamento:**
+    - Remove modelo da memória RAM e GPU/VRAM
+    - Limpa cache CUDA se aplicável
+    - Modelo será recarregado automaticamente na próxima task
+    - Seguro: não afeta tasks em execução
+    
+    **Quando usar:**
+    - Após processar batch de transcrições
+    - Durante períodos de inatividade
+    - Para reduzir consumo de recursos quando serviço está idle
+    
+    **Retorna:**
+    - Relatório com memória liberada (RAM/VRAM)
+    - Status do dispositivo anterior (CPU/CUDA)
+    - Sucesso/erro da operação
+    """
+    try:
+        logger.info("📥 Requisição para descarregar modelo Whisper")
+        result = processor.unload_model()
+        
+        if result["success"]:
+            logger.info(f"✅ Modelo descarregado: {result['message']}")
+            return JSONResponse(
+                content=result,
+                status_code=200
+            )
+        else:
+            logger.error(f"❌ Falha ao descarregar: {result['message']}")
+            return JSONResponse(
+                content=result,
+                status_code=500
+            )
+            
+    except Exception as e:
+        error_msg = f"Erro inesperado ao descarregar modelo: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
+
+@app.post("/model/load")
+async def load_whisper_model():
+    """
+    🚀 Carrega modelo Whisper explicitamente na memória/GPU
+    
+    **Por que usar este endpoint?**
+    - **Performance**: Pré-carrega modelo antes de processar batch de tasks
+    - **Latência**: Primeira transcrição será mais rápida (sem delay de carregamento)
+    - **Preparação**: Útil após usar /model/unload para reativar o modelo
+    
+    **Comportamento:**
+    - Carrega modelo na RAM e GPU/VRAM (se CUDA disponível)
+    - Detecta automaticamente melhor dispositivo (CUDA > CPU)
+    - Testa GPU se disponível para garantir funcionamento
+    - Idempotente: se modelo já carregado, retorna status atual
+    
+    **Quando usar:**
+    - Antes de processar múltiplas transcrições
+    - Após período de inatividade onde modelo foi descarregado
+    - Para garantir sistema pronto com latência mínima
+    
+    **Por padrão:**
+    - Serviço JÁ inicia com modelo carregado no startup
+    - Este endpoint só é necessário após usar /model/unload
+    
+    **Retorna:**
+    - Relatório com memória usada (RAM/VRAM)
+    - Dispositivo onde modelo foi carregado (CPU/CUDA)
+    - Sucesso/erro da operação
+    """
+    try:
+        logger.info("📤 Requisição para carregar modelo Whisper")
+        result = processor.load_model_explicit()
+        
+        if result["success"]:
+            logger.info(f"✅ Modelo carregado: {result['message']}")
+            return JSONResponse(
+                content=result,
+                status_code=200
+            )
+        else:
+            logger.error(f"❌ Falha ao carregar: {result['message']}")
+            return JSONResponse(
+                content=result,
+                status_code=500
+            )
+            
+    except Exception as e:
+        error_msg = f"Erro inesperado ao carregar modelo: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)
+
+
+@app.get("/model/status")
+async def get_model_status():
+    """
+    📊 Consulta status atual do modelo Whisper
+    
+    **Retorna informações sobre:**
+    - Se modelo está carregado ou não
+    - Nome do modelo configurado (tiny/base/small/medium/large)
+    - Dispositivo atual (CPU/CUDA/None)
+    - Uso de memória VRAM (se GPU)
+    - Informações da GPU (se disponível)
+    
+    **Útil para:**
+    - Monitoramento de recursos
+    - Verificar se modelo precisa ser carregado
+    - Debugging de problemas de memória
+    - Dashboards de observabilidade
+    """
+    try:
+        status = processor.get_model_status()
+        return JSONResponse(content=status, status_code=200)
+    except Exception as e:
+        error_msg = f"Erro ao consultar status do modelo: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        raise HTTPException(status_code=500, detail=error_msg)

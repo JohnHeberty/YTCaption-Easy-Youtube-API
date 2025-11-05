@@ -21,6 +21,7 @@ class TranscriptionProcessor:
         self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
         self.device = None  # Will be set in _load_model
+        self.model_loaded = False  # Track if model is loaded
     
     def _check_disk_space(self, file_path: str, output_dir: str) -> bool:
         """Verifica se há espaço em disco suficiente para transcrição."""
@@ -118,6 +119,7 @@ class TranscriptionProcessor:
                         # Carrega modelo
                         self.model = whisper.load_model(model_name, device=self.device, download_root=download_root)
                         
+                        self.model_loaded = True
                         logger.info(f"✅ Modelo Whisper carregado com sucesso no {self.device.upper()}")
                             
                         return
@@ -154,6 +156,218 @@ class TranscriptionProcessor:
         except Exception as e:
             logger.error(f"⚠️ Erro ao testar GPU: {e}")
             logger.warning("GPU pode não estar funcionando corretamente")
+    
+    def unload_model(self) -> dict:
+        """
+        Descarrega modelo Whisper da memória/GPU para economia de recursos.
+        
+        Libera:
+        - Memória RAM (~500MB - 3GB dependendo do modelo)
+        - Memória GPU/VRAM (se CUDA disponível)
+        - Reduz consumo energético
+        - Reduz pegada de carbono
+        
+        Returns:
+            dict: Relatório com memória liberada e status
+        """
+        try:
+            report = {
+                "success": False,
+                "message": "",
+                "memory_freed": {
+                    "ram_mb": 0.0,
+                    "vram_mb": 0.0
+                },
+                "device_was": None,
+                "model_name": self.settings.get('whisper_model', 'base')
+            }
+            
+            if self.model is None or not self.model_loaded:
+                report["message"] = "Modelo já estava descarregado"
+                report["success"] = True
+                logger.info("ℹ️ Modelo Whisper já estava descarregado")
+                return report
+            
+            # Captura informações antes de descarregar
+            report["device_was"] = self.device
+            
+            # Se está na GPU, captura uso de memória ANTES
+            vram_before = 0.0
+            if self.device == 'cuda' and torch.cuda.is_available():
+                vram_before = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                logger.info(f"📊 VRAM antes do unload: {vram_before:.2f} MB")
+            
+            # Remove modelo
+            logger.warning(f"🔥 Descarregando modelo Whisper '{report['model_name']}' do {self.device}...")
+            
+            del self.model
+            self.model = None
+            self.model_loaded = False
+            self.device = None
+            
+            # Força garbage collection
+            import gc
+            gc.collect()
+            
+            # Se estava na GPU, limpa cache CUDA
+            if report["device_was"] == 'cuda' and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Aguarda operações GPU finalizarem
+                
+                # Captura memória APÓS
+                vram_after = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                report["memory_freed"]["vram_mb"] = round(vram_before - vram_after, 2)
+                
+                logger.info(f"📊 VRAM depois do unload: {vram_after:.2f} MB")
+                logger.info(f"✅ VRAM liberada: {report['memory_freed']['vram_mb']} MB")
+            
+            # Estima RAM liberada baseado no modelo
+            # tiny: ~75MB, base: ~150MB, small: ~500MB, medium: ~1.5GB, large: ~3GB
+            model_sizes = {
+                'tiny': 75,
+                'base': 150,
+                'small': 500,
+                'medium': 1500,
+                'large': 3000
+            }
+            report["memory_freed"]["ram_mb"] = model_sizes.get(report['model_name'], 150)
+            
+            report["success"] = True
+            report["message"] = (
+                f"✅ Modelo '{report['model_name']}' descarregado com sucesso do {report['device_was'].upper()}. "
+                f"Recursos liberados para economia de energia e redução de pegada de carbono. "
+                f"Modelo será recarregado automaticamente quando houver nova task."
+            )
+            
+            logger.warning(f"♻️ Modelo Whisper DESCARREGADO - Economia de recursos ativada")
+            logger.info(f"   └─ RAM liberada (estimado): ~{report['memory_freed']['ram_mb']} MB")
+            if report["memory_freed"]["vram_mb"] > 0:
+                logger.info(f"   └─ VRAM liberada: {report['memory_freed']['vram_mb']} MB")
+            logger.info(f"   └─ Dispositivo anterior: {report['device_was'].upper()}")
+            
+            return report
+            
+        except Exception as e:
+            error_msg = f"Erro ao descarregar modelo: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg,
+                "memory_freed": {"ram_mb": 0.0, "vram_mb": 0.0}
+            }
+    
+    def load_model_explicit(self) -> dict:
+        """
+        Carrega modelo Whisper explicitamente na memória/GPU.
+        
+        Útil para:
+        - Pré-carregar modelo antes de processar batch de tasks
+        - Reduzir latência da primeira transcrição
+        - Preparar sistema após unload manual
+        
+        Returns:
+            dict: Relatório com memória usada e status
+        """
+        try:
+            report = {
+                "success": False,
+                "message": "",
+                "memory_used": {
+                    "ram_mb": 0.0,
+                    "vram_mb": 0.0
+                },
+                "device": None,
+                "model_name": self.settings.get('whisper_model', 'base')
+            }
+            
+            if self.model is not None and self.model_loaded:
+                report["success"] = True
+                report["device"] = self.device
+                report["message"] = f"Modelo já estava carregado no {self.device.upper()}"
+                logger.info(f"ℹ️ Modelo Whisper já carregado no {self.device}")
+                return report
+            
+            logger.info(f"🚀 Carregando modelo Whisper '{report['model_name']}' explicitamente...")
+            
+            # Captura memória GPU ANTES (se disponível)
+            vram_before = 0.0
+            if torch.cuda.is_available():
+                vram_before = torch.cuda.memory_allocated(0) / 1024**2  # MB
+            
+            # Carrega modelo (usa _load_model que já tem lógica de retry e device detection)
+            self._load_model()
+            
+            report["success"] = True
+            report["device"] = self.device
+            
+            # Captura memória GPU DEPOIS
+            if self.device == 'cuda' and torch.cuda.is_available():
+                vram_after = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                report["memory_used"]["vram_mb"] = round(vram_after - vram_before, 2)
+                logger.info(f"📊 VRAM usada: {report['memory_used']['vram_mb']} MB")
+            
+            # Estima RAM usada baseado no modelo
+            model_sizes = {
+                'tiny': 75,
+                'base': 150,
+                'small': 500,
+                'medium': 1500,
+                'large': 3000
+            }
+            report["memory_used"]["ram_mb"] = model_sizes.get(report['model_name'], 150)
+            
+            report["message"] = (
+                f"✅ Modelo '{report['model_name']}' carregado com sucesso no {self.device.upper()}. "
+                f"Sistema pronto para transcrições de baixa latência."
+            )
+            
+            logger.info(f"✅ Modelo carregado explicitamente")
+            logger.info(f"   └─ Dispositivo: {self.device.upper()}")
+            logger.info(f"   └─ RAM usada (estimado): ~{report['memory_used']['ram_mb']} MB")
+            if report["memory_used"]["vram_mb"] > 0:
+                logger.info(f"   └─ VRAM usada: {report['memory_used']['vram_mb']} MB")
+            
+            return report
+            
+        except Exception as e:
+            error_msg = f"Erro ao carregar modelo: {str(e)}"
+            logger.error(f"❌ {error_msg}")
+            return {
+                "success": False,
+                "message": error_msg,
+                "memory_used": {"ram_mb": 0.0, "vram_mb": 0.0}
+            }
+    
+    def get_model_status(self) -> dict:
+        """
+        Retorna status atual do modelo.
+        
+        Returns:
+            dict: Status do modelo (loaded/unloaded, device, memory, etc)
+        """
+        status = {
+            "loaded": self.model_loaded and self.model is not None,
+            "model_name": self.settings.get('whisper_model', 'base'),
+            "device": self.device if self.model_loaded else None,
+            "memory": {
+                "vram_mb": 0.0,
+                "cuda_available": torch.cuda.is_available()
+            }
+        }
+        
+        # Se modelo está carregado na GPU, mostra uso de VRAM
+        if status["loaded"] and self.device == 'cuda' and torch.cuda.is_available():
+            status["memory"]["vram_mb"] = round(torch.cuda.memory_allocated(0) / 1024**2, 2)
+            status["memory"]["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / 1024**2, 2)
+            
+            # Informações da GPU
+            status["gpu_info"] = {
+                "name": torch.cuda.get_device_name(0),
+                "device_count": torch.cuda.device_count(),
+                "cuda_version": torch.version.cuda
+            }
+        
+        return status
     
     def transcribe_audio(self, job: Job) -> Job:
         """

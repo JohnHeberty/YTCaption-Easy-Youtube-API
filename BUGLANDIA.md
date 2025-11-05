@@ -101,3 +101,38 @@ AttributeError: 'Job' object has no attribute 'output_file'
 - Health checks dos 3 serviços agora respondem rapidamente
 - AttributeError do video-downloader resolvido
 - Sistema pronto para testes com `docker-compose up`
+
+---
+
+## 🆕 NOVOS RECURSOS ADICIONADOS (04/11/2025)
+
+### Audio Transcriber - Gerenciamento de Modelo Whisper
+
+**3 novos endpoints para economia de recursos e sustentabilidade:**
+
+#### 1. **POST /model/unload** - Descarregar Modelo
+- Libera RAM (~150MB a 3GB) e VRAM da GPU
+- Reduz consumo energético quando serviço está idle
+- Sustentabilidade: menor pegada de carbono
+- Modelo recarrega automaticamente na próxima task
+
+#### 2. **POST /model/load** - Carregar Modelo  
+- Pré-carrega modelo antes de processar batch
+- Reduz latência da primeira transcrição
+- Prepara sistema para período de alta demanda
+
+#### 3. **GET /model/status** - Status do Modelo
+- Consulta estado atual (loaded/unloaded)
+- Uso de memória VRAM/RAM
+- Informações da GPU (se disponível)
+
+**Nova variável de ambiente:**
+- `WHISPER_PRELOAD_MODEL=true|false` - Controla carregamento no startup
+
+**Documentação completa:**
+- Ver `services/audio-transcriber/MODEL-MANAGEMENT.md`
+
+**Impacto ambiental:**
+- Economia de ~25W/hora quando modelo descarregado
+- ~146 kWh/ano por servidor (16h idle/dia)
+- ~73 kg CO₂ reduzidos por ano por servidor

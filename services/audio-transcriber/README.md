@@ -49,6 +49,16 @@ docker-compose logs -f
 | DELETE | `/jobs/{job_id}` | Cancela job em andamento |
 | GET | `/jobs` | Lista jobs com filtros |
 | GET | `/stats` | Estatísticas de transcrição |
+
+### 🆕 Gerenciamento de Modelo (v2.0+)
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/model/unload` | 🔋 Descarrega modelo (economia de recursos) |
+| POST | `/model/load` | 🚀 Carrega modelo explicitamente |
+| GET | `/model/status` | 📊 Status atual do modelo |
+
+**Ver documentação completa**: [MODEL-MANAGEMENT.md](./MODEL-MANAGEMENT.md)
 | GET | `/health` | Health check completo |
 | GET | `/metrics` | Prometheus metrics |
 | GET | `/system/info` | Informações do sistema |
