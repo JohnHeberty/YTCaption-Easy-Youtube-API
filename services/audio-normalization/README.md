@@ -10,6 +10,7 @@ Microserviço para normalização de áudio com Celery + Redis.
 - ✅ **Processamento assíncrono** - Celery + Redis para jobs em background
 - ✅ **Cache inteligente por hash** - Evita reprocessamento de arquivos idênticos
 - ✅ **Cache de 24h** - Arquivos processados disponíveis por 24 horas
+- 🆕 **Suporte a vídeos** - Aceita MP4, AVI, MOV, etc. (extrai áudio automaticamente)
 
 ## 🚀 Iniciar Serviços
 

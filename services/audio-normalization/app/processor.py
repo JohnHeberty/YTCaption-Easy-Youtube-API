@@ -75,6 +75,90 @@ class AudioProcessor:
             # Em caso de erro na verificação, prossegue (fail-open)
             return True
     
+    def _is_video_file(self, file_path: str) -> bool:
+        """Detecta se arquivo é vídeo usando ffprobe"""
+        try:
+            cmd = [
+                "ffprobe", "-v", "quiet",
+                "-print_format", "json",
+                "-show_streams",
+                file_path
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode != 0:
+                logger.warning(f"⚠️ ffprobe falhou: {result.stderr}")
+                return False
+            
+            import json
+            data = json.loads(result.stdout)
+            streams = data.get('streams', [])
+            
+            # Verifica se há stream de vídeo
+            has_video = any(s.get('codec_type') == 'video' for s in streams)
+            has_audio = any(s.get('codec_type') == 'audio' for s in streams)
+            
+            if has_video:
+                logger.info(f"🎬 Vídeo detectado (video: {has_video}, audio: {has_audio})")
+            
+            return has_video
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Erro ao detectar tipo de arquivo: {e}")
+            # Fallback: verifica extensão
+            video_extensions = ['.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v']
+            return any(file_path.lower().endswith(ext) for ext in video_extensions)
+    
+    async def _extract_audio_from_video(self, video_path: str, temp_dir: Path) -> str:
+        """Extrai áudio de arquivo de vídeo"""
+        try:
+            logger.info(f"🎬 Extraindo áudio do vídeo: {video_path}")
+            
+            # Cria arquivo de saída
+            audio_path = temp_dir / f"extracted_audio_{Path(video_path).stem}.wav"
+            
+            # Comando ffmpeg para extrair áudio
+            cmd = [
+                "ffmpeg", "-i", video_path,
+                "-vn",  # Sem vídeo
+                "-acodec", "pcm_s16le",  # Codec compatível
+                "-ar", "44100",  # Sample rate
+                "-ac", "2",  # Stereo
+                "-y",  # Sobrescrever
+                str(audio_path)
+            ]
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                raise AudioNormalizationException(
+                    f"Falha ao extrair áudio do vídeo: {stderr.decode()}"
+                )
+            
+            if not audio_path.exists():
+                raise AudioNormalizationException(
+                    "Arquivo de áudio não foi criado após extração"
+                )
+            
+            logger.info(f"✅ Áudio extraído: {audio_path} ({audio_path.stat().st_size / 1024 / 1024:.2f} MB)")
+            return str(audio_path)
+            
+        except Exception as e:
+            logger.error(f"❌ Erro ao extrair áudio: {e}")
+            raise AudioNormalizationException(f"Falha na extração de áudio: {str(e)}")
+    
     def _should_use_streaming_processing(self, file_path: str) -> bool:
         """Verifica se o processamento via streaming deve ser usado com base no tamanho do arquivo."""
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
@@ -237,24 +321,54 @@ class AudioProcessor:
     async def process_audio_job(self, job: Job):
         """
         Processa um job de áudio, decidindo entre carregamento direto ou streaming.
+        Suporta vídeos (extrai áudio automaticamente).
         """
+        temp_audio_path = None
+        temp_dir_for_extraction = None
+        
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
             job.status = JobStatus.PROCESSING
             job.progress = 2.0
             if self.job_store: self.job_store.update_job(job)
 
-            logger.info(f"Processando arquivo (validação será feita pelo ffmpeg): {job.input_file}")
+            logger.info(f"Processando arquivo: {job.input_file}")
+            
+            # 🎬 NOVO: Detecta e extrai áudio de vídeos
+            file_to_process = job.input_file
+            is_video = self._is_video_file(job.input_file)
+            
+            if is_video:
+                logger.info("🎬 Arquivo de vídeo detectado - extraindo áudio...")
+                
+                # Cria diretório temporário para extração
+                base_temp_dir = Path(self.config['temp_dir'])
+                base_temp_dir.mkdir(exist_ok=True, parents=True)
+                temp_dir_for_extraction = base_temp_dir / f"video_extraction_{job.id}"
+                temp_dir_for_extraction.mkdir(exist_ok=True, parents=True)
+                
+                # Extrai áudio
+                temp_audio_path = await self._extract_audio_from_video(
+                    job.input_file, 
+                    temp_dir_for_extraction
+                )
+                file_to_process = temp_audio_path
+                logger.info(f"✅ Usando áudio extraído: {file_to_process}")
+                
+                job.progress = 5.0
+                if self.job_store: self.job_store.update_job(job)
+            else:
+                logger.info("🎵 Arquivo de áudio detectado - processando diretamente")
 
-            job.progress = 5.0
+            job.progress = 8.0
             if self.job_store: self.job_store.update_job(job)
 
             # DECISÃO CRÍTICA: Usar streaming ou carregar na memória?
-            file_info = {'has_audio': True, 'has_video': False}  # Assume áudio por padrão
-            if self._should_use_streaming_processing(job.input_file):
-                processed_audio = await self._process_audio_with_streaming(job, file_info)
+            file_info = {'has_audio': True, 'has_video': is_video}
+            if self._should_use_streaming_processing(file_to_process):
+                processed_audio = await self._process_audio_with_streaming(job, file_info, file_to_process)
             else:
-                processed_audio = await self._process_audio_in_memory(job, file_info)
+                processed_audio = await self._process_audio_in_memory(job, file_info, file_to_process)
 
             # CRÍTICO: Salva arquivo processado SEMPRE como .webm
             output_dir = Path("./processed")
@@ -291,18 +405,37 @@ class AudioProcessor:
             job.error_message = error_msg
             if self.job_store: self.job_store.update_job(job)
             raise AudioNormalizationException(error_msg)
+        
+        finally:
+            # Limpa áudio extraído de vídeo
+            if temp_audio_path and Path(temp_audio_path).exists():
+                try:
+                    Path(temp_audio_path).unlink()
+                    logger.info(f"🧹 Áudio temporário removido: {temp_audio_path}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Erro ao remover áudio temporário: {e}")
+            
+            # Limpa diretório de extração
+            if temp_dir_for_extraction and temp_dir_for_extraction.exists():
+                try:
+                    import shutil
+                    shutil.rmtree(temp_dir_for_extraction, ignore_errors=True)
+                    logger.info(f"🧹 Diretório de extração removido")
+                except Exception as e:
+                    logger.warning(f"⚠️ Erro ao remover diretório de extração: {e}")
 
-    async def _process_audio_in_memory(self, job: Job, file_info: dict) -> AudioSegment:
+    async def _process_audio_in_memory(self, job: Job, file_info: dict, file_path: str = None) -> AudioSegment:
         """Carrega o áudio inteiro na memória e o processa."""
         logger.info("🧠 Processando áudio em memória (arquivo pequeno).")
+        
+        # Usa file_path fornecido ou job.input_file
+        audio_file = file_path or job.input_file
+        
         try:
-            logger.info(f"Carregando arquivo: {job.input_file}")
-            if file_info['has_video']:
-                logger.info("Arquivo contém vídeo - extraindo stream de áudio.")
-                audio = AudioSegment.from_file(job.input_file, parameters=["-vn"])
-            else:
-                audio = AudioSegment.from_file(job.input_file)
-            logger.info(f"Áudio carregado com sucesso. Formato: {Path(job.input_file).suffix}")
+            logger.info(f"Carregando arquivo: {audio_file}")
+            # Sempre carrega como áudio (vídeo já foi extraído se necessário)
+            audio = AudioSegment.from_file(audio_file)
+            logger.info(f"Áudio carregado com sucesso. Formato: {Path(audio_file).suffix}")
         except Exception as e:
             logger.error(f"Erro ao carregar arquivo: {e}")
             raise AudioNormalizationException(f"Não foi possível carregar o arquivo: {str(e)}")
@@ -324,16 +457,19 @@ class AudioProcessor:
         if self.job_store: self.job_store.update_job(job)
         return audio
 
-    async def _process_audio_with_streaming(self, job: Job, file_info: dict) -> AudioSegment:
+    async def _process_audio_with_streaming(self, job: Job, file_info: dict, file_path: str = None) -> AudioSegment:
         """Processa o áudio em chunks lidos do disco para economizar memória."""
         logger.info("🌊 Processando áudio via streaming (arquivo grande).")
+        
+        # Usa file_path fornecido ou job.input_file
+        audio_file = file_path or job.input_file
         
         # Usa diretório temporário configurado
         base_temp_dir = Path(self.config['temp_dir'])
         base_temp_dir.mkdir(exist_ok=True, parents=True)
         
         # Verifica espaço em disco antes de começar
-        if not self._check_disk_space(job.input_file, base_temp_dir):
+        if not self._check_disk_space(audio_file, base_temp_dir):
             raise AudioNormalizationException(
                 "Espaço em disco insuficiente para processar o arquivo. "
                 "Por favor, libere espaço ou tente novamente mais tarde."
@@ -349,14 +485,19 @@ class AudioProcessor:
 
         try:
             # 1. Dividir o arquivo em chunks usando ffmpeg
-            logger.info(f"Dividindo {job.input_file} em chunks de {self.config['chunk_duration_sec']}s...")
-            chunk_filename_pattern = str(temp_dir / "chunk_%04d.webm")
+            logger.info(f"Dividindo {audio_file} em chunks de {self.config['chunk_duration_sec']}s...")
+            
+            # 🔧 CORRIGIDO: Usa WAV ao invés de WebM (compatível com todos os formatos)
+            chunk_filename_pattern = str(temp_dir / "chunk_%04d.wav")
             
             ffmpeg_cmd = [
-                "ffmpeg", "-i", str(job.input_file),
+                "ffmpeg", "-i", str(audio_file),
                 "-f", "segment",
                 "-segment_time", str(self.config['chunk_duration_sec']),
-                "-c", "copy",
+                "-vn",  # Remove vídeo se houver
+                "-acodec", "pcm_s16le",  # Codec WAV
+                "-ar", "44100",  # Sample rate
+                "-ac", "2",  # Stereo
                 chunk_filename_pattern
             ]
             
@@ -370,7 +511,8 @@ class AudioProcessor:
             if process.returncode != 0:
                 raise AudioNormalizationException(f"Falha ao segmentar áudio com ffmpeg: {stderr.decode()}")
 
-            chunk_paths = sorted(list(temp_dir.glob("chunk_*.webm")))
+            # 🔧 CORRIGIDO: Procura arquivos WAV
+            chunk_paths = sorted(list(temp_dir.glob("chunk_*.wav")))
             if not chunk_paths:
                 raise AudioNormalizationException("Nenhum chunk de áudio foi criado pelo ffmpeg.")
             
@@ -391,9 +533,9 @@ class AudioProcessor:
                     # Aplica as mesmas operações, mas no chunk
                     processed_chunk = await self._apply_processing_operations(chunk_audio, job, is_chunk=True)
                     
-                    # Salva o chunk processado
+                    # Salva o chunk processado em WAV
                     processed_chunk_path = chunk_path.with_name(f"processed_{chunk_path.name}")
-                    processed_chunk.export(processed_chunk_path, format="webm", codec="libopus")
+                    processed_chunk.export(processed_chunk_path, format="wav")
                     processed_chunk_paths.append(processed_chunk_path)
 
                 except Exception as e:
