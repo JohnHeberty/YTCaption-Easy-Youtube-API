@@ -75,8 +75,8 @@ class AudioProcessor:
             # Em caso de erro na verificação, prossegue (fail-open)
             return True
     
-    def _is_video_file(self, file_path: str) -> bool:
-        """Detecta se arquivo é vídeo usando ffprobe"""
+    async def _is_video_file(self, file_path: str) -> bool:
+        """Detecta se arquivo é vídeo usando ffprobe (ASYNC)"""
         try:
             cmd = [
                 "ffprobe", "-v", "quiet",
@@ -85,30 +85,48 @@ class AudioProcessor:
                 file_path
             ]
             
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
+            logger.info(f"🔍 Detectando tipo de arquivo: {Path(file_path).name}...")
+            
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            if result.returncode != 0:
-                logger.warning(f"⚠️ ffprobe falhou: {result.stderr}")
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=60  # 60s para vídeos grandes
+            )
+            
+            if process.returncode != 0:
+                logger.warning(f"⚠️ ffprobe falhou: {stderr.decode()}")
                 return False
             
             import json
-            data = json.loads(result.stdout)
+            data = json.loads(stdout.decode())
             streams = data.get('streams', [])
             
-            # Verifica se há stream de vídeo
+            # Verifica se há stream de vídeo e áudio
             has_video = any(s.get('codec_type') == 'video' for s in streams)
             has_audio = any(s.get('codec_type') == 'audio' for s in streams)
             
             if has_video:
                 logger.info(f"🎬 Vídeo detectado (video: {has_video}, audio: {has_audio})")
+                if not has_audio:
+                    logger.error(f"❌ VÍDEO SEM STREAM DE ÁUDIO - Rejeitando")
+                    raise AudioNormalizationException(
+                        "Vídeo não possui stream de áudio. Por favor, envie um arquivo com áudio."
+                    )
             
             return has_video
             
+        except asyncio.TimeoutError:
+            logger.error(f"❌ ffprobe timeout após 60s para {Path(file_path).name}")
+            raise AudioNormalizationException(
+                f"Timeout ao analisar arquivo. Arquivo pode estar corrompido."
+            )
+        except AudioNormalizationException:
+            raise  # Propaga exceção de validação
         except Exception as e:
             logger.warning(f"⚠️ Erro ao detectar tipo de arquivo: {e}")
             # Fallback: verifica extensão
@@ -116,9 +134,11 @@ class AudioProcessor:
             return any(file_path.lower().endswith(ext) for ext in video_extensions)
     
     async def _extract_audio_from_video(self, video_path: str, temp_dir: Path) -> str:
-        """Extrai áudio de arquivo de vídeo"""
+        """Extrai áudio de arquivo de vídeo com logging detalhado"""
         try:
-            logger.info(f"🎬 Extraindo áudio do vídeo: {video_path}")
+            video_size_mb = Path(video_path).stat().st_size / (1024 * 1024)
+            logger.info(f"🎬 Iniciando extração de áudio")
+            logger.info(f"   └─ Vídeo: {Path(video_path).name} ({video_size_mb:.2f} MB)")
             
             # Cria arquivo de saída
             audio_path = temp_dir / f"extracted_audio_{Path(video_path).stem}.wav"
@@ -134,17 +154,28 @@ class AudioProcessor:
                 str(audio_path)
             ]
             
+            logger.info(f"🔄 Executando ffmpeg para extração...")
+            start_time = asyncio.get_event_loop().time()
+            
             process = await asyncio.create_subprocess_exec(
                 *cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
             
-            stdout, stderr = await process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(),
+                timeout=300  # 5 minutos para extração
+            )
+            
+            elapsed = asyncio.get_event_loop().time() - start_time
             
             if process.returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ ffmpeg falhou após {elapsed:.1f}s:")
+                logger.error(f"   └─ {error_msg[:500]}")  # Primeiros 500 chars
                 raise AudioNormalizationException(
-                    f"Falha ao extrair áudio do vídeo: {stderr.decode()}"
+                    f"Falha ao extrair áudio do vídeo: {error_msg[:200]}"
                 )
             
             if not audio_path.exists():
@@ -152,11 +183,19 @@ class AudioProcessor:
                     "Arquivo de áudio não foi criado após extração"
                 )
             
-            logger.info(f"✅ Áudio extraído: {audio_path} ({audio_path.stat().st_size / 1024 / 1024:.2f} MB)")
+            audio_size_mb = audio_path.stat().st_size / (1024 * 1024)
+            logger.info(f"✅ Áudio extraído em {elapsed:.1f}s")
+            logger.info(f"   └─ Arquivo: {audio_path.name} ({audio_size_mb:.2f} MB)")
+            
             return str(audio_path)
             
+        except asyncio.TimeoutError:
+            logger.error(f"❌ Timeout de extração após 5 minutos")
+            raise AudioNormalizationException("Extração de áudio excedeu timeout de 5 minutos")
+        except AudioNormalizationException:
+            raise  # Propaga exceção de validação
         except Exception as e:
-            logger.error(f"❌ Erro ao extrair áudio: {e}")
+            logger.error(f"❌ Erro ao extrair áudio: {e}", exc_info=True)
             raise AudioNormalizationException(f"Falha na extração de áudio: {str(e)}")
     
     def _should_use_streaming_processing(self, file_path: str) -> bool:
@@ -336,7 +375,7 @@ class AudioProcessor:
             
             # 🎬 NOVO: Detecta e extrai áudio de vídeos
             file_to_process = job.input_file
-            is_video = self._is_video_file(job.input_file)
+            is_video = await self._is_video_file(job.input_file)
             
             if is_video:
                 logger.info("🎬 Arquivo de vídeo detectado - extraindo áudio...")
@@ -408,19 +447,22 @@ class AudioProcessor:
         
         finally:
             # Limpa áudio extraído de vídeo
-            if temp_audio_path and Path(temp_audio_path).exists():
+            if temp_audio_path:
                 try:
-                    Path(temp_audio_path).unlink()
-                    logger.info(f"🧹 Áudio temporário removido: {temp_audio_path}")
+                    if Path(temp_audio_path).exists():
+                        Path(temp_audio_path).unlink()
+                        logger.info(f"🧹 Áudio temporário removido: {Path(temp_audio_path).name}")
                 except Exception as e:
                     logger.warning(f"⚠️ Erro ao remover áudio temporário: {e}")
+                    # Não propaga erro - cleanup é best-effort
             
             # Limpa diretório de extração
-            if temp_dir_for_extraction and temp_dir_for_extraction.exists():
+            if temp_dir_for_extraction:
                 try:
-                    import shutil
-                    shutil.rmtree(temp_dir_for_extraction, ignore_errors=True)
-                    logger.info(f"🧹 Diretório de extração removido")
+                    if temp_dir_for_extraction.exists():
+                        import shutil
+                        shutil.rmtree(temp_dir_for_extraction, ignore_errors=True)
+                        logger.info(f"🧹 Diretório de extração removido")
                 except Exception as e:
                     logger.warning(f"⚠️ Erro ao remover diretório de extração: {e}")
 
