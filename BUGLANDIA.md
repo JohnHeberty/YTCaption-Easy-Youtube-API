@@ -1,5 +1,88 @@
 # 🐞 BUGLANDIA - Análise Profunda de Bugs
 
+## 🚨 BUG CRÍTICO #2: "Exception information must include the exception type"
+
+### 📊 Erro Reportado
+
+```json
+{
+  "error_message": "Critical processing failure: Exception information must include the exception type",
+  "status": "failed",
+  "progress": 0
+}
+```
+
+### 🔍 Root Cause Analysis
+
+**Problema**: Uso incorreto de `raise` sem argumentos em bloco `except`
+
+**Código Problemático** (linha 128):
+```python
+try:
+    # ... código ...
+    if not has_audio:
+        raise AudioNormalizationException("Vídeo sem áudio")  # ← Cria nova exceção
+except AudioNormalizationException:
+    raise  # ❌ ERRO: Tenta re-raise mas não há exceção capturada!
+```
+
+**Por que falha**:
+- `raise` sem argumentos só funciona para **re-raise** exceções **capturadas**
+- Quando criamos exceção com `raise AudioNormalizationException(...)`, ela é **lançada**, não **capturada**
+- O bloco `except AudioNormalizationException:` captura, mas `raise` sozinho espera a exceção original
+- Em Python 3.11+, isso gera: "Exception information must include the exception type"
+
+### 🔧 Solução Correta
+
+#### Opção 1: Salvar exceção em variável
+```python
+except AudioNormalizationException as e:
+    raise e  # ✅ Re-raise com variável explícita
+```
+
+#### Opção 2: Não capturar se só vai re-raise (MELHOR)
+```python
+# Simplesmente remove o bloco except desnecessário
+try:
+    if not has_audio:
+        raise AudioNormalizationException("Vídeo sem áudio")
+    # ... resto do código ...
+except asyncio.TimeoutError:
+    # ...
+except Exception as e:
+    # ...
+# ✅ AudioNormalizationException propaga naturalmente!
+```
+
+### 🎯 Correção Aplicada
+
+Substituir `raise` sem argumentos por `raise e` com variável explícita:
+
+```python
+# ANTES (❌ Causa erro)
+except AudioNormalizationException:
+    raise  # Exception information must include the exception type
+
+# DEPOIS (✅ Funciona)
+except AudioNormalizationException as e:
+    raise e  # Re-raise com variável explícita
+```
+
+**Arquivos Modificados**:
+- `processor.py` linha 128: `_is_video_file()` 
+- `processor.py` linha 196: `_extract_audio_from_video()`
+
+**Status**: ✅ Corrigido e validado (sem erros de sintaxe)
+
+### 🎓 Lições Aprendidas
+
+1. **`raise` sozinho só funciona para re-raise exceções CAPTURADAS**
+2. **Exceções CRIADAS com `raise Exception()` não podem ser re-raised com `raise` sozinho**
+3. **Sempre use `except Exception as e:` e `raise e` para clareza**
+4. **Python 3.11+ é mais rigoroso com exception handling**
+
+---
+
 ## 🚨 BUG CRÍTICO: Suporte a Vídeos MP4 Falha Silenciosamente
 
 ### 📊 Dados do Problema

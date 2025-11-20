@@ -125,8 +125,9 @@ class AudioProcessor:
             raise AudioNormalizationException(
                 f"Timeout ao analisar arquivo. Arquivo pode estar corrompido."
             )
-        except AudioNormalizationException:
-            raise  # Propaga exceção de validação
+        except AudioNormalizationException as e:
+            # Re-raise com variável explícita para evitar erro de exception type
+            raise e
         except Exception as e:
             logger.warning(f"⚠️ Erro ao detectar tipo de arquivo: {e}")
             # Fallback: verifica extensão
@@ -192,8 +193,9 @@ class AudioProcessor:
         except asyncio.TimeoutError:
             logger.error(f"❌ Timeout de extração após 5 minutos")
             raise AudioNormalizationException("Extração de áudio excedeu timeout de 5 minutos")
-        except AudioNormalizationException:
-            raise  # Propaga exceção de validação
+        except AudioNormalizationException as e:
+            # Re-raise com variável explícita para evitar erro de exception type
+            raise e
         except Exception as e:
             logger.error(f"❌ Erro ao extrair áudio: {e}", exc_info=True)
             raise AudioNormalizationException(f"Falha na extração de áudio: {str(e)}")
