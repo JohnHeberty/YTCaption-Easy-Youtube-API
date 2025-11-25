@@ -30,7 +30,7 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8004/ || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8005/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
