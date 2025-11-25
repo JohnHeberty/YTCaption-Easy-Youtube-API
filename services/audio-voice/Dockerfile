@@ -45,9 +45,6 @@ RUN useradd -m -u 1000 appuser && \
 COPY --chown=appuser:appuser app/ ./app/
 COPY --chown=appuser:appuser run.py .
 
-# Garantir permissões nos diretórios de dados
-RUN chmod -R 777 /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models
-
 USER appuser
 
 EXPOSE 8004

@@ -11,6 +11,8 @@ services:
       - ./temp:/app/temp
       - ./voice_profiles:/app/voice_profiles
       - ./models:/app/models
+      # NOTA: ./logs é criado pelo container automaticamente
+      # Se montar volume aqui e tiver erro de permissão, execute: chmod 777 logs
       - ./logs:/app/logs
     env_file:
       - .env
