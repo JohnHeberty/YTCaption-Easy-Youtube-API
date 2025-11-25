@@ -1,59 +1,78 @@
-version: '3.8'
-
 services:
-  audio-voice:
+  audio-voice-service:
     build: .
-    container_name: audio-voice-service
+    container_name: audio-voice-api
     ports:
-      - "8004:8004"
-    environment:
-      - REDIS_URL=redis://redis:6379/4
-      - CELERY_BROKER_URL=redis://redis:6379/4
-      - CELERY_RESULT_BACKEND=redis://redis:6379/4
-      - LOG_LEVEL=INFO
-      - OPENVOICE_DEVICE=cpu
-      - MAX_FILE_SIZE_MB=100
-      - MAX_TEXT_LENGTH=10000
+      - "${PORT:-8004}:8004"
     volumes:
+      - ./app:/app/app
       - ./uploads:/app/uploads
       - ./processed:/app/processed
       - ./temp:/app/temp
       - ./voice_profiles:/app/voice_profiles
       - ./models:/app/models
       - ./logs:/app/logs
-    # depends_on:
-    #   - redis
-    restart: unless-stopped
-  
-  audio-voice-worker:
-    build: .
-    container_name: audio-voice-worker
-    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=3 -Q audio_voice_queue
+    env_file:
+      - .env
     environment:
-      - REDIS_URL=redis://redis:6379/4
-      - CELERY_BROKER_URL=redis://redis:6379/4
-      - CELERY_RESULT_BACKEND=redis://redis:6379/4
-      - LOG_LEVEL=INFO
-      - OPENVOICE_DEVICE=cpu
-    volumes:
-      - ./uploads:/app/uploads
-      - ./processed:/app/processed
-      - ./temp:/app/temp
-      - ./voice_profiles:/app/voice_profiles
-      - ./models:/app/models
-      - ./logs:/app/logs
-    # depends_on:
-    #   - redis
+      - PYTHONPATH=/app
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    # peça GPU explicitamente no Compose
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
-  
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: audio-voice-redis
-  #   ports:
-  #     - "6379:6379"
-  #   volumes:
-  #     - redis-data:/data
-  #   restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "com.example.service=audio-voice"
+      - "com.example.version=1.0.0"
 
-volumes:
-  redis-data:
+  celery-worker:
+    build: .
+    container_name: audio-voice-celery
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_voice_queue
+    volumes:
+      - ./app:/app/app
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+      - ./temp:/app/temp
+      - ./voice_profiles:/app/voice_profiles
+      - ./models:/app/models
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    depends_on:
+      audio-voice-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    labels:
+      - "com.example.service=audio-voice-worker"
+      - "com.example.version=1.0.0"
