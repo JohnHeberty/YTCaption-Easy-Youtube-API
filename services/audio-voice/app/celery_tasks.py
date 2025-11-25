@@ -66,8 +66,9 @@ def dubbing_task(self, job_dict: dict):
             logger.error(f"❌ Celery dubbing task failed: {e}", exc_info=True)
             # Atualiza job como falho
             try:
+                from .models import JobStatus
                 job = Job(**job_dict)
-                job.status = "failed"
+                job.status = JobStatus.FAILED
                 job.error_message = str(e)
                 job_store.update_job(job)
             except Exception as update_err:
@@ -101,8 +102,9 @@ def clone_voice_task(self, job_dict: dict):
             logger.error(f"❌ Celery clone voice task failed: {e}", exc_info=True)
             # Atualiza job como falho
             try:
+                from .models import JobStatus
                 job = Job(**job_dict)
-                job.status = "failed"
+                job.status = JobStatus.FAILED
                 job.error_message = str(e)
                 job_store.update_job(job)
             except Exception as update_err:

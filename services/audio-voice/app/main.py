@@ -264,9 +264,13 @@ async def clone_voice(
             voice_description=description,
             source_language=language
         )
+        # IMPORTANTE: Setar input_file ANTES de salvar/enviar
         clone_job.input_file = str(file_path)
         
+        # Salva job no Redis com input_file preenchido
         job_store.save_job(clone_job)
+        
+        # Envia para Celery (job já tem input_file)
         submit_processing_task(clone_job)
         
         logger.info(f"Voice clone job created: {clone_job.id}")

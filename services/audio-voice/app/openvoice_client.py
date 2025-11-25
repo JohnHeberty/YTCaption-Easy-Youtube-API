@@ -329,6 +329,10 @@ class OpenVoiceClient:
         try:
             self._load_models()
             
+            # Validação crítica: audio_path não pode ser None
+            if not audio_path:
+                raise InvalidAudioException("Audio path is required for voice cloning")
+            
             logger.info(f"Cloning voice from {audio_path} language={language}")
             
             # Valida áudio

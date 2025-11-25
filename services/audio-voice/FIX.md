@@ -1,55 +1,114 @@
-john@ollama:~/YTCaption-Easy-Youtube-API/services/audio-voice$ docker compose logs -f
-audio-voice-celery  | CUDA not available, falling back to CPU
-audio-voice-celery  |
-audio-voice-celery  |  -------------- celery@24c084d33b55 v5.3.4 (emerald-rush)
-audio-voice-celery  | --- ***** -----
-audio-voice-celery  | -- ******* ---- Linux-6.8.0-87-generic-x86_64-with-glibc2.41 2025-11-25 03:31:50
-audio-voice-celery  | - *** --- * ---
-audio-voice-celery  | - ** ---------- [config]
-audio-voice-celery  | - ** ---------- .> app:         audio_voice_worker:0x725180506f80
-audio-voice-celery  | - ** ---------- .> transport:   redis://192.168.18.110:6379/5
-audio-voice-celery  | - ** ---------- .> results:     redis://192.168.18.110:6379/5
-audio-voice-celery  | - *** --- * --- .> concurrency: 1 (solo)
-audio-voice-celery  | -- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
-audio-voice-celery  | --- ***** -----
-audio-voice-celery  |  -------------- [queues]
-audio-voice-celery  |                 .> audio_voice_queue exchange=audio_voice_queue(direct) key=audio_voice_queue
-audio-voice-api     | 03:31:44 - INFO - ✅ Logging system started for audio-voice
-audio-voice-api     | 03:31:44 - INFO - 📁 Files: error.log | warning.log | info.log | debug.log
-audio-voice-api     | 03:31:44 - WARNING - CUDA not available, falling back to CPU
-audio-voice-api     | 03:31:44 - INFO - Initializing OpenVoice client on device: cpu
-audio-voice-api     | INFO:     Started server process [1]
-audio-voice-api     | INFO:     Waiting for application startup.
-audio-voice-celery  |
-audio-voice-celery  |
-audio-voice-celery  | [tasks]
-audio-voice-celery  |   . app.celery_tasks.clone_voice_task
-audio-voice-celery  |   . app.celery_tasks.dubbing_task
-audio-voice-celery  |
-audio-voice-api     | 03:31:44 - INFO - Cleanup task started
-audio-voice-api     | 03:31:44 - INFO - ✅ Audio Voice Service started
-audio-voice-api     | INFO:     Application startup complete.
-audio-voice-api     | INFO:     Uvicorn running on http://0.0.0.0:8005 (Press CTRL+C to quit)
-audio-voice-api     | INFO:     127.0.0.1:60004 - "GET / HTTP/1.1" 200 OK
-audio-voice-api     | INFO:     127.0.0.1:47062 - "GET / HTTP/1.1" 200 OK
-audio-voice-api     | INFO:     127.0.0.1:50810 - "GET / HTTP/1.1" 200 OK
-audio-voice-api     | INFO:     127.0.0.1:38332 - "GET / HTTP/1.1" 200 OK
-audio-voice-celery  | [2025-11-25 03:31:50,974: INFO/MainProcess] Connected to redis://192.168.18.110:6379/5
-audio-voice-celery  | [2025-11-25 03:31:50,977: INFO/MainProcess] mingle: searching for neighbors
-audio-voice-celery  | [2025-11-25 03:31:51,984: INFO/MainProcess] mingle: all alone
-audio-voice-celery  | [2025-11-25 03:31:51,993: INFO/MainProcess] celery@24c084d33b55 ready.
-audio-voice-celery  | [2025-11-25 03:42:18,857: INFO/MainProcess] Task app.celery_tasks.dubbing_task[job_5eb08a961664] received
-audio-voice-celery  | [2025-11-25 03:42:18,861: ERROR/MainProcess] Task app.celery_tasks.dubbing_task[job_5eb08a961664] raised unexpected: NotImplementedError()
+audio-voice-api     | 03:55:12 - INFO - 📤 Job job_4d231f19a4c6 sent to Celery: job_4d231f19a4c6
+audio-voice-api     | 03:55:12 - INFO - Job created: job_4d231f19a4c6
+audio-voice-api     | INFO:     192.168.18.4:64764 - "POST /jobs HTTP/1.1" 200 OK
+audio-voice-celery  | [2025-11-25 03:55:12,327: INFO/MainProcess] Task app.celery_tasks.clone_voice_task[job_4d231f19a4c6] received
+audio-voice-celery  | [2025-11-25 03:55:12,328: INFO/MainProcess] 🎤 Celery clone voice task started for job job_4d231f19a4c6
+audio-voice-celery  | [2025-11-25 03:55:12,328: INFO/MainProcess] Processing voice clone job job_4d231f19a4c6: None
+audio-voice-celery  | [2025-11-25 03:55:12,328: INFO/MainProcess] Cloning voice from None language=pt
+audio-voice-celery  | [2025-11-25 03:55:12,328: ERROR/MainProcess] Error cloning voice: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  | [2025-11-25 03:55:12,329: ERROR/MainProcess] ❌ Voice clone job job_4d231f19a4c6 failed: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType        
+audio-voice-celery  | [2025-11-25 03:55:12,329: ERROR/MainProcess] ❌ Celery clone voice task failed: Voice cloning error: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
 audio-voice-celery  | Traceback (most recent call last):
-audio-voice-celery  |   File "/usr/local/lib/python3.10/site-packages/celery/app/trace.py", line 477, in trace_task
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 395, in _validate_audio_for_cloning
+audio-voice-celery  |     waveform, sample_rate = torchaudio.load(audio_path)
+audio-voice-celery  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/usr/local/lib/python3.11/dist-packages/torchaudio/_backend/utils.py", line 204, in load      
+audio-voice-celery  |     return backend.load(uri, frame_offset, num_frames, normalize, channels_first, format, buffer_size)
+audio-voice-celery  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/usr/local/lib/python3.11/dist-packages/torchaudio/_backend/ffmpeg.py", line 336, in load     
+audio-voice-celery  |     return load_audio(os.path.normpath(uri), frame_offset, num_frames, normalize, channels_first, format)
+audio-voice-celery  |                       ^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "<frozen posixpath>", line 391, in normpath
+audio-voice-celery  | TypeError: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  |
+audio-voice-celery  | During handling of the above exception, another exception occurred:
+audio-voice-celery  |
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 335, in clone_voice
+audio-voice-celery  |     audio_info = self._validate_audio_for_cloning(audio_path)
+audio-voice-celery  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 424, in _validate_audio_for_cloning
+audio-voice-celery  |     raise InvalidAudioException(f"Invalid audio file: {str(e)}")
+audio-voice-celery  | app.exceptions.InvalidAudioException: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  |
+audio-voice-celery  | During handling of the above exception, another exception occurred:
+audio-voice-celery  |
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/app/app/processor.py", line 106, in process_clone_job
+audio-voice-celery  |     voice_profile = await self.openvoice_client.clone_voice(
+audio-voice-celery  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 368, in clone_voice
+audio-voice-celery  |     raise OpenVoiceException(f"Voice cloning failed: {str(e)}")
+audio-voice-celery  | app.exceptions.OpenVoiceException: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  |
+audio-voice-celery  | During handling of the above exception, another exception occurred:
+audio-voice-celery  |
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/app/app/celery_tasks.py", line 95, in _process
+audio-voice-celery  |     voice_profile = await processor.process_clone_job(job)
+audio-voice-celery  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/processor.py", line 141, in process_clone_job
+audio-voice-celery  |     raise VoiceCloneException(str(e))
+audio-voice-celery  | app.exceptions.VoiceCloneException: Voice cloning error: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  | [2025-11-25 03:55:12,330: WARNING/MainProcess] /usr/local/lib/python3.11/dist-packages/pydantic/main.py:528: UserWarning: Pydantic serializer warnings:
+audio-voice-celery  |   PydanticSerializationUnexpectedValue(Expected `enum` - serialized value may not be as expected [field_name='status', input_value='failed', input_type=str])
+audio-voice-celery  |   return self.__pydantic_serializer__.to_json(
+audio-voice-celery  |
+audio-voice-celery  | [2025-11-25 03:55:12,335: ERROR/MainProcess] Task app.celery_tasks.clone_voice_task[job_4d231f19a4c6] raised unexpected: VoiceCloneException('Voice cloning error: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType')
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 395, in _validate_audio_for_cloning
+audio-voice-celery  |     waveform, sample_rate = torchaudio.load(audio_path)
+audio-voice-celery  |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/usr/local/lib/python3.11/dist-packages/torchaudio/_backend/utils.py", line 204, in load      
+audio-voice-celery  |     return backend.load(uri, frame_offset, num_frames, normalize, channels_first, format, buffer_size)
+audio-voice-celery  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/usr/local/lib/python3.11/dist-packages/torchaudio/_backend/ffmpeg.py", line 336, in load     
+audio-voice-celery  |     return load_audio(os.path.normpath(uri), frame_offset, num_frames, normalize, channels_first, format)
+audio-voice-celery  |                       ^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "<frozen posixpath>", line 391, in normpath
+audio-voice-celery  | TypeError: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  |
+audio-voice-celery  | During handling of the above exception, another exception occurred:
+audio-voice-celery  |
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 335, in clone_voice
+audio-voice-celery  |     audio_info = self._validate_audio_for_cloning(audio_path)
+audio-voice-celery  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 424, in _validate_audio_for_cloning
+audio-voice-celery  |     raise InvalidAudioException(f"Invalid audio file: {str(e)}")
+audio-voice-celery  | app.exceptions.InvalidAudioException: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  |
+audio-voice-celery  | During handling of the above exception, another exception occurred:
+audio-voice-celery  |
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/app/app/processor.py", line 106, in process_clone_job
+audio-voice-celery  |     voice_profile = await self.openvoice_client.clone_voice(
+audio-voice-celery  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/openvoice_client.py", line 368, in clone_voice
+audio-voice-celery  |     raise OpenVoiceException(f"Voice cloning failed: {str(e)}")
+audio-voice-celery  | app.exceptions.OpenVoiceException: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
+audio-voice-celery  |
+audio-voice-celery  | During handling of the above exception, another exception occurred:
+audio-voice-celery  |
+audio-voice-celery  | Traceback (most recent call last):
+audio-voice-celery  |   File "/usr/local/lib/python3.11/dist-packages/celery/app/trace.py", line 477, in trace_task
 audio-voice-celery  |     R = retval = fun(*args, **kwargs)
-audio-voice-celery  |   File "/app/app/celery_tasks.py", line 33, in __call__
-audio-voice-api     | INFO:     127.0.0.1:38528 - "GET / HTTP/1.1" 200 OK
-audio-voice-celery  |     return loop.run_until_complete(self.run_async(*args, **kwargs))
-audio-voice-api     | INFO:     127.0.0.1:56740 - "GET / HTTP/1.1" 200 OK
-audio-voice-celery  |   File "/usr/local/lib/python3.10/asyncio/base_events.py", line 649, in run_until_complete
+audio-voice-celery  |                  ^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/usr/local/lib/python3.11/dist-packages/celery/app/trace.py", line 760, in __protected_call__ 
+audio-voice-celery  |     return self.run(*args, **kwargs)
+audio-voice-celery  |            ^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/celery_tasks.py", line 112, in clone_voice_task
+audio-voice-celery  |     return run_async_task(_process())
+audio-voice-celery  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/celery_tasks.py", line 35, in run_async_task
+audio-voice-celery  |     return loop.run_until_complete(coro)
+audio-voice-celery  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/usr/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
 audio-voice-celery  |     return future.result()
-audio-voice-celery  |   File "/app/app/celery_tasks.py", line 36, in run_async
-audio-voice-celery  |     raise NotImplementedError
-audio-voice-api     | INFO:     127.0.0.1:40040 - "GET / HTTP/1.1" 200 OK
-audio-voice-celery  | NotImplementedError
+audio-voice-celery  |            ^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/celery_tasks.py", line 95, in _process
+audio-voice-celery  |     voice_profile = await processor.process_clone_job(job)
+audio-voice-celery  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+audio-voice-celery  |   File "/app/app/processor.py", line 141, in process_clone_job
+audio-voice-celery  |     raise VoiceCloneException(str(e))
+audio-voice-celery  | app.exceptions.VoiceCloneException: Voice cloning error: OpenVoice error: Voice cloning failed: Invalid audio: Invalid audio file: expected str, bytes or os.PathLike object, not NoneType
