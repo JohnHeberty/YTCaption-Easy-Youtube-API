@@ -1,0 +1,3 @@
+# Constraints para versões de dependências
+scipy==1.11.4
+numba==0.58.1

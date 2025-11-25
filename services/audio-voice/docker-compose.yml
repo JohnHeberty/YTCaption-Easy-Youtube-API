@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  audio-voice:
+    build: .
+    container_name: audio-voice-service
+    ports:
+      - "8004:8004"
+    environment:
+      - REDIS_URL=redis://redis:6379/4
+      - CELERY_BROKER_URL=redis://redis:6379/4
+      - CELERY_RESULT_BACKEND=redis://redis:6379/4
+      - LOG_LEVEL=INFO
+      - OPENVOICE_DEVICE=cpu
+      - MAX_FILE_SIZE_MB=100
+      - MAX_TEXT_LENGTH=10000
+    volumes:
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+      - ./temp:/app/temp
+      - ./voice_profiles:/app/voice_profiles
+      - ./models:/app/models
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+    restart: unless-stopped
+  
+  audio-voice-worker:
+    build: .
+    container_name: audio-voice-worker
+    command: celery -A app.celery_tasks worker --loglevel=info --concurrency=3 -Q audio_voice_queue
+    environment:
+      - REDIS_URL=redis://redis:6379/4
+      - CELERY_BROKER_URL=redis://redis:6379/4
+      - CELERY_RESULT_BACKEND=redis://redis:6379/4
+      - LOG_LEVEL=INFO
+      - OPENVOICE_DEVICE=cpu
+    volumes:
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+      - ./temp:/app/temp
+      - ./voice_profiles:/app/voice_profiles
+      - ./models:/app/models
+      - ./logs:/app/logs
+    depends_on:
+      - redis
+    restart: unless-stopped
+  
+  redis:
+    image: redis:7-alpine
+    container_name: audio-voice-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+volumes:
+  redis-data:
