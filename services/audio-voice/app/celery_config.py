@@ -37,7 +37,11 @@ celery_app.conf.update(
     task_autoretry_for=(Exception,),
     task_max_retries=3,
     task_default_retry_delay=60,  # 1 minuto
+    
+    # Conexão com broker
+    broker_connection_retry_on_startup=True,
 )
 
-# Autodiscover tasks
-celery_app.autodiscover_tasks(['app'])
+# ✅ IMPORTANTE: Importa tasks para registrá-las no Celery
+# Isso garante que o worker reconheça as tasks ao inicializar
+from . import celery_tasks  # noqa: F401

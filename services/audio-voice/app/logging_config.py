@@ -8,7 +8,7 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
 
-def setup_logging(service_name: str = "audio-voice", log_level: str = "INFO"):
+def setup_logging(service_name: str = "audio-voice", log_level: str = "DEBUG"):
     """
     Configure logging with separate files for each level.
     RESILIENT: API continues running even if file logging fails.
