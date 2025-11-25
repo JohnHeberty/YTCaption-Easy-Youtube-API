@@ -21,8 +21,8 @@ services:
       - ./voice_profiles:/app/voice_profiles
       - ./models:/app/models
       - ./logs:/app/logs
-    depends_on:
-      - redis
+    # depends_on:
+    #   - redis
     restart: unless-stopped
   
   audio-voice-worker:
@@ -42,18 +42,18 @@ services:
       - ./voice_profiles:/app/voice_profiles
       - ./models:/app/models
       - ./logs:/app/logs
-    depends_on:
-      - redis
+    # depends_on:
+    #   - redis
     restart: unless-stopped
   
-  redis:
-    image: redis:7-alpine
-    container_name: audio-voice-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    restart: unless-stopped
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: audio-voice-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis-data:/data
+  #   restart: unless-stopped
 
 volumes:
   redis-data:
