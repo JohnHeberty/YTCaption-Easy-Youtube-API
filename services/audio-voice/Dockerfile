@@ -36,14 +36,18 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch==2.1.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cpu -c constraints.txt && \
     pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
-# User não-root (criar ANTES de copiar código)
-RUN useradd -m -u 1000 appuser && \
-    mkdir -p /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models && \
-    chown -R appuser:appuser /app
+# Copia código
+COPY app/ ./app/
+COPY run.py .
 
-# Código (copiar DEPOIS de criar user)
-COPY --chown=appuser:appuser app/ ./app/
-COPY --chown=appuser:appuser run.py .
+# Usuário não-root
+RUN useradd -m -u 1000 appuser
+
+# Diretórios e permissões
+RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models
 
 USER appuser
 
