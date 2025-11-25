@@ -3,7 +3,7 @@ services:
     build: .
     container_name: audio-voice-api
     ports:
-      - "${PORT:-8004}:8004"
+      - "${PORT:-8005}:8005"
     volumes:
       - ./app:/app/app
       - ./uploads:/app/uploads

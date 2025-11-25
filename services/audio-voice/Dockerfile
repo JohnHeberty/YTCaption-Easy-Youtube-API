@@ -47,10 +47,10 @@ COPY --chown=appuser:appuser run.py .
 
 USER appuser
 
-EXPOSE 8004
+EXPOSE 8005
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-  CMD curl -f http://localhost:8004/ || exit 1
+  CMD curl -f http://localhost:8005/ || exit 1
 
 CMD ["python", "run.py"]
