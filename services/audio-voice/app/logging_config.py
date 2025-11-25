@@ -125,3 +125,24 @@ def get_logger(name: str = None) -> logging.Logger:
         Logger configurado
     """
     return logging.getLogger(name or __name__)
+
+
+def log_job_serialization(job, stage: str, logger):
+    """Helper para log detalhado de serialização de Job"""
+    logger.debug(f"📦 Job Serialization [{stage}]:")
+    logger.debug(f"  - id: {job.id}")
+    logger.debug(f"  - mode: {job.mode}")
+    logger.debug(f"  - status: {job.status}")
+    logger.debug(f"  - input_file: {job.input_file}")
+    logger.debug(f"  - output_file: {job.output_file}")
+    logger.debug(f"  - text: {job.text[:50] if job.text else None}...")
+    logger.debug(f"  - voice_name: {job.voice_name}")
+
+
+def log_dict_serialization(job_dict: dict, stage: str, logger):
+    """Helper para log detalhado de dict"""
+    logger.debug(f"📦 Dict Serialization [{stage}]:")
+    logger.debug(f"  - id: {job_dict.get('id')}")
+    logger.debug(f"  - mode: {job_dict.get('mode')}")
+    logger.debug(f"  - input_file: {job_dict.get('input_file')}")
+    logger.debug(f"  - Keys: {list(job_dict.keys())}")

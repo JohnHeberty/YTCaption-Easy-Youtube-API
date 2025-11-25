@@ -51,12 +51,16 @@ class RedisJobStore:
                 logger.error(f"Error in cleanup loop: {e}")
     
     async def _cleanup_expired(self):
-        """Remove jobs e perfis expirados"""
+        """Remove jobs e perfis expirados e seus arquivos"""
+        from pathlib import Path
+        
         now = datetime.now()
         
         # Limpar jobs expirados
         job_keys = self.redis.keys("voice_job:*")
         expired_jobs = 0
+        files_deleted = 0
+        
         for key in job_keys:
             job_data = self.redis.get(key)
             if job_data:
@@ -64,6 +68,27 @@ class RedisJobStore:
                     job_dict = json.loads(job_data)
                     expires_at = datetime.fromisoformat(job_dict.get("expires_at", ""))
                     if now > expires_at:
+                        # Remove arquivos associados
+                        input_file = job_dict.get("input_file")
+                        output_file = job_dict.get("output_file")
+                        
+                        if input_file:
+                            try:
+                                Path(input_file).unlink(missing_ok=True)
+                                files_deleted += 1
+                                logger.debug(f"Deleted input file: {input_file}")
+                            except Exception as e:
+                                logger.error(f"Failed to delete {input_file}: {e}")
+                        
+                        if output_file:
+                            try:
+                                Path(output_file).unlink(missing_ok=True)
+                                files_deleted += 1
+                                logger.debug(f"Deleted output file: {output_file}")
+                            except Exception as e:
+                                logger.error(f"Failed to delete {output_file}: {e}")
+                        
+                        # Remove do Redis
                         self.redis.delete(key)
                         expired_jobs += 1
                 except Exception as e:
@@ -72,6 +97,7 @@ class RedisJobStore:
         # Limpar perfis de voz expirados
         profile_keys = self.redis.keys("voice_profile:*")
         expired_profiles = 0
+        
         for key in profile_keys:
             profile_data = self.redis.get(key)
             if profile_data:
@@ -79,13 +105,34 @@ class RedisJobStore:
                     profile_dict = json.loads(profile_data)
                     expires_at = datetime.fromisoformat(profile_dict.get("expires_at", ""))
                     if now > expires_at:
+                        # Remove arquivos associados ao perfil
+                        source_audio = profile_dict.get("source_audio_path")
+                        profile_path = profile_dict.get("profile_path")
+                        
+                        if source_audio:
+                            try:
+                                Path(source_audio).unlink(missing_ok=True)
+                                files_deleted += 1
+                                logger.debug(f"Deleted source audio: {source_audio}")
+                            except Exception as e:
+                                logger.error(f"Failed to delete {source_audio}: {e}")
+                        
+                        if profile_path:
+                            try:
+                                Path(profile_path).unlink(missing_ok=True)
+                                files_deleted += 1
+                                logger.debug(f"Deleted profile: {profile_path}")
+                            except Exception as e:
+                                logger.error(f"Failed to delete {profile_path}: {e}")
+                        
+                        # Remove do Redis
                         self.redis.delete(key)
                         expired_profiles += 1
                 except Exception as e:
                     logger.error(f"Error cleaning profile {key}: {e}")
         
-        if expired_jobs > 0 or expired_profiles > 0:
-            logger.info(f"Cleanup: removed {expired_jobs} jobs and {expired_profiles} voice profiles")
+        if expired_jobs > 0 or expired_profiles > 0 or files_deleted > 0:
+            logger.info(f"🧹 Cleanup: removed {expired_jobs} jobs, {expired_profiles} profiles, {files_deleted} files")
     
     # ===== JOBS =====
     

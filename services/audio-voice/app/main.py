@@ -72,11 +72,22 @@ def submit_processing_task(job: Job):
     try:
         from .celery_config import celery_app
         from .celery_tasks import dubbing_task, clone_voice_task
+        from .logging_config import log_job_serialization, log_dict_serialization
+        
+        # DEBUG: Log do job antes de serializar
+        log_job_serialization(job, "BEFORE_SERIALIZE", logger)
+        
+        # Serializa com exclude_none=False para incluir todos os campos
+        job_dict = job.model_dump(mode='json', exclude_none=False)
+        
+        # DEBUG: Log do dict serializado
+        log_dict_serialization(job_dict, "AFTER_SERIALIZE", logger)
+        logger.info(f"🔍 Enviando para Celery: {job_dict.get('id')} input_file={job_dict.get('input_file')}")
         
         if job.mode == JobMode.CLONE_VOICE:
-            task = clone_voice_task.apply_async(args=[job.model_dump()], task_id=job.id)
+            task = clone_voice_task.apply_async(args=[job_dict], task_id=job.id)
         else:
-            task = dubbing_task.apply_async(args=[job.model_dump()], task_id=job.id)
+            task = dubbing_task.apply_async(args=[job_dict], task_id=job.id)
         
         logger.info(f"📤 Job {job.id} sent to Celery: {task.id}")
     except Exception as e:
@@ -218,20 +229,26 @@ async def delete_job(job_id: str):
 
 # ===== ENDPOINTS DE CLONAGEM DE VOZ =====
 
-@app.post("/voices/clone", response_model=VoiceProfile)
+@app.post("/voices/clone", status_code=202)
 async def clone_voice(
     file: UploadFile = File(...),
     name: str = Form(...),
     language: str = Form(...),
     description: Optional[str] = Form(None)
-) -> VoiceProfile:
+):
     """
-    Clona voz a partir de amostra de áudio
+    Clona voz a partir de amostra de áudio (ASYNC)
+    
+    Retorna imediatamente com job_id. Use polling para verificar status.
     
     - **file**: Arquivo de áudio (WAV, MP3, etc.)
     - **name**: Nome do perfil
     - **language**: Idioma base da voz
     - **description**: Descrição opcional
+    
+    **Response:** HTTP 202 com job_id
+    **Polling:** GET /jobs/{job_id} até status="completed"
+    **Result:** GET /voices/{voice_id} quando completo
     """
     try:
         # Validações
@@ -267,6 +284,9 @@ async def clone_voice(
         # IMPORTANTE: Setar input_file ANTES de salvar/enviar
         clone_job.input_file = str(file_path)
         
+        # DEBUG: Verificar antes de serializar
+        logger.debug(f"🔍 Job antes de salvar: input_file={clone_job.input_file}")
+        
         # Salva job no Redis com input_file preenchido
         job_store.save_job(clone_job)
         
@@ -275,11 +295,16 @@ async def clone_voice(
         
         logger.info(f"Voice clone job created: {clone_job.id}")
         
-        # Aguarda processamento (simplificado - em produção usar polling)
-        # Para resposta síncrona, processa diretamente
-        voice_profile = await processor.process_clone_job(clone_job)
-        
-        return voice_profile
+        # Retorna job para polling (padrão assíncrono)
+        return JSONResponse(
+            status_code=202,  # Accepted
+            content={
+                "message": "Voice cloning job queued",
+                "job_id": clone_job.id,
+                "status": clone_job.status,
+                "poll_url": f"/jobs/{clone_job.id}"
+            }
+        )
         
     except Exception as e:
         logger.error(f"Error cloning voice: {e}")

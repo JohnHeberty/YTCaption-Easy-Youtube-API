@@ -132,7 +132,7 @@ def get_settings():
         'log_dir': os.getenv('LOG_DIR', './logs'),
         
         # ===== LOGGING =====
-        'log_level': os.getenv('LOG_LEVEL', 'INFO'),
+        'log_level': os.getenv('LOG_LEVEL', 'DEBUG'),  # DEBUG para auditoria detalhada
         'log_format': os.getenv('LOG_FORMAT', 'json'),
         'log_rotation': os.getenv('LOG_ROTATION', '1 day'),
         'log_retention': os.getenv('LOG_RETENTION', '30 days')

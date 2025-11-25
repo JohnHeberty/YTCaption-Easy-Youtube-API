@@ -45,6 +45,10 @@ def dubbing_task(self, job_dict: dict):
     """
     async def _process():
         try:
+            # DEBUG: Log do dict recebido
+            from .logging_config import log_dict_serialization
+            log_dict_serialization(job_dict, "WORKER_RECEIVED", logger)
+            
             # Reconstrói job
             job = Job(**job_dict)
             logger.info(f"🎬 Celery dubbing task started for job {job.id}")
@@ -88,9 +92,23 @@ def clone_voice_task(self, job_dict: dict):
     """
     async def _process():
         try:
+            # DEBUG: Log do dict recebido
+            from .logging_config import log_dict_serialization
+            log_dict_serialization(job_dict, "WORKER_RECEIVED", logger)
+            logger.debug(f"🔍 Worker recebeu: {job_dict.get('id')} input_file={job_dict.get('input_file')}")
+            
             # Reconstrói job
             job = Job(**job_dict)
+            
+            # DEBUG: Log do objeto reconstruído
+            logger.debug(f"🔍 Job reconstruído: id={job.id} input_file={job.input_file}")
             logger.info(f"🎤 Celery clone voice task started for job {job.id}")
+            
+            # VALIDAÇÃO: Garantir que input_file existe
+            if not job.input_file:
+                error_msg = f"Job {job.id} missing input_file after deserialization! Job data: {job_dict}"
+                logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
             
             # Processa
             voice_profile = await processor.process_clone_job(job)

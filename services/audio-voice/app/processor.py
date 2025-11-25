@@ -95,6 +95,22 @@ class VoiceProcessor:
             VoiceProfile criado
         """
         try:
+            # LOG DETALHADO
+            logger.info(f"🔍 Starting clone job {job.id}")
+            logger.debug(f"  - input_file: {job.input_file}")
+            logger.debug(f"  - voice_name: {job.voice_name}")
+            logger.debug(f"  - language: {job.source_language}")
+            
+            # Validar antes de processar
+            if not job.input_file:
+                error_msg = (
+                    f"Job {job.id} is missing input_file. "
+                    f"This should have been set during upload. "
+                    f"Job data: {job.model_dump()}"
+                )
+                logger.error(f"❌ {error_msg}")
+                raise ValueError(error_msg)
+            
             job.status = JobStatus.PROCESSING
             job.progress = 20.0
             if self.job_store:
