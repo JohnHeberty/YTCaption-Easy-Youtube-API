@@ -47,6 +47,12 @@ processor = VoiceProcessor()
 processor.job_store = job_store
 
 
+@app.get("/")
+async def root():
+    """Endpoint raiz básico para healthcheck"""
+    return {"service": "audio-voice", "status": "running", "version": "1.0.0"}
+
+
 @app.on_event("startup")
 async def startup_event():
     """Inicializa sistema"""

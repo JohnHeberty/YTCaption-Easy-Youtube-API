@@ -52,7 +52,7 @@ USER appuser
 EXPOSE 8004
 
 # Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8004/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+  CMD curl -f http://localhost:8004/ || exit 1
 
 CMD ["python", "run.py"]
