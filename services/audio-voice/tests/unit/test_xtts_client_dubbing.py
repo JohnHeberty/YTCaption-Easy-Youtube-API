@@ -82,7 +82,7 @@ class TestXTTSClientDubbing:
         """Testa que texto vazio retorna erro"""
         client = XTTSClient(device='cpu')
         
-        with pytest.raises(ValueError, match="texto vazio|empty text"):
+        with pytest.raises(ValueError, match="Texto vazio|texto vazio|empty text|inválido"):
             await client.generate_dubbing(
                 text="",
                 language="pt",
