@@ -25,39 +25,34 @@ class TestXTTSClientCloning:
         if not os.path.exists(ref_audio):
             pytest.skip(f"Áudio de referência não encontrado: {ref_audio}")
         
-        audio_bytes, duration = await client.clone_voice(
-            text="Esta voz foi clonada usando XTTS",
-            reference_audio=ref_audio,
-            language="pt"
+        profile = await client.clone_voice(
+            audio_path=ref_audio,
+            language="pt",
+            voice_name="Test Voice Basic"
         )
         
-        assert len(audio_bytes) > 0, "Áudio clonado vazio"
-        assert duration > 0, "Duração inválida"
+        assert profile is not None, "Profile não foi criado"
+        assert profile.name == "Test Voice Basic", "Nome incorreto"
+        assert profile.language == "pt", "Linguagem incorreta"
     
     @pytest.mark.asyncio
     async def test_clone_voice_multiple_references(self):
-        """Testa clonagem com múltiplos áudios de referência"""
+        """Testa clonagem (mesmo com único áudio, valida duplicatas ignoradas)"""
         client = XTTSClient(device='cpu')
         
-        # Lista de referências (pode ter 1-3 samples)
-        ref_audios = [
-            "/app/uploads/clone_20251126031159965237.ogg",
-        ]
+        ref_audio = "/app/uploads/clone_20251126031159965237.ogg"
         
-        # Filtra apenas arquivos que existem
-        existing_refs = [f for f in ref_audios if os.path.exists(f)]
+        if not os.path.exists(ref_audio):
+            pytest.skip("Áudio de referência não encontrado")
         
-        if len(existing_refs) == 0:
-            pytest.skip("Nenhum áudio de referência encontrado")
-        
-        audio_bytes, duration = await client.clone_voice(
-            text="Clonagem com múltiplas referências",
-            reference_audio=existing_refs,
-            language="pt"
+        profile = await client.clone_voice(
+            audio_path=ref_audio,
+            language="pt",
+            voice_name="Test Voice Multiple"
         )
         
-        assert len(audio_bytes) > 0, "Áudio vazio"
-        assert duration > 0, "Duração inválida"
+        assert profile is not None, "Profile não foi criado"
+        assert profile.name == "Test Voice Multiple"
     
     @pytest.mark.asyncio
     async def test_clone_voice_with_text_reference(self):
@@ -69,15 +64,15 @@ class TestXTTSClientCloning:
         if not os.path.exists(ref_audio):
             pytest.skip("Áudio de referência não encontrado")
         
-        audio_bytes, duration = await client.clone_voice(
-            text="Este é o texto a ser sintetizado",
-            reference_audio=ref_audio,
-            reference_text="Texto original do áudio de referência",
-            language="pt"
+        profile = await client.clone_voice(
+            audio_path=ref_audio,
+            language="pt",
+            voice_name="Test Voice with Text",
+            reference_text="Texto original do áudio de referência"
         )
         
-        assert len(audio_bytes) > 0, "Áudio vazio"
-        assert duration > 0, "Duração inválida"
+        assert profile is not None, "Profile não foi criado"
+        assert profile.reference_text == "Texto original do áudio de referência"
     
     @pytest.mark.asyncio
     async def test_clone_voice_invalid_reference(self):
@@ -86,9 +81,9 @@ class TestXTTSClientCloning:
         
         with pytest.raises(FileNotFoundError, match="reference|referência|not found"):
             await client.clone_voice(
-                text="Teste",
-                reference_audio="/caminho/inexistente.wav",
-                language="pt"
+                audio_path="/caminho/inexistente.wav",
+                language="pt",
+                voice_name="Test Invalid"
             )
     
     @pytest.mark.asyncio
@@ -101,28 +96,14 @@ class TestXTTSClientCloning:
         if not os.path.exists(ref_audio):
             pytest.skip("Áudio de referência não encontrado")
         
-        # Gera áudio com qualidade alta
-        audio_high, duration_high = await client.clone_voice(
-            text="Teste de qualidade alta",
-            reference_audio=ref_audio,
+        # Cria profile com configurações de qualidade
+        profile = await client.clone_voice(
+            audio_path=ref_audio,
             language="pt",
+            voice_name="Test Voice Quality",
             temperature=0.7,  # Mais determinístico
             repetition_penalty=5.0  # Menos repetição
         )
         
-        assert len(audio_high) > 0, "Áudio qualidade alta vazio"
-        
-        # Gera áudio com qualidade baixa (mais rápido)
-        audio_low, duration_low = await client.clone_voice(
-            text="Teste de qualidade baixa",
-            reference_audio=ref_audio,
-            language="pt",
-            temperature=1.0,  # Mais variação
-            repetition_penalty=2.0
-        )
-        
-        assert len(audio_low) > 0, "Áudio qualidade baixa vazio"
-        
-        # Qualidade alta deve ser mais consistente (não necessariamente maior)
-        # Mas ambos devem ter duração similar para mesmo texto
-        assert abs(duration_high - duration_low) < 2, "Durações muito diferentes"
+        assert profile is not None, "Profile não foi criado"
+        assert profile.duration > 3.0, "Áudio muito curto (deve ter >3s)"

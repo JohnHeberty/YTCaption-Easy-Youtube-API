@@ -35,15 +35,20 @@ class TestXTTSClientDubbing:
         """Testa dubbing com VoiceProfile (voice cloning)"""
         client = XTTSClient(device='cpu')
         
-        # Mock de VoiceProfile
-        profile = VoiceProfile(
-            id="test_voice_123",
+        ref_audio = "/app/uploads/clone_20251126031159965237.ogg"
+        
+        if not os.path.exists(ref_audio):
+            pytest.skip("Áudio de referência não encontrado")
+        
+        # Cria VoiceProfile usando método create_new
+        profile = VoiceProfile.create_new(
             name="Test Voice",
             language="pt",
-            reference_audio_path="/app/uploads/clone_20251126031159965237.ogg",
-            reference_text="Texto de referência para clonagem",
-            profile_path="voice_profiles/test_voice_123"
+            source_audio_path=ref_audio,
+            profile_path=ref_audio,
+            description="Voz de teste para dubbing"
         )
+        profile.reference_audio_path = ref_audio
         
         audio_bytes, duration = await client.generate_dubbing(
             text="Teste com perfil clonado",
