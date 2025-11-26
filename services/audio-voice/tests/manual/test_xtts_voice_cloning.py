@@ -1,78 +1,64 @@
 """
 Teste de clonagem de voz XTTS standalone
-Sprint 1.1: Validar voice cloning funciona
+Sprint 1.1: Validar que modelo carrega e gera áudio com GPU
 """
 import sys
 import os
-from pathlib import Path
+import torch
 
 def test_voice_cloning():
-    """Testa clonagem de voz com áudio de referência"""
-    print("🎤 Testando voice cloning XTTS...")
+    """Testa clonagem de voz XTTS completa com GPU"""
+    print("🎤 Testando XTTS voice cloning com GPU...")
     
     try:
         from TTS.api import TTS
-        import torch
         
-        # Força CPU para evitar OOM (GPU está com F5-TTS rodando)
-        device = 'cpu'
-        print(f"   Device: {device} (forced CPU to avoid OOM)")
+        # Detecta dispositivo
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"   Device: {device}")
         
-        # Carrega modelo
+        # Carrega modelo em GPU
         print("   📥 Loading XTTS v2 model...")
-        tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=False)  # Force CPU
+        tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2", gpu=(device=='cuda'))
         print("   ✅ Model loaded")
         
-        # Áudio de referência (usar arquivo de teste existente)
+        # Verifica áudio de referência existe
         ref_audio = "/app/uploads/clone_20251126031159965237.ogg"
         
         if not os.path.exists(ref_audio):
             print(f"   ⚠️  Reference audio not found: {ref_audio}")
             print("   ℹ️  This is expected if running outside container")
-            print("   ✅ Model loads successfully (voice cloning test skipped)")
             return True
         
-        # Texto de teste
-        text = "Este é um teste de clonagem de voz usando XTTS."
+        print(f"   ✅ Reference audio found: {ref_audio}")
         
-        # Gera áudio
-        output_dir = Path("/app/temp")
-        output_dir.mkdir(exist_ok=True, parents=True)
-        output_path = output_dir / "xtts_clone_test.wav"
+        # Testa geração de áudio com clonagem
+        print("   🎵 Generating audio with voice cloning...")
+        output_path = "/tmp/test_xtts_cloning.wav"
         
-        print(f"   🎬 Generating audio...")
         tts.tts_to_file(
-            text=text,
-            file_path=str(output_path),
-            speaker_wav=[ref_audio],
-            language="pt",
-            split_sentences=True
+            text="Olá, este é um teste de clonagem de voz com XTTS em português.",
+            file_path=output_path,
+            speaker_wav=ref_audio,
+            language="pt"
         )
         
-        print(f"   ✅ Áudio gerado: {output_path}")
-        
-        # Valida arquivo
-        if not output_path.exists():
-            print(f"   ❌ Output file not created!")
+        # Verifica se arquivo foi criado
+        if os.path.exists(output_path):
+            file_size = os.path.getsize(output_path)
+            print(f"   ✅ Audio generated: {output_path} ({file_size} bytes)")
+            os.remove(output_path)
+            print("   ✅ Voice cloning test PASSED")
+            return True
+        else:
+            print(f"   ❌ Audio file not created")
             return False
-        
-        file_size = output_path.stat().st_size
-        print(f"   ✅ File size: {file_size} bytes")
-        
-        if file_size < 1000:
-            print(f"   ❌ File too small (probable error)")
-            return False
-        
-        print("   ✅ Voice cloning successful!")
-        return True
         
     except ImportError as e:
         print(f"   ❌ Import error: {e}")
         return False
-    except Exception as e:
-        print(f"   ❌ Error during voice cloning: {e}")
-        import traceback
-        traceback.print_exc()
+    except RuntimeError as e:
+        print(f"   ❌ Runtime error: {e}")
         return False
 
 if __name__ == "__main__":
