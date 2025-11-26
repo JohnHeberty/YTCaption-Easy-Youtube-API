@@ -1,6 +1,6 @@
 from enum import Enum
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 from pydantic import BaseModel, Field
 import hashlib
 
@@ -27,9 +27,13 @@ class VoiceProfile(BaseModel):
     description: Optional[str] = None
     language: str  # Idioma base da voz (pt-BR, en-US, etc.)
     
+    # === NOVO: F5-TTS usa áudio direto ===
+    reference_audio_path: Optional[str] = None  # Caminho para áudio de referência (F5-TTS)
+    reference_text: Optional[str] = None        # Transcrição do áudio de referência (F5-TTS)
+    
     # Arquivos e dados
     source_audio_path: str  # Caminho da amostra original
-    profile_path: str       # Caminho do perfil serializado (.pkl)
+    profile_path: str       # Caminho do perfil serializado (.pkl para OpenVoice, .wav para F5-TTS)
     
     # Metadata
     duration: Optional[float] = None  # Duração da amostra em segundos
@@ -43,6 +47,9 @@ class VoiceProfile(BaseModel):
     
     # Uso
     usage_count: int = 0
+    
+    class Config:
+        arbitrary_types_allowed = True
     
     @property
     def is_expired(self) -> bool:
@@ -120,10 +127,6 @@ class Job(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     progress: float = 0.0  # Progresso de 0.0 a 100.0
-    
-    # OpenVoice specific
-    openvoice_model: Optional[str] = None  # Modelo usado
-    openvoice_params: Optional[Dict[str, Any]] = None  # Parâmetros OpenVoice
     
     @property
     def is_expired(self) -> bool:

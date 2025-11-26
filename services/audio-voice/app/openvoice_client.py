@@ -1,524 +1,141 @@
 """
-Cliente OpenVoice - Adapter para dublagem e clonagem de voz
+OpenVoiceClient - Adapter de Compatibilidade para F5-TTS
+=========================================================
 
-IMPORTANTE: Este é um ADAPTER/MOCK para OpenVoice.
-A implementação real depende da instalação e API do OpenVoice.
+Este módulo existe para manter compatibilidade com código legado que esperava
+OpenVoice, mas internamente utiliza F5-TTS com modelo customizado pt-BR.
 
-Referência: https://github.com/myshell-ai/OpenVoice
-
-Para integração completa:
-1. Instalar OpenVoice: pip install git+https://github.com/myshell-ai/OpenVoice.git
-2. Baixar modelos pré-treinados
-3. Ajustar imports e chamadas conforme API OpenVoice
+MODELO PADRÃO: /app/models/f5tts/pt-br/model_last.safetensors
+GPU TARGET: GTX 1050 Ti (4GB VRAM)
 """
 import logging
 import os
 import torch
 import torchaudio
 import numpy as np
+import soundfile as sf
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
-import pickle
+from typing import Optional, Tuple
 
+from .tts_interface import TTSEngine
 from .models import VoiceProfile
 from .config import get_settings
 from .exceptions import OpenVoiceException, InvalidAudioException
 
 logger = logging.getLogger(__name__)
 
-# ===== SIMULAÇÃO DE IMPORTS OPENVOICE =====
-# Em produção, substituir por imports reais:
-# from openvoice import se_extractor
-# from openvoice.api import ToneColorConverter, BaseSpeakerTTS
 
-
-class MockOpenVoiceModel:
-    """Mock do modelo OpenVoice para desenvolvimento/teste"""
-    def __init__(self, device='cpu'):
-        self.device = device
-        logger.warning("Using MOCK OpenVoice model - not production ready!")
-    
-    def tts(self, text: str, speaker: str, language: str, **kwargs) -> np.ndarray:
-        """Simula geração de TTS que SONA como fala humana"""
-        logger.info(f"🎵 MOCK TTS: '{text[:50]}...' speaker={speaker} lang={language}")
-        
-        sample_rate = 24000
-        
-        # Parâmetros de voz baseados no speaker
-        if 'female' in speaker.lower() or 'woman' in speaker.lower():
-            base_pitch = 220  # Lá3 (voz feminina)
-            pitch_variation = 50
-            logger.info(f"  Using FEMALE voice (base pitch: {base_pitch} Hz)")
-        else:
-            base_pitch = 130  # Dó3 (voz masculina)
-            pitch_variation = 30
-            logger.info(f"  Using MALE voice (base pitch: {base_pitch} Hz)")
-        
-        # Simula palavras/sílabas do texto
-        words = text.split()
-        logger.info(f"  Text: {len(text)} chars, {len(words)} words")
-        logger.info(f"  🔊 Starting syllable-by-syllable generation:")
-        
-        audio_segments = []
-        total_syllables = 0
-        
-        for word_idx, word in enumerate(words):
-            # Cada palavra tem 1-4 sílabas (estimativa)
-            num_syllables = max(1, min(4, len(word) // 2))
-            total_syllables += num_syllables
-            
-            if word_idx < 3:
-                logger.info(f"     Word '{word}': {num_syllables} syllables")
-            
-            for syllable_idx in range(num_syllables):
-                # Duração da sílaba: 0.08-0.15s (velocidade natural de fala)
-                syllable_duration = 0.08 + np.random.rand() * 0.07
-                syllable_samples = int(sample_rate * syllable_duration)
-                
-                # Pitch varia por sílaba (prosódia natural)
-                pitch_offset = (np.random.rand() - 0.5) * pitch_variation
-                syllable_pitch = base_pitch + pitch_offset
-                
-                if word_idx < 3:
-                    logger.info(f"       Syl {syllable_idx+1}: pitch={syllable_pitch:.1f}Hz, dur={syllable_duration*1000:.0f}ms")
-                
-                # Gera sílaba com MÚLTIPLAS FREQUÊNCIAS (sons humanos)
-                t = np.arange(syllable_samples) / sample_rate
-                
-                # Fundamental (pitch da voz) - REDUZIDO para dar espaço aos formantes
-                fundamental = 0.25 * np.sin(2 * np.pi * syllable_pitch * t)
-                
-                # Harmônicos (timbre humano) - REDUZIDOS
-                harmonic2 = 0.12 * np.sin(2 * np.pi * syllable_pitch * 2 * t)
-                harmonic3 = 0.06 * np.sin(2 * np.pi * syllable_pitch * 3 * t)
-                harmonic4 = 0.03 * np.sin(2 * np.pi * syllable_pitch * 4 * t)
-                
-                # Formantes (ressonâncias da voz - variam por vogal simulada) - AUMENTADOS!
-                formant1_freq = 700 + (syllable_idx % 3) * 200  # ~700-1100 Hz
-                formant2_freq = 1200 + (syllable_idx % 3) * 300  # ~1200-1800 Hz
-                formant1 = 0.6 * np.sin(2 * np.pi * formant1_freq * t)  # DOMINANTE!
-                formant2 = 0.4 * np.sin(2 * np.pi * formant2_freq * t)  # FORTE!
-                
-                # Ruído de respiração (aspiration) - simula naturalidade
-                breath_noise = 0.015 * np.random.randn(syllable_samples)
-                
-                # Vibrato leve (modulação natural da voz)
-                vibrato_freq = 5.5  # 5.5 Hz
-                vibrato_depth = 0.025  # 2.5% de variação
-                vibrato = 1 + vibrato_depth * np.sin(2 * np.pi * vibrato_freq * t)
-                
-                if word_idx < 3:
-                    logger.info(f"         Harmonics: F={syllable_pitch:.0f}Hz@0.25, 2F={syllable_pitch*2:.0f}Hz@0.12, 3F={syllable_pitch*3:.0f}Hz@0.06")
-                    logger.info(f"         Formants: F1={formant1_freq:.0f}Hz@0.6, F2={formant2_freq:.0f}Hz@0.4 [DOMINANTES]")
-                    logger.info(f"         Breath noise: 0.015, Vibrato: {vibrato_freq}Hz @ {vibrato_depth*100:.1f}%")
-                
-                # Combina todas as frequências
-                syllable = fundamental + harmonic2 + harmonic3 + harmonic4 + formant1 + formant2 + breath_noise
-                
-                # Aplica vibrato (modulação natural)
-                syllable *= vibrato
-                
-                # Envelope ADSR mais natural (Attack, Decay, Sustain, Release)
-                attack = int(syllable_samples * 0.10)   # 10% - ataque mais suave
-                decay = int(syllable_samples * 0.15)    # 15% - decay para sustain
-                sustain_end = int(syllable_samples * 0.65)  # 65% - sustain
-                release = syllable_samples - sustain_end    # 10% - release rápido
-                
-                envelope = np.ones(syllable_samples)
-                
-                # Attack: 0.2 → 1.0 (mais suave)
-                if attack > 0:
-                    envelope[:attack] = np.linspace(0.2, 1.0, attack)
-                
-                # Decay: 1.0 → 0.85 (leve queda)
-                if decay > 0 and attack + decay < syllable_samples:
-                    envelope[attack:attack+decay] = np.linspace(1.0, 0.85, decay)
-                
-                # Sustain: mantém em 0.85
-                if sustain_end > attack + decay:
-                    envelope[attack+decay:sustain_end] = 0.85
-                
-                # Release: 0.85 → 0.05 (fade suave)
-                if release > 0:
-                    envelope[sustain_end:] = np.linspace(0.85, 0.05, release)
-                
-                syllable *= envelope
-                
-                # Amplitude varia (sílabas tônicas vs átonas)
-                if syllable_idx == 0 or syllable_idx % 2 == 0:
-                    amplitude = 0.7  # Sílaba tônica
-                else:
-                    amplitude = 0.5  # Sílaba átona
-                
-                syllable *= amplitude
-                
-                # Análise da sílaba
-                syl_rms = np.sqrt(np.mean(syllable**2))
-                syl_peak = np.abs(syllable).max()
-                
-                if word_idx < 3:
-                    logger.info(f"         Result: RMS={syl_rms:.4f}, peak={syl_peak:.4f}, tonic={syllable_idx==0 or syllable_idx%2==0}")
-                
-                audio_segments.append(syllable)
-                
-                # Micro-pausa entre sílabas (20-40ms)
-                if syllable_idx < num_syllables - 1:
-                    pause_samples = int(sample_rate * (0.02 + np.random.rand() * 0.02))
-                    audio_segments.append(np.zeros(pause_samples))
-            
-            # PAUSA entre palavras (80-150ms)
-            if word_idx < len(words) - 1:
-                pause_duration = 0.08 + np.random.rand() * 0.07
-                pause_samples = int(sample_rate * pause_duration)
-                audio_segments.append(np.zeros(pause_samples))
-        
-        # Concatena todos os segmentos
-        audio = np.concatenate(audio_segments)
-        
-        logger.info(f"  Total syllables generated: {total_syllables}")
-        logger.info(f"  Total audio segments: {len(audio_segments)}")
-        
-        # Normalização suave para volume natural de fala (60%)
-        max_val = np.abs(audio).max()
-        if max_val > 0:
-            audio = audio / max_val * 0.6  # Mais conservador para evitar distorção
-        
-        # Soft clipping para suavizar picos remanescentes
-        audio = np.tanh(audio * 1.2) * 0.8
-        
-        audio_data = audio.astype(np.float32)
-        
-        # Logs detalhados
-        duration = len(audio_data) / sample_rate
-        rms = np.sqrt(np.mean(audio_data**2))
-        non_zero = np.count_nonzero(np.abs(audio_data) > 0.01)
-        
-        # Análise FFT para detectar frequências dominantes
-        fft_samples = min(sample_rate, len(audio_data))  # Primeiro segundo
-        fft = np.fft.fft(audio_data[:fft_samples])
-        freqs = np.fft.fftfreq(fft_samples, 1/sample_rate)
-        magnitudes = np.abs(fft)
-        
-        # Top 5 frequências
-        positive_mask = freqs > 0
-        top_indices = np.argsort(magnitudes[positive_mask])[-5:][::-1]
-        top_freqs = freqs[positive_mask][top_indices]
-        top_mags = magnitudes[positive_mask][top_indices]
-        
-        logger.info(f"🎵 Audio generated:")
-        logger.info(f"  - Duration: {duration:.2f}s ({len(audio_data)} samples)")
-        logger.info(f"  - Amplitude: [{audio_data.min():.3f}, {audio_data.max():.3f}]")
-        logger.info(f"  - RMS: {rms:.3f}")
-        logger.info(f"  - Non-zero: {non_zero}/{len(audio_data)} ({non_zero/len(audio_data)*100:.1f}%)")
-        logger.info(f"  - Top frequencies (first 1s):")
-        for freq, mag in zip(top_freqs, top_mags):
-            logger.info(f"      {freq:.1f} Hz (magnitude: {mag:.0f})")
-        logger.info(f"  - First 10 samples: {audio_data[:10]}")
-        logger.info(f"  - Last 10 samples: {audio_data[-10:]}")
-        
-        # Análise de variação temporal
-        chunks = np.array_split(audio_data, 10)
-        chunk_rms = [np.sqrt(np.mean(c**2)) for c in chunks]
-        logger.info(f"  - RMS by chunk (10 chunks): {[f'{x:.3f}' for x in chunk_rms]}")
-        
-        return audio_data
-    
-    def tts_with_voice(self, text: str, voice_embedding: np.ndarray, **kwargs) -> np.ndarray:
-        """Simula TTS com voz clonada (áudio audível como fala)"""
-        logger.info(f"🎵 MOCK TTS with cloned voice: '{text[:50]}...'")
-        
-        sample_rate = 24000
-        
-        # Usa embedding para variar pitch (simula características da voz clonada)
-        if voice_embedding is not None and len(voice_embedding) > 0:
-            # Extrai "características" do embedding
-            embedding_factor = (voice_embedding[0] % 1.0)  # 0.0 a 1.0
-            
-            # Mapeia para range de pitch (100-300 Hz)
-            base_pitch = 100 + embedding_factor * 200
-            pitch_variation = 20 + embedding_factor * 30
-            
-            logger.info(f"  Cloned voice pitch: {base_pitch:.1f} Hz (from embedding)")
-        else:
-            base_pitch = 180
-            pitch_variation = 40
-            logger.info(f"  Default pitch: {base_pitch} Hz")
-        
-        # Segmentação em sílabas (mesmo approach do tts)
-        words = text.split()
-        syllable_count = sum(len(word) // 3 + 1 for word in words)  # Estimativa
-        syllable_duration = 0.15  # 150ms por sílaba
-        pause_duration = 0.05     # 50ms entre sílabas
-        
-        logger.info(f"  Syllable structure: {syllable_count} syllables, {syllable_duration}s each")
-        
-        segments = []
-        
-        logger.info(f"  🔊 Starting syllable generation:")
-        logger.info(f"     - Total syllables: {syllable_count}")
-        logger.info(f"     - Base pitch: {base_pitch:.1f} Hz")
-        logger.info(f"     - Pitch variation: ±{pitch_variation:.1f} Hz")
-        
-        for i in range(syllable_count):
-            # Pitch variável (simula prosódia)
-            syllable_pitch = base_pitch + np.random.uniform(-pitch_variation, pitch_variation)
-            
-            # Amplitude variável (tônica vs átona)
-            is_tonic = (i % 3 == 0)  # A cada 3 sílabas uma é tônica
-            amplitude = 0.7 if is_tonic else 0.5
-            
-            if i < 3 or i >= syllable_count - 3:
-                logger.debug(f"     [Syl {i+1:02d}] pitch={syllable_pitch:.1f}Hz, amp={amplitude:.2f}, tonic={is_tonic}")
-            
-            # Gera segmento de áudio para esta sílaba
-            n_samples = int(syllable_duration * sample_rate)
-            t = np.linspace(0, syllable_duration, n_samples, False)
-            
-            # Síntese com harmônicos - AMPLITUDES REBALANCEADAS
-            syllable_audio = np.zeros(n_samples)
-            
-            # Fundamental + harmônicos - REDUZIDOS
-            fundamental = 0.25 * np.sin(2 * np.pi * syllable_pitch * t)
-            harmonic2 = 0.12 * np.sin(2 * np.pi * syllable_pitch * 2 * t)
-            harmonic3 = 0.06 * np.sin(2 * np.pi * syllable_pitch * 3 * t)
-            harmonic4 = 0.03 * np.sin(2 * np.pi * syllable_pitch * 4 * t)
-            
-            if i < 3 or i >= syllable_count - 3:
-                logger.debug(f"        Harmonics: F={syllable_pitch:.0f}Hz@0.25, 2F={syllable_pitch*2:.0f}Hz@0.12, 3F={syllable_pitch*3:.0f}Hz@0.06")
-            
-            # Formantes - AUMENTADOS!
-            formant1_freq = 700 + np.random.uniform(0, 400)   # 700-1100 Hz
-            formant2_freq = 1200 + np.random.uniform(0, 600)  # 1200-1800 Hz
-            formant1 = 0.6 * np.sin(2 * np.pi * formant1_freq * t)
-            formant2 = 0.4 * np.sin(2 * np.pi * formant2_freq * t)
-            
-            # Ruído de respiração
-            breath_noise = 0.015 * np.random.randn(n_samples)
-            
-            # Vibrato
-            vibrato_freq = 5.5
-            vibrato_depth = 0.025
-            vibrato = 1 + vibrato_depth * np.sin(2 * np.pi * vibrato_freq * t)
-            
-            if i < 3 or i >= syllable_count - 3:
-                logger.debug(f"        Formants: F1={formant1_freq:.0f}Hz@0.6, F2={formant2_freq:.0f}Hz@0.4 [DOMINANTES]")
-            
-            # Combina todas as frequências
-            syllable_audio = fundamental + harmonic2 + harmonic3 + harmonic4 + formant1 + formant2 + breath_noise
-            
-            # Aplica vibrato
-            syllable_audio *= vibrato
-            
-            # Envelope ADSR mais natural
-            attack = int(0.015 * sample_rate)   # 15ms - ataque mais suave
-            decay = int(0.025 * sample_rate)    # 25ms
-            sustain_end = int(n_samples * 0.65)  # 65%
-            release = n_samples - sustain_end    # Resto
-            
-            envelope = np.ones(n_samples)
-            
-            # Attack: 0.2 → 1.0
-            if attack > 0:
-                envelope[:attack] = np.linspace(0.2, 1.0, attack)
-            
-            # Decay: 1.0 → 0.85
-            if decay > 0 and attack + decay < n_samples:
-                envelope[attack:attack+decay] = np.linspace(1.0, 0.85, decay)
-            
-            # Sustain: mantém em 0.85
-            if sustain_end > attack + decay:
-                envelope[attack+decay:sustain_end] = 0.85
-            
-            # Release: 0.85 → 0.05
-            if release > 0:
-                envelope[sustain_end:] = np.linspace(0.85, 0.05, release)
-            
-            syllable_audio *= envelope
-            
-            # Análise da sílaba
-            syl_rms = np.sqrt(np.mean(syllable_audio**2))
-            syl_peak = np.abs(syllable_audio).max()
-            
-            if i < 3 or i >= syllable_count - 3:
-                logger.debug(f"        Envelope: attack={attack}, decay={decay}, release={release}")
-                logger.debug(f"        Result: RMS={syl_rms:.4f}, peak={syl_peak:.4f}, samples={len(syllable_audio)}")
-            
-            segments.append(syllable_audio)
-            
-            # Pausa entre sílabas
-            if i < syllable_count - 1:
-                pause_samples = int(pause_duration * sample_rate)
-                pause = np.zeros(pause_samples)
-                segments.append(pause)
-                if i < 2:
-                    logger.debug(f"        Added pause: {pause_samples} samples ({pause_duration*1000:.0f}ms)")
-        
-        # Concatena todas as sílabas
-        audio_data = np.concatenate(segments)
-        
-        # Normalização suave (60% + soft clipping)
-        max_val = np.abs(audio_data).max()
-        if max_val > 0:
-            audio_data = audio_data / max_val * 0.6
-        
-        # Soft clipping para suavizar picos
-        audio_data = np.tanh(audio_data * 1.2) * 0.8
-        
-        # Logs detalhados
-        duration = len(audio_data) / sample_rate
-        rms = np.sqrt(np.mean(audio_data**2))
-        non_zero = np.count_nonzero(np.abs(audio_data) > 0.01)
-        
-        # Análise FFT
-        fft_samples = min(sample_rate, len(audio_data))
-        fft = np.fft.fft(audio_data[:fft_samples])
-        freqs = np.fft.fftfreq(fft_samples, 1/sample_rate)
-        magnitudes = np.abs(fft)
-        
-        positive_mask = freqs > 0
-        top_indices = np.argsort(magnitudes[positive_mask])[-5:][::-1]
-        top_freqs = freqs[positive_mask][top_indices]
-        top_mags = magnitudes[positive_mask][top_indices]
-        
-        logger.info(f"🎵 Cloned audio generated:")
-        logger.info(f"  - Duration: {duration:.2f}s ({len(audio_data)} samples)")
-        logger.info(f"  - Amplitude: [{audio_data.min():.3f}, {audio_data.max():.3f}]")
-        logger.info(f"  - RMS: {rms:.3f}")
-        logger.info(f"  - Non-zero: {non_zero}/{len(audio_data)} ({non_zero/len(audio_data)*100:.1f}%)")
-        logger.info(f"  - Base pitch: {base_pitch:.1f} Hz")
-        logger.info(f"  - Top frequencies (first 1s):")
-        for freq, mag in zip(top_freqs, top_mags):
-            logger.info(f"      {freq:.1f} Hz (magnitude: {mag:.0f})")
-        logger.info(f"  - First 10 samples: {audio_data[:10]}")
-        logger.info(f"  - Last 10 samples: {audio_data[-10:]}")
-        
-        chunks = np.array_split(audio_data, 10)
-        chunk_rms = [np.sqrt(np.mean(c**2)) for c in chunks]
-        logger.info(f"  - RMS by chunk (10 chunks): {[f'{x:.3f}' for x in chunk_rms]}")
-        
-        return audio_data
-    
-    def extract_voice_embedding(self, audio_path: str, language: str) -> np.ndarray:
-        """Simula extração de embedding de voz"""
-        logger.info(f"MOCK extract voice embedding from {audio_path}")
-        
-        # Em produção real, analisaria o áudio para extrair características
-        # Aqui geramos embedding determinístico baseado no path para consistência
-        import hashlib
-        path_hash = hashlib.md5(audio_path.encode()).hexdigest()
-        seed = int(path_hash[:8], 16)
-        np.random.seed(seed)
-        
-        # Retorna embedding de exemplo (vetor de 256 dimensões)
-        embedding = np.random.randn(256).astype(np.float32)
-        
-        # Normaliza para melhor estabilidade
-        embedding = embedding / np.linalg.norm(embedding)
-        
-        logger.debug(f"Generated embedding: shape={embedding.shape}, norm={np.linalg.norm(embedding):.3f}")
-        
-        return embedding
-
-
-class OpenVoiceClient:
+class OpenVoiceClient(TTSEngine):
     """
-    Cliente para OpenVoice - Dublagem e Clonagem de Voz
+    Adapter de compatibilidade: emula interface OpenVoice usando F5-TTS.
     
-    Responsabilidades:
-    - Inicializar modelos OpenVoice
-    - Gerar áudio dublado a partir de texto
-    - Clonar vozes a partir de amostras
-    - Sintetizar fala com vozes clonadas
+    ESPECIALIZAÇÃO:
+    - Modelo pt-BR: model_last.safetensors (1.35 GB)
+    - GPU: GTX 1050 Ti (4GB VRAM)
+    - Otimizações: FP16, batch_size=1, no_grad
     """
     
     def __init__(self, device: Optional[str] = None):
         """
-        Inicializa cliente OpenVoice
+        Inicializa cliente F5-TTS com modelo pt-BR customizado
         
         Args:
             device: 'cpu' ou 'cuda' (auto-detecta se None)
         """
         self.settings = get_settings()
-        openvoice_config = self.settings['openvoice']
+        f5tts_config = self.settings.get('f5tts', {})
         
-        # Device
+        # Device detection com fallback
         if device is None:
-            self.device = openvoice_config['device']
+            self.device = f5tts_config.get('device', 'cuda')
             if self.device == 'cuda' and not torch.cuda.is_available():
-                logger.warning("CUDA not available, falling back to CPU")
+                logger.warning("⚠️ CUDA not available, falling back to CPU")
                 self.device = 'cpu'
         else:
             self.device = device
         
-        logger.info(f"Initializing OpenVoice client on device: {self.device}")
+        logger.info(f"🚀 Initializing F5-TTS (pt-BR) on device: {self.device}")
         
-        # Paths
-        self.model_path = Path(openvoice_config['model_path'])
-        self.model_path.mkdir(exist_ok=True, parents=True)
+        # Paths - MODELO CUSTOMIZADO pt-BR
+        self.model_dir = Path('/app/models/f5tts/pt-br')
+        self.custom_model_path = self.model_dir / 'model_last.safetensors'
+        self.hf_cache_dir = Path(f5tts_config.get('hf_cache_dir', '/app/models/f5tts'))
         
-        # Modelos (carregados sob demanda)
-        self._tts_model = None
-        self._converter_model = None
+        # Verificar modelo customizado
+        if not self.custom_model_path.exists():
+            raise FileNotFoundError(
+                f"❌ Modelo pt-BR não encontrado: {self.custom_model_path}\n"
+                f"   Esperado: model_last.safetensors (~1.35 GB)"
+            )
+        
+        logger.info(f"✅ Custom pt-BR model found: {self.custom_model_path} ({self.custom_model_path.stat().st_size / (1024**3):.2f} GB)")
+        
+        # Configurações otimizadas para GTX 1050 Ti (4GB VRAM)
+        self.sample_rate = 24000  # F5-TTS padrão
+        self.nfe_step = f5tts_config.get('nfe_step', 16)  # REDUZIDO: 32 -> 16 (economia VRAM)
+        self.target_rms = f5tts_config.get('target_rms', 0.1)
+        self.use_fp16 = self.device == 'cuda'  # FP16 em GPU para economizar VRAM
+        
+        # State tracking
         self._models_loaded = False
+        self.f5tts = None
         
-        # Parâmetros padrão
-        self.sample_rate = openvoice_config['sample_rate']
-        self.default_speed = openvoice_config['default_speed']
-        self.default_pitch = openvoice_config['default_pitch']
-        
-        # Preload se configurado
-        if openvoice_config['preload_models']:
-            try:
-                self._load_models()
-            except Exception as e:
-                logger.error(f"Failed to preload models: {e}")
+        # Carrega modelo
+        self._load_models()
     
     def _load_models(self):
-        """Carrega modelos OpenVoice"""
-        if self._models_loaded:
-            return
-        
+        """Carrega modelo F5-TTS com modelo customizado pt-BR"""
         try:
-            logger.info("Loading OpenVoice models...")
+            logger.info(f"📥 Loading F5-TTS with custom pt-BR model...")
+            logger.info(f"   Model path: {self.custom_model_path}")
+            logger.info(f"   Device: {self.device}")
+            logger.info(f"   FP16: {self.use_fp16}")
+            logger.info(f"   NFE steps: {self.nfe_step}")
             
-            # ===== PRODUÇÃO: Substituir por código real =====
-            # from openvoice import se_extractor
-            # from openvoice.api import ToneColorConverter, BaseSpeakerTTS
-            # 
-            # self._tts_model = BaseSpeakerTTS(
-            #     model_path=str(self.model_path / "base_speakers"),
-            #     device=self.device
-            # )
-            # 
-            # self._converter_model = ToneColorConverter(
-            #     model_path=str(self.model_path / "converter"),
-            #     device=self.device
-            # )
-            # ===== FIM PRODUÇÃO =====
+            from f5_tts.api import F5TTS
             
-            # MOCK para desenvolvimento
-            self._tts_model = MockOpenVoiceModel(device=self.device)
-            self._converter_model = MockOpenVoiceModel(device=self.device)
+            # Inicializa F5-TTS com modelo customizado pt-BR
+            # Assinatura: F5TTS(model='F5TTS_v1_Base', ckpt_file='', vocab_file='',
+            #                   ode_method='euler', use_ema=True, vocoder_local_path=None,
+            #                   device=None, hf_cache_dir=None)
+            # Arquivos config: F5TTS_Base.yaml, F5TTS_v1_Base.yaml, E2TTS_Base.yaml
+            self.f5tts = F5TTS(
+                model='F5TTS_Base',  # Nome do arquivo .yaml (sem extensão)
+                ckpt_file=str(self.custom_model_path),  # MODELO CUSTOMIZADO pt-BR
+                vocab_file="",  # Auto-detecta
+                ode_method="euler",
+                use_ema=True,
+                device=self.device,
+                hf_cache_dir=str(self.hf_cache_dir)
+            )
+            
+            # Otimizações GPU (GTX 1050 Ti)
+            if self.device == 'cuda':
+                logger.info("⚙️ Applying GPU optimizations (GTX 1050 Ti)...")
+                
+                # FP16 para economia de VRAM
+                if self.use_fp16 and hasattr(self.f5tts, 'model'):
+                    try:
+                        self.f5tts.model.half()
+                        logger.info("   ✓ Model converted to FP16")
+                    except Exception as e:
+                        logger.warning(f"   ⚠️ FP16 conversion failed: {e}")
+                
+                # Limpa cache inicial
+                torch.cuda.empty_cache()
+                
+                # Log VRAM usage
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated(0) / (1024**3)
+                    reserved = torch.cuda.memory_reserved(0) / (1024**3)
+                    logger.info(f"   📊 VRAM: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
             
             self._models_loaded = True
-            logger.info("✅ OpenVoice models loaded successfully")
+            logger.info("✅ F5-TTS pt-BR model loaded successfully!")
             
         except Exception as e:
-            logger.error(f"Failed to load OpenVoice models: {e}")
+            logger.error(f"❌ Failed to load F5-TTS model: {e}", exc_info=True)
             raise OpenVoiceException(f"Model loading failed: {str(e)}")
-    
-    def unload_models(self):
-        """Descarrega modelos da memória (economia de recursos)"""
-        if self._models_loaded:
-            self._tts_model = None
-            self._converter_model = None
-            self._models_loaded = False
-            
-            # Limpa cache CUDA se aplicável
-            if self.device == 'cuda':
-                torch.cuda.empty_cache()
-            
-            logger.info("OpenVoice models unloaded")
     
     async def generate_dubbing(
         self,
@@ -527,154 +144,72 @@ class OpenVoiceClient:
         voice_preset: Optional[str] = None,
         voice_profile: Optional[VoiceProfile] = None,
         speed: float = 1.0,
-        pitch: float = 1.0
+        pitch: float = 1.0  # Ignorado (F5-TTS não suporta pitch direto)
     ) -> Tuple[bytes, float]:
         """
-        Gera áudio dublado a partir de texto
+        Gera áudio dublado usando F5-TTS pt-BR
         
         Args:
-            text: Texto para dublar
-            language: Idioma de síntese
-            voice_preset: Voz genérica (ex: 'female_generic')
-            voice_profile: Perfil de voz clonada (alternativa a voice_preset)
-            speed: Velocidade da fala (0.5-2.0)
-            pitch: Tom de voz (0.5-2.0)
+            text: Texto para dublar (pt-BR otimizado)
+            language: Idioma (preferência pt-BR)
+            voice_preset: Voz genérica
+            voice_profile: Perfil de voz clonada
+            speed: Velocidade (0.5-2.0)
+            pitch: Ignorado
         
         Returns:
-            (audio_bytes, duration): Bytes do áudio WAV e duração em segundos
+            (audio_bytes, duration)
         """
         try:
-            self._load_models()
+            logger.info(f"🎙️ F5-TTS pt-BR dubbing: '{text[:80]}...'")
+            logger.info(f"   Language: {language}, Speed: {speed}")
             
-            logger.info(f"🎙️ === GENERATE_DUBBING START ===")
-            logger.info(f"  Text: '{text}'")
-            logger.info(f"  Text length: {len(text)} chars")
-            logger.info(f"  Language: {language}")
-            logger.info(f"  Voice preset: {voice_preset}")
-            logger.info(f"  Voice profile: {voice_profile.id if voice_profile else 'None'}")
-            logger.info(f"  Speed: {speed}, Pitch: {pitch}")
-            
-            # Valida parâmetros
-            if not text or len(text.strip()) == 0:
-                raise InvalidAudioException("Text cannot be empty")
-            
-            # Modo: voz genérica ou clonada
+            # Determina áudio de referência
             if voice_profile:
-                # Usa voz clonada
-                logger.info(f"  → Using CLONED voice: {voice_profile.id}")
-                audio_data = await self._synthesize_with_cloned_voice(
-                    text=text,
-                    voice_profile=voice_profile,
-                    speed=speed,
-                    pitch=pitch
-                )
+                ref_file = voice_profile.reference_audio_path
+                ref_text = voice_profile.reference_text or "Olá, esta é uma voz de exemplo."
+                logger.info(f"   Using cloned voice: {voice_profile.id}")
             else:
-                # Usa voz genérica
-                speaker = voice_preset or 'default_female'
-                logger.info(f"  → Using PRESET voice: {speaker}")
-                audio_data = await self._synthesize_with_preset(
-                    text=text,
-                    speaker=speaker,
-                    language=language,
-                    speed=speed,
-                    pitch=pitch
-                )
+                ref_file, ref_text = self._get_preset_audio(voice_preset, language)
+                logger.info(f"   Using preset: {voice_preset or 'default'}")
             
-            logger.info(f"  Audio data received: {len(audio_data)} samples, dtype={audio_data.dtype}")
-            logger.info(f"  Audio range: [{audio_data.min():.6f}, {audio_data.max():.6f}]")
-            logger.info(f"  Audio RMS: {np.sqrt(np.mean(audio_data**2)):.6f}")
+            # Valida referência
+            if not Path(ref_file).exists():
+                logger.warning(f"⚠️ Reference audio not found: {ref_file}, creating fallback")
+                ref_file, ref_text = self._create_fallback_reference(language)
+            
+            # INFERÊNCIA com otimizações VRAM
+            with torch.no_grad():  # CRÍTICO: sem gradiente para economizar VRAM
+                # Limpa cache antes
+                if self.device == 'cuda':
+                    torch.cuda.empty_cache()
+                
+                wav, sr, _ = self.f5tts.infer(
+                    ref_file=ref_file,
+                    ref_text=ref_text,
+                    gen_text=text,
+                    speed=speed,
+                    nfe_step=self.nfe_step,  # Reduzido para GTX 1050 Ti
+                    remove_silence=False
+                )
+                
+                # Limpa cache após
+                if self.device == 'cuda':
+                    torch.cuda.empty_cache()
+            
+            logger.info(f"   Generated: {len(wav)} samples @ {sr} Hz")
             
             # Converte para WAV bytes
-            logger.info(f"  Converting to WAV bytes...")
-            audio_bytes, duration = self._audio_to_wav_bytes(audio_data, self.sample_rate)
+            audio_bytes = self._wav_to_bytes(wav, sr)
+            duration = len(wav) / sr
             
-            logger.info(f"✅ Dubbing generated: {duration:.2f}s, {len(audio_bytes)/(1024*1024):.2f}MB")
-            logger.info(f"🎙️ === GENERATE_DUBBING END ===")
+            logger.info(f"✅ Dubbing completed: {duration:.2f}s ({len(audio_bytes) / 1024:.1f} KB)")
             
             return audio_bytes, duration
             
         except Exception as e:
-            logger.error(f"Error generating dubbing: {e}")
+            logger.error(f"❌ Dubbing failed: {e}", exc_info=True)
             raise OpenVoiceException(f"Dubbing generation failed: {str(e)}")
-    
-    async def _synthesize_with_preset(
-        self,
-        text: str,
-        speaker: str,
-        language: str,
-        speed: float,
-        pitch: float
-    ) -> np.ndarray:
-        """Sintetiza com voz genérica"""
-        try:
-            logger.info(f"  🔊 _synthesize_with_preset:")
-            logger.info(f"     text='{text}'")
-            logger.info(f"     speaker={speaker}, language={language}")
-            logger.info(f"     speed={speed}, pitch={pitch}")
-            
-            # ===== PRODUÇÃO: Substituir por código real =====
-            # audio_data = self._tts_model.tts(
-            #     text=text,
-            #     speaker=speaker,
-            #     language=language,
-            #     speed=speed,
-            #     pitch=pitch
-            # )
-            # ===== FIM PRODUÇÃO =====
-            
-            # MOCK
-            logger.info(f"     Calling MOCK tts()...")
-            audio_data = self._tts_model.tts(
-                text=text,
-                speaker=speaker,
-                language=language,
-                speed=speed,
-                pitch=pitch
-            )
-            
-            logger.info(f"     MOCK tts() returned: {len(audio_data)} samples")
-            
-            return audio_data
-            
-        except Exception as e:
-            raise OpenVoiceException(f"TTS synthesis failed: {str(e)}")
-    
-    async def _synthesize_with_cloned_voice(
-        self,
-        text: str,
-        voice_profile: VoiceProfile,
-        speed: float,
-        pitch: float
-    ) -> np.ndarray:
-        """Sintetiza com voz clonada"""
-        try:
-            # Carrega embedding do perfil
-            voice_embedding = self._load_voice_embedding(voice_profile.profile_path)
-            
-            # ===== PRODUÇÃO: Substituir por código real =====
-            # audio_data = self._tts_model.tts_with_voice(
-            #     text=text,
-            #     voice_embedding=voice_embedding,
-            #     speed=speed,
-            #     pitch=pitch
-            # )
-            # ===== FIM PRODUÇÃO =====
-            
-            # MOCK
-            audio_data = self._tts_model.tts_with_voice(
-                text=text,
-                voice_embedding=voice_embedding,
-                speed=speed,
-                pitch=pitch
-            )
-            
-            # Incrementa uso do perfil
-            voice_profile.increment_usage()
-            
-            return audio_data
-            
-        except Exception as e:
-            raise OpenVoiceException(f"Cloned voice synthesis failed: {str(e)}")
     
     async def clone_voice(
         self,
@@ -684,183 +219,265 @@ class OpenVoiceClient:
         description: Optional[str] = None
     ) -> VoiceProfile:
         """
-        Clona voz a partir de amostra de áudio
+        Clona voz usando F5-TTS (otimizado pt-BR)
         
         Args:
             audio_path: Caminho para amostra de áudio
-            language: Idioma base da voz
+            language: Idioma (pt-BR recomendado)
             voice_name: Nome do perfil
             description: Descrição opcional
         
         Returns:
-            VoiceProfile com embedding extraído
+            VoiceProfile
         """
         try:
-            self._load_models()
+            logger.info(f"🎤 F5-TTS voice cloning: {audio_path}")
+            logger.info(f"   Voice name: {voice_name}, Language: {language}")
             
-            # Validação crítica: audio_path não pode ser None ou vazio
-            if not audio_path:
-                error_msg = (
-                    f"Audio path is required for voice cloning. "
-                    f"Received: {repr(audio_path)} (type: {type(audio_path).__name__})"
-                )
-                logger.error(f"❌ Validation failed: {error_msg}")
-                raise InvalidAudioException(error_msg)
+            # Validação
+            if not audio_path or not Path(audio_path).exists():
+                raise InvalidAudioException(f"Audio file not found: {audio_path}")
             
-            # Validação: arquivo deve existir
-            from pathlib import Path
-            if not Path(audio_path).exists():
-                error_msg = (
-                    f"Audio file not found: {audio_path}. "
-                    f"Please verify the file path is correct and accessible in the container."
-                )
-                logger.error(f"❌ File not found: {error_msg}")
-                raise InvalidAudioException(error_msg)
-            
-            logger.info(f"Cloning voice from {audio_path} language={language}")
-            
-            # Valida áudio
+            # Valida duração/qualidade
             audio_info = self._validate_audio_for_cloning(audio_path)
+            logger.info(f"   Audio validated: {audio_info['duration']:.2f}s, {audio_info['sample_rate']} Hz")
             
-            # Extrai embedding de voz
-            voice_embedding = await self._extract_voice_embedding(audio_path, language)
+            # Transcreve com Whisper
+            logger.info("   Transcribing audio with Whisper...")
+            ref_text = self._transcribe_audio(audio_path, language)
+            logger.info(f"   Transcription: '{ref_text}'")
             
-            # Salva embedding
-            voice_profiles_dir = Path(self.settings['voice_profiles_dir'])
-            voice_profiles_dir.mkdir(exist_ok=True, parents=True)
-            
-            # Cria perfil temporário para gerar ID
-            temp_profile = VoiceProfile.create_new(
+            # Cria perfil
+            voice_profile = VoiceProfile.create_new(
                 name=voice_name,
                 language=language,
                 source_audio_path=audio_path,
-                profile_path="",  # Será preenchido abaixo
+                profile_path="",  # preenchido abaixo
                 description=description,
                 duration=audio_info['duration'],
                 sample_rate=audio_info['sample_rate']
             )
             
-            # Salva embedding
-            profile_path = voice_profiles_dir / f"{temp_profile.id}.pkl"
-            self._save_voice_embedding(voice_embedding, str(profile_path))
+            # Salva áudio de referência
+            voice_profiles_dir = Path(self.settings['voice_profiles_dir'])
+            voice_profiles_dir.mkdir(exist_ok=True, parents=True)
             
-            # Atualiza perfil com caminho
-            temp_profile.profile_path = str(profile_path)
+            ref_audio_path = voice_profiles_dir / f"{voice_profile.id}.wav"
             
-            logger.info(f"✅ Voice cloned successfully: {temp_profile.id}")
+            # Converte para WAV padrão F5-TTS
+            self._convert_to_wav(audio_path, str(ref_audio_path))
             
-            return temp_profile
+            # Atualiza perfil
+            voice_profile.reference_audio_path = str(ref_audio_path)
+            voice_profile.reference_text = ref_text
+            voice_profile.profile_path = str(ref_audio_path)
+            
+            logger.info(f"✅ Voice cloned successfully: {voice_profile.id}")
+            
+            return voice_profile
             
         except Exception as e:
-            logger.error(f"Error cloning voice: {e}")
+            logger.error(f"❌ Voice cloning failed: {e}", exc_info=True)
             raise OpenVoiceException(f"Voice cloning failed: {str(e)}")
     
-    async def _extract_voice_embedding(self, audio_path: str, language: str) -> np.ndarray:
-        """Extrai embedding de voz do áudio"""
+    def _get_preset_audio(self, voice_preset: Optional[str], language: str) -> Tuple[str, str]:
+        """Retorna (ref_file, ref_text) para voice preset (pt-BR otimizado)"""
+        preset_dir = Path("/app/voice_profiles/presets")
+        preset_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Mapeamento pt-BR prioritário
+        preset_map = {
+            'female_generic': ('female_pt.wav', 'Olá, esta é uma voz feminina genérica.'),
+            'male_generic': ('male_pt.wav', 'Olá, esta é uma voz masculina genérica.'),
+            'female_pt': ('female_pt.wav', 'Esta é uma voz feminina em português brasileiro.'),
+            'male_pt': ('male_pt.wav', 'Esta é uma voz masculina em português brasileiro.'),
+            'male_deep': ('male_deep_pt.wav', 'Esta é uma voz masculina grave em português.'),
+        }
+        
+        # Seleciona preset
+        preset_key = voice_preset or 'female_generic'
+        if preset_key not in preset_map:
+            logger.warning(f"Preset '{preset_key}' not found, using 'female_generic'")
+            preset_key = 'female_generic'
+        
+        file, text = preset_map[preset_key]
+        preset_path = preset_dir / file
+        
+        # Cria se não existe
+        if not preset_path.exists():
+            logger.warning(f"Preset audio '{file}' not found, creating synthetic")
+            self._create_temp_preset(preset_path, text, language)
+        
+        return str(preset_path), text
+    
+    def _create_fallback_reference(self, language: str) -> Tuple[str, str]:
+        """Cria referência de emergência para pt-BR"""
+        fallback_dir = Path("/app/voice_profiles/presets")
+        fallback_dir.mkdir(exist_ok=True, parents=True)
+        fallback_path = fallback_dir / 'fallback_pt.wav'
+        fallback_text = "Esta é uma voz de referência para português brasileiro."
+        
+        if not fallback_path.exists():
+            self._create_temp_preset(fallback_path, fallback_text, 'pt-BR')
+        
+        return str(fallback_path), fallback_text
+    
+    def _create_temp_preset(self, output_path: Path, text: str, language: str):
+        """Cria preset sintético (fallback quando não há áudio real)"""
         try:
-            # ===== PRODUÇÃO: Substituir por código real =====
-            # from openvoice import se_extractor
-            # 
-            # embedding = se_extractor.get_se(
-            #     audio_path=audio_path,
-            #     language=language,
-            #     device=self.device
-            # )
-            # ===== FIM PRODUÇÃO =====
+            logger.info(f"   Creating synthetic preset: {output_path.name}")
             
-            # MOCK
-            embedding = self._converter_model.extract_voice_embedding(audio_path, language)
+            # Gera tom simples
+            duration = 3.0
+            freq = 220  # A3
+            samples = int(self.sample_rate * duration)
+            t = np.linspace(0, duration, samples, dtype=np.float32)
             
-            return embedding
+            # Onda senoidal com envelope
+            audio = 0.2 * np.sin(2 * np.pi * freq * t)
+            envelope = np.exp(-t / duration)  # Decay
+            audio = audio * envelope
+            
+            # Salva
+            sf.write(str(output_path), audio, self.sample_rate)
+            logger.info(f"   ✓ Synthetic preset created: {output_path}")
             
         except Exception as e:
-            raise OpenVoiceException(f"Voice embedding extraction failed: {str(e)}")
+            logger.error(f"Failed to create temp preset: {e}")
+            raise
     
-    def _validate_audio_for_cloning(self, audio_path: str) -> Dict[str, Any]:
-        """Valida áudio para clonagem"""
-        try:
-            # Carrega áudio
-            waveform, sample_rate = torchaudio.load(audio_path)
-            
-            # Duração
-            duration = waveform.shape[1] / sample_rate
-            
-            # Validações
-            min_duration = self.settings['openvoice']['min_clone_duration_sec']
-            max_duration = self.settings['openvoice']['max_clone_duration_sec']
-            
-            if duration < min_duration:
-                raise InvalidAudioException(f"Audio too short: {duration:.1f}s (min: {min_duration}s)")
-            
-            if duration > max_duration:
-                raise InvalidAudioException(f"Audio too long: {duration:.1f}s (max: {max_duration}s)")
-            
-            # Sample rate mínimo
-            if sample_rate < 16000:
-                raise InvalidAudioException(f"Sample rate too low: {sample_rate}Hz (min: 16000Hz)")
-            
-            return {
-                'duration': duration,
-                'sample_rate': sample_rate,
-                'channels': waveform.shape[0],
-                'samples': waveform.shape[1]
-            }
-            
-        except Exception as e:
-            if isinstance(e, InvalidAudioException):
-                raise
-            raise InvalidAudioException(f"Invalid audio file: {str(e)}")
-    
-    def _save_voice_embedding(self, embedding: np.ndarray, path: str):
-        """Salva embedding de voz em arquivo"""
-        try:
-            with open(path, 'wb') as f:
-                pickle.dump(embedding, f)
-            logger.debug(f"Voice embedding saved to {path}")
-        except Exception as e:
-            raise OpenVoiceException(f"Failed to save voice embedding: {str(e)}")
-    
-    def _load_voice_embedding(self, path: str) -> np.ndarray:
-        """Carrega embedding de voz de arquivo"""
-        try:
-            with open(path, 'rb') as f:
-                embedding = pickle.load(f)
-            return embedding
-        except Exception as e:
-            raise OpenVoiceException(f"Failed to load voice embedding: {str(e)}")
-    
-    def _audio_to_wav_bytes(self, audio_data: np.ndarray, sample_rate: int) -> Tuple[bytes, float]:
+    def _transcribe_audio(self, audio_path: str, language: str) -> str:
         """
-        Converte array numpy para bytes WAV
+        Transcreve áudio usando Whisper (otimizado para pt-BR)
+        
+        Args:
+            audio_path: Caminho do áudio
+            language: Código de idioma (pt, pt-BR, etc.)
         
         Returns:
-            (wav_bytes, duration)
+            Texto transcrito
         """
         try:
-            import io
-            import wave
+            from transformers import pipeline
             
-            # Normaliza áudio para int16
-            if audio_data.dtype != np.int16:
-                # Assume float32 em [-1, 1]
-                audio_int16 = (audio_data * 32767).astype(np.int16)
-            else:
-                audio_int16 = audio_data
+            # Normaliza código de idioma para Whisper
+            lang_code = language.lower().split('-')[0] if '-' in language else language.lower()
             
-            # Duração
-            duration = len(audio_int16) / sample_rate
+            # Whisper para pt-BR (SEMPRE CPU para economizar VRAM)
+            logger.info(f"   Initializing Whisper on CPU (language: {lang_code})...")
             
-            # Cria WAV em memória
-            wav_buffer = io.BytesIO()
-            with wave.open(wav_buffer, 'wb') as wav_file:
-                wav_file.setnchannels(1)  # Mono
-                wav_file.setsampwidth(2)  # 16-bit
-                wav_file.setframerate(sample_rate)
-                wav_file.writeframes(audio_int16.tobytes())
+            transcriber = pipeline(
+                "automatic-speech-recognition",
+                model="openai/whisper-base",  # base model (mais rápido)
+                device=-1,  # CPU forçado
+                torch_dtype=torch.float32  # FP32 na CPU
+            )
             
-            wav_bytes = wav_buffer.getvalue()
+            # Transcreve
+            result = transcriber(
+                audio_path,
+                generate_kwargs={
+                    "language": lang_code,
+                    "task": "transcribe"
+                }
+            )
             
-            return wav_bytes, duration
+            transcription = result['text'].strip()
+            
+            # Libera modelo Whisper da memória
+            del transcriber
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
+            
+            return transcription
             
         except Exception as e:
-            raise OpenVoiceException(f"Failed to convert audio to WAV: {str(e)}")
+            logger.warning(f"Whisper transcription failed: {e}, using fallback")
+            # Fallback genérico
+            return "Esta é uma amostra de voz em português brasileiro."
+    
+    def _wav_to_bytes(self, wav: np.ndarray, sample_rate: int) -> bytes:
+        """Converte numpy array para WAV bytes"""
+        import io
+        buffer = io.BytesIO()
+        sf.write(buffer, wav, sample_rate, format='WAV', subtype='PCM_16')
+        buffer.seek(0)
+        return buffer.read()
+    
+    def _validate_audio_for_cloning(self, audio_path: str) -> dict:
+        """
+        Valida áudio para clonagem (F5-TTS guidelines)
+        
+        F5-TTS recomenda:
+        - Duração: 3-12 segundos
+        - Qualidade: limpa, sem ruído
+        - Conteúdo: fala natural
+        """
+        audio, sr = sf.read(audio_path)
+        
+        duration = len(audio) / sr
+        
+        # Warnings
+        if duration < 3.0:
+            logger.warning(f"⚠️ Audio muito curto ({duration:.1f}s < 3s), qualidade pode ser afetada")
+        elif duration > 12.0:
+            logger.warning(f"⚠️ Audio muito longo ({duration:.1f}s > 12s), considere cortar")
+        
+        channels = audio.shape[1] if len(audio.shape) > 1 else 1
+        
+        return {
+            'duration': duration,
+            'sample_rate': sr,
+            'channels': channels
+        }
+    
+    def _convert_to_wav(self, input_path: str, output_path: str):
+        """Converte áudio para WAV 24kHz mono (padrão F5-TTS)"""
+        try:
+            logger.info(f"   Converting to WAV: {Path(input_path).name} -> {Path(output_path).name}")
+            
+            audio, sr = sf.read(input_path)
+            
+            # Mono
+            if len(audio.shape) > 1 and audio.shape[1] > 1:
+                audio = audio.mean(axis=1)
+            
+            # Resample se necessário
+            if sr != self.sample_rate:
+                logger.info(f"   Resampling: {sr} Hz -> {self.sample_rate} Hz")
+                audio_tensor = torch.from_numpy(audio).float()
+                audio_tensor = torchaudio.functional.resample(
+                    audio_tensor, 
+                    orig_freq=sr, 
+                    new_freq=self.sample_rate
+                )
+                audio = audio_tensor.numpy()
+            
+            # Normaliza
+            audio = audio / np.abs(audio).max() * 0.9  # Evita clipping
+            
+            # Salva
+            sf.write(output_path, audio, self.sample_rate, subtype='PCM_16')
+            logger.info(f"   ✓ Conversion complete")
+            
+        except Exception as e:
+            logger.error(f"Audio conversion failed: {e}")
+            raise
+    
+    def unload_models(self):
+        """Libera memória de modelos"""
+        try:
+            logger.info("Unloading F5-TTS models...")
+            
+            if self.f5tts is not None:
+                del self.f5tts
+                self.f5tts = None
+            
+            if self.device == 'cuda':
+                torch.cuda.empty_cache()
+            
+            self._models_loaded = False
+            logger.info("✅ Models unloaded")
+            
+        except Exception as e:
+            logger.error(f"Error unloading models: {e}")

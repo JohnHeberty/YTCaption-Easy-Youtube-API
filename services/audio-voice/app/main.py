@@ -449,15 +449,23 @@ async def health_check():
         health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
         is_healthy = False
     
-    # OpenVoice
+    # TTS Engine (F5-TTS / OpenVoice)
     try:
-        health_status["checks"]["openvoice"] = {
+        tts_engine_name = os.getenv('TTS_ENGINE', 'openvoice')
+        tts_status = {
             "status": "ok",
-            "device": processor.openvoice_client.device,
-            "models_loaded": processor.openvoice_client._models_loaded
+            "engine": tts_engine_name
         }
+        
+        # Detalhes do client se disponível
+        if hasattr(processor.tts_client, 'device'):
+            tts_status["device"] = processor.tts_client.device
+        if hasattr(processor.tts_client, '_models_loaded'):
+            tts_status["models_loaded"] = processor.tts_client._models_loaded
+        
+        health_status["checks"]["tts_engine"] = tts_status
     except Exception as e:
-        health_status["checks"]["openvoice"] = {"status": "error", "message": str(e)}
+        health_status["checks"]["tts_engine"] = {"status": "error", "message": str(e)}
     
     health_status["status"] = "healthy" if is_healthy else "unhealthy"
     status_code = 200 if is_healthy else 503

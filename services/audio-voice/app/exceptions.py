@@ -28,12 +28,6 @@ class VoiceCloneException(VoiceServiceException):
         super().__init__(f"Voice cloning error: {message}", status_code=500)
 
 
-class OpenVoiceException(VoiceServiceException):
-    """Exceção relacionada ao OpenVoice"""
-    def __init__(self, message: str):
-        super().__init__(f"OpenVoice error: {message}", status_code=500)
-
-
 class VoiceProfileNotFoundException(VoiceServiceException):
     """Perfil de voz não encontrado"""
     def __init__(self, voice_id: str):
@@ -44,6 +38,12 @@ class InvalidAudioException(VoiceServiceException):
     """Áudio inválido para processamento"""
     def __init__(self, message: str):
         super().__init__(f"Invalid audio: {message}", status_code=400)
+
+
+class OpenVoiceException(VoiceServiceException):
+    """Exceção relacionada ao motor TTS (OpenVoice/F5-TTS)"""
+    def __init__(self, message: str):
+        super().__init__(f"TTS engine error: {message}", status_code=500)
 
 
 class InvalidLanguageException(VoiceServiceException):

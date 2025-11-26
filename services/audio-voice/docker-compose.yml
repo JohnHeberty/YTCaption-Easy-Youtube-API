@@ -20,10 +20,25 @@ services:
       - PYTHONPATH=/app
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    # peça GPU explicitamente no Compose
+      # Matplotlib cache directory fix
+      - MPLCONFIGDIR=/app/temp/.matplotlib
+      # TTS Engine: F5-TTS com modelo pt-BR customizado
+      - TTS_ENGINE=f5tts
+      - F5TTS_DEVICE=cuda
+      - F5TTS_WHISPER_DEVICE=cpu
+      # Otimizações GTX 1050 Ti (4GB VRAM)
+      - F5TTS_NFE_STEP=16
+      - F5TTS_USE_FP16=true
+      - F5TTS_MAX_BATCH_SIZE=1
+      # Modelo customizado pt-BR
+      - F5TTS_CUSTOM_MODEL_DIR=/app/models/f5tts/pt-br
+      - F5TTS_CUSTOM_MODEL_FILE=model_last.safetensors
     deploy:
       resources:
+        limits:
+          memory: 8G
         reservations:
+          memory: 4G
           devices:
             - driver: nvidia
               count: all
@@ -58,9 +73,25 @@ services:
       - C_FORCE_ROOT=true
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # Matplotlib cache directory fix
+      - MPLCONFIGDIR=/app/temp/.matplotlib
+      # TTS Engine: F5-TTS com modelo pt-BR customizado
+      - TTS_ENGINE=f5tts
+      - F5TTS_DEVICE=cuda
+      - F5TTS_WHISPER_DEVICE=cpu
+      # Otimizações GTX 1050 Ti (4GB VRAM)
+      - F5TTS_NFE_STEP=16
+      - F5TTS_USE_FP16=true
+      - F5TTS_MAX_BATCH_SIZE=1
+      # Modelo customizado pt-BR
+      - F5TTS_CUSTOM_MODEL_DIR=/app/models/f5tts/pt-br
+      - F5TTS_CUSTOM_MODEL_FILE=model_last.safetensors
     deploy:
       resources:
+        limits:
+          memory: 8G
         reservations:
+          memory: 4G
           devices:
             - driver: nvidia
               count: all

@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg libsndfile1 build-essential pkg-config \
     libavformat-dev libavcodec-dev libavdevice-dev \
     libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
+    git \
     curl \
  && rm -rf /var/lib/apt/lists/*
 
@@ -52,9 +53,19 @@ COPY requirements.txt constraints.txt ./
 # PyTorch cu121 + deps Python (respeitando constraints)
 RUN python -m pip install --no-cache-dir --upgrade pip
 RUN python -m pip install --no-cache-dir \
-      torch==2.1.2 torchaudio==2.1.2 \
+      torch==2.4.0 torchaudio==2.4.0 \
       --index-url https://download.pytorch.org/whl/cu121 \
-      -c constraints.txt 
+      -c constraints.txt
+
+# Clone e instala F5-TTS do repositório oficial (commit 3eecd94, v1.1.9)
+RUN git clone https://github.com/SWivid/F5-TTS.git /tmp/F5-TTS && \
+    cd /tmp/F5-TTS && \
+    git checkout 3eecd94 && \
+    python -m pip install --no-cache-dir -e . && \
+    cd / && \
+    rm -rf /tmp/F5-TTS/.git
+
+# Instala demais dependências
 RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Limpa toolchain pesado (mantém ffmpeg etc.)
@@ -74,7 +85,8 @@ COPY run.py .
 RUN useradd -m -u 1000 appuser
 
 # Diretórios e permissões
-RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models && \
+RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
+    /app/voice_profiles /app/models /app/models/f5tts /app/models/whisper && \
     chown -R appuser:appuser /app && \
     chmod -R 755 /app && \
     chmod -R 777 /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models

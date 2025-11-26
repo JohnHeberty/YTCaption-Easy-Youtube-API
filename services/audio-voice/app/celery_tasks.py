@@ -12,11 +12,25 @@ from .config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Inicializa store e processor
+# Inicializa store
 settings = get_settings()
 job_store = RedisJobStore(redis_url=settings['redis_url'])
-processor = VoiceProcessor()
-processor.job_store = job_store
+
+# LAZY LOADING: Processor será criado sob demanda
+_processor = None
+
+
+def get_processor() -> VoiceProcessor:
+    """
+    Retorna instância do VoiceProcessor (LAZY LOADING)
+    Evita carregar modelo F5-TTS no import do módulo
+    """
+    global _processor
+    if _processor is None:
+        logger.info("🔧 Initializing VoiceProcessor (lazy load)...")
+        _processor = VoiceProcessor()
+        _processor.job_store = job_store
+    return _processor
 
 
 def run_async_task(coro):
@@ -61,7 +75,7 @@ def dubbing_task(self, job_dict: dict):
                     raise ValueError(f"Voice profile not found: {job.voice_id}")
             
             # Processa
-            job = await processor.process_dubbing_job(job, voice_profile)
+            job = await get_processor().process_dubbing_job(job, voice_profile)
             
             logger.info(f"✅ Celery dubbing task completed for job {job.id}")
             return {"status": "completed", "job_id": job.id}
@@ -111,7 +125,7 @@ def clone_voice_task(self, job_dict: dict):
                 raise ValueError(error_msg)
             
             # Processa
-            voice_profile = await processor.process_clone_job(job)
+            voice_profile = await get_processor().process_clone_job(job)
             
             logger.info(f"✅ Celery clone voice task completed: {voice_profile.id}")
             return {"status": "completed", "voice_id": voice_profile.id}

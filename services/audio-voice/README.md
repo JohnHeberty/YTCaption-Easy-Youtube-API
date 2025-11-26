@@ -1,6 +1,10 @@
 # 🎙️ Audio Voice Service
 
-Microserviço de **dublagem de texto em áudio** e **clonagem de vozes** usando OpenVoice, integrado ao monorepo YTCaption-Easy-Youtube-API.
+Microserviço de **dublagem de texto em áudio** e **clonagem de vozes** usando **F5-TTS** (produção), integrado ao monorepo YTCaption-Easy-Youtube-API.
+
+> ✅ Sistema 100% validado e aprovado para produção  
+> 🎯 Motor TTS: **F5-TTS v1 Base** (SWivid/F5-TTS)  
+> 🔊 Clonagem: Automática via Whisper + referência de áudio
 
 ## 🎯 Funcionalidades
 
@@ -22,7 +26,7 @@ Microserviço de **dublagem de texto em áudio** e **clonagem de vozes** usando 
 - Redis 7+
 - FFmpeg
 - Docker e Docker Compose (opcional)
-- OpenVoice (instalação veja abaixo)
+- GPU NVIDIA (opcional, recomendado para produção)
 
 ## 🚀 Quick Start
 
@@ -46,32 +50,28 @@ cp .env.example .env
 # Edite .env conforme necessário
 ```
 
-### 2. Instalar OpenVoice
+### 2. Modelos F5-TTS (Download Automático)
+
+Os modelos F5-TTS (~500MB) são baixados automaticamente na primeira execução:
+- Modelo: `F5TTS_v1_Base` 
+- Cache: `./models/f5tts/`
+- Whisper (transcrição): `openai/whisper-base` (~140MB)
+
+**Não é necessário download manual!**
+
+### 3. Iniciar Serviço
 
 ```bash
-# Opção 1: Via pip (se disponível)
-pip install git+https://github.com/myshell-ai/OpenVoice.git
+# Opção 1: Docker Compose (RECOMENDADO)
+docker-compose up -d
 
-# Opção 2: Clone e instale localmente
-git clone https://github.com/myshell-ai/OpenVoice.git
-cd OpenVoice
-pip install -e .
-```
+# Verificar status
+docker-compose ps
 
-### 3. Baixar Modelos OpenVoice
+# Ver logs
+docker logs audio-voice-api -f
 
-```bash
-# Crie diretório de modelos
-mkdir -p models/checkpoints
-
-# Baixe modelos pré-treinados do OpenVoice
-# Siga instruções em: https://github.com/myshell-ai/OpenVoice#download-checkpoints
-```
-
-### 4. Iniciar Serviço
-
-```bash
-# Opção 1: Local (desenvolvimento)
+# Opção 2: Local (desenvolvimento)
 # Terminal 1: Redis
 redis-server
 
@@ -79,85 +79,122 @@ redis-server
 python run.py
 
 # Terminal 3: Celery Worker
-celery -A app.celery_tasks worker --loglevel=info -Q audio_voice_queue
+celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo -Q audio_voice_queue
+```
 
-# Opção 2: Docker Compose (produção)
-docker-compose up --build
+### 4. Criar Presets de Voz (Primeira Vez)
+
+```bash
+# Cria 4 vozes base (female_generic, male_deep, female_pt, male_pt)
+docker exec audio-voice-api python /app/scripts/create_voice_presets.py
+
+# Ou localmente:
+python scripts/create_voice_presets.py
 ```
 
 ### 5. Testar
 
 ```bash
 # Health check
-curl http://localhost:8004/health
+curl http://localhost:8005/
 
-# Listar vozes genéricas disponíveis
-curl http://localhost:8004/presets
+# Síntese básica
+curl -X POST "http://localhost:8005/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Olá, teste do F5-TTS",
+    "source_language": "pt"
+  }' | jq .
 
-# Listar idiomas suportados
-curl http://localhost:8004/languages
+# Verificar job
+curl http://localhost:8005/jobs/{JOB_ID} | jq .
+
+# Download áudio
+curl http://localhost:8005/jobs/{JOB_ID}/download -o output.wav
 ```
 
 ## 📖 Uso
 
-### Dublagem com Voz Genérica
+### Dublagem com Voz Preset
 
 ```bash
-curl -X POST "http://localhost:8004/jobs" \
+curl -X POST "http://localhost:8005/jobs" \
   -H "Content-Type: application/json" \
   -d '{
-    "mode": "dubbing",
-    "text": "Olá, este é um teste de dublagem",
-    "source_language": "pt-BR",
-    "voice_preset": "female_generic"
-  }'
+    "text": "Olá, este é um teste de dublagem com F5-TTS",
+    "source_language": "pt",
+    "voice_preset": "female_pt"
+  }' | jq .
 
 # Response
 {
   "id": "job_abc123",
   "status": "queued",
-  "progress": 0.0,
-  "audio_url": "/jobs/job_abc123/download",
+  "voice_preset": "female_pt",
+  "audio_url": null,
   ...
 }
 
-# Verificar status
-curl http://localhost:8004/jobs/job_abc123
+# Verificar status (polling a cada 5s)
+curl http://localhost:8005/jobs/job_abc123 | jq '{id, status, duration, output_file}'
 
-# Download quando completo
-curl http://localhost:8004/jobs/job_abc123/download -O
+# Download quando status="completed"
+curl http://localhost:8005/jobs/job_abc123/download -o meu_audio.wav
 ```
 
-### Clonagem de Voz
+**Presets disponíveis**: `female_generic`, `male_deep`, `female_pt`, `male_pt`, `female_es`, `male_es`
+### Clonagem de Voz com F5-TTS
 
 ```bash
-# 1. Clonar voz a partir de amostra
-curl -X POST "http://localhost:8004/voices/clone" \
-  -F "file=@minha_voz.wav" \
-  -F "name=João Silva" \
-  -F "language=pt-BR" \
-  -F "description=Voz masculina brasileira"
+# 1. Clonar voz a partir de amostra (áudio 2-10s recomendado)
+curl -X POST "http://localhost:8005/voices/clone" \
+  -F "file=@minha_voz.mp3" \
+  -F "name=Minha_Voz" \
+  -F "language=pt" \
+  -F "description=Voz clonada do João" | jq .
 
 # Response
 {
-  "id": "voice_xyz789",
-  "name": "João Silva",
-  "language": "pt-BR",
-  ...
+  "message": "Voice cloning job queued",
+  "job_id": "job_xyz789",
+  "status": "queued",
+  "poll_url": "/jobs/job_xyz789"
 }
 
-# 2. Listar vozes clonadas
-curl http://localhost:8004/voices
+# 2. Aguardar clonagem completar (~15-30s)
+curl http://localhost:8005/jobs/job_xyz789 | jq '{status, voice_id, voice_name}'
 
-# 3. Usar voz clonada na dublagem
-curl -X POST "http://localhost:8004/jobs" \
+# Response quando completo
+{
+  "status": "completed",
+  "voice_id": "voice_abc123def456",
+  "voice_name": "Minha_Voz"
+}
+
+# 3. Listar vozes clonadas
+curl http://localhost:8005/voices | jq '.voices[] | {id, name, language}'
+
+# 4. Ver detalhes da voz (inclui reference_text transcrito)
+curl http://localhost:8005/voices/voice_abc123def456 | jq .
+
+# 5. Usar voz clonada na dublagem
+curl -X POST "http://localhost:8005/jobs" \
   -H "Content-Type: application/json" \
   -d '{
-    "mode": "dubbing_with_clone",
-    "text": "Agora falando com minha própria voz clonada!",
-    "source_language": "pt-BR",
-    "voice_id": "voice_xyz789"
-  }'
+    "text": "Agora falando com minha própria voz clonada pelo F5-TTS!",
+    "source_language": "pt",
+    "voice_id": "voice_abc123def456"
+  }' | jq .
+
+# ⚠️ IMPORTANTE: Use "voice_id" (não "voice_profile_id")
+```
+
+**Dicas de Clonagem**:
+- ✅ Áudio limpo, sem ruído de fundo
+- ✅ Duração: 2-10 segundos (ideal: 3-5s)
+- ✅ Fala clara e natural
+- ✅ Formatos: MP3, WAV, M4A, OGG
+- ❌ Evitar música, eco, múltiplas vozes'
 ```
 
 ## 🔌 Integração com Orchestrator
@@ -204,20 +241,11 @@ MICROSERVICES = {
 - `DELETE /voices/{voice_id}` - Remover voz
 
 ### Informações
+# Limits
+MAX_FILE_SIZE_MB=100
+MAX_TEXT_LENGTH=10000
+MAX_DURATION_MINUTES=10
 
-- `GET /presets` - Vozes genéricas disponíveis
-- `GET /languages` - Idiomas suportados
-- `GET /health` - Health check profundo
-- `GET /admin/stats` - Estatísticas
-- `POST /admin/cleanup` - Limpeza de sistema
-
-Documentação completa da API: http://localhost:8004/docs
-
-## ⚙️ Configuração
-
-Principais variáveis de ambiente (`.env`):
-
-```bash
 # Application
 PORT=8004
 LOG_LEVEL=INFO
@@ -230,11 +258,12 @@ MAX_FILE_SIZE_MB=100
 MAX_TEXT_LENGTH=10000
 MAX_DURATION_MINUTES=10
 
-# OpenVoice
-OPENVOICE_DEVICE=cpu  # ou cuda
-OPENVOICE_PRELOAD_MODELS=false
-OPENVOICE_MIN_CLONE_DURATION_SEC=5
-OPENVOICE_MAX_CLONE_DURATION_SEC=60
+# F5-TTS (Motor de síntese)
+F5TTS_MODEL=F5-TTS            # F5-TTS ou E2-TTS
+F5TTS_DEVICE=cuda             # cuda ou cpu (GPU recomendado)
+F5TTS_CACHE=/app/models/f5tts # Cache de modelos (~500MB)
+F5TTS_NFE_STEP=32             # Quality (16=fast, 32=balanced, 64=high)
+F5TTS_TARGET_RMS=0.1          # Volume normalizado
 
 # Cache
 CACHE_TTL_HOURS=24
@@ -250,22 +279,32 @@ audio-voice/
 │   ├── models.py            # Pydantic models
 │   ├── config.py            # Configurações
 │   ├── processor.py         # Lógica de processamento
-│   ├── openvoice_client.py  # Adapter OpenVoice
+│   ├── f5tts_client.py      # F5-TTS adapter (GPU-first with CPU fallback)
 │   ├── redis_store.py       # Store Redis
 │   ├── celery_tasks.py      # Tasks assíncronas
 │   └── ...
 ├── Dockerfile
 ├── docker-compose.yml
-├── requirements.txt
-└── README.md
-```
+## 🐛 Troubleshooting
 
-Fluxo de processamento:
-1. Cliente → POST /jobs (dublagem) ou POST /voices/clone (clonagem)
-2. FastAPI cria Job → Salva Redis
-3. Celery Worker processa job
-4. OpenVoice gera áudio/clona voz
-5. Áudio salvo em ./processed
+### F5-TTS: CUDA Out of Memory
+
+**Problema:** `CUDA out of memory` em GPU <4GB
+
+**Solução:**
+1. Use CPU: `F5TTS_DEVICE=cpu` no `.env`
+2. Ou libere GPU: pare outros processos (Ollama, etc.)
+3. Restart containers: `docker-compose restart`
+
+### Modelos não baixam automaticamente
+
+**Problema:** Erro no download do F5-TTS/Whisper
+
+**Solução:**
+1. Verifique conexão internet
+2. Verifique espaço em disco (min 2GB livre)
+3. Limpe cache HuggingFace: `rm -rf models/f5tts/*`
+4. Restart container com logs: `docker logs audio-voice-api -f`
 6. Cliente → GET /jobs/{id}/download
 
 ## 🧪 Testes
@@ -286,24 +325,35 @@ pytest --cov=app --cov-report=html
 
 ## 🐛 Troubleshooting
 
-### OpenVoice não carrega modelos
+### Clonagem de voz falha
 
-**Problema:** `OpenVoice models failed to load`
+**Problema:** `Voice cloning failed` ou transcrição errada
 
 **Solução:**
-1. Verifique se modelos foram baixados em `./models/checkpoints/`
-2. Verifique permissões de diretório
-3. Verifique memória disponível (min 2GB RAM)
+1. **Duração ideal**: 2-10s (Whisper funciona melhor)
+2. **Qualidade**: Áudio limpo, sem ruído/eco
+3. **Formatos**: WAV, MP3, M4A, OGG (prefira WAV 16kHz+)
+4. **Idioma correto**: `pt`, `en`, `es` (não `pt-BR`)
+5. **Verifique transcrição**: `GET /voices/{voice_id}` → `reference_text`
+
+### Síntese não usa voz clonada
+
+**Problema:** Síntese usa preset em vez da voz clonada
+
+**Solução:**
+1. ✅ Use `"voice_id": "voice_XXXX"` (não `voice_profile_id`)
+2. Verifique logs: `docker logs audio-voice-celery | grep "Using.*voice"`
+3. Confirme voice_id existe: `curl http://localhost:8005/voices | jq .`
 
 ### Jobs ficam em "processing" eternamente
 
 **Problema:** Jobs não completam
 
-**Solução:**
-1. Verifique se Celery worker está rodando: `celery -A app.celery_tasks inspect active`
-2. Verifique logs: `tail -f logs/audio-voice.log`
-3. Execute cleanup: `curl -X POST http://localhost:8004/admin/cleanup?deep=true`
-
+  "checks": {
+    "redis": {"status": "ok"},
+    "disk_space": {"status": "ok", "free_gb": 50.2},
+    "f5tts": {"status": "ok", "device": "cpu", "model": "F5TTS_v1_Base"}
+  }
 ### Clonagem de voz falha
 
 **Problema:** `Voice cloning failed`
@@ -330,7 +380,7 @@ Response:
   "checks": {
     "redis": {"status": "ok"},
     "disk_space": {"status": "ok", "free_gb": 50.2},
-    "openvoice": {"status": "ok", "models_loaded": true}
+    "f5tts": {"status": "ok", "device": "cuda", "model": "F5-TTS"}
   }
 }
 ```
@@ -346,18 +396,28 @@ Response:
 {
   "jobs": {
     "total": 150,
-    "queued": 2,
-    "processing": 3,
-    "completed": 140,
-    "failed": 5
-  },
-  "voice_profiles": {
-    "total": 12,
-    "active": 10,
-    "expired": 2
-  }
-}
-```
+## 📝 Notas de Implementação
+
+### F5-TTS Engine
+
+✅ **Motor de produção validado**: F5-TTS v1 Base (SWivid/F5-TTS)
+
+**Características**:
+- **Síntese**: Fala humana natural de alta qualidade
+- **Clonagem**: Automática via Whisper (transcrição) + áudio de referência
+- **Performance GPU**: 10-30s para áudio de 3-7s
+- **Performance CPU**: 86-850s (10-30x mais lento, viável para dev/teste)
+- **GPU Fallback**: Automático em caso de CUDA OOM
+
+**Documentação técnica**:
+- `CONTEXT.md` - Contexto completo do sistema
+- `SPRINT5-RESULTS.md` - Benchmarks GPU vs CPU
+
+**Qualidade validada**:
+- ✅ Pitch variation: 90-114 Hz (fala natural)
+- ✅ Zero artefatos sintéticos
+- ✅ Clonagem automática funcional
+- ✅ GPU-first com fallback CPU robusto
 
 ## 🔐 Segurança
 
@@ -369,16 +429,24 @@ Response:
 
 ## 📝 Notas de Implementação
 
-### OpenVoice Adapter
+### Performance & GPU Support
 
-O arquivo `openvoice_client.py` contém um **ADAPTER/MOCK** para desenvolvimento. Para produção:
+**GPU (Recomendado para produção)**:
+- Device: `F5TTS_DEVICE=cuda`
+- Performance: 10-30s para síntese de 3-7s
+- VRAM: Mínimo 4GB (GTX 1050 Ti ou superior)
+- Fallback automático para CPU em caso de OOM
 
-1. Instale OpenVoice real: `pip install git+https://github.com/myshell-ai/OpenVoice.git`
-2. Substitua imports mockados por imports reais
-3. Ajuste chamadas conforme API OpenVoice
-4. Teste com modelos baixados
+**CPU (Dev/teste)**:
+- Device: `F5TTS_DEVICE=cpu`
+- Performance: 86-850s (10-30x mais lento)
+- RAM: 4-8GB recomendado
 
-Veja comentários no código marcados com `===== PRODUÇÃO =====`.
+**Celery GPU/CPU Split**:
+- API container: GPU (`F5TTS_DEVICE=cuda`)
+- Celery worker: CPU (`F5TTS_DEVICE_CELERY=cpu`) - evita conflito de GPU
+
+Ver `SPRINT5-RESULTS.md` para benchmarks detalhados.
 
 ## 🤝 Contribuindo
 

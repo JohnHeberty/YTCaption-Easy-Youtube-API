@@ -68,6 +68,40 @@ def get_settings():
             'clone_sample_rate': int(os.getenv('OPENVOICE_CLONE_SAMPLE_RATE', '24000')),
         },
         
+        # ===== F5-TTS (pt-BR OPTIMIZED for GTX 1050 Ti) =====
+        'f5tts': {
+            # Modelo padrão
+            'model': os.getenv('F5TTS_MODEL', 'F5-TTS'),
+            
+            # Device (cuda para GTX 1050 Ti)
+            'device': os.getenv('F5TTS_DEVICE', 'cuda'),
+            
+            # Paths - MODELO PT-BR CUSTOMIZADO
+            'hf_cache_dir': os.getenv('F5TTS_CACHE', '/app/models/f5tts'),
+            'custom_model_dir': os.getenv('F5TTS_CUSTOM_MODEL_DIR', '/app/models/f5tts/pt-br'),
+            'custom_model_file': os.getenv('F5TTS_CUSTOM_MODEL_FILE', 'model_last.safetensors'),
+            
+            # Otimizações VRAM (GTX 1050 Ti = 4GB)
+            'nfe_step': int(os.getenv('F5TTS_NFE_STEP', '16')),  # REDUZIDO: 32->16 (economia VRAM)
+            'target_rms': float(os.getenv('F5TTS_TARGET_RMS', '0.1')),
+            'use_fp16': os.getenv('F5TTS_USE_FP16', 'true').lower() == 'true',  # FP16 ativa
+            'max_batch_size': int(os.getenv('F5TTS_MAX_BATCH_SIZE', '1')),  # Batch=1 para VRAM baixa
+            
+            # Limites de texto/áudio (evitar OOM)
+            'max_gen_length': int(os.getenv('F5TTS_MAX_GEN_LENGTH', '5000')),  # chars
+            'max_ref_duration': int(os.getenv('F5TTS_MAX_REF_DURATION', '12')),  # segundos
+            
+            # Whisper para transcrição (SEMPRE CPU para economizar VRAM)
+            'whisper_model': os.getenv('F5TTS_WHISPER_MODEL', 'openai/whisper-base'),  # base (mais leve)
+            'whisper_device': os.getenv('F5TTS_WHISPER_DEVICE', 'cpu'),  # CPU por padrão
+        },
+        
+        # ===== F5TTS PT-BR MODEL PATH =====
+        'F5TTS_MODEL_PATH': os.path.join(
+            os.getenv('F5TTS_CUSTOM_MODEL_DIR', '/app/models/f5tts/pt-br'),
+            os.getenv('F5TTS_CUSTOM_MODEL_FILE', 'model_last.safetensors')
+        ),
+        
         # ===== VOICE PRESETS =====
         'voice_presets': {
             'female_generic': {

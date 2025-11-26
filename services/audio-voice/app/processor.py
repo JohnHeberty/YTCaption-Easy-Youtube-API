@@ -2,11 +2,14 @@
 Processor para jobs de dublagem e clonagem de voz
 """
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
 from .models import Job, VoiceProfile, JobMode, JobStatus
 from .openvoice_client import OpenVoiceClient
+from .f5tts_client import F5TTSClient
+from .tts_interface import TTSEngine
 from .config import get_settings
 from .exceptions import DubbingException, VoiceCloneException
 
@@ -18,7 +21,18 @@ class VoiceProcessor:
     
     def __init__(self):
         self.settings = get_settings()
-        self.openvoice_client = OpenVoiceClient()
+        
+        # Factory: escolhe motor por env var
+        engine = os.getenv('TTS_ENGINE', 'openvoice')
+        logger.info(f"Initializing TTS engine: {engine}")
+        
+        if engine == 'f5tts':
+            self.tts_client: TTSEngine = F5TTSClient()
+        elif engine == 'openvoice':
+            self.tts_client: TTSEngine = OpenVoiceClient()
+        else:
+            raise ValueError(f"Unknown TTS_ENGINE: {engine}")
+        
         self.job_store = None  # Será injetado no main.py
     
     async def process_dubbing_job(self, job: Job, voice_profile: Optional[VoiceProfile] = None) -> Job:
@@ -41,7 +55,7 @@ class VoiceProcessor:
             logger.info(f"Processing dubbing job {job.id}: mode={job.mode}")
             
             # Gera áudio dublado
-            audio_bytes, duration = await self.openvoice_client.generate_dubbing(
+            audio_bytes, duration = await self.tts_client.generate_dubbing(
                 text=job.text,
                 language=job.source_language or job.target_language or 'en',
                 voice_preset=job.voice_preset,
@@ -119,7 +133,7 @@ class VoiceProcessor:
             logger.info(f"Processing voice clone job {job.id}: {job.voice_name}")
             
             # Clona voz
-            voice_profile = await self.openvoice_client.clone_voice(
+            voice_profile = await self.tts_client.clone_voice(
                 audio_path=job.input_file,
                 language=job.source_language or 'en',
                 voice_name=job.voice_name,
@@ -137,6 +151,7 @@ class VoiceProcessor:
             job.progress = 100.0
             job.status = JobStatus.COMPLETED
             job.output_file = voice_profile.profile_path
+            job.voice_id = voice_profile.id  # 🔥 FIX: Armazena voice_id no job para que o teste possa obter
             
             import datetime
             job.completed_at = datetime.datetime.now()
