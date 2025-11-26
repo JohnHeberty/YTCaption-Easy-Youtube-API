@@ -102,6 +102,40 @@ def get_settings():
             os.getenv('F5TTS_CUSTOM_MODEL_FILE', 'model_last.safetensors')
         ),
         
+        # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
+        'xtts': {
+            # Modelo padrão
+            'model_name': os.getenv('XTTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2'),
+            
+            # Device (auto, cuda, cpu)
+            'device': os.getenv('XTTS_DEVICE', None),  # None = auto-detect
+            
+            # Fallback para CPU se CUDA não disponível
+            'fallback_to_cpu': os.getenv('XTTS_FALLBACK_CPU', 'true').lower() == 'true',
+            
+            # Parâmetros de síntese
+            'temperature': float(os.getenv('XTTS_TEMPERATURE', '0.7')),
+            'repetition_penalty': float(os.getenv('XTTS_REPETITION_PENALTY', '5.0')),
+            'length_penalty': float(os.getenv('XTTS_LENGTH_PENALTY', '1.0')),
+            'top_k': int(os.getenv('XTTS_TOP_K', '50')),
+            'top_p': float(os.getenv('XTTS_TOP_P', '0.85')),
+            'speed': float(os.getenv('XTTS_SPEED', '1.0')),
+            
+            # Text splitting para textos longos
+            'enable_text_splitting': os.getenv('XTTS_TEXT_SPLITTING', 'true').lower() == 'true',
+            
+            # Sample rate (XTTS v2 = 24kHz)
+            'sample_rate': int(os.getenv('XTTS_SAMPLE_RATE', '24000')),
+            
+            # Limites
+            'max_text_length': int(os.getenv('XTTS_MAX_TEXT_LENGTH', '5000')),
+            'min_ref_duration': int(os.getenv('XTTS_MIN_REF_DURATION', '3')),  # segundos
+            'max_ref_duration': int(os.getenv('XTTS_MAX_REF_DURATION', '30')),  # segundos
+        },
+        
+        # ===== TTS ENGINE SELECTION =====
+        'use_xtts': os.getenv('USE_XTTS', 'true').lower() == 'true',  # True = XTTS (padrão), False = TTS_ENGINE var
+        
         # ===== VOICE PRESETS =====
         'voice_presets': {
             'female_generic': {

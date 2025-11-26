@@ -19,21 +19,58 @@ logger = logging.getLogger(__name__)
 class VoiceProcessor:
     """Processa jobs de dublagem e clonagem de voz"""
     
-    def __init__(self):
+    def __init__(self, use_xtts: bool = None):
+        """
+        Inicializa o processador de voz
+        
+        Args:
+            use_xtts: Se True, usa XTTS. Se False, usa engine de TTS_ENGINE env var.
+                     Se None, lê de config (padrão)
+        """
         self.settings = get_settings()
         
-        # Factory: escolhe motor por env var
-        engine = os.getenv('TTS_ENGINE', 'openvoice')
-        logger.info(f"Initializing TTS engine: {engine}")
-        
-        if engine == 'f5tts':
-            self.tts_client: TTSEngine = F5TTSClient()
-        elif engine == 'openvoice':
-            self.tts_client: TTSEngine = OpenVoiceClient()
+        # Determina engine: parâmetro > config > padrão (True)
+        if use_xtts is None:
+            self.use_xtts = self.settings.get('use_xtts', True)
         else:
-            raise ValueError(f"Unknown TTS_ENGINE: {engine}")
+            self.use_xtts = use_xtts
         
+        self._engine = None
         self.job_store = None  # Será injetado no main.py
+    
+    def _get_tts_engine(self) -> TTSEngine:
+        """
+        Retorna engine TTS apropriada (factory method)
+        
+        Returns:
+            TTSEngine: XTTSClient, F5TTSClient ou OpenVoiceClient
+        """
+        if self._engine is None:
+            if self.use_xtts:
+                # Usa XTTS (novo motor padrão)
+                try:
+                    from .xtts_client import XTTSClient
+                    logger.info("Initializing XTTS engine (new default)")
+                    self._engine = XTTSClient(
+                        device=self.settings.get('xtts', {}).get('device'),
+                        fallback_to_cpu=True
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to initialize XTTS: {e}")
+                    raise RuntimeError(f"XTTS initialization failed: {str(e)}")
+            else:
+                # Fallback para engine anterior via env var
+                engine = os.getenv('TTS_ENGINE', 'openvoice')
+                logger.info(f"Initializing TTS engine from TTS_ENGINE: {engine}")
+                
+                if engine == 'f5tts':
+                    self._engine = F5TTSClient()
+                elif engine == 'openvoice':
+                    self._engine = OpenVoiceClient()
+                else:
+                    raise ValueError(f"Unknown TTS_ENGINE: {engine}")
+        
+        return self._engine
     
     async def process_dubbing_job(self, job: Job, voice_profile: Optional[VoiceProfile] = None) -> Job:
         """
@@ -54,14 +91,16 @@ class VoiceProcessor:
             
             logger.info(f"Processing dubbing job {job.id}: mode={job.mode}")
             
+            # Obtém engine TTS apropriada
+            engine = self._get_tts_engine()
+            
             # Gera áudio dublado
-            audio_bytes, duration = await self.tts_client.generate_dubbing(
+            audio_bytes, duration = await engine.generate_dubbing(
                 text=job.text,
                 language=job.source_language or job.target_language or 'en',
                 voice_preset=job.voice_preset,
                 voice_profile=voice_profile,
-                speed=1.0,  # TODO: pegar de job params
-                pitch=1.0
+                speed=1.0
             )
             
             job.progress = 80.0
@@ -132,8 +171,11 @@ class VoiceProcessor:
             
             logger.info(f"Processing voice clone job {job.id}: {job.voice_name}")
             
+            # Obtém engine TTS apropriada
+            engine = self._get_tts_engine()
+            
             # Clona voz
-            voice_profile = await self.tts_client.clone_voice(
+            voice_profile = await engine.clone_voice(
                 audio_path=job.input_file,
                 language=job.source_language or 'en',
                 voice_name=job.voice_name,

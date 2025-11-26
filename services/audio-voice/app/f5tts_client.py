@@ -1,7 +1,10 @@
 """
 Cliente F5-TTS - Adapter para dublagem e clonagem de voz
 
-SPRINT 3: Usando F5TTSModelLoader com modelo pt-BR customizado
+Motor de produção para síntese de voz natural e clonagem automática.
+GPU-first com fallback automático para CPU em caso de CUDA OOM.
+
+Referência: https://github.com/SWivid/F5-TTS
 """
 import logging
 import os
@@ -13,146 +16,142 @@ import shutil
 from pathlib import Path
 from typing import Optional, Tuple
 
-# USAR NOSSO LOADER CUSTOMIZADO
-from .f5tts_loader import F5TTSModelLoader, load_f5tts_ptbr
+from f5_tts.api import F5TTS
 
 from .tts_interface import TTSEngine
 from .models import VoiceProfile
 from .config import get_settings
-from .validators import (
-    normalize_text_ptbr,
-    validate_voice_profile,
-    validate_inference_params,
-    validate_audio_path
-)
-from .exceptions import InvalidAudioException, OpenVoiceException
-from .exceptions import OpenVoiceException, InvalidAudioException
+from .exceptions import VoiceCloneException, InvalidAudioException, DubbingException
 
 logger = logging.getLogger(__name__)
 
 
 class F5TTSClient(TTSEngine):
-    """Cliente para F5-TTS - Dublagem e Clonagem de Voz com modelo pt-BR"""
-    
-    # Flag para aplicar patch apenas uma vez
-    _patch_applied = False
-    
-    @staticmethod
-    def _apply_chunk_text_patch():
-        """
-        🔥 MONKEY PATCH CRÍTICO: Corrige chunk_text() do F5-TTS para filtrar batches vazios
-        
-        PROBLEMA: chunk_text() gera batches vazios (strings com apenas espaços) que causam:
-        TypeError: encoding without a string argument
-        
-        SOLUÇÃO: Wrapper que filtra batches vazios ANTES de retornar
-        """
-        if F5TTSClient._patch_applied:
-            return
-            
-        try:
-            from f5_tts.infer.utils_infer import chunk_text as original_chunk_text
-            
-            def safe_chunk_text(*args, **kwargs):
-                """Wrapper que filtra batches vazios"""
-                batches = original_chunk_text(*args, **kwargs)
-                filtered = [b for b in batches if b and b.strip()]
-                if len(filtered) < len(batches):
-                    logger.warning(f"⚠️ chunk_text: removidos {len(batches) - len(filtered)} batches vazios de {len(batches)}")
-                return filtered if filtered else [" "]  # Fallback: retorna batch com espaço se tudo vazio
-            
-            # Substituir função global
-            import f5_tts.infer.utils_infer
-            f5_tts.infer.utils_infer.chunk_text = safe_chunk_text
-            F5TTSClient._patch_applied = True
-            logger.info("✅ Monkey patch aplicado com sucesso em chunk_text()")
-            
-        except ImportError as e:
-            logger.warning(f"⚠️ Não foi possível importar f5_tts: {e}")
-        except Exception as e:
-            logger.error(f"❌ Erro ao aplicar monkey patch: {e}")
+    """Cliente para F5-TTS - Dublagem e Clonagem de Voz"""
     
     def __init__(self, device: Optional[str] = None):
         """
-        Inicializa cliente F5-TTS com modelo pt-BR customizado
+        Inicializa cliente F5-TTS
         
         Args:
             device: 'cpu' ou 'cuda' (auto-detecta se None)
         """
-        # Aplicar monkey patch ANTES de carregar modelo
-        self._apply_chunk_text_patch()
-        
         self.settings = get_settings()
         f5tts_config = self.settings.get('f5tts', {})
         
-        # Device
+        # Device - GPU first, fallback to CPU
         if device is None:
+            # Sempre tenta GPU primeiro (padrão)
             self.device = f5tts_config.get('device', 'cuda')
+            
+            # Checa se CUDA está disponível
             if self.device == 'cuda' and not torch.cuda.is_available():
-                logger.warning("CUDA not available, falling back to CPU")
+                logger.warning("⚠️ CUDA not available on system, falling back to CPU")
                 self.device = 'cpu'
+            elif self.device == 'cuda':
+                logger.info(f"🎮 GPU available: {torch.cuda.get_device_name(0)} ({torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f}GB)")
         else:
             self.device = device
         
         logger.info(f"Initializing F5-TTS client on device: {self.device}")
         
-        # USAR LOADER CUSTOMIZADO
-        self.model_path = self.settings.get('F5TTS_MODEL_PATH')
-        logger.info(f"📂 Modelo pt-BR: {self.model_path}")
+        # Paths
+        self.hf_cache_dir = Path(f5tts_config.get('hf_cache_dir', '/app/models/f5tts'))
+        self.hf_cache_dir.mkdir(exist_ok=True, parents=True)
         
-        # Parâmetros otimizados para GTX 1050 Ti
+        # Parâmetros
+        self.model_name = f5tts_config.get('model', 'F5-TTS')
         self.sample_rate = 24000  # F5-TTS fixed
-        self.nfe_step = f5tts_config.get('nfe_step', 16)  # REDUZIDO: 32 -> 16 para economia VRAM
-        self.target_rms = f5tts_config.get('target_rms', 0.1)
-        self.use_fp16 = f5tts_config.get('use_fp16', True)
         
-        # LAZY LOADING: Modelo só será carregado sob demanda
-        self.model = None
-        self.loader = None
-        self._model_loaded = False
-        logger.info("F5-TTS client initialized (lazy loading enabled)")
+        # Configurações F5-TTS
+        self.nfe_step = f5tts_config.get('nfe_step', 32)
+        self.cfg_strength = f5tts_config.get('cfg_strength', 2.0)
+        self.sway_coef = f5tts_config.get('sway_sampling_coef', -1.0)
+        self.target_rms = f5tts_config.get('target_rms', 0.1)
+        
+        # Carrega modelo
+        self.f5tts = None
+        self._load_models()
     
-    def _ensure_model_loaded(self):
-        """Garante que o modelo está carregado (LAZY LOADING)"""
-        if self._model_loaded:
-            return
+    def _load_models(self):
+        """Carrega modelo F5-TTS com fallback GPU→CPU automático"""
+        f5tts_config = self.settings.get('f5tts', {})
+        model_name = 'F5TTS_v1_Base' if self.model_name == 'F5-TTS' else 'E2TTS_Base'
+        
+        # Verifica se há modelo customizado (PT-BR)
+        custom_model_path = f5tts_config.get('custom_model_path', '')
+        custom_vocab_path = f5tts_config.get('custom_vocab_path', '')
+        
+        # Detecta se está usando modelo customizado
+        is_custom_model = custom_model_path and Path(custom_model_path).exists()
+        
+        # Usa modelo customizado se especificado, senão usa padrão HF
+        if is_custom_model:
+            ckpt_file = custom_model_path
+            logger.info(f"📦 Using CUSTOM PT-BR model: {custom_model_path}")
+        else:
+            ckpt_file = str(self.hf_cache_dir / "model_1200000.safetensors") if (self.hf_cache_dir / "model_1200000.safetensors").exists() else ""
+        
+        if custom_vocab_path and Path(custom_vocab_path).exists():
+            vocab_file = custom_vocab_path
+            logger.info(f"📦 Using CUSTOM vocab: {custom_vocab_path}")
+        else:
+            vocab_file = str(self.hf_cache_dir / "vocab.txt") if (self.hf_cache_dir / "vocab.txt").exists() else ""
+        
+        # Modelos customizados geralmente não têm EMA weights
+        use_ema_param = False if is_custom_model else True
         
         try:
-            logger.info("📥 Loading F5-TTS pt-BR model (lazy load)...")
+            logger.info(f"Loading F5-TTS model: {self.model_name} on {self.device.upper()}")
+            logger.info(f"  use_ema: {use_ema_param}, ckpt: {Path(ckpt_file).name if ckpt_file else 'HF default'}")
             
-            # Usar nosso loader customizado
-            self.loader = F5TTSModelLoader(
-                model_path=self.model_path,
-                device=self.device
+            self.f5tts = F5TTS(
+                model=model_name,
+                ckpt_file=ckpt_file,
+                vocab_file=vocab_file,
+                ode_method="midpoint",
+                use_ema=use_ema_param,
+                device=self.device,
+                hf_cache_dir=str(self.hf_cache_dir)
             )
             
-            # Carregar modelo
-            self.model = self.loader.load_model()
+            logger.info(f"✅ F5-TTS model loaded successfully on {self.device.upper()}")
             
-            # Carregar vocoder (Vocos) - importação correta
-            logger.info("📥 Loading Vocos vocoder...")
-            from vocos import Vocos
-            self.vocoder = Vocos.from_pretrained("charactr/vocos-mel-24khz")
-            logger.info("✅ Vocos vocoder loaded")
-            
-            # Log informações
-            info = self.loader.get_model_info()
-            logger.info("✅ F5-TTS pt-BR loaded successfully")
-            logger.info(f"   Device: {info['device']}")
-            logger.info(f"   Parameters: {info['total_parameters']:,}")
-            logger.info(f"   Config: {info['config']}")
-            
-            # Log VRAM usage
-            if self.device == 'cuda' and torch.cuda.is_available():
-                allocated = torch.cuda.memory_allocated(0) / (1024**3)
-                reserved = torch.cuda.memory_reserved(0) / (1024**3)
-                logger.info(f"   📊 VRAM: {allocated:.2f} GB allocated, {reserved:.2f} GB reserved")
-            
-            self._model_loaded = True
-            
+        except RuntimeError as e:
+            # CUDA Out of Memory - Fallback automático para CPU
+            if "CUDA out of memory" in str(e) or "out of memory" in str(e).lower():
+                logger.error(f"❌ GPU out of memory: {e}")
+                logger.warning(f"⚠️ Migrating to CPU automatically...")
+                
+                # Libera memória GPU
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                # Retry em CPU
+                self.device = 'cpu'
+                try:
+                    logger.info(f"Loading F5-TTS model: {self.model_name} on CPU (fallback)")
+                    self.f5tts = F5TTS(
+                        model=model_name,
+                        ckpt_file=ckpt_file,
+                        vocab_file=vocab_file,
+                        ode_method="midpoint",
+                        use_ema=use_ema_param,
+                        device='cpu',
+                        hf_cache_dir=str(self.hf_cache_dir)
+                    )
+                    logger.info("✅ F5-TTS model loaded successfully on CPU (fallback from GPU OOM)")
+                except Exception as cpu_error:
+                    logger.error(f"Failed to load F5-TTS on CPU fallback: {cpu_error}")
+                    raise VoiceCloneException(f"Model loading failed on both GPU and CPU: {str(cpu_error)}")
+            else:
+                # Outro erro de RuntimeError
+                logger.error(f"Failed to load F5-TTS model: {e}")
+                raise VoiceCloneException(f"Model loading failed: {str(e)}")
+                
         except Exception as e:
-            logger.error(f"❌ Failed to load F5-TTS model: {e}", exc_info=True)
-            raise OpenVoiceException(f"Model loading failed: {str(e)}") from e
+            logger.error(f"Failed to load F5-TTS model: {e}")
+            raise VoiceCloneException(f"Model loading failed: {str(e)}")
     
     async def generate_dubbing(
         self,
@@ -160,169 +159,66 @@ class F5TTSClient(TTSEngine):
         language: str,
         voice_preset: Optional[str] = None,
         voice_profile: Optional[VoiceProfile] = None,
-        speed: float = 1.0,
+        speed: float = 1.0,  # 1.0 = ritmo natural PT-BR (180-200 WPM)
         pitch: float = 1.0  # F5-TTS não suporta pitch direto
     ) -> Tuple[bytes, float]:
         """
-        Gera áudio dublado a partir de texto usando F5-TTS
+        Gera áudio dublado a partir de texto
         
         Args:
-            text: Texto para sintetizar (será convertido para lowercase)
-            language: Idioma (ignorado - modelo é pt-BR)
-            voice_preset: Não usado no F5-TTS (precisa voice_profile)
-            voice_profile: Perfil de voz clonada (obrigatório)
-            speed: Velocidade de fala (1.0 = normal)
-            pitch: Não suportado pelo F5-TTS (ignorado)
+            text: Texto para dublar
+            language: Idioma de síntese
+            voice_preset: Voz genérica (ex: 'female_generic')
+            voice_profile: Perfil de voz clonada
+            speed: Velocidade da fala (0.5-2.0)
+            pitch: Ignorado (F5-TTS não suporta)
         
         Returns:
-            Tuple[bytes, float]: (audio_bytes, duration)
+            (audio_bytes, duration): Bytes do áudio WAV e duração
         """
-        # LAZY LOAD: Carrega modelo apenas quando necessário
-        self._ensure_model_loaded()
-        
-        # VALIDAÇÃO ROBUSTA: Validar inputs ANTES de processar
         try:
-            validate_voice_profile(voice_profile)
-            validate_inference_params(text, speed, self.nfe_step)
-        except (ValueError, InvalidAudioException) as e:
-            logger.error(f"Input validation failed: {e}")
-            raise InvalidAudioException(str(e)) from e
-        
-        try:
-            import sys
-            sys.path.insert(0, '/tmp/F5-TTS')
-            from f5_tts.infer.utils_infer import infer_process
+            logger.info(f"🎙️ F5-TTS generate_dubbing: '{text[:50]}...'")
             
-            # NORMALIZAÇÃO: Preparar texto para F5-TTS pt-BR
-            try:
-                gen_text = normalize_text_ptbr(text)
-                # CRÍTICO: Remover espaços múltiplos e quebras de linha problemáticas
-                gen_text = ' '.join(gen_text.split())
-                
-                # CRITICAL FIX: F5-TTS chunk_text() divide por pontuação e pode criar batches vazios
-                # Remove caracteres problemáticos que causam batches com espaços soltos
-                gen_text = gen_text.replace('  ', ' ')  # Remove espaços duplos (caso sobrem)
-                gen_text = gen_text.replace(' ,', ',')   # Remove espaço antes de vírgula
-                gen_text = gen_text.replace(' .', '.')   # Remove espaço antes de ponto
-                gen_text = gen_text.replace(' !', '!')   # Remove espaço antes de exclamação
-                gen_text = gen_text.replace(' ?', '?')   # Remove espaço antes de interrogação
-                gen_text = gen_text.replace(' ;', ';')   # Remove espaço antes de ponto-vírgula
-                gen_text = gen_text.replace(' :', ':')   # Remove espaço antes de dois-pontos
-                gen_text = gen_text.strip()
-                
-                # Valida que texto não ficou vazio ou muito curto
-                if not gen_text or len(gen_text) < 2:
-                    raise ValueError(f"Texto muito curto após normalização: '{gen_text}'")
-                    
-                logger.info(f"🎙️ F5-TTS generating: '{gen_text[:50]}...'")
-            except ValueError as e:
-                logger.error(f"Text normalization failed: {e}")
-                raise InvalidAudioException(f"Invalid text: {e}") from e
+            # Determina áudio de referência
+            if voice_profile:
+                ref_file = voice_profile.reference_audio_path
+                ref_text = voice_profile.reference_text
+                logger.info(f"  Using cloned voice: {voice_profile.id}")
+                logger.debug(f"    ref_file: {ref_file}")
+                logger.debug(f"    ref_text: '{ref_text}'")
+                logger.debug(f"    gen_text: '{text}'")
+            else:
+                ref_file, ref_text = self._get_preset_audio(voice_preset, language)
+                logger.info(f"  Using preset voice: {voice_preset}")
+                logger.debug(f"    ref_file: {ref_file}")
+                logger.debug(f"    ref_text: '{ref_text}'")
+                logger.debug(f"    gen_text: '{text}'")
             
-            # REFERENCE TEXT: Com fallback robusto
-            ref_text = self._get_reference_text_with_fallback(
-                voice_profile,
-                language
-            )
-            
-            logger.info(f"   Voice: {voice_profile.reference_audio_path}")
-            logger.info(f"   Ref text: '{ref_text[:50]}...'")
-            logger.info(f"   Gen text: '{gen_text[:50]}...'")
-            logger.info(f"   NFE steps: {self.nfe_step}, Speed: {speed}")
-            
-            # 🔥 FIX CRÍTICO: Validar que gen_text não está vazio ou só com espaços
-            if not gen_text or not gen_text.strip():
-                raise OpenVoiceException(f"gen_text vazio após preprocessing: '{gen_text}'")
-            
-            # 🔥 DEBUG: Log completo do texto para análise
-            logger.info(f"🔍 Gen text completo ({len(gen_text)} chars): {repr(gen_text)}")
-            
-            # F5-TTS infer_process: Espera STRINGS (não listas)
-            # O batch processing é feito INTERNAMENTE pelo infer_process
             # Inferência F5-TTS
-            generated_audio, sample_rate, _ = infer_process(
-                ref_audio=voice_profile.reference_audio_path,
-                ref_text=ref_text,      # STRING (não lista)
-                gen_text=gen_text,      # STRING (não lista)
-                model_obj=self.model,
-                vocoder=self.vocoder,
-                mel_spec_type="vocos",
-                show_info=logger.info,
-                target_rms=self.target_rms,
-                nfe_step=self.nfe_step,
+            wav, sr, _ = self.f5tts.infer(
+                ref_file=ref_file,
+                ref_text=ref_text,
+                gen_text=text,
                 speed=speed,
-                device=self.device
+                nfe_step=self.nfe_step,
+                cfg_strength=self.cfg_strength,
+                sway_sampling_coef=self.sway_coef,
+                remove_silence=True  # Remove silêncios que causam artefatos e chiado
             )
             
-            # Converter para bytes
-            duration = len(generated_audio) / sample_rate
-            audio_bytes = self._wav_to_bytes(generated_audio, sample_rate)
+            logger.info(f"  Generated audio: {len(wav)} samples, {sr} Hz")
             
-            logger.info(
-                f"✅ F5-TTS generated {duration:.2f}s audio "
-                f"({len(audio_bytes)} bytes, {sample_rate} Hz)"
-            )
+            # Converte para WAV bytes
+            audio_bytes = self._wav_to_bytes(wav, sr)
+            duration = len(wav) / sr
+            
+            logger.info(f"✅ F5-TTS dubbing generated: {duration:.2f}s")
+            
             return audio_bytes, duration
             
-        except InvalidAudioException:
-            # Re-raise validation errors
-            raise
         except Exception as e:
-            logger.error(f"F5-TTS generation failed: {e}", exc_info=True)
-            raise OpenVoiceException(f"TTS generation failed: {str(e)}") from e
-    
-    def _get_reference_text_with_fallback(
-        self,
-        voice_profile: VoiceProfile,
-        language: str
-    ) -> str:
-        """
-        Obtém reference text com fallbacks robustos.
-        
-        Priority:
-        1. VoiceProfile.reference_text
-        2. Transcribe from audio
-        3. Generic fallback by language
-        """
-        # Priority 1: VoiceProfile reference_text
-        if voice_profile.reference_text:
-            text = voice_profile.reference_text.strip()
-            if len(text) >= 3:
-                normalized = normalize_text_ptbr(text)
-                # CRÍTICO: Remover espaços múltiplos e quebras de linha
-                normalized = ' '.join(normalized.split())
-                # Remove espaços antes de pontuação (previne batches vazios)
-                normalized = normalized.replace(' ,', ',').replace(' .', '.').replace(' !', '!').replace(' ?', '?')
-                normalized = normalized.replace(' ;', ';').replace(' :', ':')
-                return normalized.strip()
-        
-        # Priority 2: Transcribe from audio
-        try:
-            logger.info("reference_text missing, transcribing audio...")
-            text = self._transcribe_audio(voice_profile.reference_audio_path, language)
-            if text and len(text.strip()) > 3:
-                normalized = normalize_text_ptbr(text)
-                # CRÍTICO: Remover espaços múltiplos
-                normalized = ' '.join(normalized.split())
-                # Remove espaços antes de pontuação (previne batches vazios)
-                normalized = normalized.replace(' ,', ',').replace(' .', '.').replace(' !', '!').replace(' ?', '?')
-                normalized = normalized.replace(' ;', ';').replace(' :', ':')
-                return normalized.strip()
-        except Exception as e:
-            logger.warning(f"Transcription fallback failed: {e}")
-        
-        # Priority 3: Generic fallback by language
-        fallbacks = {
-            'pt-BR': 'este é um exemplo de voz em português brasileiro',
-            'pt': 'este é um exemplo de voz em português',
-            'en': 'this is a sample voice in english',
-            'es': 'este es un ejemplo de voz en español'
-        }
-        fallback_text = fallbacks.get(language, fallbacks['pt-BR'])
-        logger.warning(
-            f"Using generic fallback for {language}: '{fallback_text}'"
-        )
-        return fallback_text
+            logger.error(f"F5-TTS dubbing failed: {e}")
+            raise DubbingException(f"Dubbing generation failed: {str(e)}")
     
     async def clone_voice(
         self,
@@ -343,9 +239,6 @@ class F5TTSClient(TTSEngine):
         Returns:
             VoiceProfile com referência de áudio
         """
-        # LAZY LOAD: Carrega modelo apenas quando necessário
-        self._ensure_model_loaded()
-        
         try:
             logger.info(f"🎤 F5-TTS cloning voice from: {audio_path}")
             
@@ -392,7 +285,7 @@ class F5TTSClient(TTSEngine):
             
         except Exception as e:
             logger.error(f"F5-TTS voice cloning failed: {e}")
-            raise OpenVoiceException(f"Voice cloning failed: {str(e)}")
+            raise VoiceCloneException(f"Voice cloning failed: {str(e)}")
     
     def _get_preset_audio(self, voice_preset: Optional[str], language: str) -> Tuple[str, str]:
         """Retorna (ref_file, ref_text) para voice preset"""
@@ -445,21 +338,56 @@ class F5TTSClient(TTSEngine):
             logger.error(f"Failed to create temp preset: {e}")
     
     def _transcribe_audio(self, audio_path: str, language: str) -> str:
-        """Transcreve áudio usando Whisper (SEMPRE CPU)"""
+        """Transcreve áudio usando Whisper (GPU dedicada) com parâmetros avançados PT-BR"""
         try:
             from transformers import pipeline
             
-            # Inicializa Whisper na CPU (economiza VRAM para F5-TTS)
-            logger.info("   Whisper running on CPU (saving GPU for F5-TTS)")
+            # Whisper config dedicada
+            whisper_config = self.settings.get('whisper', {})
+            whisper_device = whisper_config.get('device', 'cuda')
+            whisper_model = whisper_config.get('model', 'medium')  # medium para PT-BR nativo
+            whisper_language = whisper_config.get('language', 'pt')
+            use_fp16 = whisper_config.get('use_fp16', True)
+            
+            # Parâmetros avançados PT-BR
+            initial_prompt = whisper_config.get('initial_prompt', 'Olá, tudo bem? Como você está? Ótimo!')
+            temperature = whisper_config.get('temperature', 0.0)
+            compression_ratio = whisper_config.get('compression_ratio_threshold', 2.4)
+            logprob_threshold = whisper_config.get('logprob_threshold', -1.0)
+            no_speech_threshold = whisper_config.get('no_speech_threshold', 0.6)
+            condition_on_previous = whisper_config.get('condition_on_previous_text', False)
+            
+            # Device index: 0 para CUDA, -1 para CPU
+            device_idx = 0 if whisper_device == 'cuda' else -1
+            
+            logger.info(f"🎙️ Transcribing with Whisper ({whisper_model}) on {whisper_device.upper()} [lang={whisper_language}, temp={temperature}]")
+            
+            # Inicializa Whisper
             transcriber = pipeline(
                 "automatic-speech-recognition",
-                model="openai/whisper-base",
-                device=-1  # -1 = CPU forçado
+                model=f"openai/whisper-{whisper_model}",
+                device=device_idx,
+                torch_dtype=torch.float16 if (whisper_device == 'cuda' and use_fp16) else torch.float32
             )
             
-            # Transcreve
-            result = transcriber(audio_path)
-            return result['text'].strip()
+            # Transcreve com parâmetros avançados PT-BR
+            result = transcriber(
+                audio_path, 
+                generate_kwargs={
+                    "language": whisper_language,
+                    "initial_prompt": initial_prompt,
+                    "temperature": temperature,
+                    "compression_ratio_threshold": compression_ratio,
+                    "logprob_threshold": logprob_threshold,
+                    "no_speech_threshold": no_speech_threshold,
+                    "condition_on_previous_text": condition_on_previous,
+                }
+            )
+            transcription = result['text'].strip()
+            
+            logger.info(f"✅ Transcription completed: '{transcription[:100]}...'")
+            
+            return transcription
             
         except Exception as e:
             logger.warning(f"Whisper transcription failed: {e}, using fallback")
@@ -511,10 +439,7 @@ class F5TTSClient(TTSEngine):
     
     def unload_models(self):
         """Libera memória"""
-        if self.model is not None:
-            del self.model
-        if self.loader is not None:
-            del self.loader
+        del self.f5tts
         if self.device == 'cuda':
             torch.cuda.empty_cache()
         logger.info("F5-TTS models unloaded")

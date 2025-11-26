@@ -20,6 +20,9 @@ pydub==0.25.1
 # === OPENVOICE (placeholder - ajustar conforme instalação real) ===
 # openvoice @ git+https://github.com/myshell-ai/OpenVoice.git
 
+# === XTTS (Coqui TTS - NEW DEFAULT) ===
+TTS>=0.22.0
+
 # === F5-TTS Dependencies ===
 # F5-TTS é instalado do repositório oficial no Dockerfile
 # Dependências adicionais do F5-TTS:

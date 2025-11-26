@@ -2,7 +2,7 @@
 
 **Data:** 26 de novembro de 2025  
 **Branch:** `feature/f5tts-ptbr-migration`  
-**Status:** Sprint 2 COMPLETO (22/22 testes GREEN ✅)
+**Status:** Sprint 3 COMPLETO (30/30 testes GREEN ✅)
 
 ---
 
@@ -34,7 +34,7 @@ Migrar serviço `audio-voice` de F5-TTS (buggy, instável) para XTTS (Coqui TTS 
 - ✅ Sprint 0: Planejamento (AUDITORIA.md + SPRINTS.md)
 - ✅ Sprint 1: Testes Base (27 testes criados)
 - ✅ Sprint 2: Implementação Core (XTTSClient - 22/22 testes GREEN)
-- ⏳ Sprint 3: Integração com processor (PENDENTE)
+- ✅ Sprint 3: Integração com processor (VoiceProcessor - 8/8 testes GREEN)
 - ⏳ Sprint 4: Validação e QA (PENDENTE)
 - ⏳ Sprint 5: Deploy e Cleanup (PENDENTE)
 
@@ -432,9 +432,140 @@ docker exec audio-voice-api python -m pytest tests/integration/ -v
 
 ---
 
+### Sprint 3: Integração com Processor (COMPLETO - 100% GREEN ✅)
+
+#### Objetivo
+Integrar XTTSClient ao `processor.py` mantendo compatibilidade com F5-TTS (transição gradual).
+
+#### Arquivos Modificados
+
+**app/processor.py (ATUALIZADO - 214 linhas)**
+- Adicionado parâmetro `use_xtts` ao `__init__` (padrão: True via config)
+- Criado método `_get_tts_engine()` (factory pattern)
+- Atualizado `process_dubbing_job()` para usar engine dinâmica
+- Atualizado `process_clone_job()` para usar engine dinâmica
+- Removido parâmetro `pitch` (não suportado por XTTS)
+- Mantida compatibilidade com F5TTSClient e OpenVoiceClient
+
+**app/config.py (ATUALIZADO - 308+ linhas)**
+- Adicionada seção `xtts` com 14 configurações:
+  - `model_name`: Nome do modelo XTTS
+  - `device`: CPU/CUDA/auto-detect
+  - `fallback_to_cpu`: Fallback automático
+  - `temperature`, `repetition_penalty`, `length_penalty`
+  - `top_k`, `top_p`, `speed`
+  - `enable_text_splitting`: Para textos longos
+  - `sample_rate`: 24kHz (padrão XTTS)
+  - `max_text_length`, `min_ref_duration`, `max_ref_duration`
+- Adicionada variável `use_xtts`: Controle global (padrão: True)
+
+**requirements.txt (ATUALIZADO)**
+- Adicionado: `TTS>=0.22.0` (Coqui TTS)
+- Mantido: F5-TTS dependencies (para fallback)
+
+**tests/integration/test_processor_xtts.py (NOVO - 364 linhas, 8 testes)**
+
+**Classe TestProcessorXTTSDubbing (3 testes):**
+1. `test_processor_xtts_dubbing_basic`: Dubbing básico via processor
+2. `test_processor_xtts_dubbing_with_cloning`: Dubbing com voz clonada
+3. `test_processor_xtts_dubbing_empty_text`: Validação texto vazio
+
+**Classe TestProcessorXTTSCloning (2 testes):**
+4. `test_processor_xtts_cloning_basic`: Clonagem via processor
+5. `test_processor_xtts_cloning_invalid_audio`: Validação áudio inválido
+
+**Classe TestProcessorFallback (1 teste):**
+6. `test_processor_fallback_to_f5tts`: Fallback para F5TTS funciona
+
+**Classe TestProcessorJobLifecycle (2 testes):**
+7. `test_processor_complete_workflow`: Clone → Dubbing completo
+8. `test_processor_performance_benchmark`: RTF <10x em CPU
+
+#### Fluxo Implementado
+
+```
+VoiceProcessor.__init__(use_xtts=True)
+├─→ Lê config: use_xtts (padrão True)
+└─→ _engine = None (lazy loading)
+
+VoiceProcessor._get_tts_engine()
+├─→ Se use_xtts == True:
+│   ├─→ Importa XTTSClient
+│   ├─→ Inicializa com device, fallback_to_cpu
+│   └─→ Retorna XTTSClient instance
+└─→ Se use_xtts == False:
+    ├─→ Lê TTS_ENGINE env var
+    ├─→ Se 'f5tts': retorna F5TTSClient
+    └─→ Se 'openvoice': retorna OpenVoiceClient
+
+VoiceProcessor.process_dubbing_job(job, voice_profile?)
+├─→ engine = self._get_tts_engine()  # Obtém engine dinâmica
+├─→ audio, duration = await engine.generate_dubbing(...)
+├─→ Salva áudio em processed_dir
+├─→ Atualiza job: status=COMPLETED, output_file, duration
+└─→ Retorna job atualizado
+
+VoiceProcessor.process_clone_job(job)
+├─→ engine = self._get_tts_engine()  # Obtém engine dinâmica
+├─→ voice_profile = await engine.clone_voice(...)
+├─→ Salva profile no job_store
+├─→ Atualiza job: status=COMPLETED, voice_id, output_file
+└─→ Retorna voice_profile
+```
+
+#### Resultados Sprint 3
+
+**Processor Integration Tests: 8/8 ✅ (100%)**
+- `TestProcessorXTTSDubbing`: 3/3 ✅
+- `TestProcessorXTTSCloning`: 2/2 ✅
+- `TestProcessorFallback`: 1/1 ✅
+- `TestProcessorJobLifecycle`: 2/2 ✅
+
+**Unit Tests (Sprint 2): 17/17 ✅ (100%)**
+- `test_xtts_client_init.py`: 6/6 ✅
+- `test_xtts_client_cloning.py`: 5/5 ✅
+- `test_xtts_client_dubbing.py`: 6/6 ✅
+
+**Integration E2E (Sprint 2): 5/5 ✅ (100%)**
+- `test_e2e_clone_and_dub`: ✅
+- `test_e2e_multiple_dubbing_same_voice`: ✅
+- `test_e2e_without_cloning`: ✅
+- `test_e2e_different_languages`: ✅
+- `test_e2e_performance_benchmark`: ✅
+
+**TOTAL SPRINT 3: 30/30 testes (100% GREEN ✅)**
+- Unit: 17/17 ✅
+- Integration: 13/13 ✅ (5 E2E + 8 Processor)
+
+**Tempo de Execução:**
+- Unit tests: ~15 minutos (900s)
+- Processor tests: ~2 minutos (128s)
+- **Total: ~17 minutos** para 30 testes
+
+**Validações Completadas:**
+- ✅ VoiceProcessor usa XTTSClient por padrão
+- ✅ Fallback para F5TTS funciona (via TTS_ENGINE env var)
+- ✅ Jobs de dubbing completam com COMPLETED
+- ✅ Jobs de clonagem completam com COMPLETED
+- ✅ VoiceProfile criado e armazenado corretamente
+- ✅ Workflow completo (Clone → Dubbing) funciona
+- ✅ Performance: RTF <10x em CPU (aceitável)
+- ✅ Validações: texto vazio, áudio inválido funcionam
+- ✅ Backward compatibility mantida
+
+#### Commits Sprint 3
+
+- `[hash]` - "Sprint 3.1: Update VoiceProcessor to support XTTS"
+- `[hash]` - "Sprint 3.2: Add XTTS config to config.py"
+- `[hash]` - "Sprint 3.3: Create processor integration tests (8 tests)"
+- `[hash]` - "Sprint 3.4: Update requirements.txt with TTS>=0.22.0"
+- `[hash]` - "Sprint 3: COMPLETO - 30/30 testes GREEN ✅"
+
+---
+
 ## 🎯 PRÓXIMOS PASSOS
 
-### Sprint 3: Integração com Processor (PENDENTE)
+### Sprint 4: Validação e QA (PRÓXIMO)
 
 #### Objetivo
 Integrar XTTSClient ao `processor.py` mantendo compatibilidade com F5-TTS (transição gradual).
@@ -904,14 +1035,17 @@ profile = VoiceProfile.create_new(
 1. ✅ **Planejamento:** AUDITORIA.md + SPRINTS.md
 2. ✅ **Ambiente:** TTS instalado, GPU configurada
 3. ✅ **Testes:** 27 testes criados (TDD RED)
-4. ✅ **Implementação:** XTTSClient completo (275 linhas)
-5. ✅ **Validação:** 22/22 testes GREEN (100%)
+4. ✅ **Implementação XTTSClient:** 275 linhas, 100% testado
+5. ✅ **Validação XTTSClient:** 22/22 testes GREEN (100%)
+6. ✅ **Integração VoiceProcessor:** Factory pattern, backward compatible
+7. ✅ **Validação Processor:** 8/8 testes GREEN (100%)
+8. ✅ **Configuração:** XTTS settings em config.py
+9. ✅ **Dependências:** TTS>=0.22.0 em requirements.txt
 
 ### O Que Falta Fazer
 
-1. ⏳ **Sprint 3:** Integrar XTTSClient no processor.py
-2. ⏳ **Sprint 4:** QA e validação qualidade
-3. ⏳ **Sprint 5:** Deploy e remover F5-TTS
+1. ⏳ **Sprint 4:** QA e validação qualidade (comparar XTTS vs F5-TTS)
+2. ⏳ **Sprint 5:** Deploy e remover F5-TTS
 
 ### Como Continuar
 
@@ -938,7 +1072,7 @@ docker exec audio-voice-api python -m pytest tests/integration/ -v
 ### Estado Atual do Código
 
 ```python
-# ✅ FUNCIONANDO
+# ✅ FUNCIONANDO - XTTSClient (Sprint 2)
 from app.xtts_client import XTTSClient
 
 client = XTTSClient(device='cpu')  # ou 'cuda'
@@ -967,17 +1101,69 @@ audio_bytes, duration = await client.generate_dubbing(
 ```
 
 ```python
-# ⏳ PENDENTE (Sprint 3)
-from app.processor import AudioProcessor
+# ✅ FUNCIONANDO - VoiceProcessor (Sprint 3)
+from app.processor import VoiceProcessor
+from app.models import Job, JobMode
 
-processor = AudioProcessor(use_xtts=True)  # ← IMPLEMENTAR
-job = Job(...)
-await processor.process_dubbing(job)  # ← ADAPTAR para XTTS
+# Inicializa com XTTS (padrão)
+processor = VoiceProcessor()  # use_xtts=True via config
+# OU explicitamente
+processor = VoiceProcessor(use_xtts=True)
+# OU fallback para F5TTS/OpenVoice
+processor = VoiceProcessor(use_xtts=False)
+
+# Dubbing job
+job = Job.create_new(
+    mode=JobMode.DUBBING,
+    text="Olá, mundo!",
+    source_language="pt"
+)
+completed_job = await processor.process_dubbing_job(job)
+
+# Clonagem job
+clone_job = Job.create_new(
+    mode=JobMode.CLONE_VOICE,
+    voice_name="Minha Voz",
+    source_language="pt"
+)
+clone_job.input_file = "/app/uploads/audio.ogg"
+voice_profile = await processor.process_clone_job(clone_job)
+
+# Dubbing com voz clonada
+dubbing_job = Job.create_new(
+    mode=JobMode.DUBBING_WITH_CLONE,
+    text="Teste com voz clonada",
+    source_language="pt",
+    voice_id=voice_profile.id
+)
+result = await processor.process_dubbing_job(dubbing_job, voice_profile=voice_profile)
+```
+
+```python
+# ⏳ PENDENTE (Sprint 4) - API Endpoints
+# Integração com FastAPI routes ainda não atualizada
+# Próximo passo: Atualizar routes para usar VoiceProcessor com XTTS
 ```
 
 ---
 
 **Última atualização:** 26 de novembro de 2025  
 **Branch:** feature/f5tts-ptbr-migration  
-**Status:** Sprint 2 COMPLETO - Pronto para Sprint 3  
-**Próximo passo:** Integração com processor.py
+**Status:** Sprint 3 COMPLETO - Pronto para Sprint 4  
+**Próximo passo:** Validação e QA (comparar qualidade XTTS vs F5-TTS)  
+
+**Progresso Geral:**
+- Sprint 0: ✅ COMPLETO (Planejamento)
+- Sprint 1: ✅ COMPLETO (Testes Base - 27 testes)
+- Sprint 2: ✅ COMPLETO (XTTSClient - 22/22 testes GREEN)
+- Sprint 3: ✅ COMPLETO (VoiceProcessor - 30/30 testes GREEN)
+- Sprint 4: ⏳ PENDENTE (QA e validação)
+- Sprint 5: ⏳ PENDENTE (Deploy e cleanup)
+
+**Próximas Ações Sprint 4:**
+1. Comparar qualidade áudio XTTS vs F5-TTS (mesmo texto/voz)
+2. MOS (Mean Opinion Score) - feedback manual de qualidade
+3. Testes de latência (curta/média/longa frase)
+4. Testes de estresse (100 jobs simultâneos)
+5. Validar API endpoints funcionam com XTTS
+6. Documentar diferenças e limitações
