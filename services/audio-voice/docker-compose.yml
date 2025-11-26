@@ -22,7 +22,16 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       # Matplotlib cache directory fix
       - MPLCONFIGDIR=/app/temp/.matplotlib
-      # TTS Engine: F5-TTS com modelo pt-BR customizado
+      
+      # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
+      - USE_XTTS=true
+      - XTTS_DEVICE=cuda
+      - XTTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
+      - XTTS_TEMPERATURE=0.7
+      - XTTS_FALLBACK_CPU=true
+      
+      # ===== F5-TTS (FALLBACK - Deprecated) =====
+      # Para usar F5-TTS, set USE_XTTS=false e TTS_ENGINE=f5tts
       - TTS_ENGINE=f5tts
       - F5TTS_DEVICE=cuda
       - F5TTS_WHISPER_DEVICE=cpu
@@ -75,7 +84,16 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       # Matplotlib cache directory fix
       - MPLCONFIGDIR=/app/temp/.matplotlib
-      # TTS Engine: F5-TTS com modelo pt-BR customizado
+      
+      # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
+      - USE_XTTS=true
+      - XTTS_DEVICE=cuda
+      - XTTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
+      - XTTS_TEMPERATURE=0.7
+      - XTTS_FALLBACK_CPU=true
+      
+      # ===== F5-TTS (FALLBACK - Deprecated) =====
+      # Para usar F5-TTS, set USE_XTTS=false e TTS_ENGINE=f5tts
       - TTS_ENGINE=f5tts
       - F5TTS_DEVICE=cuda
       - F5TTS_WHISPER_DEVICE=cpu

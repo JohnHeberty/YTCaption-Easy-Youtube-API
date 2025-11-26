@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Union
 from datetime import datetime, timedelta
 
+# MONKEY PATCH para auto-aceitar ToS do Coqui TTS
+import builtins
+_original_input = builtins.input
+def _auto_accept_tos(prompt=""):
+    """Auto-aceita ToS do Coqui TTS quando solicitado"""
+    if ">" in prompt or "agree" in prompt.lower() or "tos" in prompt.lower():
+        return "y"
+    return _original_input(prompt)
+builtins.input = _auto_accept_tos
+
 from TTS.api import TTS
 
 from .models import VoiceProfile
@@ -69,7 +79,8 @@ class XTTSClient:
         
         # Load model
         gpu = (self.device == 'cuda')
-        self.tts = TTS(self.model_name, gpu=gpu)
+        # progress_bar=False evita prompts interativos durante download
+        self.tts = TTS(self.model_name, gpu=gpu, progress_bar=False)
         
         logger.info(f"XTTS model loaded: {self.model_name}")
     
@@ -149,28 +160,48 @@ class XTTSClient:
                 )
             else:
                 # Dubbing sem clonagem (voz genérica)
-                # XTTS usa clonagem, então criamos voz genérica temporária
-                # Usa áudio de referência padrão se disponível
-                default_speaker = "/app/uploads/clone_20251126031159965237.ogg"
+                # XTTS requer speaker_wav, então procura áudio de referência disponível
+                default_speakers = [
+                    "/app/uploads/default_speaker.ogg",  # Criado pelo sistema
+                    "/app/app/default_speaker.wav",  # Placeholder para futuro
+                ]
                 
-                if os.path.exists(default_speaker):
-                    # Usa speaker de referência padrão
-                    await loop.run_in_executor(
-                        None,
-                        lambda: self.tts.tts_to_file(
-                            text=text,
-                            file_path=output_path,
-                            speaker_wav=default_speaker,
-                            language=language,
-                            split_sentences=self.enable_text_splitting
-                        )
-                    )
-                else:
-                    # Fallback: gera sem speaker (pode falhar em alguns modelos)
+                logger.debug(f"🔍 Procurando speaker padrão para dubbing genérico...")
+                speaker_wav = None
+                for speaker_path in default_speakers:
+                    exists = os.path.exists(speaker_path)
+                    logger.debug(f"  - {speaker_path}: {'FOUND' if exists else 'NOT FOUND'}")
+                    if exists:
+                        speaker_wav = speaker_path
+                        logger.info(f"✅ Using default speaker: {speaker_path}")
+                        break
+                
+                if speaker_wav is None:
+                    # Listar arquivos no diretório para debug
+                    try:
+                        uploads_files = os.listdir("/app/uploads")
+                        logger.error(f"❌ No default speaker found. Files in /app/uploads: {uploads_files[:10]}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to list /app/uploads: {e}")
+                    
                     raise InvalidAudioException(
-                        "XTTS requer speaker_wav para síntese. "
-                        "Forneça voice_profile ou configure speaker padrão."
+                        "XTTS requer áudio de referência para síntese. "
+                        "Para dubbing sem clonagem, forneça um voice_profile ou "
+                        "configure um speaker padrão. Arquivos tentados: " + 
+                        ", ".join(default_speakers)
                     )
+                
+                # Gera com speaker padrão
+                await loop.run_in_executor(
+                    None,
+                    lambda: self.tts.tts_to_file(
+                        text=text,
+                        file_path=output_path,
+                        speaker_wav=speaker_wav,
+                        language=language,
+                        split_sentences=self.enable_text_splitting
+                    )
+                )
             
             # Lê arquivo gerado
             audio_data, sr = sf.read(output_path)

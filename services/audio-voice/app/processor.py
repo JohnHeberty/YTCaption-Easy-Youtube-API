@@ -8,7 +8,6 @@ from typing import Optional
 
 from .models import Job, VoiceProfile, JobMode, JobStatus
 from .openvoice_client import OpenVoiceClient
-from .f5tts_client import F5TTSClient
 from .tts_interface import TTSEngine
 from .config import get_settings
 from .exceptions import DubbingException, VoiceCloneException
@@ -64,7 +63,13 @@ class VoiceProcessor:
                 logger.info(f"Initializing TTS engine from TTS_ENGINE: {engine}")
                 
                 if engine == 'f5tts':
-                    self._engine = F5TTSClient()
+                    # Import dinâmico apenas se F5TTS for necessário
+                    try:
+                        from .f5tts_client import F5TTSClient
+                        self._engine = F5TTSClient()
+                    except ImportError:
+                        logger.warning("F5TTSClient not available, falling back to OpenVoice")
+                        self._engine = OpenVoiceClient()
                 elif engine == 'openvoice':
                     self._engine = OpenVoiceClient()
                 else:

@@ -8,8 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
+import tempfile
+import subprocess
 
 from .models import (
     Job, JobStatus, JobMode, VoiceProfile,
@@ -39,6 +41,104 @@ app = FastAPI(
 
 # Exception handlers
 app.add_exception_handler(VoiceServiceException, exception_handler)
+
+# Formatos de áudio suportados para download
+SUPPORTED_AUDIO_FORMATS = {
+    'wav': {'mime': 'audio/wav', 'extension': '.wav'},
+    'mp3': {'mime': 'audio/mpeg', 'extension': '.mp3'},
+    'ogg': {'mime': 'audio/ogg', 'extension': '.ogg'},
+    'flac': {'mime': 'audio/flac', 'extension': '.flac'},
+    'm4a': {'mime': 'audio/mp4', 'extension': '.m4a'},
+    'opus': {'mime': 'audio/opus', 'extension': '.opus'}
+}
+
+def convert_audio_format(input_path: Path, output_format: str) -> Path:
+    """
+    Converte áudio para formato especificado usando ffmpeg.
+    Retorna caminho do arquivo temporário (deve ser limpo após uso).
+    
+    Args:
+        input_path: Caminho do arquivo WAV original
+        output_format: Formato de saída (mp3, ogg, flac, etc.)
+    
+    Returns:
+        Path do arquivo convertido em diretório temp
+    
+    Raises:
+        HTTPException: Se formato não suportado ou conversão falhar
+    """
+    if output_format not in SUPPORTED_AUDIO_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato não suportado: {output_format}. Suportados: {list(SUPPORTED_AUDIO_FORMATS.keys())}"
+        )
+    
+    # Se já é WAV, retorna o original
+    if output_format == 'wav':
+        return input_path
+    
+    # Cria arquivo temporário
+    temp_dir = Path(settings['temp_dir'])
+    temp_dir.mkdir(exist_ok=True, parents=True)
+    
+    extension = SUPPORTED_AUDIO_FORMATS[output_format]['extension']
+    temp_file = temp_dir / f"convert_{datetime.now().strftime('%Y%m%d%H%M%S%f')}{extension}"
+    
+    try:
+        # Configurações de conversão por formato
+        ffmpeg_opts = {
+            'mp3': ['-codec:a', 'libmp3lame', '-qscale:a', '2'],  # VBR ~190 kbps
+            'ogg': ['-codec:a', 'libvorbis', '-qscale:a', '6'],   # VBR ~192 kbps
+            'flac': ['-codec:a', 'flac'],                         # Lossless
+            'm4a': ['-codec:a', 'aac', '-b:a', '192k'],           # AAC 192 kbps
+            'opus': ['-codec:a', 'libopus', '-b:a', '128k']       # Opus 128 kbps
+        }
+        
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', str(input_path),
+            *ffmpeg_opts.get(output_format, []),
+            str(temp_file)
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg conversion failed: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Falha na conversão de áudio: {result.stderr[:200]}"
+            )
+        
+        if not temp_file.exists():
+            raise HTTPException(
+                status_code=500,
+                detail="Arquivo convertido não foi criado"
+            )
+        
+        logger.info(f"Audio converted: {input_path.name} -> {temp_file.name} ({output_format})")
+        return temp_file
+        
+    except subprocess.TimeoutExpired:
+        if temp_file.exists():
+            temp_file.unlink()
+        raise HTTPException(
+            status_code=500,
+            detail="Timeout na conversão de áudio (>30s)"
+        )
+    except Exception as e:
+        if temp_file.exists():
+            temp_file.unlink()
+        logger.error(f"Conversion error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao converter áudio: {str(e)}"
+        )
 
 # Stores e processors
 redis_url = settings['redis_url']
@@ -171,24 +271,141 @@ async def get_job_status(job_id: str) -> Job:
     return job
 
 
-@app.get("/jobs/{job_id}/download")
-async def download_audio(job_id: str):
-    """Download do áudio dublado"""
+@app.get("/jobs/{job_id}/formats")
+async def get_available_formats(job_id: str):
+    """
+    Lista formatos de áudio disponíveis para download.
+    
+    Returns:
+        Lista de formatos suportados com informações de qualidade
+    """
     job = job_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=425, detail=f"Job not ready: {job.status}")
     
-    file_path = Path(job.output_file) if job.output_file else None
-    if not file_path or not file_path.exists():
+    formats = [
+        {
+            "format": "wav",
+            "name": "WAV (Original)",
+            "mime_type": "audio/wav",
+            "quality": "Lossless",
+            "description": "Formato original sem compressão"
+        },
+        {
+            "format": "mp3",
+            "name": "MP3",
+            "mime_type": "audio/mpeg",
+            "quality": "VBR ~190 kbps",
+            "description": "Compressão com perdas, alta compatibilidade"
+        },
+        {
+            "format": "ogg",
+            "name": "OGG Vorbis",
+            "mime_type": "audio/ogg",
+            "quality": "VBR ~192 kbps",
+            "description": "Compressão eficiente, código aberto"
+        },
+        {
+            "format": "flac",
+            "name": "FLAC",
+            "mime_type": "audio/flac",
+            "quality": "Lossless",
+            "description": "Compressão sem perdas, tamanho menor que WAV"
+        },
+        {
+            "format": "m4a",
+            "name": "M4A (AAC)",
+            "mime_type": "audio/mp4",
+            "quality": "192 kbps",
+            "description": "AAC, ótima qualidade/tamanho"
+        },
+        {
+            "format": "opus",
+            "name": "OPUS",
+            "mime_type": "audio/opus",
+            "quality": "128 kbps",
+            "description": "Melhor compressão para voz"
+        }
+    ]
+    
+    return {
+        "job_id": job_id,
+        "formats": formats,
+        "download_url_template": f"/jobs/{job_id}/download?format={{format}}"
+    }
+
+
+@app.get("/jobs/{job_id}/download")
+async def download_audio(
+    job_id: str,
+    format: str = Query(default="wav", description="Formato de áudio: wav, mp3, ogg, flac, m4a, opus"),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Download do áudio em formato especificado.
+    
+    Args:
+        job_id: ID do job
+        format: Formato de áudio desejado (padrão: wav)
+        background_tasks: Background tasks for cleanup
+    
+    Returns:
+        Arquivo de áudio no formato solicitado
+    
+    Note:
+        Arquivos convertidos são criados temporariamente e deletados após envio
+    """
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status_code=425, detail=f"Job not ready: {job.status}")
+    
+    original_file = Path(job.output_file) if job.output_file else None
+    if not original_file or not original_file.exists():
         raise HTTPException(status_code=404, detail="File not found")
     
-    return FileResponse(
-        path=file_path,
-        filename=f"dubbed_{job_id}.wav",
-        media_type='audio/wav'
-    )
+    # Normaliza formato
+    format = format.lower().strip()
+    
+    try:
+        # Converte para formato solicitado (ou retorna original se WAV)
+        converted_file = convert_audio_format(original_file, format)
+        
+        # Prepara response
+        format_info = SUPPORTED_AUDIO_FORMATS[format]
+        extension = format_info['extension']
+        filename = f"dubbed_{job_id}{extension}"
+        
+        # Se arquivo convertido (não é o original WAV), agenda limpeza
+        if converted_file != original_file and background_tasks:
+            def cleanup_file():
+                try:
+                    if converted_file.exists():
+                        converted_file.unlink()
+                        logger.debug(f"Cleaned up temp file: {converted_file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup temp file: {e}")
+            
+            background_tasks.add_task(cleanup_file)
+        
+        # FileResponse
+        return FileResponse(
+            path=converted_file,
+            filename=filename,
+            media_type=format_info['mime']
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao preparar download: {str(e)}"
+        )
 
 
 @app.get("/jobs", response_model=JobListResponse)
@@ -449,19 +666,30 @@ async def health_check():
         health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
         is_healthy = False
     
-    # TTS Engine (F5-TTS / OpenVoice)
+    # TTS Engine (XTTS / F5-TTS / OpenVoice)
     try:
-        tts_engine_name = os.getenv('TTS_ENGINE', 'openvoice')
+        # Obtém engine atual via factory pattern
+        engine = processor._get_tts_engine()
+        
+        # Determina qual engine está ativa
+        if processor.use_xtts:
+            engine_name = "XTTS"
+        else:
+            engine_name = os.getenv('TTS_ENGINE', 'openvoice')
+        
         tts_status = {
             "status": "ok",
-            "engine": tts_engine_name
+            "engine": engine_name,
+            "use_xtts": processor.use_xtts
         }
         
-        # Detalhes do client se disponível
-        if hasattr(processor.tts_client, 'device'):
-            tts_status["device"] = processor.tts_client.device
-        if hasattr(processor.tts_client, '_models_loaded'):
-            tts_status["models_loaded"] = processor.tts_client._models_loaded
+        # Detalhes do engine se disponível
+        if hasattr(engine, 'device'):
+            tts_status["device"] = engine.device
+        if hasattr(engine, 'model_name'):
+            tts_status["model_name"] = engine.model_name
+        if hasattr(engine, '_models_loaded'):
+            tts_status["models_loaded"] = engine._models_loaded
         
         health_status["checks"]["tts_engine"] = tts_status
     except Exception as e:
