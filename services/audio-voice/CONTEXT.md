@@ -630,102 +630,265 @@ class AudioProcessor:
 
 ---
 
-### Sprint 4: Validação e QA (PENDENTE)
+### Sprint 4: Integração API + Cleanup F5-TTS (PRÓXIMO - CRÍTICO ⚠️)
 
-#### Tarefas
+#### 🔍 ANÁLISE DA SITUAÇÃO ATUAL
 
-**4.1: Testes de Qualidade**
-- [ ] Comparar áudio XTTS vs F5-TTS (mesmo texto/voz)
-- [ ] MOS (Mean Opinion Score) - feedback manual
-- [ ] Latência: tempo geração para frases curtas/médias/longas
-- [ ] Estresse: 100 jobs simultâneos
+**Status Integração:**
+- ❌ **main.py ainda referencia `processor.tts_client`** (linhas 461-464)
+- ❌ **Health check usa atributo antigo** (deve usar `_get_tts_engine()`)
+- ✅ VoiceProcessor integrado com XTTS (Sprint 3)
+- ✅ Testes processor: 30/30 GREEN ✅
+- ⚠️ **API endpoints NÃO testados com XTTS**
 
-**4.2: Testes de Regressão**
-- [ ] Rodar TODOS os testes existentes
-- [ ] Validar nenhuma funcionalidade quebrada
-- [ ] Validar compatibilidade API
+**Arquivos F5-TTS para REMOVER:**
+```bash
+# Código F5-TTS (26 KB total)
+app/f5tts_client.py          # 18 KB - Cliente F5-TTS
+app/f5tts_loader.py          # 6 KB - Loader F5-TTS
 
-**4.3: Documentação**
-- [ ] Atualizar README.md com XTTS
-- [ ] Documentar API XTTSClient
-- [ ] Documentar migração F5-TTS → XTTS
-- [ ] Criar troubleshooting guide
+# Testes F5-TTS
+test_f5tts_loader.py         # Teste manual
+test_f5tts_load.py           # Teste manual
+tests/test_f5tts_import.py   # Teste unitário
+tests/test_f5tts_basic.py    # Teste unitário
+tests/unit/test_f5tts_synthesis.py  # Teste unitário
+tests/unit/test_f5tts_clone.py      # Teste unitário
+```
 
-**4.4: Otimizações**
-- [ ] Cache de modelos XTTS
-- [ ] Batch processing (múltiplos textos)
-- [ ] GPU memory management
-- [ ] Paralelização (múltiplos workers)
+**Problemas Identificados:**
+1. `main.py` linha 461: `processor.tts_client.device` → ERRO (atributo não existe em VoiceProcessor)
+2. `main.py` linha 464: `processor.tts_client._models_loaded` → ERRO (idem)
+3. Docker-compose sem variáveis XTTS
+4. Imports `F5TTSClient` ainda em `processor.py` (linha 11)
+
+#### Tarefas Sprint 4
+
+**4.1: FIX CRÍTICO - Atualizar main.py Health Check**
+- [ ] Remover referências `processor.tts_client` (linhas 461-464)
+- [ ] Implementar health check usando `processor._get_tts_engine()`
+- [ ] Adicionar info XTTS: device, model_name, use_xtts
+- [ ] Testar `/health` endpoint não quebra
+
+**Código a implementar:**
+```python
+# main.py - health check
+try:
+    engine = processor._get_tts_engine()
+    tts_status = {
+        "status": "ok",
+        "engine": "XTTS" if processor.use_xtts else os.getenv('TTS_ENGINE', 'unknown'),
+        "use_xtts": processor.use_xtts
+    }
+    
+    if hasattr(engine, 'device'):
+        tts_status["device"] = engine.device
+    if hasattr(engine, 'model_name'):
+        tts_status["model_name"] = engine.model_name
+    
+    health_status["checks"]["tts_engine"] = tts_status
+except Exception as e:
+    health_status["checks"]["tts_engine"] = {"status": "error", "message": str(e)}
+```
+
+**4.2: CLEANUP - Remover Arquivos F5-TTS**
+- [ ] Backup arquivos F5-TTS (git stash ou branch backup)
+- [ ] Deletar `app/f5tts_client.py`
+- [ ] Deletar `app/f5tts_loader.py`
+- [ ] Deletar `test_f5tts_*.py` (root)
+- [ ] Deletar `tests/test_f5tts_*.py`
+- [ ] Deletar `tests/unit/test_f5tts_*.py`
+- [ ] Remover imports F5TTSClient de `processor.py`
+
+**4.3: Atualizar Docker-Compose**
+- [ ] Adicionar env vars XTTS:
+  ```yaml
+  # docker-compose.yml
+  environment:
+    - USE_XTTS=true
+    - XTTS_DEVICE=cuda  # ou auto
+    - XTTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
+    - XTTS_TEMPERATURE=0.7
+    - XTTS_FALLBACK_CPU=true
+  ```
+- [ ] Rebuild container: `docker-compose up -d --build audio-voice-api`
+
+**4.4: Testes E2E via API**
+- [ ] Criar script de teste API: `test_api_xtts.sh`
+- [ ] Testar `POST /jobs` (dubbing simples)
+- [ ] Testar `POST /voices/clone` (clonagem)
+- [ ] Testar `GET /jobs/{job_id}` (polling status)
+- [ ] Testar `GET /jobs/{job_id}/download` (download áudio)
+- [ ] Testar `GET /health` (info XTTS)
+- [ ] Testar `GET /languages` (17 idiomas)
+- [ ] Testar `GET /presets` (voice presets)
+
+**Script de teste:**
+```bash
+#!/bin/bash
+# test_api_xtts.sh
+
+BASE_URL="http://localhost:8004"
+
+# 1. Health check
+echo "Testing /health..."
+curl -s "$BASE_URL/health" | jq .
+
+# 2. Create dubbing job
+echo "Testing POST /jobs..."
+JOB_ID=$(curl -s -X POST "$BASE_URL/jobs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mode": "dubbing",
+    "text": "Olá, mundo! Este é um teste com XTTS.",
+    "source_language": "pt",
+    "voice_preset": "female_generic"
+  }' | jq -r .id)
+
+echo "Job created: $JOB_ID"
+
+# 3. Poll status
+echo "Polling job status..."
+for i in {1..30}; do
+  STATUS=$(curl -s "$BASE_URL/jobs/$JOB_ID" | jq -r .status)
+  echo "  Attempt $i: $STATUS"
+  [[ "$STATUS" == "completed" ]] && break
+  sleep 2
+done
+
+# 4. Download audio
+echo "Downloading audio..."
+curl -s "$BASE_URL/jobs/$JOB_ID/download" -o "test_xtts_output.wav"
+ls -lh test_xtts_output.wav
+```
+
+**4.5: Validação e QA**
+- [ ] Comparar qualidade XTTS output vs F5-TTS (se houver samples)
+- [ ] Medir latência: tempo geração para frases (curta/média/longa)
+- [ ] Teste de carga: 10 jobs simultâneos via API
+- [ ] Validar Celery tasks funcionam com XTTS
+- [ ] Verificar logs sem erros XTTS
+
+**4.6: Documentação**
+- [ ] Atualizar README.md seção "TTS Engine"
+- [ ] Documentar variáveis ambiente XTTS
+- [ ] Criar guia migração F5-TTS → XTTS
+- [ ] Atualizar CONTEXT.md com resultados Sprint 4
+- [ ] Atualizar API docs (se houver Swagger/OpenAPI)
 
 **Critérios de Aceitação Sprint 4:**
-- ✅ Qualidade áudio >= F5-TTS
-- ✅ Performance >= F5-TTS
-- ✅ Sem regressões
+- ✅ Health check funciona sem erros
+- ✅ API endpoints testados via curl/script
+- ✅ Jobs completam via API (QUEUED → COMPLETED)
+- ✅ Áudio gerado via API é válido (WAV)
+- ✅ Arquivos F5-TTS removidos
+- ✅ Docker-compose com env vars XTTS
+- ✅ Sem referências `tts_client` no código
+- ✅ Documentação atualizada
+- ✅ Zero regressões em testes existentes
+
+---
+
+### Sprint 5: Deploy Final e Otimizações (FUTURO)
+
+#### Objetivo
+Deploy em produção e otimizações finais após validação Sprint 4.
+
+#### Tarefas Principais
+
+**5.1: Otimizações XTTS**
+- [ ] Cache de modelos XTTS (evitar reload)
+- [ ] Batch processing (múltiplos textos)
+- [ ] GPU memory management otimizado
+- [ ] Configurações de performance (nfe_step, etc.)
+
+**5.2: Dockerfile Final**
+- [ ] Remover dependências F5-TTS não usadas
+- [ ] Otimizar layers Docker (cache)
+- [ ] Reduzir tamanho imagem se possível
+- [ ] Adicionar health checks no Dockerfile
+
+**5.3: Monitoramento**
+- [ ] Métricas Prometheus (latência, throughput)
+- [ ] Logs estruturados (JSON)
+- [ ] Alertas para erros XTTS
+- [ ] Dashboard Grafana
+
+**5.4: Deploy Produção**
+- [ ] Build imagem Docker final
+- [ ] Push para registry
+- [ ] Deploy staging → validação
+- [ ] Deploy produção (blue-green ou canary)
+- [ ] Monitorar logs/métricas
+
+**5.5: Rollback Plan**
+- [ ] Documentar procedimento rollback
+- [ ] Manter imagem F5-TTS como backup (1 semana)
+- [ ] Critérios para rollback (error rate, latência)
+- [ ] Após 1 semana estável: deprecar F5-TTS
+
+**Critérios de Aceitação Sprint 5:**
+- ✅ XTTS em produção estável
+- ✅ Monitoramento ativo
+- ✅ Performance otimizada
+- ✅ Rollback plan testado
 - ✅ Documentação completa
 
 ---
 
-### Sprint 5: Deploy e Cleanup (PENDENTE)
+## 📊 SITUAÇÃO ATUAL (26 Nov 2025)
 
-#### Tarefas
+### ✅ IMPLEMENTADO (Sprints 0-3)
 
-**5.1: Atualizar Dependências**
-- [ ] Atualizar `requirements.txt`:
-  ```diff
-  # REMOVER
-  - f5-tts>=0.0.1
-  - omegaconf>=2.3.0
-  - hydra-core>=1.3.2
-  - vocos>=0.1.0
-  - cached-path>=1.5.2
-  
-  # ADICIONAR
-  + TTS>=0.22.0
-  ```
+**Sprint 0: Planejamento**
+- Auditoria completa F5-TTS dependencies
+- Plano de migração em 5 sprints
+- Metodologia TDD documentada
 
-**5.2: Atualizar Dockerfile**
-- [ ] Remover instalação F5-TTS
-- [ ] Adicionar instalação XTTS
-- [ ] Adicionar variáveis ambiente XTTS
-- [ ] Otimizar layers (cache)
+**Sprint 1: Testes Base**
+- 27 testes criados (RED phase)
+- Ambiente XTTS configurado
+- GPU validada (4GB VRAM disponível)
 
-**5.3: Remover Código F5-TTS**
-- [ ] Deletar `app/f5tts_client.py`
-- [ ] Deletar `app/f5tts_loader.py`
-- [ ] Deletar `app/f5tts_processor.py`
-- [ ] Deletar testes F5-TTS legacy
-- [ ] Remover imports F5-TTS
+**Sprint 2: XTTSClient**
+- Implementação completa (275 linhas)
+- 22/22 testes GREEN ✅
+- Cobertura 100%: init, dubbing, cloning
 
-**Arquivos para DELETAR (de AUDITORIA.md):**
-```
-app/f5tts_client.py
-app/f5tts_loader.py
-app/f5tts_processor.py
-app/f5tts_utils.py
-tests/unit/test_f5tts_synthesis.py
-tests/unit/test_f5tts_clone.py
-scripts/download_f5tts_model.sh
-```
+**Sprint 3: VoiceProcessor**
+- Integração XTTSClient via factory pattern
+- 8 testes processor GREEN ✅
+- Config XTTS em config.py
+- requirements.txt atualizado (TTS>=0.22.0)
+- **TOTAL: 30/30 testes GREEN ✅**
 
-**5.4: Deploy**
-- [ ] Build imagem Docker final
-- [ ] Push para registry
-- [ ] Deploy em staging
-- [ ] Testes em staging (smoke tests)
-- [ ] Deploy em produção (canary/blue-green)
-- [ ] Monitorar logs/métricas
+### ⚠️ PENDENTE (Sprint 4 - CRÍTICO)
 
-**5.5: Rollback Plan**
-- [ ] Manter F5-TTS como fallback (1 semana)
-- [ ] Monitorar erros/crashes
-- [ ] Se problemas: reverter para F5-TTS via env var
-- [ ] Após 1 semana estável: remover F5-TTS completamente
+**Problemas Identificados:**
+1. **main.py broken** - referências `processor.tts_client` (não existe)
+2. **Health check broken** - usa atributo inexistente
+3. **Arquivos F5-TTS** - 26KB código obsoleto a remover
+4. **Docker-compose** - sem env vars XTTS
+5. **API não testada** - endpoints nunca rodaram com XTTS
 
-**Critérios de Aceitação Sprint 5:**
-- ✅ XTTS em produção
-- ✅ F5-TTS removido (após validação)
-- ✅ Zero downtime deployment
-- ✅ Rollback plan testado
+**Ação Imediata Necessária:**
+- Corrigir health check (linhas 461-464 main.py)
+- Testar API endpoints com XTTS
+- Remover arquivos F5-TTS
+- Atualizar docker-compose.yml
+
+### 🎯 PRÓXIMOS PASSOS
+
+**Sprint 4 (PRÓXIMO - URGENTE):**
+1. Fix health check main.py
+2. Remover arquivos F5-TTS (8 arquivos)
+3. Adicionar env vars XTTS no docker-compose
+4. Testar API E2E com script
+5. Validar jobs completam via API
+6. Documentar mudanças
+
+**Após Sprint 4:**
+- Sprint 5: Deploy e otimizações
 
 ---
 
@@ -1149,21 +1312,55 @@ result = await processor.process_dubbing_job(dubbing_job, voice_profile=voice_pr
 
 **Última atualização:** 26 de novembro de 2025  
 **Branch:** feature/f5tts-ptbr-migration  
-**Status:** Sprint 3 COMPLETO - Pronto para Sprint 4  
-**Próximo passo:** Validação e QA (comparar qualidade XTTS vs F5-TTS)  
+**Status:** Sprint 3 COMPLETO - Sprint 4 PLANEJADO ⚠️  
+**Próximo passo:** FIX CRÍTICO - Corrigir main.py health check
 
 **Progresso Geral:**
 - Sprint 0: ✅ COMPLETO (Planejamento)
 - Sprint 1: ✅ COMPLETO (Testes Base - 27 testes)
 - Sprint 2: ✅ COMPLETO (XTTSClient - 22/22 testes GREEN)
 - Sprint 3: ✅ COMPLETO (VoiceProcessor - 30/30 testes GREEN)
-- Sprint 4: ⏳ PENDENTE (QA e validação)
-- Sprint 5: ⏳ PENDENTE (Deploy e cleanup)
+- **Sprint 4: ⚠️ CRÍTICO - API Integration + Cleanup F5-TTS**
+- Sprint 5: ⏳ FUTURO (Deploy e otimizações)
 
-**Próximas Ações Sprint 4:**
-1. Comparar qualidade áudio XTTS vs F5-TTS (mesmo texto/voz)
-2. MOS (Mean Opinion Score) - feedback manual de qualidade
-3. Testes de latência (curta/média/longa frase)
-4. Testes de estresse (100 jobs simultâneos)
-5. Validar API endpoints funcionam com XTTS
-6. Documentar diferenças e limitações
+**Problemas CRÍTICOS Sprint 4:**
+1. ❌ **main.py broken** - `processor.tts_client` não existe (linhas 461-464)
+2. ❌ **Health check** - `/health` endpoint vai quebrar em runtime
+3. ⚠️ **API não testada** - Endpoints nunca rodaram com XTTS
+4. 🧹 **26KB código F5-TTS** - 8 arquivos obsoletos a remover
+5. 🐳 **Docker-compose** - Faltam env vars XTTS
+
+**Próximas Ações Imediatas:**
+1. **FIX health check** - Usar `processor._get_tts_engine()` em vez de `tts_client`
+2. **Testar API** - Script curl para validar endpoints com XTTS
+3. **Remover F5-TTS** - Deletar 8 arquivos obsoletos
+4. **Docker env vars** - Adicionar USE_XTTS, XTTS_DEVICE, XTTS_MODEL
+5. **Validar E2E** - Jobs via API devem completar (QUEUED → COMPLETED)
+
+**Arquivos a Remover (Sprint 4):**
+```
+app/f5tts_client.py (18 KB)
+app/f5tts_loader.py (6 KB)
+test_f5tts_*.py (root)
+tests/test_f5tts_*.py
+tests/unit/test_f5tts_*.py
+```
+
+**Comandos Úteis Sprint 4:**
+```bash
+# 1. Fix health check
+vim app/main.py  # Editar linhas 461-464
+
+# 2. Testar API
+bash test_api_xtts.sh  # Script de teste E2E
+
+# 3. Remover F5-TTS
+rm app/f5tts_client.py app/f5tts_loader.py
+rm test_f5tts_*.py tests/test_f5tts_*.py tests/unit/test_f5tts_*.py
+
+# 4. Rebuild container
+docker-compose up -d --build audio-voice-api
+
+# 5. Validar health
+curl http://localhost:8004/health | jq .
+```
