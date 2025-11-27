@@ -24,11 +24,16 @@ def cleanup_old_voices():
     """Remove vozes antigas de testes"""
     try:
         resp = requests.get(f"{API_URL}/voices")
+        if resp.status_code != 200:
+            return
+            
         voices = resp.json()
+        if not isinstance(voices, list):
+            return
         
         removed = 0
         for voice in voices:
-            if voice['name'].startswith('TestChiado'):
+            if isinstance(voice, dict) and voice.get('name', '').startswith('TestChiado'):
                 requests.delete(f"{API_URL}/voices/{voice['id']}")
                 removed += 1
         
@@ -43,9 +48,9 @@ def clone_voice(profile_name):
     
     # Upload e clone
     with open(VOICE_AUDIO, 'rb') as f:
-        files = {'audio': f}
+        files = {'file': ('Teste.ogg', f, 'audio/ogg')}
         data = {
-            'voice_name': f'TestChiado_{profile_name}',
+            'name': f'TestChiado_{profile_name}',
             'language': 'pt-BR',
             'tts_engine': 'f5tts',
             'description': f'Teste de chiado - perfil {profile_name}'
