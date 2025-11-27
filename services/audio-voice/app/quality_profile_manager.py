@@ -41,32 +41,43 @@ class QualityProfileManager:
     REDIS_LIST_SUFFIX = "list"
     
     def __init__(self):
-        """Inicializa manager e carrega perfis padrão se necessário"""
-        self._ensure_default_profiles()
+        """Inicializa manager sem persistir perfis padrão no Redis.
+
+        - Perfis padrão ficam somente em código (imutáveis)
+        - Apenas perfis customizados são salvos no Redis
+        - Limpa do Redis quaisquer vestígios anteriores de perfis padrão
+        """
+        self._purge_default_profiles_from_redis()
     
-    def _ensure_default_profiles(self):
-        """Garante que perfis padrão existam no Redis"""
+    def _purge_default_profiles_from_redis(self):
+        """Remove perfis padrão do Redis (não devem ser persistidos)."""
         try:
-            # Verificar se já existem perfis
-            xtts_profiles = self.list_profiles(TTSEngine.XTTS)
-            f5tts_profiles = self.list_profiles(TTSEngine.F5TTS)
-            
-            # Criar perfis padrão XTTS se não existirem
-            if not xtts_profiles:
-                logger.info("Criando perfis padrão XTTS...")
-                for profile in DEFAULT_XTTS_PROFILES.values():
-                    self.create_profile(profile)
-                logger.info(f"✅ {len(DEFAULT_XTTS_PROFILES)} perfis XTTS criados")
-            
-            # Criar perfis padrão F5-TTS se não existirem
-            if not f5tts_profiles:
-                logger.info("Criando perfis padrão F5-TTS...")
-                for profile in DEFAULT_F5TTS_PROFILES.values():
-                    self.create_profile(profile)
-                logger.info(f"✅ {len(DEFAULT_F5TTS_PROFILES)} perfis F5-TTS criados")
-                
+            default_xtts_ids = {p.id for p in DEFAULT_XTTS_PROFILES.values()}
+            default_f5_ids = {p.id for p in DEFAULT_F5TTS_PROFILES.values()}
+
+            # Deletar chaves individuais dos padrões
+            for pid in default_xtts_ids:
+                _redis_client.delete(f"{self.REDIS_PREFIX_XTTS}:{pid}")
+            for pid in default_f5_ids:
+                _redis_client.delete(f"{self.REDIS_PREFIX_F5TTS}:{pid}")
+
+            # Remover IDs padrão das listas
+            xtts_list_key = self._get_list_key(TTSEngine.XTTS)
+            f5_list_key = self._get_list_key(TTSEngine.F5TTS)
+            if _redis_client.exists(xtts_list_key):
+                for pid in default_xtts_ids:
+                    _redis_client.srem(xtts_list_key, pid)
+            if _redis_client.exists(f5_list_key):
+                for pid in default_f5_ids:
+                    _redis_client.srem(f5_list_key, pid)
         except Exception as e:
-            logger.error(f"Erro ao criar perfis padrão: {e}")
+            logger.warning(f"Falha ao limpar perfis padrão do Redis: {e}")
+
+    def _is_default_profile_id(self, engine: TTSEngine, profile_id: str) -> bool:
+        """Verifica se o ID pertence ao conjunto embutido de perfis padrão."""
+        if engine == TTSEngine.XTTS:
+            return profile_id in {p.id for p in DEFAULT_XTTS_PROFILES.values()}
+        return profile_id in {p.id for p in DEFAULT_F5TTS_PROFILES.values()}
     
     def _get_prefix(self, engine: TTSEngine) -> str:
         """Retorna prefixo Redis para engine"""
@@ -98,6 +109,10 @@ class QualityProfileManager:
         Raises:
             ValueError: Se perfil com mesmo ID já existe
         """
+        # Bloquear IDs reservados de perfis padrão
+        if self._is_default_profile_id(profile.engine, profile.id):
+            raise ValueError("IDs de perfis padrão são reservados e não podem ser criados")
+
         # Verificar se já existe
         existing = self.get_profile(profile.engine, profile.id)
         if existing:
@@ -107,7 +122,7 @@ class QualityProfileManager:
         profile.created_at = datetime.now()
         profile.updated_at = datetime.now()
         
-        # Salvar no Redis
+        # Salvar no Redis (somente custom)
         profile_key = self._get_profile_key(profile.engine, profile.id)
         profile_data = profile.json()
         _redis_client.set(profile_key, profile_data)
@@ -134,13 +149,22 @@ class QualityProfileManager:
         Returns:
             Perfil ou None se não encontrado
         """
+        # Primeiro: perfis padrão (embutidos)
+        if self._is_default_profile_id(engine, profile_id):
+            if engine == TTSEngine.XTTS:
+                for p in DEFAULT_XTTS_PROFILES.values():
+                    if p.id == profile_id:
+                        return p
+            else:
+                for p in DEFAULT_F5TTS_PROFILES.values():
+                    if p.id == profile_id:
+                        return p
+
+        # Buscar apenas no Redis (custom)
         profile_key = self._get_profile_key(engine, profile_id)
         profile_data = _redis_client.get(profile_key)
-        
         if not profile_data:
             return None
-        
-        # Deserializar baseado no engine
         if engine == TTSEngine.XTTS:
             return XTTSQualityProfile.parse_raw(profile_data)
         else:
@@ -159,21 +183,27 @@ class QualityProfileManager:
         Returns:
             Lista de perfis
         """
+        profiles: List[QualityProfile] = []
+
+        # Adicionar perfis padrão embutidos
+        if engine == TTSEngine.XTTS:
+            profiles.extend(DEFAULT_XTTS_PROFILES.values())
+        else:
+            profiles.extend(DEFAULT_F5TTS_PROFILES.values())
+
+        # Adicionar customizados do Redis
         list_key = self._get_list_key(engine)
-        profile_ids = _redis_client.smembers(list_key)
-        
-        if not profile_ids:
-            return []
-        
-        profiles = []
-        for profile_id in profile_ids:
-            profile = self.get_profile(engine, profile_id)
-            if profile:
-                profiles.append(profile)
-        
-        # Ordenar: padrão primeiro, depois alfabético
+        if _redis_client.exists(list_key):
+            profile_ids = _redis_client.smembers(list_key)
+            for profile_id in profile_ids:
+                if self._is_default_profile_id(engine, profile_id):
+                    # Não incluir padrões do Redis
+                    continue
+                profile = self.get_profile(engine, profile_id)
+                if profile:
+                    profiles.append(profile)
+
         profiles.sort(key=lambda p: (not p.is_default, p.name))
-        
         return profiles
     
     def list_all_profiles(self) -> Dict[str, List[QualityProfile]]:
@@ -205,6 +235,10 @@ class QualityProfileManager:
         Returns:
             Perfil atualizado ou None se não encontrado
         """
+        # Bloquear alterações em perfis padrão
+        if self._is_default_profile_id(engine, profile_id):
+            raise ValueError("Perfis padrão são imutáveis e não podem ser atualizados")
+
         # Buscar perfil existente
         profile = self.get_profile(engine, profile_id)
         if not profile:
@@ -243,14 +277,14 @@ class QualityProfileManager:
         Returns:
             True se deletado, False se não encontrado
         """
-        # Verificar se existe
+        # Bloquear remoção de perfis padrão (embutidos)
+        if self._is_default_profile_id(engine, profile_id):
+            raise ValueError("Perfis padrão não podem ser deletados")
+
+        # Verificar se existe (custom)
         profile = self.get_profile(engine, profile_id)
         if not profile:
             return False
-        
-        # Não permitir deletar perfil padrão
-        if profile.is_default:
-            raise ValueError("Não é possível deletar perfil padrão")
         
         # Deletar do Redis
         profile_key = self._get_profile_key(engine, profile_id)
@@ -276,11 +310,23 @@ class QualityProfileManager:
         Returns:
             Perfil padrão ou None
         """
-        profiles = self.list_profiles(engine)
-        for profile in profiles:
-            if profile.is_default:
-                return profile
-        return None
+        # Tentar usar um padrão atual configurado
+        key = f"{self._get_prefix(engine)}:current_default"
+        try:
+            current_id = _redis_client.get(key)
+            if current_id:
+                prof = self.get_profile(engine, current_id)
+                if prof:
+                    return prof
+        except Exception:
+            pass
+
+        # Caso contrário, retornar padrão embutido marcado como is_default
+        defaults = DEFAULT_XTTS_PROFILES if engine == TTSEngine.XTTS else DEFAULT_F5TTS_PROFILES
+        for p in defaults.values():
+            if p.is_default:
+                return p
+        return list(defaults.values())[0] if defaults else None
     
     def set_default_profile(
         self,
@@ -297,21 +343,13 @@ class QualityProfileManager:
         Returns:
             True se sucesso
         """
-        # Verificar se perfil existe
+        # Definir perfil padrão atual via chave dedicada (não altera embutidos)
         new_default = self.get_profile(engine, profile_id)
         if not new_default:
             raise ValueError(f"Perfil {profile_id} não encontrado")
-        
-        # Remover flag is_default de todos os perfis
-        profiles = self.list_profiles(engine)
-        for profile in profiles:
-            if profile.is_default and profile.id != profile_id:
-                self.update_profile(engine, profile.id, {"is_default": False})
-        
-        # Definir novo padrão
-        self.update_profile(engine, profile_id, {"is_default": True})
-        
-        logger.info(f"✅ Perfil padrão atualizado: {profile_id} ({engine})")
+        key = f"{self._get_prefix(engine)}:current_default"
+        _redis_client.set(key, profile_id)
+        logger.info(f"✅ Padrão atual definido: {profile_id} ({engine})")
         return True
 
 

@@ -343,7 +343,8 @@ async def create_job(
         if quality_profile_id:
             # Validar se profile existe
             engine_name = tts_engine.value if isinstance(tts_engine, TTSEngine) else tts_engine
-            profile = quality_profile_manager.get_profile(engine_name, quality_profile_id)
+            engine_enum = TTSEngine(engine_name) if isinstance(engine_name, str) else engine_name
+            profile = quality_profile_manager.get_profile(engine_enum, quality_profile_id)
             if not profile:
                 raise HTTPException(
                     status_code=404,

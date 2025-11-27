@@ -35,6 +35,7 @@ import numpy as np
 import soundfile as sf
 import torch
 import torchaudio
+from scipy import signal
 
 from .base import TTSEngine
 from ..models import VoiceProfile, QualityProfile
@@ -225,22 +226,26 @@ class F5TtsEngine(TTSEngine):
             # Get quality parameters
             # quality_profile agora é uma string (ID do profile no Redis)
             if quality_profile and isinstance(quality_profile, str):
-                # Tentar carregar profile do Redis
+                # Tentar carregar profile (embutido ou custom) via manager
                 try:
                     from ..quality_profile_manager import quality_profile_manager
-                    profile_data = quality_profile_manager.get_profile('f5tts', quality_profile)
-                    
-                    if profile_data:
-                        # Usar parâmetros do profile diretamente
-                        tts_params = profile_data
-                        logger.info(f"Loaded F5-TTS quality profile from Redis: {quality_profile}")
+                    from ..quality_profiles import TTSEngine as QEngine
+                    profile_obj = quality_profile_manager.get_profile(QEngine.F5TTS, quality_profile)
+
+                    if profile_obj:
+                        # Converter para dict se necessário
+                        if hasattr(profile_obj, 'dict'):
+                            tts_params = profile_obj.dict()
+                        else:
+                            tts_params = dict(profile_obj)
+                        logger.info(f"Loaded F5-TTS quality profile: {quality_profile}")
                     else:
-                        # Fallback para padrão
-                        logger.warning(f"Profile '{quality_profile}' not found in Redis, using BALANCED")
+                        # Fallback para BALANCED
+                        logger.warning(f"Profile '{quality_profile}' not found, using BALANCED")
                         from ..models import QualityProfile
                         tts_params = self._map_quality_profile(QualityProfile.BALANCED)
                 except Exception as e:
-                    logger.warning(f"Failed to load quality profile from Redis: {e}, using BALANCED")
+                    logger.warning(f"Failed to load quality profile: {e}, using BALANCED")
                     from ..models import QualityProfile
                     tts_params = self._map_quality_profile(QualityProfile.BALANCED)
             elif quality_profile:
@@ -287,30 +292,35 @@ class F5TtsEngine(TTSEngine):
             # LOW_VRAM mode: load model → synthesize → unload
             if settings.get('low_vram_mode'):
                 with vram_manager.load_model('f5tts', self._load_model):
+                    model_params = self._normalize_f5_params(tts_params)
                     audio_array = await loop.run_in_executor(
                         None,
                         self._synthesize_blocking,
                         text,
                         ref_audio,
                         ref_text,
-                        tts_params
+                        model_params
                     )
             else:
                 # Normal mode: model already loaded
+                model_params = self._normalize_f5_params(tts_params)
                 audio_array = await loop.run_in_executor(
                     None,
                     self._synthesize_blocking,
                     text,
                     ref_audio,
                     ref_text,
-                    tts_params
+                    model_params
                 )
             
             # Apply speed adjustment if needed
             if speed != 1.0:
                 audio_array = self._adjust_speed(audio_array, speed)
             
-            # Normalize audio
+            # Pós-processamento para reduzir chiado e artefatos
+            audio_array = self._post_process_audio(audio_array, tts_params)
+
+            # Normalize audio (headroom)
             audio_array = self._normalize_audio(audio_array)
             
             # Calculate duration
@@ -575,6 +585,107 @@ class F5TtsEngine(TTSEngine):
         resampled = signal.resample(audio, new_length)
         
         return resampled
+
+    def _normalize_f5_params(self, params: dict) -> dict:
+        """Normaliza parâmetros para o F5-TTS, aplicando aliases e filtrando apenas os aceitos pelo modelo."""
+        if not isinstance(params, dict):
+            return {}
+        out = dict(params)
+        # Alias: cfg_scale -> cfg_strength (compatibilidade)
+        if 'cfg_strength' not in out and 'cfg_scale' in out:
+            out['cfg_strength'] = out.pop('cfg_scale')
+        # Filtrar somente os parâmetros do modelo (resto fica para pós-processamento)
+        allowed = {'nfe_step', 'cfg_strength', 'sway_sampling_coef'}
+        return {k: v for k, v in out.items() if k in allowed}
+
+    def _remove_dc_offset(self, audio: np.ndarray) -> np.ndarray:
+        """Remove DC offset subtraindo a média."""
+        return audio - np.mean(audio)
+
+    def _butter_highpass(self, cutoff_hz: float, order: int = 2):
+        nyq = 0.5 * self.sample_rate
+        normal_cutoff = cutoff_hz / nyq
+        sos = signal.butter(order, normal_cutoff, btype='highpass', output='sos')
+        return sos
+
+    def _butter_lowpass(self, cutoff_hz: float, order: int = 4):
+        nyq = 0.5 * self.sample_rate
+        normal_cutoff = cutoff_hz / nyq
+        sos = signal.butter(order, normal_cutoff, btype='lowpass', output='sos')
+        return sos
+
+    def _apply_filter(self, audio: np.ndarray, sos) -> np.ndarray:
+        return signal.sosfiltfilt(sos, audio)
+
+    def _apply_wiener_denoise(self, audio: np.ndarray, strength: float) -> np.ndarray:
+        """Redução simples de ruído via filtro de Wiener, com mix proporcional ao strength."""
+        den = signal.wiener(audio)
+        return (1 - strength) * audio + strength * den
+
+    def _apply_deesser(self, audio: np.ndarray, center_freq: int = 6000, q: float = 3.0, amount: float = 0.4) -> np.ndarray:
+        """Aplicar de-esser simples via filtro notch em torno de center_freq.
+        amount controla a mistura do filtrado (0-1)."""
+        nyq = 0.5 * self.sample_rate
+        w0 = center_freq / nyq
+        # Notch (iirnotch: b, a). Usar filtfilt para fase linear
+        b, a = signal.iirnotch(w0, q)
+        deessed = signal.filtfilt(b, a, audio)
+        return (1 - amount) * audio + amount * deessed
+
+    def _post_process_audio(self, audio: np.ndarray, params: dict) -> np.ndarray:
+        """Pós-processamento para redução de chiado e artefatos em F5-TTS.
+
+        Passos:
+        - Remoção de DC offset
+        - High-pass suave (40-60 Hz) para remover rumble
+        - Redução de ruído (Wiener) quando habilitado
+        - De-esser opcional em 5-8 kHz
+        - Low-pass suave (12 kHz) para atenuar hiss alto
+        """
+        if audio is None or len(audio) == 0:
+            return audio
+
+        out = np.copy(audio)
+
+        # Mono expected; se vier multi-canal, mixar para mono
+        if out.ndim > 1:
+            out = np.mean(out, axis=0)
+
+        # 1) DC offset
+        out = self._remove_dc_offset(out)
+
+        # 2) High-pass leve
+        try:
+            hp_sos = self._butter_highpass(50.0, order=2)
+            out = self._apply_filter(out, hp_sos)
+        except Exception:
+            pass
+
+        # 3) Redução de ruído (Wiener) se habilitado
+        if params.get('denoise_audio', True):
+            strength = float(params.get('noise_reduction_strength', 0.6))
+            strength = max(0.0, min(1.0, strength))
+            try:
+                out = self._apply_wiener_denoise(out, strength)
+            except Exception:
+                pass
+
+        # 4) De-esser opcional
+        if params.get('apply_deessing', True):
+            freq = int(params.get('deessing_frequency', 6000))
+            try:
+                out = self._apply_deesser(out, center_freq=freq, q=3.0, amount=0.35)
+            except Exception:
+                pass
+
+        # 5) Low-pass suave para reduzir hiss muito alto
+        try:
+            lp_sos = self._butter_lowpass(12000.0, order=4)
+            out = self._apply_filter(out, lp_sos)
+        except Exception:
+            pass
+
+        return out
     
     def _array_to_wav_bytes(self, audio: np.ndarray) -> bytes:
         """Convert numpy array to WAV bytes"""

@@ -259,10 +259,15 @@ class XttsEngine(TTSEngine):
             # Tentar carregar profile do Redis
             try:
                 from ..quality_profile_manager import quality_profile_manager
-                profile_data = quality_profile_manager.get_profile('xtts', quality_profile)
-                
-                if profile_data:
-                    # Extrair parâmetros do profile
+                from ..quality_profiles import TTSEngine as QEngine
+                profile_obj = quality_profile_manager.get_profile(QEngine.XTTS, quality_profile)
+
+                if profile_obj:
+                    # Aceitar objeto Pydantic ou dict
+                    if hasattr(profile_obj, 'dict'):
+                        profile_data = profile_obj.dict()
+                    else:
+                        profile_data = dict(profile_obj)
                     params = XTTSParameters(
                         temperature=profile_data.get('temperature', 0.75),
                         repetition_penalty=profile_data.get('repetition_penalty', 1.5),
@@ -272,14 +277,14 @@ class XttsEngine(TTSEngine):
                         speed=profile_data.get('speed', 1.0),
                         enable_text_splitting=profile_data.get('enable_text_splitting', False)
                     )
-                    logger.info(f"Loaded XTTS quality profile from Redis: {quality_profile}")
+                    logger.info(f"Loaded XTTS quality profile: {quality_profile}")
                 else:
                     # Fallback para padrão
-                    logger.warning(f"Profile '{quality_profile}' not found in Redis, using BALANCED")
+                    logger.warning(f"Profile '{quality_profile}' not found, using BALANCED")
                     from ..models import QualityProfile
                     params = XTTSParameters.from_profile(QualityProfile.BALANCED)
             except Exception as e:
-                logger.warning(f"Failed to load quality profile from Redis: {e}, using BALANCED")
+                logger.warning(f"Failed to load quality profile: {e}, using BALANCED")
                 from ..models import QualityProfile
                 params = XTTSParameters.from_profile(QualityProfile.BALANCED)
         elif quality_profile:
