@@ -113,8 +113,10 @@ class XttsEngine(TTSEngine):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"XTTS model cache: {self.cache_dir}")
         
-        # Set COQUI_TOS_AGREED to avoid interactive prompts
+        # Set environment variables for Coqui TTS
         os.environ['COQUI_TOS_AGREED'] = '1'
+        # Coqui TTS usa XDG_CACHE_HOME para downloads
+        os.environ['XDG_CACHE_HOME'] = str(self.cache_dir.parent)
         
         # Load XTTS model
         try:
@@ -132,8 +134,7 @@ class XttsEngine(TTSEngine):
                 self.tts = TTS(
                     self.model_name,
                     gpu=gpu,
-                    progress_bar=False,
-                    model_path=str(self.cache_dir)
+                    progress_bar=False
                 )
                 logger.info(f"✅ XTTS model loaded: {self.model_name}")
             
@@ -168,8 +169,7 @@ class XttsEngine(TTSEngine):
             self.tts = TTS(
                 self.model_name,
                 gpu=gpu,
-                progress_bar=False,
-                model_path=str(self.cache_dir)
+                progress_bar=False
             )
             self._model_loaded = True
             logger.info("✅ XTTS model loaded (lazy)")
