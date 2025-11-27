@@ -15,8 +15,12 @@ torchaudio==2.4.0
 numpy==1.26.4
 soundfile==0.12.1
 
-# === XTTS (Coqui TTS - ONLY TTS ENGINE) ===
+# === XTTS (Coqui TTS - PRIMARY TTS ENGINE) ===
 TTS>=0.22.0
+
+# === F5-TTS / E2-TTS (EMOTION MODEL - Sprint 8) ===
+f5-tts>=0.1.0
+cached-path>=1.6.2
 
 # === RVC DEPENDENCIES (Sprint 2) ===
 # See docker/requirements-rvc.txt for details

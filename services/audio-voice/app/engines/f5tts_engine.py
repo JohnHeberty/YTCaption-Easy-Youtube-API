@@ -93,7 +93,10 @@ class F5TtsEngine(TTSEngine):
             whisper_model: Whisper model for auto-transcription
                           ('tiny', 'base', 'small', 'medium', 'large')
         """
-        self.model_name = model_name
+        # Model configuration
+        # E2-TTS: Enhanced F5-TTS with emotion support
+        # Options: 'F5TTS_v1_Base', 'E2TTS_v1_Base'
+        self.model_name = 'E2TTS_v1_Base' if model_name == 'SWivid/E2-TTS' else 'F5TTS_v1_Base'
         self.whisper_model_name = whisper_model
         
         # Cache directory para modelos
@@ -105,9 +108,9 @@ class F5TtsEngine(TTSEngine):
         self.device = self._select_device(device, fallback_to_cpu)
         logger.info(f"F5TtsEngine initializing on device: {self.device}")
         
-        # Load F5-TTS model
+        # Load F5-TTS model (new API)
         try:
-            from f5_tts import F5TTS
+            from f5_tts.api import F5TTS
             settings = get_settings()
             
             # LOW_VRAM mode: lazy loading via VRAMManager
@@ -118,13 +121,13 @@ class F5TtsEngine(TTSEngine):
                 self._f5tts_class = F5TTS  # Store class for lazy loading
             else:
                 # Normal mode: load immediately
-                logger.info(f"Loading F5-TTS model: {model_name}")
-                self.tts = F5TTS.from_pretrained(
-                    model_name,
+                logger.info(f"Loading F5-TTS model: {self.model_name}")
+                self.tts = F5TTS(
+                    model=self.model_name,
                     device=self.device,
-                    cache_dir=str(self.cache_dir)
+                    hf_cache_dir=str(self.cache_dir)
                 )
-                logger.info("✅ F5-TTS model loaded successfully")
+                logger.info(f"✅ F5-TTS model loaded successfully: {self.model_name}")
             
         except Exception as e:
             logger.error(f"Failed to load F5-TTS model: {e}", exc_info=True)
@@ -156,13 +159,13 @@ class F5TtsEngine(TTSEngine):
         """Load F5-TTS model (used in LOW_VRAM mode for lazy loading)"""
         if self.tts is None:
             logger.info(f"Loading F5-TTS model on-demand: {self.model_name}")
-            self.tts = self._f5tts_class.from_pretrained(
-                self.model_name,
+            self.tts = self._f5tts_class(
+                model=self.model_name,
                 device=self.device,
-                cache_dir=str(self.cache_dir)
+                hf_cache_dir=str(self.cache_dir)
             )
             self._model_loaded = True
-            logger.info("✅ F5-TTS model loaded (lazy)")
+            logger.info(f"✅ F5-TTS model loaded (lazy): {self.model_name}")
         return self.tts
     
     @property
@@ -264,7 +267,7 @@ class F5TtsEngine(TTSEngine):
                 tts_params = self._map_quality_profile(QualityProfile.BALANCED)
             
             # Prepare reference audio and text for voice cloning
-            ref_audio = None
+            ref_audio_path = None
             ref_text = None
             
             if voice_profile:
@@ -279,22 +282,13 @@ class F5TtsEngine(TTSEngine):
                     logger.info("ref_text not provided, auto-transcribing...")
                     ref_text = await self._auto_transcribe(ref_audio_path, language)
                     logger.info(f"Auto-transcribed: {ref_text[:50]}...")
-                
-                # Load reference audio
-                ref_audio, sr = torchaudio.load(ref_audio_path)
-                
-                # Resample if needed
-                if sr != self.sample_rate:
-                    ref_audio = torchaudio.functional.resample(
-                        ref_audio, sr, self.sample_rate
-                    )
-                
-                # Convert to numpy
-                ref_audio = ref_audio.numpy()
             
             # Run F5-TTS inference (blocking - use thread pool)
             loop = asyncio.get_event_loop()
             settings = get_settings()
+            
+            # Add speed to params
+            tts_params['speed'] = speed
             
             # LOW_VRAM mode: load model → synthesize → unload
             if settings.get('low_vram_mode'):
@@ -304,7 +298,7 @@ class F5TtsEngine(TTSEngine):
                         None,
                         self._synthesize_blocking,
                         text,
-                        ref_audio,
+                        ref_audio_path,
                         ref_text,
                         model_params
                     )
@@ -315,14 +309,14 @@ class F5TtsEngine(TTSEngine):
                     None,
                     self._synthesize_blocking,
                     text,
-                    ref_audio,
+                    ref_audio_path,
                     ref_text,
                     model_params
                 )
             
-            # Apply speed adjustment if needed
-            if speed != 1.0:
-                audio_array = self._adjust_speed(audio_array, speed)
+            # Apply speed adjustment if needed (already done in infer)
+            # if speed != 1.0:
+            #     audio_array = self._adjust_speed(audio_array, speed)
             
             # Pós-processamento para reduzir chiado e artefatos
             audio_array = self._post_process_audio(audio_array, tts_params)
@@ -357,8 +351,8 @@ class F5TtsEngine(TTSEngine):
     def _synthesize_blocking(
         self,
         text: str,
-        ref_audio: Optional[np.ndarray],
-        ref_text: Optional[str],
+        ref_audio_path: str,
+        ref_text: str,
         tts_params: dict
     ) -> np.ndarray:
         """
@@ -366,21 +360,27 @@ class F5TtsEngine(TTSEngine):
         
         Args:
             text: Text to synthesize
-            ref_audio: Reference audio array (optional)
-            ref_text: Reference transcription (optional)
+            ref_audio_path: Path to reference audio file
+            ref_text: Reference transcription
             tts_params: TTS parameters (nfe_step, cfg_strength, etc.)
         
         Returns:
             np.ndarray: Generated audio
         """
-        audio = self.tts.infer(
-            text=text,
-            ref_audio=ref_audio,
+        # F5-TTS API nova: infer(ref_file, ref_text, gen_text, ...)
+        audio_np, sample_rate, _ = self.tts.infer(
+            ref_file=ref_audio_path,
             ref_text=ref_text,
-            **tts_params
+            gen_text=text,
+            nfe_step=tts_params.get('nfe_step', 32),
+            cfg_strength=tts_params.get('cfg_strength', 2.0),
+            sway_sampling_coef=tts_params.get('sway_sampling_coef', -1.0),
+            speed=tts_params.get('speed', 1.0),
+            show_info=lambda x: None,  # Suppress print
+            progress=False  # Disable progress bar
         )
         
-        return audio
+        return audio_np
     
     async def clone_voice(
         self,
