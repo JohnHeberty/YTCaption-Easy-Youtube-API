@@ -378,8 +378,8 @@ class F5TtsEngine(TTSEngine):
             cfg_strength=tts_params.get('cfg_strength', 2.0),
             sway_sampling_coef=tts_params.get('sway_sampling_coef', -1.0),
             speed=tts_params.get('speed', 1.0),
-            show_info=lambda x: None,  # Suppress print
-            progress=False  # Disable progress bar
+            show_info=lambda x: None  # Suppress print
+            # progress removed - uses default tqdm
         )
         
         return audio_np
@@ -455,6 +455,7 @@ class F5TtsEngine(TTSEngine):
                 profile_path=audio_path,  # F5-TTS uses raw audio
                 description=description,
                 ref_text=ref_text,  # Store transcription
+                engine='f5tts',  # Mark as F5-TTS voice profile
                 created_at=datetime.now(),
                 expires_at=datetime.now() + timedelta(hours=24)
             )

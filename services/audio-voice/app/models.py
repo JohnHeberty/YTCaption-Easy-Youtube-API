@@ -119,6 +119,10 @@ class VoiceProfile(BaseModel):
     source_audio_path: str  # Caminho da amostra original de áudio (.wav)
     profile_path: str       # Caminho do perfil serializado (.wav para XTTS)
     
+    # F5-TTS/E2-TTS specific fields (Sprint 8)
+    ref_text: Optional[str] = None  # Reference transcription for F5-TTS voice cloning
+    engine: Optional[str] = None    # TTS engine used: 'xtts' or 'f5tts'
+    
     # Metadata
     duration: Optional[float] = None  # Duração da amostra em segundos
     sample_rate: Optional[int] = None

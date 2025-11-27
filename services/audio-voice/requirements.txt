@@ -21,6 +21,7 @@ TTS>=0.22.0
 # === F5-TTS / E2-TTS (EMOTION MODEL - Sprint 8) ===
 f5-tts>=0.1.0
 cached-path>=1.6.2
+faster-whisper>=1.0.0  # Required for F5-TTS ref_text auto-transcription
 
 # === RVC DEPENDENCIES (Sprint 2) ===
 # See docker/requirements-rvc.txt for details
