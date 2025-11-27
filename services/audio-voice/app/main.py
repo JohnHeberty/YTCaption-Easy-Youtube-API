@@ -215,6 +215,9 @@ async def create_job(
     voice_preset: Optional[VoicePreset] = Form(VoicePreset.female_generic, description="Preset de voz genérica (dropdown, apenas para mode=dubbing)"),
     voice_id: Optional[str] = Form(None, description="ID de voz clonada (apenas para mode=dubbing_with_clone)"),
     target_language: Optional[str] = Form(None, description="Idioma de destino (padrão: mesmo que source_language)"),
+    # TTS Engine Selection (Sprint 4)
+    tts_engine: Optional[str] = Form('xtts', description="TTS engine: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)"),
+    ref_text: Optional[str] = Form(None, description="Reference transcription for F5-TTS voice cloning (auto-transcribed if None)"),
     # RVC Parameters (Sprint 7)
     enable_rvc: bool = Form(False, description="Enable RVC voice conversion (default: False)"),
     rvc_model_id: Optional[str] = Form(None, description="RVC model ID (required if enable_rvc=True)"),
@@ -236,6 +239,10 @@ async def create_job(
     - **voice_id**: ID de voz clonada (obrigatório se mode=dubbing_with_clone)
     - **target_language**: Idioma de destino (opcional, padrão=source_language)
     
+    **TTS Engine Selection (NEW - Sprint 4):**
+    - **tts_engine**: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)
+    - **ref_text**: Reference transcription for F5-TTS (auto-transcribed if None)
+    
     **RVC Parameters (NEW - Sprint 7):**
     - **enable_rvc**: Enable RVC voice conversion (default: False)
     - **rvc_model_id**: RVC model ID (required if enable_rvc=True)
@@ -249,6 +256,14 @@ async def create_job(
         # Validações adicionais
         if not is_language_supported(source_language):
             raise InvalidLanguageException(source_language)
+        
+        # Valida tts_engine
+        valid_engines = ['xtts', 'f5tts']
+        if tts_engine not in valid_engines:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tts_engine '{tts_engine}'. Valid options: {valid_engines}"
+            )
         
         # Define target_language se não fornecido
         if not target_language:
@@ -310,7 +325,9 @@ async def create_job(
             source_language=source_language,
             target_language=target_language,
             voice_preset=voice_preset.value if voice_preset else None,
-            voice_id=voice_id
+            voice_id=voice_id,
+            tts_engine=tts_engine,
+            ref_text=ref_text
         )
         
         # Adiciona quality_profile
@@ -537,7 +554,9 @@ async def clone_voice(
     file: UploadFile = File(...),
     name: str = Form(...),
     language: str = Form(...),
-    description: Optional[str] = Form(None)
+    description: Optional[str] = Form(None),
+    tts_engine: Optional[str] = Form('xtts', description="TTS engine: 'xtts' or 'f5tts'"),
+    ref_text: Optional[str] = Form(None, description="Reference transcription for F5-TTS (auto-transcribed if None)")
 ):
     """
     Clona voz a partir de amostra de áudio (ASYNC)
@@ -548,6 +567,8 @@ async def clone_voice(
     - **name**: Nome do perfil
     - **language**: Idioma base da voz
     - **description**: Descrição opcional
+    - **tts_engine**: 'xtts' (default) or 'f5tts' (experimental)
+    - **ref_text**: Reference transcription for F5-TTS (auto-transcribed if None)
     
     **Response:** HTTP 202 com job_id
     **Polling:** GET /jobs/{job_id} até status="completed"
@@ -557,6 +578,14 @@ async def clone_voice(
         # Validações
         if not is_language_supported(language):
             raise InvalidLanguageException(language)
+        
+        # Valida tts_engine
+        valid_engines = ['xtts', 'f5tts']
+        if tts_engine not in valid_engines:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tts_engine '{tts_engine}'. Valid options: {valid_engines}"
+            )
         
         # Lê arquivo
         content = await file.read()
@@ -582,7 +611,9 @@ async def clone_voice(
             mode=JobMode.CLONE_VOICE,
             voice_name=name,
             voice_description=description,
-            source_language=language
+            source_language=language,
+            tts_engine=tts_engine,
+            ref_text=ref_text
         )
         # IMPORTANTE: Setar input_file ANTES de salvar/enviar
         clone_job.input_file = str(file_path)
@@ -1028,3 +1059,66 @@ async def health_check():
     status_code = 200 if is_healthy else 503
     
     return JSONResponse(content=health_status, status_code=status_code)
+
+
+# =============================================================================
+# Feature Flags Endpoints
+# =============================================================================
+
+@app.get("/feature-flags", tags=["feature-flags"])
+async def get_feature_flags():
+    """
+    Retorna todas as feature flags e seus status atuais.
+    
+    Útil para debugging e monitoramento do rollout gradual.
+    """
+    from .feature_flags import get_feature_flag_manager
+    
+    manager = get_feature_flag_manager()
+    flags = manager.get_all_flags()
+    
+    return {
+        "feature_flags": flags,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/feature-flags/{feature_name}", tags=["feature-flags"])
+async def check_feature_flag(
+    feature_name: str,
+    user_id: Optional[str] = Query(None, description="User ID para verificar acesso")
+):
+    """
+    Verifica se uma feature específica está habilitada.
+    
+    Args:
+        feature_name: Nome da feature (ex: 'f5tts_engine')
+        user_id: ID do usuário (opcional)
+    
+    Returns:
+        Status da feature para o usuário específico ou globalmente
+    """
+    from .feature_flags import get_feature_flag_manager
+    
+    manager = get_feature_flag_manager()
+    flag = manager.get_flag(feature_name)
+    
+    if not flag:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Feature flag não encontrada: {feature_name}"
+        )
+    
+    is_enabled = manager.is_enabled(feature_name, user_id)
+    
+    return {
+        "feature_name": feature_name,
+        "user_id": user_id,
+        "enabled": is_enabled,
+        "flag_details": {
+            "phase": flag.phase.value,
+            "percentage": flag.percentage,
+            "description": flag.description
+        },
+        "timestamp": datetime.now().isoformat()
+    }

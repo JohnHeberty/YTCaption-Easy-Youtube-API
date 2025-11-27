@@ -1,6 +1,6 @@
 """
-Processor para jobs de dublagem e clonagem de voz (XTTS ONLY)
-Sprint 4: Adicionado suporte RVC
+Processor para jobs de dublagem e clonagem de voz
+Sprint 4: Multi-Engine Support (XTTS + F5-TTS)
 """
 import logging
 from pathlib import Path
@@ -15,19 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 class VoiceProcessor:
-    """Processa jobs de dublagem e clonagem de voz usando XTTS"""
+    """Processa jobs de dublagem e clonagem de voz usando múltiplos engines TTS"""
     
     def __init__(self, lazy_load: bool = False):
         """
         Inicializa o processador
         
         Args:
-            lazy_load: Se True, não carrega modelo XTTS imediatamente.
+            lazy_load: Se True, não carrega modelos TTS imediatamente.
                       Usado pela API para economizar VRAM (~2GB).
                       Worker deve usar lazy_load=False para carregar modelo.
         """
         self.settings = get_settings()
-        self.engine = None
+        self.engines = {}  # Cache de engines: {engine_name: engine_instance}
         self.lazy_load = lazy_load
         
         # Circuit breaker para proteção contra falhas em cascata
@@ -37,28 +37,53 @@ class VoiceProcessor:
             timeout_seconds=resilience_config.get('circuit_breaker_timeout', 60)
         )
         
-        # Só carrega modelo se não for lazy_load (worker)
+        # Só carrega engine default se não for lazy_load (worker)
         if not lazy_load:
-            self._load_engine()
+            default_engine = self.settings.get('tts_engine_default', 'xtts')
+            self._load_engine(default_engine)
         
         self.job_store = None  # Será injetado no main.py
         
         # Sprint 6: RVC Model Manager
         self.rvc_model_manager = None  # Será injetado no main.py ou inicializado lazy
     
-    def _load_engine(self):
-        """Carrega modelo XTTS (lazy initialization)"""
-        if self.engine is not None:
+    def _load_engine(self, engine_type: str):
+        """
+        Carrega engine TTS usando factory pattern (lazy initialization)
+        
+        Args:
+            engine_type: 'xtts' ou 'f5tts'
+        """
+        if engine_type in self.engines:
             return  # Já carregado
         
-        from .xtts_client import XTTSClient
-        logger.info("Initializing XTTS engine")
+        from .engines import create_engine_with_fallback
+        logger.info(f"Initializing {engine_type} engine")
         
-        self.engine = XTTSClient(
-            device=self.settings['xtts'].get('device'),
-            fallback_to_cpu=self.settings['xtts'].get('fallback_to_cpu', True),
-            model_name=self.settings['xtts']['model_name']
-        )
+        try:
+            self.engines[engine_type] = create_engine_with_fallback(
+                engine_type=engine_type,
+                settings=self.settings,
+                fallback_engine='xtts'  # Sempre fallback para XTTS
+            )
+            logger.info(f"✅ {engine_type} engine loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load {engine_type} engine: {e}", exc_info=True)
+            raise
+    
+    def _get_engine(self, engine_type: str):
+        """
+        Obtém engine TTS (lazy load se necessário)
+        
+        Args:
+            engine_type: 'xtts' ou 'f5tts'
+        
+        Returns:
+            TTSEngine instance
+        """
+        if engine_type not in self.engines:
+            self._load_engine(engine_type)
+        return self.engines[engine_type]
     
     async def process_dubbing_job(self, job: Job, voice_profile: Optional[VoiceProfile] = None) -> Job:
         """
@@ -72,16 +97,20 @@ class VoiceProcessor:
             Job atualizado
         """
         try:
+            # Determina qual engine usar
+            engine_type = job.tts_engine or self.settings.get('tts_engine_default', 'xtts')
+            logger.info("Processing dubbing job %s: mode=%s, engine=%s", job.id, job.mode, engine_type)
+            
             # Garante que engine esteja carregado (lazy load)
-            if self.engine is None:
-                self._load_engine()
+            engine = self._get_engine(engine_type)
+            
+            # Registra engine usado (pode ser diferente se houve fallback)
+            job.tts_engine_used = engine.engine_name
             
             job.status = JobStatus.PROCESSING
             job.progress = 10.0
             if self.job_store:
                 self.job_store.update_job(job)
-            
-            logger.info("Processing dubbing job %s: mode=%s", job.id, job.mode)
             
             # === SPRINT 4: Preparar parâmetros RVC ===
             rvc_model = None
@@ -110,12 +139,11 @@ class VoiceProcessor:
                     )
                     logger.info("RVC parameters: pitch=%d, f0_method=%s", rvc_params.pitch, rvc_params.f0_method)
             
-            # Gera áudio dublado com perfil de qualidade usando XTTS (+ RVC se habilitado)
-            # Retry automático já aplicado via decorator em xtts_client.generate_dubbing
-            audio_bytes, duration = await self.engine.generate_dubbing(
+            # Gera áudio dublado com perfil de qualidade usando engine selecionado (+ RVC se habilitado)
+            # Retry automático já aplicado via decorator em TTSEngine.generate_dubbing
+            audio_bytes, duration = await engine.generate_dubbing(
                 text=job.text,
                 language=job.source_language or job.target_language or 'en',
-                voice_preset=job.voice_preset,
                 voice_profile=voice_profile,
                 quality_profile=job.quality_profile,
                 speed=1.0,
@@ -170,15 +198,21 @@ class VoiceProcessor:
             VoiceProfile criado
         """
         try:
+            # Determina qual engine usar
+            engine_type = job.tts_engine or self.settings.get('tts_engine_default', 'xtts')
+            logger.info("Starting clone job %s with engine %s", job.id, engine_type)
+            
             # Garante que engine esteja carregado (lazy load)
-            if self.engine is None:
-                self._load_engine()
+            engine = self._get_engine(engine_type)
+            
+            # Registra engine usado
+            job.tts_engine_used = engine.engine_name
             
             # Validação
-            logger.info("Starting clone job %s", job.id)
             logger.debug("  - input_file: %s", job.input_file)
             logger.debug("  - voice_name: %s", job.voice_name)
             logger.debug("  - language: %s", job.source_language)
+            logger.debug("  - ref_text: %s", job.ref_text or '(auto-transcribe)')
             
             if not job.input_file:
                 error_msg = (
@@ -196,12 +230,14 @@ class VoiceProcessor:
             
             logger.info("Processing voice clone job %s: %s", job.id, job.voice_name)
             
-            # Clona voz usando XTTS
-            voice_profile = await self.engine.clone_voice(
+            # Clona voz usando engine selecionado
+            # Note: ref_text é usado por F5-TTS (auto-transcribed if None), ignorado por XTTS
+            voice_profile = await engine.clone_voice(
                 audio_path=job.input_file,
                 language=job.source_language or 'en',
                 voice_name=job.voice_name,
-                description=job.voice_description
+                description=job.voice_description,
+                ref_text=job.ref_text  # F5-TTS: auto-transcribe if None, XTTS: ignored
             )
             
             job.progress = 90.0

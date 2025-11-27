@@ -46,6 +46,25 @@ def get_settings():
         'max_concurrent_jobs': int(os.getenv('MAX_CONCURRENT_JOBS', '3')),
         'job_timeout_minutes': int(os.getenv('JOB_TIMEOUT_MINUTES', '15')),
         
+        # ===== TTS ENGINES (SPRINT 4: Multi-Engine Support) =====
+        'tts_engine_default': os.getenv('TTS_ENGINE_DEFAULT', 'xtts'),  # Default engine
+        'tts_engines': {
+            # XTTS Configuration (default/stable)
+            'xtts': {
+                'enabled': os.getenv('XTTS_ENABLED', 'true').lower() == 'true',
+                'device': os.getenv('XTTS_DEVICE', None),  # None = auto-detect
+                'fallback_to_cpu': os.getenv('XTTS_FALLBACK_CPU', 'true').lower() == 'true',
+                'model_name': os.getenv('XTTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2'),
+            },
+            # F5-TTS Configuration (experimental/high-quality)
+            'f5tts': {
+                'enabled': os.getenv('F5TTS_ENABLED', 'true').lower() == 'true',
+                'device': os.getenv('F5TTS_DEVICE', None),  # None = auto-detect
+                'fallback_to_cpu': os.getenv('F5TTS_FALLBACK_CPU', 'true').lower() == 'true',
+                'model_name': os.getenv('F5TTS_MODEL', 'SWivid/F5-TTS'),
+            }
+        },
+        
         # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
         'xtts': {
             # Modelo padrão

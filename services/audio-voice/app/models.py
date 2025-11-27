@@ -179,6 +179,20 @@ class Job(BaseModel):
     voice_preset: Optional[str] = None     # Voz genérica (string do enum)
     voice_id: Optional[str] = None         # ID de voz clonada (se mode=dubbing_with_clone)
     
+    # === SPRINT 4: Multi-Engine Support ===
+    tts_engine: Optional[str] = Field(
+        default='xtts',
+        description="TTS engine to use: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)"
+    )
+    tts_engine_used: Optional[str] = Field(
+        default=None,
+        description="Actual engine used (may differ from requested if fallback occurred)"
+    )
+    ref_text: Optional[str] = Field(
+        default=None,
+        description="Reference audio transcription (REQUIRED for F5-TTS voice cloning, auto-transcribed if None)"
+    )
+    
     # Qualidade
     quality_profile: Optional[QualityProfile] = Field(
         default=QualityProfile.BALANCED,
@@ -268,7 +282,9 @@ class Job(BaseModel):
         voice_id: Optional[str] = None,
         voice_name: Optional[str] = None,
         voice_description: Optional[str] = None,
-        cache_ttl_hours: int = 24
+        cache_ttl_hours: int = 24,
+        tts_engine: str = 'xtts',
+        ref_text: Optional[str] = None
     ) -> "Job":
         """Cria novo job"""
         now = datetime.now()
@@ -278,9 +294,9 @@ class Job(BaseModel):
         
         # Hash baseado no modo e parâmetros
         if mode == JobMode.DUBBING or mode == JobMode.DUBBING_WITH_CLONE:
-            hash_input = f"{text}_{source_language}_{target_language}_{voice_preset or voice_id}"
+            hash_input = f"{text}_{source_language}_{target_language}_{voice_preset or voice_id}_{tts_engine}"
         else:  # CLONE_VOICE
-            hash_input = f"{voice_name}_{timestamp_str}"
+            hash_input = f"{voice_name}_{timestamp_str}_{tts_engine}"
         
         job_id = f"job_{hashlib.md5(hash_input.encode('utf-8')).hexdigest()[:12]}"
         
@@ -295,6 +311,8 @@ class Job(BaseModel):
             voice_id=voice_id,
             voice_name=voice_name,
             voice_description=voice_description,
+            tts_engine=tts_engine,
+            ref_text=ref_text,
             created_at=now,
             expires_at=now + timedelta(hours=cache_ttl_hours)
         )

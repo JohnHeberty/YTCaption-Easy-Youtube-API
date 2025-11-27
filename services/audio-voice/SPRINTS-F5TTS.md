@@ -1542,3 +1542,4 @@ docker-compose -f docker-compose-gpu.yml up --build
 _Documento gerado por Engenheiro(a) Sênior de Áudio e Backend_  
 _Data: 27 de Novembro de 2025_  
 _Versão: 1.0_
+
