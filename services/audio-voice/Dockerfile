@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Metadata
 LABEL maintainer="audio-voice-service" \
-      version="1.0.0" \
-      description="Audio Voice Microservice - Dubbing and Voice Cloning with OpenVoice + CUDA Support"
+      version="2.0.0" \
+      description="Audio Voice Microservice - Dubbing and Voice Cloning with XTTS (Coqui TTS) + CUDA Support"
 
 # Ambiente
 ENV PYTHONUNBUFFERED=1 \
@@ -57,16 +57,10 @@ RUN python -m pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cu121 \
       -c constraints.txt
 
-# Clone e instala F5-TTS do repositório oficial (commit 3eecd94, v1.1.9)
-RUN git clone https://github.com/SWivid/F5-TTS.git /tmp/F5-TTS && \
-    cd /tmp/F5-TTS && \
-    git checkout 3eecd94 && \
-    python -m pip install --no-cache-dir -e . && \
-    cd / && \
-    rm -rf /tmp/F5-TTS/.git
-
-# Instala demais dependências
-RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
+# Instala demais dependências (apenas XTTS - Coqui TTS)
+# --ignore-installed blinker para evitar conflito com sistema
+RUN python -m pip install --no-cache-dir --ignore-installed blinker \
+      -r requirements.txt -c constraints.txt
 
 # Limpa toolchain pesado (mantém ffmpeg etc.)
 RUN apt-get purge -y --auto-remove \
@@ -80,6 +74,10 @@ RUN apt-get purge -y --auto-remove \
 # Copia código
 COPY app/ ./app/
 COPY run.py .
+COPY scripts/ ./scripts/
+
+# Cria speaker default para dubbing genérico
+RUN python scripts/create_default_speaker.py
 
 # Usuário não-root
 RUN useradd -m -u 1000 appuser

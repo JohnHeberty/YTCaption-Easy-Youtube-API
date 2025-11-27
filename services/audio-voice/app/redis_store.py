@@ -228,6 +228,44 @@ class RedisJobStore:
         profiles.sort(key=lambda p: p.created_at, reverse=True)
         return profiles[:limit]
     
+    # ===== QUALITY PROFILES (CUSTOM) =====
+    
+    def save_quality_profile(self, name: str, profile: dict) -> None:
+        """Salva perfil de qualidade customizado no Redis"""
+        key = f"quality_profile:{name}"
+        self.redis.set(key, json.dumps(profile))
+        logger.info(f"Quality profile saved: {name}")
+    
+    def get_quality_profile(self, name: str) -> Optional[dict]:
+        """Recupera perfil de qualidade customizado do Redis"""
+        key = f"quality_profile:{name}"
+        data = self.redis.get(key)
+        if data:
+            return json.loads(data)
+        return None
+    
+    def delete_quality_profile(self, name: str) -> bool:
+        """Remove perfil de qualidade customizado do Redis"""
+        key = f"quality_profile:{name}"
+        deleted = self.redis.delete(key)
+        if deleted:
+            logger.info(f"Quality profile deleted: {name}")
+        return deleted > 0
+    
+    def list_quality_profiles(self) -> dict:
+        """Lista todos os perfis de qualidade customizados"""
+        keys = self.redis.keys("quality_profile:*")
+        profiles = {}
+        for key in keys:
+            name = key.split(":", 1)[1]
+            data = self.redis.get(key)
+            if data:
+                try:
+                    profiles[name] = json.loads(data)
+                except Exception as e:
+                    logger.error(f"Error parsing quality profile {key}: {e}")
+        return profiles
+    
     # ===== STATS =====
     
     def get_stats(self) -> dict:
@@ -241,8 +279,8 @@ class RedisJobStore:
             if data:
                 try:
                     jobs.append(Job.model_validate_json(data))
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to deserialize job from {key}: {e}")
         
         profiles = []
         for key in profile_keys:
@@ -250,8 +288,8 @@ class RedisJobStore:
             if data:
                 try:
                     profiles.append(VoiceProfile.model_validate_json(data))
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to deserialize profile from {key}: {e}")
         
         # Conta por status
         job_stats = {

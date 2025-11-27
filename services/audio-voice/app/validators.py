@@ -1,220 +1,264 @@
 """
-Validators module - Validação robusta de inputs para F5-TTS
+Validadores de entrada para API de áudio
 """
 import re
 import logging
-from pathlib import Path
 from typing import Optional
-import soundfile as sf
-
-from .exceptions import InvalidAudioException
-from .models import VoiceProfile
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+# MIME types de áudio suportados
+SUPPORTED_AUDIO_MIMES = {
+    'audio/wav',
+    'audio/wave',
+    'audio/x-wav',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/ogg',
+    'audio/x-m4a',
+    'audio/m4a',
+    'audio/flac',
+    'audio/webm',
+}
 
-def normalize_text_ptbr(text: str) -> str:
+# Extensões de áudio suportadas
+SUPPORTED_AUDIO_EXTENSIONS = {
+    '.wav', '.wave',
+    '.mp3', '.mpeg',
+    '.ogg', '.oga',
+    '.m4a',
+    '.flac',
+    '.webm',
+}
+
+
+def sanitize_text(text: str, max_length: int = 10000) -> str:
     """
-    Normaliza texto para F5-TTS pt-BR com validação robusta.
-    
-    Requirements (HuggingFace firstpixel/F5-TTS-pt-br):
-    - Lowercase
-    - Números convertidos para palavras
-    - Apenas caracteres do vocabulário (2545 tokens)
+    Sanitiza texto para síntese TTS
     
     Args:
-        text: Texto a normalizar
-        
+        text: Texto a sanitizar
+        max_length: Tamanho máximo permitido
+    
     Returns:
-        Texto normalizado pronto para F5-TTS
-        
+        Texto sanitizado
+    
     Raises:
-        ValueError: Se texto inválido
+        ValueError: Se texto inválido ou muito longo
     """
     if not text or not isinstance(text, str):
-        raise ValueError("Text must be non-empty string")
+        raise ValueError("Texto vazio ou inválido")
     
+    # Remove espaços em branco excessivos
     text = text.strip()
-    if not text:
-        raise ValueError("Text cannot be empty after strip")
+    text = re.sub(r'\s+', ' ', text)
     
-    # Lowercase (pt-BR requirement)
-    text = text.lower()
+    # Valida tamanho
+    if len(text) > max_length:
+        raise ValueError(f"Texto muito longo: {len(text)} chars (máximo {max_length})")
     
-    # Converter números para palavras (HuggingFace requirement)
-    try:
-        from num2words import num2words
-        
-        def replace_number(match):
-            try:
-                num_str = match.group()
-                # Converter para palavras em português
-                words = num2words(int(num_str), lang='pt_BR')
-                return words
-            except Exception as e:
-                logger.warning(f"Failed to convert number '{num_str}': {e}")
-                return num_str  # fallback: manter número original
-        
-        text = re.sub(r'\d+', replace_number, text)
-    except ImportError:
-        logger.warning("num2words not installed, skipping number conversion")
-    except Exception as e:
-        logger.warning(f"Number conversion failed: {e}, continuing...")
+    if len(text) == 0:
+        raise ValueError("Texto vazio após sanitização")
     
-    # Remover caracteres não-suportados (vocab pt-BR: a-z, acentos, pontuação básica)
-    text = re.sub(r'[^\w\s\.\,\!\?\-àáâãçéêíóôõú]', '', text)
+    # Remove caracteres de controle (mas mantém newlines)
+    text = ''.join(char for char in text if char.isprintable() or char in ['\n', '\r', '\t'])
     
-    # Remover espaços múltiplos
-    text = re.sub(r'\s+', ' ', text).strip()
-    
-    if not text:
-        raise ValueError("Text is empty after normalization")
+    logger.debug("Text sanitized: %d chars", len(text))
     
     return text
 
 
-def validate_audio_path(path: str, min_duration: float = 1.0, max_duration: float = 60.0) -> None:
+def validate_audio_mime(mime_type: str, filename: Optional[str] = None) -> bool:
     """
-    Valida áudio de referência com checks robustos.
+    Valida MIME type de áudio
     
     Args:
-        path: Caminho do arquivo de áudio
-        min_duration: Duração mínima em segundos
-        max_duration: Duração máxima em segundos
-        
+        mime_type: MIME type reportado (ex: 'audio/wav')
+        filename: Nome do arquivo (opcional, para validação de extensão)
+    
+    Returns:
+        True se válido
+    
     Raises:
-        InvalidAudioException: Se áudio inválido
+        ValueError: Se MIME type inválido
     """
-    if not path or not isinstance(path, str):
-        raise InvalidAudioException("Audio path must be non-empty string")
+    # Normaliza MIME type
+    mime_type = mime_type.lower().strip()
     
-    audio_path = Path(path)
+    # Valida contra lista de MIME types suportados
+    if mime_type not in SUPPORTED_AUDIO_MIMES:
+        raise ValueError(
+            f"Formato de áudio não suportado: {mime_type}. "
+            f"Formatos suportados: {', '.join(sorted(SUPPORTED_AUDIO_MIMES))}"
+        )
     
-    if not audio_path.exists():
-        raise InvalidAudioException(f"Audio file not found: {path}")
-    
-    if not audio_path.is_file():
-        raise InvalidAudioException(f"Path is not a file: {path}")
-    
-    file_size = audio_path.stat().st_size
-    if file_size == 0:
-        raise InvalidAudioException(f"Audio file is empty: {path}")
-    
-    # Validar formato e duração
-    try:
-        info = sf.info(str(audio_path))
-        
-        if info.duration < min_duration:
-            raise InvalidAudioException(
-                f"Audio too short: {info.duration:.1f}s < {min_duration}s"
-            )
-        
-        if info.duration > max_duration:
+    # Validação adicional por extensão (se fornecida)
+    if filename:
+        extension = Path(filename).suffix.lower()
+        if extension and extension not in SUPPORTED_AUDIO_EXTENSIONS:
             logger.warning(
-                f"Audio very long: {info.duration:.1f}s > {max_duration}s, "
-                f"consider trimming for better quality"
+                "Arquivo %s tem extensão %s que pode não corresponder ao MIME %s",
+                filename, extension, mime_type
             )
-        
-        # Validar sample rate
-        if info.samplerate < 16000:
-            logger.warning(
-                f"Low sample rate: {info.samplerate} Hz, "
-                f"F5-TTS works best with 24kHz+"
-            )
-        
-    except Exception as e:
-        raise InvalidAudioException(f"Invalid audio file '{path}': {e}") from e
+    
+    return True
 
 
-def validate_voice_profile(profile: Optional[VoiceProfile]) -> None:
+def validate_audio_file(file_path: str, min_size_bytes: int = 1024) -> bool:
     """
-    Valida VoiceProfile antes de usar em TTS.
+    Valida arquivo de áudio existe e tem tamanho mínimo
     
     Args:
-        profile: VoiceProfile a validar
-        
+        file_path: Caminho do arquivo
+        min_size_bytes: Tamanho mínimo em bytes (padrão 1KB)
+    
+    Returns:
+        True se válido
+    
     Raises:
-        InvalidAudioException: Se profile inválido
+        FileNotFoundError: Se arquivo não existe
+        ValueError: Se arquivo muito pequeno
     """
-    if not profile:
-        raise InvalidAudioException("VoiceProfile is required")
+    path = Path(file_path)
     
-    if not profile.reference_audio_path:
-        raise InvalidAudioException(
-            f"VoiceProfile {profile.id} missing reference_audio_path"
+    if not path.exists():
+        raise FileNotFoundError(f"Arquivo não encontrado: {file_path}")
+    
+    if not path.is_file():
+        raise ValueError(f"Caminho não é um arquivo: {file_path}")
+    
+    file_size = path.stat().st_size
+    if file_size < min_size_bytes:
+        raise ValueError(
+            f"Arquivo muito pequeno: {file_size} bytes (mínimo {min_size_bytes} bytes)"
         )
     
-    # Validar arquivo de áudio
-    validate_audio_path(profile.reference_audio_path, min_duration=1.0, max_duration=15.0)
+    logger.debug("Audio file validated: %s (%d bytes)", file_path, file_size)
     
-    # Validar reference_text
-    if not profile.reference_text:
-        logger.warning(
-            f"VoiceProfile {profile.id} missing reference_text, "
-            f"will use fallback during inference"
-        )
-    elif not isinstance(profile.reference_text, str):
-        raise InvalidAudioException(
-            f"reference_text must be string, got {type(profile.reference_text)}"
-        )
-    elif len(profile.reference_text.strip()) < 3:
-        logger.warning(
-            f"VoiceProfile {profile.id} has very short reference_text "
-            f"({len(profile.reference_text)} chars), quality may be affected"
-        )
+    return True
 
 
-def validate_inference_params(
-    text: str,
-    speed: float = 1.0,
-    nfe_step: int = 16
-) -> None:
+def validate_language_code(language: str, supported_languages: list) -> str:
     """
-    Valida parâmetros de inferência.
+    Valida e normaliza código de idioma
     
     Args:
-        text: Texto a sintetizar
-        speed: Velocidade (0.5-2.0 recomendado)
-        nfe_step: NFE steps (8-32 recomendado)
-        
+        language: Código de idioma (ex: 'pt-BR', 'en')
+        supported_languages: Lista de idiomas suportados
+    
+    Returns:
+        Código normalizado
+    
     Raises:
-        ValueError: Se parâmetros inválidos
+        ValueError: Se idioma não suportado
     """
-    # Validar texto
-    if not text or not isinstance(text, str):
-        raise ValueError("Text must be non-empty string")
+    if not language:
+        raise ValueError("Código de idioma vazio")
     
-    if len(text.strip()) < 3:
-        raise ValueError(f"Text too short: {len(text)} chars")
+    # Normaliza para lowercase
+    language = language.lower().strip()
     
-    if len(text) > 5000:
-        logger.warning(
-            f"Very long text ({len(text)} chars), "
-            f"consider splitting for better quality"
+    # Valida formato básico (xx ou xx-XX)
+    if not re.match(r'^[a-z]{2}(-[a-z]{2})?$', language, re.IGNORECASE):
+        raise ValueError(
+            f"Formato de código de idioma inválido: {language}. "
+            "Use formato ISO 639-1 (ex: 'pt', 'pt-BR', 'en-US')"
         )
     
-    # Validar speed
+    # Extrai código base (pt de pt-BR)
+    lang_base = language.split('-')[0]
+    
+    # Valida se idioma ou código base está suportado
+    supported_lower = [l.lower() for l in supported_languages]
+    
+    if language in supported_lower:
+        return language
+    elif lang_base in supported_lower:
+        logger.debug("Language code %s normalized to base %s", language, lang_base)
+        return lang_base
+    else:
+        raise ValueError(
+            f"Idioma não suportado: {language}. "
+            f"Idiomas suportados: {', '.join(supported_languages)}"
+        )
+
+
+def validate_voice_name(name: str, max_length: int = 100) -> str:
+    """
+    Valida nome de perfil de voz
+    
+    Args:
+        name: Nome do perfil
+        max_length: Tamanho máximo
+    
+    Returns:
+        Nome sanitizado
+    
+    Raises:
+        ValueError: Se nome inválido
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError("Nome de voz vazio ou inválido")
+    
+    # Remove espaços
+    name = name.strip()
+    
+    if len(name) == 0:
+        raise ValueError("Nome de voz vazio após sanitização")
+    
+    if len(name) > max_length:
+        raise ValueError(f"Nome muito longo: {len(name)} chars (máximo {max_length})")
+    
+    # Valida caracteres permitidos (alfanuméricos, espaços, hífens, underscores)
+    if not re.match(r'^[a-zA-Z0-9\s_-]+$', name):
+        raise ValueError(
+            "Nome de voz contém caracteres inválidos. "
+            "Use apenas letras, números, espaços, hífens e underscores"
+        )
+    
+    return name
+
+
+def validate_speed(speed: float) -> float:
+    """
+    Valida parâmetro de velocidade
+    
+    Args:
+        speed: Velocidade (0.5-2.0)
+    
+    Returns:
+        Velocidade validada
+    
+    Raises:
+        ValueError: Se fora do range
+    """
     if not isinstance(speed, (int, float)):
-        raise ValueError(f"Speed must be numeric, got {type(speed)}")
-    
-    if speed <= 0 or speed > 3.0:
-        raise ValueError(f"Speed out of range: {speed} (valid: 0.1-3.0)")
+        raise ValueError(f"Velocidade deve ser número, recebido: {type(speed)}")
     
     if speed < 0.5 or speed > 2.0:
-        logger.warning(
-            f"Speed {speed} outside optimal range (0.5-2.0), "
-            f"quality may be affected"
-        )
+        raise ValueError(f"Velocidade fora do range: {speed} (permitido: 0.5-2.0)")
     
-    # Validar NFE steps
-    if not isinstance(nfe_step, int):
-        raise ValueError(f"nfe_step must be int, got {type(nfe_step)}")
+    return float(speed)
+
+
+def validate_temperature(temperature: float) -> float:
+    """
+    Valida parâmetro de temperatura (variação de emoção)
     
-    if nfe_step < 4 or nfe_step > 64:
-        raise ValueError(f"nfe_step out of range: {nfe_step} (valid: 4-64)")
+    Args:
+        temperature: Temperatura (0.1-1.0)
     
-    if nfe_step < 8:
-        logger.warning(
-            f"Very low NFE steps ({nfe_step}), "
-            f"quality will be poor. Recommended: 16-32"
-        )
+    Returns:
+        Temperatura validada
+    
+    Raises:
+        ValueError: Se fora do range
+    """
+    if not isinstance(temperature, (int, float)):
+        raise ValueError(f"Temperature deve ser número, recebido: {type(temperature)}")
+    
+    if temperature < 0.1 or temperature > 1.0:
+        raise ValueError(f"Temperature fora do range: {temperature} (permitido: 0.1-1.0)")
+    
+    return float(temperature)

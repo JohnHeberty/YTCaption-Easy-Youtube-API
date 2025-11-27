@@ -11,8 +11,6 @@ services:
       - ./temp:/app/temp
       - ./voice_profiles:/app/voice_profiles
       - ./models:/app/models
-      # NOTA: ./logs é criado pelo container automaticamente
-      # Se montar volume aqui e tiver erro de permissão, execute: chmod 777 logs
       - ./logs:/app/logs
     env_file:
       - .env
@@ -20,28 +18,10 @@ services:
       - PYTHONPATH=/app
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      # Matplotlib cache directory fix
       - MPLCONFIGDIR=/app/temp/.matplotlib
-      
-      # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
-      - USE_XTTS=true
       - XTTS_DEVICE=cuda
       - XTTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
-      - XTTS_TEMPERATURE=0.7
       - XTTS_FALLBACK_CPU=true
-      
-      # ===== F5-TTS (FALLBACK - Deprecated) =====
-      # Para usar F5-TTS, set USE_XTTS=false e TTS_ENGINE=f5tts
-      - TTS_ENGINE=f5tts
-      - F5TTS_DEVICE=cuda
-      - F5TTS_WHISPER_DEVICE=cpu
-      # Otimizações GTX 1050 Ti (4GB VRAM)
-      - F5TTS_NFE_STEP=16
-      - F5TTS_USE_FP16=true
-      - F5TTS_MAX_BATCH_SIZE=1
-      # Modelo customizado pt-BR
-      - F5TTS_CUSTOM_MODEL_DIR=/app/models/f5tts/pt-br
-      - F5TTS_CUSTOM_MODEL_FILE=model_last.safetensors
     deploy:
       resources:
         limits:
@@ -61,7 +41,7 @@ services:
       start_period: 90s
     labels:
       - "com.example.service=audio-voice"
-      - "com.example.version=1.0.0"
+      - "com.example.version=2.0.0"
 
   celery-worker:
     build: .
@@ -82,28 +62,10 @@ services:
       - C_FORCE_ROOT=true
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      # Matplotlib cache directory fix
       - MPLCONFIGDIR=/app/temp/.matplotlib
-      
-      # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
-      - USE_XTTS=true
       - XTTS_DEVICE=cuda
       - XTTS_MODEL=tts_models/multilingual/multi-dataset/xtts_v2
-      - XTTS_TEMPERATURE=0.7
       - XTTS_FALLBACK_CPU=true
-      
-      # ===== F5-TTS (FALLBACK - Deprecated) =====
-      # Para usar F5-TTS, set USE_XTTS=false e TTS_ENGINE=f5tts
-      - TTS_ENGINE=f5tts
-      - F5TTS_DEVICE=cuda
-      - F5TTS_WHISPER_DEVICE=cpu
-      # Otimizações GTX 1050 Ti (4GB VRAM)
-      - F5TTS_NFE_STEP=16
-      - F5TTS_USE_FP16=true
-      - F5TTS_MAX_BATCH_SIZE=1
-      # Modelo customizado pt-BR
-      - F5TTS_CUSTOM_MODEL_DIR=/app/models/f5tts/pt-br
-      - F5TTS_CUSTOM_MODEL_FILE=model_last.safetensors
     deploy:
       resources:
         limits:
@@ -126,4 +88,4 @@ services:
       start_period: 60s
     labels:
       - "com.example.service=audio-voice-worker"
-      - "com.example.version=1.0.0"
+      - "com.example.version=2.0.0"

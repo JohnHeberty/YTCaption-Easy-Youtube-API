@@ -336,6 +336,183 @@ else
 fi
 echo ""
 
+# ============================================
+# TESTE 11: Listar Perfis de Qualidade
+# ============================================
+echo "📊 TESTE 11: Listar Perfis de Qualidade"
+echo "----------------------------------------"
+
+PROFILES=$(curl -s "$BASE_URL/quality-profiles")
+echo "$PROFILES" | jq .
+
+PROFILE_COUNT=$(echo "$PROFILES" | jq '.profiles | length')
+DEFAULT_PROFILE=$(echo "$PROFILES" | jq -r '.default')
+
+echo "Perfis disponíveis: $PROFILE_COUNT"
+echo "Perfil padrão: $DEFAULT_PROFILE"
+
+if [ "$PROFILE_COUNT" -eq 3 ]; then
+    echo -e "${GREEN}✅ 3 perfis encontrados${NC}"
+    
+    # Valida que cada perfil tem os campos necessários
+    for PROFILE in balanced expressive stable; do
+        HAS_PROFILE=$(echo "$PROFILES" | jq -r ".profiles.$PROFILE.name // empty")
+        if [ -n "$HAS_PROFILE" ]; then
+            echo "  ✓ Perfil '$PROFILE' OK"
+        else
+            echo -e "  ${RED}✗ Perfil '$PROFILE' ausente${NC}"
+        fi
+    done
+else
+    echo -e "${RED}❌ Esperado 3 perfis, encontrado $PROFILE_COUNT${NC}"
+    exit 1
+fi
+echo ""
+
+# ============================================
+# TESTE 12: Dubbing com Perfil BALANCED
+# ============================================
+echo "🎭 TESTE 12: Dubbing com Perfil BALANCED"
+echo "-----------------------------------------"
+
+JOB_BALANCED=$(curl -s -X POST "$BASE_URL/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"mode\": \"dubbing_with_clone\",
+    \"text\": \"Este áudio usa o perfil BALANCED para melhor equilíbrio entre emoção e estabilidade.\",
+    \"source_language\": \"pt\",
+    \"voice_id\": \"$VOICE_ID\",
+    \"quality_profile\": \"balanced\"
+  }")
+
+JOB_BALANCED_ID=$(echo "$JOB_BALANCED" | jq -r '.id')
+echo "Job BALANCED criado: $JOB_BALANCED_ID"
+
+# Aguarda conclusão
+echo -n "Aguardando processamento"
+MAX_WAIT_BALANCED=60
+WAITED_BALANCED=0
+while [ $WAITED_BALANCED -lt $MAX_WAIT_BALANCED ]; do
+    JOB_STATUS_BALANCED=$(curl -s "$BASE_URL/jobs/$JOB_BALANCED_ID")
+    STATUS_BALANCED=$(echo "$JOB_STATUS_BALANCED" | jq -r '.status')
+    
+    if [ "$STATUS_BALANCED" == "completed" ]; then
+        echo -e " ${GREEN}concluído!${NC}"
+        break
+    elif [ "$STATUS_BALANCED" == "failed" ]; then
+        echo -e " ${RED}falhou!${NC}"
+        ERROR_MSG_BALANCED=$(echo "$JOB_STATUS_BALANCED" | jq -r '.error_message')
+        echo "Erro: $ERROR_MSG_BALANCED"
+        exit 1
+    fi
+    
+    echo -n "."
+    sleep 2
+    WAITED_BALANCED=$((WAITED_BALANCED + 2))
+done
+
+# Download
+curl -s "$BASE_URL/jobs/$JOB_BALANCED_ID/download" -o "test_balanced.wav"
+FILE_SIZE_BALANCED=$(ls -lh test_balanced.wav | awk '{print $5}')
+echo -e "${GREEN}✅ Perfil BALANCED OK ($FILE_SIZE_BALANCED)${NC}"
+echo ""
+
+# ============================================
+# TESTE 13: Dubbing com Perfil EXPRESSIVE
+# ============================================
+echo "🎭 TESTE 13: Dubbing com Perfil EXPRESSIVE"
+echo "-------------------------------------------"
+
+JOB_EXPRESSIVE=$(curl -s -X POST "$BASE_URL/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"mode\": \"dubbing_with_clone\",
+    \"text\": \"Este áudio usa o perfil EXPRESSIVE para MÁXIMA emoção e naturalidade!\",
+    \"source_language\": \"pt\",
+    \"voice_id\": \"$VOICE_ID\",
+    \"quality_profile\": \"expressive\"
+  }")
+
+JOB_EXPRESSIVE_ID=$(echo "$JOB_EXPRESSIVE" | jq -r '.id')
+echo "Job EXPRESSIVE criado: $JOB_EXPRESSIVE_ID"
+
+# Aguarda conclusão
+echo -n "Aguardando processamento"
+MAX_WAIT_EXPRESSIVE=60
+WAITED_EXPRESSIVE=0
+while [ $WAITED_EXPRESSIVE -lt $MAX_WAIT_EXPRESSIVE ]; do
+    JOB_STATUS_EXPRESSIVE=$(curl -s "$BASE_URL/jobs/$JOB_EXPRESSIVE_ID")
+    STATUS_EXPRESSIVE=$(echo "$JOB_STATUS_EXPRESSIVE" | jq -r '.status')
+    
+    if [ "$STATUS_EXPRESSIVE" == "completed" ]; then
+        echo -e " ${GREEN}concluído!${NC}"
+        break
+    elif [ "$STATUS_EXPRESSIVE" == "failed" ]; then
+        echo -e " ${RED}falhou!${NC}"
+        ERROR_MSG_EXPRESSIVE=$(echo "$JOB_STATUS_EXPRESSIVE" | jq -r '.error_message')
+        echo "Erro: $ERROR_MSG_EXPRESSIVE"
+        exit 1
+    fi
+    
+    echo -n "."
+    sleep 2
+    WAITED_EXPRESSIVE=$((WAITED_EXPRESSIVE + 2))
+done
+
+# Download
+curl -s "$BASE_URL/jobs/$JOB_EXPRESSIVE_ID/download" -o "test_expressive.wav"
+FILE_SIZE_EXPRESSIVE=$(ls -lh test_expressive.wav | awk '{print $5}')
+echo -e "${GREEN}✅ Perfil EXPRESSIVE OK ($FILE_SIZE_EXPRESSIVE)${NC}"
+echo ""
+
+# ============================================
+# TESTE 14: Dubbing com Perfil STABLE
+# ============================================
+echo "🔒 TESTE 14: Dubbing com Perfil STABLE"
+echo "---------------------------------------"
+
+JOB_STABLE=$(curl -s -X POST "$BASE_URL/jobs" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"mode\": \"dubbing_with_clone\",
+    \"text\": \"Este áudio usa o perfil STABLE para produção conservadora e segura.\",
+    \"source_language\": \"pt\",
+    \"voice_id\": \"$VOICE_ID\",
+    \"quality_profile\": \"stable\"
+  }")
+
+JOB_STABLE_ID=$(echo "$JOB_STABLE" | jq -r '.id')
+echo "Job STABLE criado: $JOB_STABLE_ID"
+
+# Aguarda conclusão
+echo -n "Aguardando processamento"
+MAX_WAIT_STABLE=60
+WAITED_STABLE=0
+while [ $WAITED_STABLE -lt $MAX_WAIT_STABLE ]; do
+    JOB_STATUS_STABLE=$(curl -s "$BASE_URL/jobs/$JOB_STABLE_ID")
+    STATUS_STABLE=$(echo "$JOB_STATUS_STABLE" | jq -r '.status')
+    
+    if [ "$STATUS_STABLE" == "completed" ]; then
+        echo -e " ${GREEN}concluído!${NC}"
+        break
+    elif [ "$STATUS_STABLE" == "failed" ]; then
+        echo -e " ${RED}falhou!${NC}"
+        ERROR_MSG_STABLE=$(echo "$JOB_STATUS_STABLE" | jq -r '.error_message')
+        echo "Erro: $ERROR_MSG_STABLE"
+        exit 1
+    fi
+    
+    echo -n "."
+    sleep 2
+    WAITED_STABLE=$((WAITED_STABLE + 2))
+done
+
+# Download
+curl -s "$BASE_URL/jobs/$JOB_STABLE_ID/download" -o "test_stable.wav"
+FILE_SIZE_STABLE=$(ls -lh test_stable.wav | awk '{print $5}')
+echo -e "${GREEN}✅ Perfil STABLE OK ($FILE_SIZE_STABLE)${NC}"
+echo ""
+
 echo ""
 
 # ============================================
@@ -354,13 +531,20 @@ echo -e "${GREEN}✅ TESTE 7: Download - OK ($OUTPUT_FILE)${NC}"
 echo -e "${GREEN}✅ TESTE 8: Formatos - OK ($FORMATS_COUNT formatos)${NC}"
 echo -e "${GREEN}✅ TESTE 9: Múltiplos Formatos - OK (mp3, ogg, flac)${NC}"
 echo -e "${GREEN}✅ TESTE 10: Cleanup - OK${NC}"
+echo -e "${GREEN}✅ TESTE 11: Quality Profiles - OK (3 perfis)${NC}"
+echo -e "${GREEN}✅ TESTE 12: Perfil BALANCED - OK ($FILE_SIZE_BALANCED)${NC}"
+echo -e "${GREEN}✅ TESTE 13: Perfil EXPRESSIVE - OK ($FILE_SIZE_EXPRESSIVE)${NC}"
+echo -e "${GREEN}✅ TESTE 14: Perfil STABLE - OK ($FILE_SIZE_STABLE)${NC}"
 echo ""
-echo -e "${GREEN}🎉 TODOS OS 10 TESTES PASSARAM!${NC}"
+echo -e "${GREEN}🎉 TODOS OS 14 TESTES PASSARAM!${NC}"
 echo ""
 echo "Arquivos gerados:"
-ls -lh test_xtts_output_*.wav 2>/dev/null || echo "  Nenhum"
+ls -lh test_*.wav 2>/dev/null || echo "  Nenhum"
 echo ""
-echo "Para ouvir o áudio:"
+echo "Para comparar os perfis de qualidade:"
+echo "  ffplay test_balanced.wav    # Perfil BALANCED (recomendado)"
+echo "  ffplay test_expressive.wav  # Perfil EXPRESSIVE (max emoção)"
+echo "  ffplay test_stable.wav      # Perfil STABLE (conservador)"
+echo ""
+echo "Para ouvir o áudio original:"
 echo "  ffplay $OUTPUT_FILE"
-echo "  # ou"
-echo "  open $OUTPUT_FILE"

@@ -46,62 +46,6 @@ def get_settings():
         'max_concurrent_jobs': int(os.getenv('MAX_CONCURRENT_JOBS', '3')),
         'job_timeout_minutes': int(os.getenv('JOB_TIMEOUT_MINUTES', '15')),
         
-        # ===== OPENVOICE =====
-        'openvoice': {
-            'model_path': os.getenv('OPENVOICE_MODEL_PATH', './models'),
-            'device': os.getenv('OPENVOICE_DEVICE', 'cpu'),  # cpu ou cuda
-            'default_model': os.getenv('OPENVOICE_DEFAULT_MODEL', 'base'),
-            'preload_models': os.getenv('OPENVOICE_PRELOAD_MODELS', 'false').lower() == 'true',
-            
-            # Modelos
-            'base_speaker_model': os.getenv('OPENVOICE_BASE_SPEAKER_MODEL', 'checkpoints/base_speakers/EN'),
-            'converter_model': os.getenv('OPENVOICE_CONVERTER_MODEL', 'checkpoints/converter'),
-            
-            # Parâmetros de síntese
-            'default_speed': float(os.getenv('OPENVOICE_DEFAULT_SPEED', '1.0')),
-            'default_pitch': float(os.getenv('OPENVOICE_DEFAULT_PITCH', '1.0')),
-            'sample_rate': int(os.getenv('OPENVOICE_SAMPLE_RATE', '24000')),
-            
-            # Voice cloning
-            'min_clone_duration_sec': int(os.getenv('OPENVOICE_MIN_CLONE_DURATION_SEC', '5')),
-            'max_clone_duration_sec': int(os.getenv('OPENVOICE_MAX_CLONE_DURATION_SEC', '60')),
-            'clone_sample_rate': int(os.getenv('OPENVOICE_CLONE_SAMPLE_RATE', '24000')),
-        },
-        
-        # ===== F5-TTS (pt-BR OPTIMIZED for GTX 1050 Ti) =====
-        'f5tts': {
-            # Modelo padrão
-            'model': os.getenv('F5TTS_MODEL', 'F5-TTS'),
-            
-            # Device (cuda para GTX 1050 Ti)
-            'device': os.getenv('F5TTS_DEVICE', 'cuda'),
-            
-            # Paths - MODELO PT-BR CUSTOMIZADO
-            'hf_cache_dir': os.getenv('F5TTS_CACHE', '/app/models/f5tts'),
-            'custom_model_dir': os.getenv('F5TTS_CUSTOM_MODEL_DIR', '/app/models/f5tts/pt-br'),
-            'custom_model_file': os.getenv('F5TTS_CUSTOM_MODEL_FILE', 'model_last.safetensors'),
-            
-            # Otimizações VRAM (GTX 1050 Ti = 4GB)
-            'nfe_step': int(os.getenv('F5TTS_NFE_STEP', '16')),  # REDUZIDO: 32->16 (economia VRAM)
-            'target_rms': float(os.getenv('F5TTS_TARGET_RMS', '0.1')),
-            'use_fp16': os.getenv('F5TTS_USE_FP16', 'true').lower() == 'true',  # FP16 ativa
-            'max_batch_size': int(os.getenv('F5TTS_MAX_BATCH_SIZE', '1')),  # Batch=1 para VRAM baixa
-            
-            # Limites de texto/áudio (evitar OOM)
-            'max_gen_length': int(os.getenv('F5TTS_MAX_GEN_LENGTH', '5000')),  # chars
-            'max_ref_duration': int(os.getenv('F5TTS_MAX_REF_DURATION', '12')),  # segundos
-            
-            # Whisper para transcrição (SEMPRE CPU para economizar VRAM)
-            'whisper_model': os.getenv('F5TTS_WHISPER_MODEL', 'openai/whisper-base'),  # base (mais leve)
-            'whisper_device': os.getenv('F5TTS_WHISPER_DEVICE', 'cpu'),  # CPU por padrão
-        },
-        
-        # ===== F5TTS PT-BR MODEL PATH =====
-        'F5TTS_MODEL_PATH': os.path.join(
-            os.getenv('F5TTS_CUSTOM_MODEL_DIR', '/app/models/f5tts/pt-br'),
-            os.getenv('F5TTS_CUSTOM_MODEL_FILE', 'model_last.safetensors')
-        ),
-        
         # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
         'xtts': {
             # Modelo padrão
@@ -114,11 +58,11 @@ def get_settings():
             'fallback_to_cpu': os.getenv('XTTS_FALLBACK_CPU', 'true').lower() == 'true',
             
             # Parâmetros de síntese
-            'temperature': float(os.getenv('XTTS_TEMPERATURE', '0.7')),
-            'repetition_penalty': float(os.getenv('XTTS_REPETITION_PENALTY', '5.0')),
-            'length_penalty': float(os.getenv('XTTS_LENGTH_PENALTY', '1.0')),
-            'top_k': int(os.getenv('XTTS_TOP_K', '50')),
-            'top_p': float(os.getenv('XTTS_TOP_P', '0.85')),
+            'temperature': float(os.getenv('XTTS_TEMPERATURE', '0.8')),
+            'repetition_penalty': float(os.getenv('XTTS_REPETITION_PENALTY', '1.3')),
+            'length_penalty': float(os.getenv('XTTS_LENGTH_PENALTY', '1.2')),
+            'top_k': int(os.getenv('XTTS_TOP_K', '70')),
+            'top_p': float(os.getenv('XTTS_TOP_P', '0.93')),
             'speed': float(os.getenv('XTTS_SPEED', '1.0')),
             
             # Text splitting para textos longos
@@ -133,30 +77,75 @@ def get_settings():
             'max_ref_duration': int(os.getenv('XTTS_MAX_REF_DURATION', '30')),  # segundos
         },
         
-        # ===== TTS ENGINE SELECTION =====
-        'use_xtts': os.getenv('USE_XTTS', 'true').lower() == 'true',  # True = XTTS (padrão), False = TTS_ENGINE var
+        # ===== RVC (Voice Conversion) =====
+        'rvc': {
+            # Device (auto, cuda, cpu)
+            'device': os.getenv('RVC_DEVICE', 'cpu'),  # Default CPU (economiza VRAM)
+            
+            # Fallback para CPU se CUDA não disponível
+            'fallback_to_cpu': os.getenv('RVC_FALLBACK_TO_CPU', 'true').lower() == 'true',
+            
+            # Diretório dos modelos RVC
+            'models_dir': os.getenv('RVC_MODELS_DIR', './models/rvc'),
+            
+            # Parâmetros padrão de conversão
+            'pitch': int(os.getenv('RVC_PITCH', '0')),  # -12 a +12 semitons
+            'filter_radius': int(os.getenv('RVC_FILTER_RADIUS', '3')),
+            'index_rate': float(os.getenv('RVC_INDEX_RATE', '0.75')),
+            'rms_mix_rate': float(os.getenv('RVC_RMS_MIX_RATE', '0.25')),
+            'protect': float(os.getenv('RVC_PROTECT', '0.33')),
+        },
+        
+        # ===== RESILIÊNCIA =====
+        'resilience': {
+            'max_retries': int(os.getenv('MAX_RETRIES', '3')),
+            'retry_delay_seconds': int(os.getenv('RETRY_DELAY_SECONDS', '5')),
+            'circuit_breaker_threshold': int(os.getenv('CIRCUIT_BREAKER_THRESHOLD', '5')),
+            'circuit_breaker_timeout': int(os.getenv('CIRCUIT_BREAKER_TIMEOUT', '60')),
+            'task_timeout_seconds': int(os.getenv('TASK_TIMEOUT_SECONDS', '300')),  # 5min
+        },
         
         # ===== VOICE PRESETS =====
         'voice_presets': {
             'female_generic': {
                 'speaker': 'default_female',
                 'description': 'Voz feminina genérica',
-                'languages': ['en', 'pt', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
+                'languages': ['en', 'pt', 'pt-BR', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
             },
             'male_generic': {
                 'speaker': 'default_male',
                 'description': 'Voz masculina genérica',
-                'languages': ['en', 'pt', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
+                'languages': ['en', 'pt', 'pt-BR', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
             },
             'female_young': {
                 'speaker': 'young_female',
                 'description': 'Voz feminina jovem',
-                'languages': ['en', 'pt', 'es', 'fr']
+                'languages': ['en', 'pt', 'pt-BR', 'es', 'fr']
             },
             'male_deep': {
                 'speaker': 'deep_male',
                 'description': 'Voz masculina grave',
-                'languages': ['en', 'pt', 'es']
+                'languages': ['en', 'pt', 'pt-BR', 'es']
+            },
+            'female_warm': {
+                'speaker': 'warm_female',
+                'description': 'Voz feminina mais natural, calorosa',
+                'languages': ['pt', 'pt-BR', 'en']
+            },
+            'male_warm': {
+                'speaker': 'warm_male',
+                'description': 'Voz masculina mais natural, calorosa',
+                'languages': ['pt', 'pt-BR', 'en']
+            },
+            'female_soft': {
+                'speaker': 'soft_female',
+                'description': 'Voz feminina suave, naturalidade máxima',
+                'languages': ['pt', 'pt-BR', 'en']
+            },
+            'male_soft': {
+                'speaker': 'soft_male',
+                'description': 'Voz masculina suave, naturalidade máxima',
+                'languages': ['pt', 'pt-BR', 'en']
             }
         },
         

@@ -23,12 +23,15 @@ _processor = None
 def get_processor() -> VoiceProcessor:
     """
     Retorna instância do VoiceProcessor (LAZY LOADING)
-    Evita carregar modelo F5-TTS no import do módulo
+    Lazy loading: modelo XTTS só é carregado quando task é executada,
+    não no import do módulo (economiza memória em workers idle)
     """
     global _processor
     if _processor is None:
         logger.info("🔧 Initializing VoiceProcessor (lazy load)...")
-        _processor = VoiceProcessor()
+        # Worker CARREGA modelo XTTS (lazy_load=False)
+        # Diferente da API que usa lazy_load=True
+        _processor = VoiceProcessor(lazy_load=False)
         _processor.job_store = job_store
     return _processor
 
