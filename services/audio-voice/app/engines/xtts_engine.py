@@ -108,6 +108,14 @@ class XttsEngine(TTSEngine):
         # Model configuration
         self.model_name = model_name
         
+        # Cache directory para modelos
+        self.cache_dir = Path('/app/models/xtts')
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"XTTS model cache: {self.cache_dir}")
+        
+        # Set COQUI_TOS_AGREED to avoid interactive prompts
+        os.environ['COQUI_TOS_AGREED'] = '1'
+        
         # Load XTTS model
         try:
             gpu = (self.device == 'cuda')
@@ -121,7 +129,12 @@ class XttsEngine(TTSEngine):
             else:
                 # Normal mode: load immediately
                 # progress_bar=False evita prompts interativos
-                self.tts = TTS(self.model_name, gpu=gpu, progress_bar=False)
+                self.tts = TTS(
+                    self.model_name,
+                    gpu=gpu,
+                    progress_bar=False,
+                    model_path=str(self.cache_dir)
+                )
                 logger.info(f"✅ XTTS model loaded: {self.model_name}")
             
         except Exception as e:
@@ -152,7 +165,12 @@ class XttsEngine(TTSEngine):
         if self.tts is None:
             gpu = (self.device == 'cuda')
             logger.info(f"Loading XTTS model on-demand: {self.model_name}")
-            self.tts = TTS(self.model_name, gpu=gpu, progress_bar=False)
+            self.tts = TTS(
+                self.model_name,
+                gpu=gpu,
+                progress_bar=False,
+                model_path=str(self.cache_dir)
+            )
             self._model_loaded = True
             logger.info("✅ XTTS model loaded (lazy)")
         return self.tts

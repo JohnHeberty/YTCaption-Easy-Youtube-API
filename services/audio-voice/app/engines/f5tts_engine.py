@@ -80,7 +80,7 @@ class F5TtsEngine(TTSEngine):
         self,
         device: Optional[str] = None,
         fallback_to_cpu: bool = True,
-        model_name: str = 'SWivid/F5-TTS',
+        model_name: str = 'SWivid/E2-TTS',
         whisper_model: str = 'base'
     ):
         """
@@ -89,12 +89,17 @@ class F5TtsEngine(TTSEngine):
         Args:
             device: Device ('cuda', 'cpu', or None for auto-detect)
             fallback_to_cpu: If True, fallback to CPU when CUDA unavailable
-            model_name: HuggingFace model name
+            model_name: HuggingFace model name (default: E2-TTS with emotion support)
             whisper_model: Whisper model for auto-transcription
                           ('tiny', 'base', 'small', 'medium', 'large')
         """
         self.model_name = model_name
         self.whisper_model_name = whisper_model
+        
+        # Cache directory para modelos
+        self.cache_dir = Path('/app/models/f5tts')
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"F5-TTS model cache: {self.cache_dir}")
         
         # Device selection
         self.device = self._select_device(device, fallback_to_cpu)
@@ -116,7 +121,8 @@ class F5TtsEngine(TTSEngine):
                 logger.info(f"Loading F5-TTS model: {model_name}")
                 self.tts = F5TTS.from_pretrained(
                     model_name,
-                    device=self.device
+                    device=self.device,
+                    cache_dir=str(self.cache_dir)
                 )
                 logger.info("✅ F5-TTS model loaded successfully")
             
@@ -152,7 +158,8 @@ class F5TtsEngine(TTSEngine):
             logger.info(f"Loading F5-TTS model on-demand: {self.model_name}")
             self.tts = self._f5tts_class.from_pretrained(
                 self.model_name,
-                device=self.device
+                device=self.device,
+                cache_dir=str(self.cache_dir)
             )
             self._model_loaded = True
             logger.info("✅ F5-TTS model loaded (lazy)")
