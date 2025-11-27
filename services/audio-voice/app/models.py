@@ -33,6 +33,22 @@ class JobMode(str, Enum):
     CLONE_VOICE = "clone_voice"              # Clonagem de voz
 
 
+class TTSEngine(str, Enum):
+    """TTS Engines disponíveis"""
+    XTTS = "xtts"
+    F5TTS = "f5tts"
+
+
+class RvcF0Method(str, Enum):
+    """Métodos de extração F0 para RVC"""
+    RMVPE = "rmvpe"
+    FCPE = "fcpe"
+    PM = "pm"
+    HARVEST = "harvest"
+    DIO = "dio"
+    CREPE = "crepe"
+
+
 class QualityProfile(str, Enum):
     """
     Perfis de qualidade para geração XTTS.
@@ -194,9 +210,9 @@ class Job(BaseModel):
     )
     
     # Qualidade
-    quality_profile: Optional[QualityProfile] = Field(
-        default=QualityProfile.BALANCED,
-        description="Perfil de qualidade para geração de áudio"
+    quality_profile: Optional[str] = Field(
+        default=None,
+        description="Quality profile ID (ex: 'xtts_balanced', 'f5tts_ultra_quality')"
     )
     
     # === SPRINT 4: Parâmetros RVC ===

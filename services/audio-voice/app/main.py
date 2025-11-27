@@ -16,8 +16,18 @@ import subprocess
 from .models import (
     Job, JobStatus, JobMode, VoiceProfile, QualityProfile, VoicePreset,
     DubbingRequest, VoiceCloneRequest,
-    VoiceListResponse, JobListResponse, RvcModelResponse, RvcModelListResponse
+    VoiceListResponse, JobListResponse, RvcModelResponse, RvcModelListResponse,
+    RvcF0Method  # TTSEngine já vem de quality_profiles
 )
+from .quality_profiles import (
+    TTSEngine,  # Import principal
+    XTTSQualityProfile,
+    F5TTSQualityProfile,
+    QualityProfileCreate,
+    QualityProfileUpdate,
+    QualityProfileList
+)
+from .quality_profile_manager import quality_profile_manager
 from .processor import VoiceProcessor
 from .redis_store import RedisJobStore
 from .config import get_settings, is_language_supported, get_voice_presets, is_voice_preset_valid, get_supported_languages
@@ -211,13 +221,14 @@ async def create_job(
     text: str = Form(..., min_length=1, max_length=10000, description="Texto para dublar (1-10.000 caracteres)"),
     source_language: str = Form(..., description="Idioma do texto (pt, pt-BR, en, es, fr, etc.)"),
     mode: JobMode = Form(..., description="Modo: dubbing (voz genérica) ou dubbing_with_clone (voz clonada)"),
-    quality_profile: QualityProfile = Form(QualityProfile.BALANCED, description="Perfil de qualidade: fast, balanced, high_quality"),
     voice_preset: Optional[VoicePreset] = Form(VoicePreset.female_generic, description="Preset de voz genérica (dropdown, apenas para mode=dubbing)"),
     voice_id: Optional[str] = Form(None, description="ID de voz clonada (apenas para mode=dubbing_with_clone)"),
     target_language: Optional[str] = Form(None, description="Idioma de destino (padrão: mesmo que source_language)"),
     # TTS Engine Selection (Sprint 4)
-    tts_engine: Optional[str] = Form('xtts', description="TTS engine: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)"),
+    tts_engine: TTSEngine = Form(TTSEngine.XTTS, description="TTS engine: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)"),
     ref_text: Optional[str] = Form(None, description="Reference transcription for F5-TTS voice cloning (auto-transcribed if None)"),
+    # Quality Profile (NEW - usa sistema de profiles por engine)
+    quality_profile_id: Optional[str] = Form(None, description="Quality profile ID (ex: 'xtts_balanced', 'f5tts_ultra_quality'). Se None, usa padrão do engine."),
     # RVC Parameters (Sprint 7)
     enable_rvc: bool = Form(False, description="Enable RVC voice conversion (default: False)"),
     rvc_model_id: Optional[str] = Form(None, description="RVC model ID (required if enable_rvc=True)"),
@@ -225,7 +236,8 @@ async def create_job(
     rvc_index_rate: float = Form(0.75, description="Index rate for retrieval (0.0 to 1.0)"),
     rvc_filter_radius: int = Form(3, description="Median filter radius (0 to 7)"),
     rvc_rms_mix_rate: float = Form(0.25, description="RMS mix rate (0.0 to 1.0)"),
-    rvc_protect: float = Form(0.33, description="Protect voiceless consonants (0.0 to 0.5)")
+    rvc_protect: float = Form(0.33, description="Protect voiceless consonants (0.0 to 0.5)"),
+    rvc_f0_method: RvcF0Method = Form(RvcF0Method.RMVPE, description="Pitch extraction method (dropdown)")
 ) -> Job:
     """
     Cria job de dublagem com validação rigorosa (similar a admin/cleanup)
@@ -234,16 +246,20 @@ async def create_job(
     - **text**: Texto para dublar (1-10.000 caracteres)
     - **source_language**: Idioma do texto (validado contra lista de suportados)
     - **mode**: dubbing ou dubbing_with_clone
-    - **quality_profile**: fast, balanced ou high_quality
     - **voice_preset**: Preset de voz genérica (obrigatório se mode=dubbing)
     - **voice_id**: ID de voz clonada (obrigatório se mode=dubbing_with_clone)
     - **target_language**: Idioma de destino (opcional, padrão=source_language)
     
-    **TTS Engine Selection (NEW - Sprint 4):**
-    - **tts_engine**: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)
+    **TTS Engine Selection (Sprint 4):**
+    - **tts_engine**: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality) - DROPDOWN
     - **ref_text**: Reference transcription for F5-TTS (auto-transcribed if None)
     
-    **RVC Parameters (NEW - Sprint 7):**
+    **Quality Profile (NEW):**
+    - **quality_profile_id**: ID do perfil de qualidade (ex: 'xtts_balanced', 'f5tts_ultra_quality')
+    - Se None, usa perfil padrão do engine selecionado
+    - Use GET /quality-profiles para listar perfis disponíveis
+    
+    **RVC Parameters (Sprint 7):**
     - **enable_rvc**: Enable RVC voice conversion (default: False)
     - **rvc_model_id**: RVC model ID (required if enable_rvc=True)
     - **rvc_pitch**: Pitch shift in semitones (-12 to +12, default: 0)
@@ -251,19 +267,12 @@ async def create_job(
     - **rvc_filter_radius**: Median filter radius (0-7, default: 3)
     - **rvc_rms_mix_rate**: RMS mix rate (0.0-1.0, default: 0.25)
     - **rvc_protect**: Protect voiceless consonants (0.0-0.5, default: 0.33)
+    - **rvc_f0_method**: Pitch extraction method - DROPDOWN (rmvpe/fcpe/pm/harvest/dio/crepe)
     """
     try:
         # Validações adicionais
         if not is_language_supported(source_language):
             raise InvalidLanguageException(source_language)
-        
-        # Valida tts_engine
-        valid_engines = ['xtts', 'f5tts']
-        if tts_engine not in valid_engines:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid tts_engine '{tts_engine}'. Valid options: {valid_engines}"
-            )
         
         # Define target_language se não fornecido
         if not target_language:
@@ -273,7 +282,7 @@ async def create_job(
         if mode == JobMode.DUBBING:
             if not voice_preset:
                 voice_preset = VoicePreset.female_generic
-            if not is_voice_preset_valid(voice_preset.value):
+            if not is_voice_preset_valid(voice_preset.value if isinstance(voice_preset, VoicePreset) else voice_preset):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Invalid voice preset: {voice_preset}. Valid presets: {get_voice_presets()}"
@@ -324,14 +333,28 @@ async def create_job(
             text=text,
             source_language=source_language,
             target_language=target_language,
-            voice_preset=voice_preset.value if voice_preset else None,
+            voice_preset=voice_preset.value if isinstance(voice_preset, VoicePreset) else (voice_preset if voice_preset else None),
             voice_id=voice_id,
-            tts_engine=tts_engine,
+            tts_engine=tts_engine.value if isinstance(tts_engine, TTSEngine) else tts_engine,  # Converte enum para string se necessário
             ref_text=ref_text
         )
         
-        # Adiciona quality_profile
-        new_job.quality_profile = quality_profile
+        # Adiciona quality_profile_id (novo sistema)
+        if quality_profile_id:
+            # Validar se profile existe
+            engine_name = tts_engine.value if isinstance(tts_engine, TTSEngine) else tts_engine
+            profile = quality_profile_manager.get_profile(engine_name, quality_profile_id)
+            if not profile:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Quality profile not found: {quality_profile_id}"
+                )
+            new_job.quality_profile = quality_profile_id
+        else:
+            # Usa perfil padrão do engine
+            engine_name = tts_engine.value if isinstance(tts_engine, TTSEngine) else tts_engine
+            default_profile_id = f"{engine_name}_balanced"
+            new_job.quality_profile = default_profile_id
         
         # Adiciona parâmetros RVC (Sprint 7)
         if enable_rvc:
@@ -342,6 +365,7 @@ async def create_job(
             new_job.rvc_filter_radius = rvc_filter_radius
             new_job.rvc_rms_mix_rate = rvc_rms_mix_rate
             new_job.rvc_protect = rvc_protect
+            new_job.rvc_f0_method = rvc_f0_method.value if isinstance(rvc_f0_method, RvcF0Method) else rvc_f0_method  # Converte enum para string se necessário
         
         # Verifica cache
         existing_job = job_store.get_job(new_job.id)
@@ -555,7 +579,7 @@ async def clone_voice(
     name: str = Form(...),
     language: str = Form(...),
     description: Optional[str] = Form(None),
-    tts_engine: Optional[str] = Form('xtts', description="TTS engine: 'xtts' or 'f5tts'"),
+    tts_engine: TTSEngine = Form(TTSEngine.XTTS, description="TTS engine: 'xtts' or 'f5tts'"),
     ref_text: Optional[str] = Form(None, description="Reference transcription for F5-TTS (auto-transcribed if None)")
 ):
     """
@@ -578,14 +602,6 @@ async def clone_voice(
         # Validações
         if not is_language_supported(language):
             raise InvalidLanguageException(language)
-        
-        # Valida tts_engine
-        valid_engines = ['xtts', 'f5tts']
-        if tts_engine not in valid_engines:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid tts_engine '{tts_engine}'. Valid options: {valid_engines}"
-            )
         
         # Lê arquivo
         content = await file.read()
@@ -612,7 +628,7 @@ async def clone_voice(
             voice_name=name,
             voice_description=description,
             source_language=language,
-            tts_engine=tts_engine,
+            tts_engine=tts_engine.value if isinstance(tts_engine, TTSEngine) else tts_engine,  # Converte enum para string se necessário
             ref_text=ref_text
         )
         # IMPORTANTE: Setar input_file ANTES de salvar/enviar
@@ -881,7 +897,7 @@ async def delete_quality_profile_endpoint(name: str):
     return {"message": f"Perfil '{name}' removido com sucesso."}
 
 
-@app.get("/quality-profiles")
+@app.get("/quality-profiles-legacy")
 async def list_quality_profiles_endpoint():
     """Lista todos os perfis de qualidade (defaults + customizados no Redis)"""
     # Perfis padrão
@@ -1122,3 +1138,323 @@ async def check_feature_flag(
         },
         "timestamp": datetime.now().isoformat()
     }
+
+
+# ===================================================================
+# QUALITY PROFILES ENDPOINTS
+# ===================================================================
+
+@app.get(
+    "/quality-profiles",
+    response_model=QualityProfileList,
+    summary="Listar perfis de qualidade",
+    description="Lista todos os perfis de qualidade agrupados por engine (XTTS e F5-TTS)"
+)
+async def list_quality_profiles():
+    """
+    Lista todos os perfis de qualidade disponíveis.
+    
+    Retorna perfis separados por engine:
+    - xtts_profiles: Perfis otimizados para XTTS
+    - f5tts_profiles: Perfis otimizados para F5-TTS
+    
+    Cada perfil contém parâmetros específicos do seu engine.
+    """
+    try:
+        profiles = quality_profile_manager.list_all_profiles()
+        
+        return QualityProfileList(
+            xtts_profiles=profiles["xtts"],
+            f5tts_profiles=profiles["f5tts"],
+            total_count=len(profiles["xtts"]) + len(profiles["f5tts"])
+        )
+    except Exception as e:
+        logger.error(f"Erro ao listar perfis: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/quality-profiles/{engine}",
+    summary="Listar perfis por engine",
+    description="Lista perfis de qualidade de um engine específico"
+)
+async def list_profiles_by_engine(
+    engine: TTSEngine
+):
+    """
+    Lista perfis de qualidade de um engine específico.
+    
+    Args:
+        engine: xtts ou f5tts
+    
+    Returns:
+        Lista de perfis do engine
+    """
+    try:
+        profiles = quality_profile_manager.list_profiles(engine)
+        return {"engine": engine, "profiles": profiles, "count": len(profiles)}
+    except Exception as e:
+        logger.error(f"Erro ao listar perfis do engine {engine}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get(
+    "/quality-profiles/{engine}/{profile_id}",
+    summary="Buscar perfil específico",
+    description="Busca perfil de qualidade por ID"
+)
+async def get_quality_profile(
+    engine: TTSEngine,
+    profile_id: str
+):
+    """
+    Busca perfil de qualidade por ID.
+    
+    Args:
+        engine: xtts ou f5tts
+        profile_id: ID do perfil
+    
+    Returns:
+        Perfil encontrado
+    """
+    try:
+        profile = quality_profile_manager.get_profile(engine, profile_id)
+        
+        if not profile:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Perfil {profile_id} não encontrado para engine {engine}"
+            )
+        
+        return profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao buscar perfil: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/quality-profiles",
+    status_code=201,
+    summary="Criar perfil de qualidade",
+    description="Cria novo perfil de qualidade customizado"
+)
+async def create_quality_profile(
+    request: QualityProfileCreate
+):
+    """
+    Cria novo perfil de qualidade.
+    
+    Args:
+        request: Dados do perfil
+            - name: Nome do perfil
+            - description: Descrição (opcional)
+            - engine: xtts ou f5tts
+            - is_default: Se é perfil padrão
+            - parameters: Parâmetros específicos do engine
+    
+    Returns:
+        Perfil criado
+    
+    Example XTTS:
+        {
+            "name": "Meu Perfil XTTS",
+            "description": "Perfil customizado",
+            "engine": "xtts",
+            "is_default": false,
+            "parameters": {
+                "temperature": 0.8,
+                "repetition_penalty": 1.5,
+                "top_p": 0.9,
+                "top_k": 60,
+                "length_penalty": 1.2,
+                "speed": 1.0,
+                "enable_text_splitting": false
+            }
+        }
+    
+    Example F5-TTS:
+        {
+            "name": "Meu Perfil F5-TTS",
+            "description": "Alta qualidade sem ruído",
+            "engine": "f5tts",
+            "is_default": false,
+            "parameters": {
+                "nfe_step": 48,
+                "cfg_scale": 2.5,
+                "denoise_audio": true,
+                "noise_reduction_strength": 0.9,
+                "enhance_prosody": true,
+                "apply_deessing": true
+            }
+        }
+    """
+    try:
+        import hashlib
+        from datetime import datetime
+        
+        # Gerar ID único
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        profile_id = f"{request.engine}_{hashlib.md5(f'{request.name}_{timestamp}'.encode()).hexdigest()[:12]}"
+        
+        # Criar perfil baseado no engine
+        if request.engine == TTSEngine.XTTS:
+            profile = XTTSQualityProfile(
+                id=profile_id,
+                name=request.name,
+                description=request.description,
+                engine=request.engine,
+                is_default=request.is_default,
+                **request.parameters
+            )
+        else:  # F5TTS
+            profile = F5TTSQualityProfile(
+                id=profile_id,
+                name=request.name,
+                description=request.description,
+                engine=request.engine,
+                is_default=request.is_default,
+                **request.parameters
+            )
+        
+        # Salvar
+        created_profile = quality_profile_manager.create_profile(profile)
+        
+        logger.info(f"✅ Perfil criado: {created_profile.id} ({created_profile.engine})")
+        return created_profile
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Erro ao criar perfil: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch(
+    "/quality-profiles/{engine}/{profile_id}",
+    summary="Atualizar perfil",
+    description="Atualiza perfil de qualidade existente"
+)
+async def update_quality_profile(
+    engine: TTSEngine,
+    profile_id: str,
+    request: QualityProfileUpdate
+):
+    """
+    Atualiza perfil de qualidade.
+    
+    Args:
+        engine: xtts ou f5tts
+        profile_id: ID do perfil
+        request: Campos a atualizar
+    
+    Returns:
+        Perfil atualizado
+    """
+    try:
+        # Preparar updates
+        updates = {}
+        if request.name is not None:
+            updates['name'] = request.name
+        if request.description is not None:
+            updates['description'] = request.description
+        if request.is_default is not None:
+            updates['is_default'] = request.is_default
+        if request.parameters is not None:
+            updates.update(request.parameters)
+        
+        # Atualizar
+        updated_profile = quality_profile_manager.update_profile(
+            engine, profile_id, updates
+        )
+        
+        if not updated_profile:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Perfil {profile_id} não encontrado"
+            )
+        
+        logger.info(f"✅ Perfil atualizado: {profile_id}")
+        return updated_profile
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao atualizar perfil: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete(
+    "/quality-profiles/{engine}/{profile_id}",
+    status_code=204,
+    summary="Deletar perfil",
+    description="Deleta perfil de qualidade (não permite deletar perfis padrão)"
+)
+async def delete_quality_profile(
+    engine: TTSEngine,
+    profile_id: str
+):
+    """
+    Deleta perfil de qualidade.
+    
+    Args:
+        engine: xtts ou f5tts
+        profile_id: ID do perfil
+    
+    Raises:
+        400: Se tentar deletar perfil padrão
+        404: Se perfil não encontrado
+    """
+    try:
+        deleted = quality_profile_manager.delete_profile(engine, profile_id)
+        
+        if not deleted:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Perfil {profile_id} não encontrado"
+            )
+        
+        logger.info(f"✅ Perfil deletado: {profile_id}")
+        return
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao deletar perfil: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/quality-profiles/{engine}/{profile_id}/set-default",
+    summary="Definir perfil padrão",
+    description="Define perfil como padrão do engine (remove padrão de outros)"
+)
+async def set_default_quality_profile(
+    engine: TTSEngine,
+    profile_id: str
+):
+    """
+    Define perfil como padrão do engine.
+    
+    Args:
+        engine: xtts ou f5tts
+        profile_id: ID do perfil
+    
+    Returns:
+        Perfil atualizado
+    """
+    try:
+        quality_profile_manager.set_default_profile(engine, profile_id)
+        profile = quality_profile_manager.get_profile(engine, profile_id)
+        
+        logger.info(f"✅ Perfil padrão definido: {profile_id} ({engine})")
+        return profile
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Erro ao definir perfil padrão: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

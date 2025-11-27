@@ -219,3 +219,7 @@ def get_vram_usage() -> dict:
     """Helper para obter estatísticas de VRAM."""
     vram_mgr = get_vram_manager()
     return vram_mgr.get_vram_stats()
+
+
+# Singleton global instance
+vram_manager = get_vram_manager()

@@ -40,7 +40,7 @@ from .base import TTSEngine
 from ..models import VoiceProfile, QualityProfile
 from ..exceptions import TTSEngineException, InvalidAudioException
 from ..vram_manager import vram_manager
-from ..config import config
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +102,10 @@ class F5TtsEngine(TTSEngine):
         # Load F5-TTS model
         try:
             from f5_tts import F5TTS
+            settings = get_settings()
             
             # LOW_VRAM mode: lazy loading via VRAMManager
-            if config.get('low_vram_mode'):
+            if settings.get('low_vram_mode'):
                 logger.info("LOW_VRAM mode enabled: F5-TTS will be loaded on-demand")
                 self.tts = None  # Lazy load
                 self._model_loaded = False
@@ -217,12 +218,38 @@ class F5TtsEngine(TTSEngine):
         logger.info(
             f"F5-TTS synthesis: text_len={len(text)}, lang={language}, "
             f"voice={voice_profile.name if voice_profile else 'default'}, "
-            f"quality={quality_profile.value}"
+            f"quality_profile={quality_profile}"
         )
         
         try:
             # Get quality parameters
-            tts_params = self._map_quality_profile(quality_profile)
+            # quality_profile agora é uma string (ID do profile no Redis)
+            if quality_profile and isinstance(quality_profile, str):
+                # Tentar carregar profile do Redis
+                try:
+                    from ..quality_profile_manager import quality_profile_manager
+                    profile_data = quality_profile_manager.get_profile('f5tts', quality_profile)
+                    
+                    if profile_data:
+                        # Usar parâmetros do profile diretamente
+                        tts_params = profile_data
+                        logger.info(f"Loaded F5-TTS quality profile from Redis: {quality_profile}")
+                    else:
+                        # Fallback para padrão
+                        logger.warning(f"Profile '{quality_profile}' not found in Redis, using BALANCED")
+                        from ..models import QualityProfile
+                        tts_params = self._map_quality_profile(QualityProfile.BALANCED)
+                except Exception as e:
+                    logger.warning(f"Failed to load quality profile from Redis: {e}, using BALANCED")
+                    from ..models import QualityProfile
+                    tts_params = self._map_quality_profile(QualityProfile.BALANCED)
+            elif quality_profile:
+                # Enum antigo (compatibilidade)
+                tts_params = self._map_quality_profile(quality_profile)
+            else:
+                # Sem profile especificado, usa BALANCED
+                from ..models import QualityProfile
+                tts_params = self._map_quality_profile(QualityProfile.BALANCED)
             
             # Prepare reference audio and text for voice cloning
             ref_audio = None
@@ -255,9 +282,10 @@ class F5TtsEngine(TTSEngine):
             
             # Run F5-TTS inference (blocking - use thread pool)
             loop = asyncio.get_event_loop()
+            settings = get_settings()
             
             # LOW_VRAM mode: load model → synthesize → unload
-            if config.get('low_vram_mode'):
+            if settings.get('low_vram_mode'):
                 with vram_manager.load_model('f5tts', self._load_model):
                     audio_array = await loop.run_in_executor(
                         None,
@@ -425,6 +453,7 @@ class F5TtsEngine(TTSEngine):
     async def _auto_transcribe(self, audio_path: str, language: str) -> str:
         """
         Auto-transcribe audio using Whisper.
+        SEMPRE roda em CPU na memória (int8) para não ocupar VRAM.
         
         Args:
             audio_path: Path to audio file
@@ -433,18 +462,19 @@ class F5TtsEngine(TTSEngine):
         Returns:
             str: Transcribed text
         """
-        # Lazy load Whisper
+        # Lazy load Whisper (SEMPRE EM CPU)
         if self._whisper is None:
-            logger.info(f"Loading Whisper model: {self.whisper_model_name}")
+            logger.info(f"Loading Whisper model: {self.whisper_model_name} (CPU-only, int8)")
             try:
                 from faster_whisper import WhisperModel
                 
+                # SEMPRE CPU + int8 para economia de memória
                 self._whisper = WhisperModel(
                     self.whisper_model_name,
-                    device=self.device,
-                    compute_type="float16" if self.device == 'cuda' else "int8"
+                    device='cpu',  # SEMPRE CPU (não usa VRAM)
+                    compute_type='int8'  # Quantização int8 para menor uso de RAM
                 )
-                logger.info("✅ Whisper model loaded")
+                logger.info("✅ Whisper model loaded (CPU, int8)")
             except Exception as e:
                 logger.error(f"Failed to load Whisper: {e}")
                 raise TTSEngineException(f"Whisper initialization failed: {e}") from e

@@ -54,7 +54,7 @@ from ..models import VoiceProfile, QualityProfile, XTTSParameters, RvcModel, Rvc
 from ..exceptions import InvalidAudioException, TTSEngineException
 from ..resilience import retry_async, with_timeout
 from ..vram_manager import vram_manager
-from ..config import config
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +111,10 @@ class XttsEngine(TTSEngine):
         # Load XTTS model
         try:
             gpu = (self.device == 'cuda')
+            settings = get_settings()
             
             # LOW_VRAM mode: lazy loading via VRAMManager
-            if config.get('low_vram_mode'):
+            if settings.get('low_vram_mode'):
                 logger.info("LOW_VRAM mode enabled: models will be loaded on-demand")
                 self.tts = None  # Lazy load
                 self._model_loaded = False
@@ -248,11 +249,46 @@ class XttsEngine(TTSEngine):
         logger.info(
             f"XTTS synthesis: text_len={len(text)}, lang={normalized_lang}, "
             f"voice={voice_profile.name if voice_profile else 'default'}, "
-            f"quality={quality_profile.value}"
+            f"quality_profile={quality_profile}"
         )
         
         # Get quality parameters
-        params = XTTSParameters.from_profile(quality_profile)
+        # quality_profile agora é uma string (ID do profile no Redis)
+        # Precisamos carregar o profile e extrair os parâmetros
+        if quality_profile and isinstance(quality_profile, str):
+            # Tentar carregar profile do Redis
+            try:
+                from ..quality_profile_manager import quality_profile_manager
+                profile_data = quality_profile_manager.get_profile('xtts', quality_profile)
+                
+                if profile_data:
+                    # Extrair parâmetros do profile
+                    params = XTTSParameters(
+                        temperature=profile_data.get('temperature', 0.75),
+                        repetition_penalty=profile_data.get('repetition_penalty', 1.5),
+                        top_p=profile_data.get('top_p', 0.9),
+                        top_k=profile_data.get('top_k', 60),
+                        length_penalty=profile_data.get('length_penalty', 1.2),
+                        speed=profile_data.get('speed', 1.0),
+                        enable_text_splitting=profile_data.get('enable_text_splitting', False)
+                    )
+                    logger.info(f"Loaded XTTS quality profile from Redis: {quality_profile}")
+                else:
+                    # Fallback para padrão
+                    logger.warning(f"Profile '{quality_profile}' not found in Redis, using BALANCED")
+                    from ..models import QualityProfile
+                    params = XTTSParameters.from_profile(QualityProfile.BALANCED)
+            except Exception as e:
+                logger.warning(f"Failed to load quality profile from Redis: {e}, using BALANCED")
+                from ..models import QualityProfile
+                params = XTTSParameters.from_profile(QualityProfile.BALANCED)
+        elif quality_profile:
+            # Enum antigo (compatibilidade)
+            params = XTTSParameters.from_profile(quality_profile)
+        else:
+            # Sem profile especificado, usa BALANCED
+            from ..models import QualityProfile
+            params = XTTSParameters.from_profile(QualityProfile.BALANCED)
         
         # Apply custom overrides
         if kwargs.get('temperature'):
@@ -296,9 +332,10 @@ class XttsEngine(TTSEngine):
             
             # Run XTTS inference (blocking - use thread pool)
             loop = asyncio.get_event_loop()
+            settings = get_settings()
             
             # LOW_VRAM mode: load model → synthesize → unload
-            if config.get('low_vram_mode'):
+            if settings.get('low_vram_mode'):
                 with vram_manager.load_model('xtts', self._load_model):
                     await with_timeout(
                         loop.run_in_executor(
