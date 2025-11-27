@@ -105,8 +105,10 @@ class F5TtsEngine(TTSEngine):
         logger.info(f"F5-TTS model cache: {self.cache_dir}")
         
         # Device selection
-        self.device = self._select_device(device, fallback_to_cpu)
-        logger.info(f"F5TtsEngine initializing on device: {self.device}")
+        # F5-TTS SEMPRE USA CPU para evitar OOM em GPUs pequenas (<8GB)
+        # XTTS já ocupa ~3.5GB, F5-TTS precisa ~2GB adicional
+        self.device = 'cpu'  # FIXME: Force CPU até implementar VRAM management
+        logger.info(f"F5TtsEngine initializing on device: {self.device} (forced CPU to avoid OOM)")
         
         # Load F5-TTS model (new API)
         try:
