@@ -1,0 +1,311 @@
+{
+  "metadata": {
+    "version": "1.0",
+    "created": "2025-11-27",
+    "description": "Dataset PT-BR para benchmark XTTS vs F5-TTS",
+    "total_texts": 20,
+    "total_voices": 10
+  },
+  "texts": [
+    {
+      "id": "short_greeting",
+      "text": "Olá, como você está hoje?",
+      "category": "short",
+      "length": "1-2s",
+      "use_case": "dialogue",
+      "complexity": "simple"
+    },
+    {
+      "id": "short_question",
+      "text": "Qual é o seu nome?",
+      "category": "short",
+      "length": "1-2s",
+      "use_case": "dialogue",
+      "complexity": "simple"
+    },
+    {
+      "id": "short_affirmation",
+      "text": "Perfeito! Vamos começar agora.",
+      "category": "short",
+      "length": "2-3s",
+      "use_case": "dialogue",
+      "complexity": "simple"
+    },
+    {
+      "id": "medium_news",
+      "text": "O Brasil é um país de dimensões continentais, com uma rica diversidade cultural e natural. Sua economia é uma das maiores da América Latina.",
+      "category": "medium",
+      "length": "8-10s",
+      "use_case": "narration",
+      "complexity": "medium"
+    },
+    {
+      "id": "medium_tech",
+      "text": "A inteligência artificial está revolucionando diversos setores da economia. Tecnologias como aprendizado de máquina e redes neurais permitem automação de processos complexos.",
+      "category": "medium",
+      "length": "10-12s",
+      "use_case": "narration",
+      "complexity": "medium"
+    },
+    {
+      "id": "medium_weather",
+      "text": "A previsão do tempo indica chuvas fortes para o fim de semana. Temperaturas devem variar entre 18 e 25 graus. Recomenda-se levar guarda-chuva.",
+      "category": "medium",
+      "length": "9-11s",
+      "use_case": "news",
+      "complexity": "medium"
+    },
+    {
+      "id": "medium_instruction",
+      "text": "Para preparar um bom café, aqueça a água até 90 graus. Adicione duas colheres de pó de café e aguarde três minutos. Sirva imediatamente.",
+      "category": "medium",
+      "length": "10-12s",
+      "use_case": "instruction",
+      "complexity": "medium"
+    },
+    {
+      "id": "long_story",
+      "text": "Era uma vez, em um reino muito distante, uma princesa que adorava ler livros. Ela passava horas na biblioteca do castelo, explorando mundos fantásticos através das páginas. Um dia, encontrou um livro mágico que a transportou para uma aventura incrível.",
+      "category": "long",
+      "length": "18-22s",
+      "use_case": "audiobook",
+      "complexity": "complex"
+    },
+    {
+      "id": "long_science",
+      "text": "A fotossíntese é um processo fundamental para a vida na Terra. As plantas utilizam a luz solar para converter dióxido de carbono e água em glicose e oxigênio. Este processo ocorre nos cloroplastos, organelas presentes nas células vegetais, e é essencial para a manutenção da atmosfera terrestre.",
+      "category": "long",
+      "length": "20-24s",
+      "use_case": "education",
+      "complexity": "complex"
+    },
+    {
+      "id": "long_history",
+      "text": "O descobrimento do Brasil ocorreu em 1500, quando Pedro Álvares Cabral aportou em terras brasileiras. Este evento marcou o início da colonização portuguesa nas Américas. A história do Brasil é rica em acontecimentos que moldaram a nação que conhecemos hoje.",
+      "category": "long",
+      "length": "18-22s",
+      "use_case": "education",
+      "complexity": "complex"
+    },
+    {
+      "id": "special_chars",
+      "text": "Ação, coração, não, pão, mãe, canção! José comeu açúcar com café. Ângela comprou pães na padaria.",
+      "category": "medium",
+      "length": "8-10s",
+      "use_case": "test",
+      "complexity": "special",
+      "note": "Testa caracteres especiais PT-BR"
+    },
+    {
+      "id": "numbers_symbols",
+      "text": "O valor total é R$ 1.234,56. A taxa de juros é de 2,5% ao mês. Nasceu em 15/08/1990 às 14h30min.",
+      "category": "medium",
+      "length": "8-10s",
+      "use_case": "test",
+      "complexity": "special",
+      "note": "Testa números e símbolos"
+    },
+    {
+      "id": "emotion_happy",
+      "text": "Que dia maravilhoso! Estou muito feliz com essa conquista! Parabéns a todos pelo excelente trabalho!",
+      "category": "medium",
+      "length": "7-9s",
+      "use_case": "dialogue",
+      "complexity": "emotional",
+      "emotion": "happy"
+    },
+    {
+      "id": "emotion_sad",
+      "text": "Infelizmente, temos más notícias. A situação é mais grave do que esperávamos. Precisamos tomar medidas urgentes.",
+      "category": "medium",
+      "length": "8-10s",
+      "use_case": "dialogue",
+      "complexity": "emotional",
+      "emotion": "sad"
+    },
+    {
+      "id": "podcast_intro",
+      "text": "Bem-vindos ao nosso podcast! Hoje vamos falar sobre tecnologia e inovação. Temos convidados especiais e muitos tópicos interessantes pela frente.",
+      "category": "medium",
+      "length": "10-12s",
+      "use_case": "podcast",
+      "complexity": "medium"
+    },
+    {
+      "id": "formal_speech",
+      "text": "Prezados senhores, é com grande satisfação que apresentamos os resultados do último trimestre. Nossa empresa alcançou um crescimento significativo em todos os setores.",
+      "category": "medium",
+      "length": "11-13s",
+      "use_case": "formal",
+      "complexity": "medium"
+    },
+    {
+      "id": "casual_chat",
+      "text": "E aí, beleza? Tudo certo com você? Vamos marcar de sair um dia desses pra gente colocar o papo em dia!",
+      "category": "medium",
+      "length": "7-9s",
+      "use_case": "casual",
+      "complexity": "simple"
+    },
+    {
+      "id": "technical_desc",
+      "text": "Este sistema utiliza arquitetura de microserviços com containers Docker. A comunicação entre serviços é feita via REST API e mensageria assíncrona.",
+      "category": "medium",
+      "length": "10-12s",
+      "use_case": "technical",
+      "complexity": "complex"
+    },
+    {
+      "id": "poetry",
+      "text": "No meio do caminho tinha uma pedra. Tinha uma pedra no meio do caminho. No meio do caminho tinha uma pedra.",
+      "category": "medium",
+      "length": "8-10s",
+      "use_case": "artistic",
+      "complexity": "medium",
+      "note": "Poesia - Drummond"
+    },
+    {
+      "id": "long_narrative",
+      "text": "São Paulo é a maior cidade do Brasil e uma das maiores metrópoles do mundo. Com mais de 12 milhões de habitantes, a capital paulista é um importante centro financeiro, cultural e gastronômico. A cidade oferece uma infinidade de atrações, desde museus e teatros até parques e restaurantes de diversos países. É conhecida como a cidade que nunca dorme.",
+      "category": "long",
+      "length": "25-30s",
+      "use_case": "narration",
+      "complexity": "complex"
+    }
+  ],
+  "voices": [
+    {
+      "id": "voice_m_sp_01",
+      "gender": "male",
+      "accent": "sao_paulo",
+      "age_range": "30-40",
+      "description": "Voz masculina, sotaque paulista",
+      "audio_path": "voices/ref_male_sp_01.wav",
+      "ref_text": "Esta é uma amostra de voz masculina com sotaque paulista típico da região metropolitana de São Paulo.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_m_rj_01",
+      "gender": "male",
+      "accent": "rio_janeiro",
+      "age_range": "25-35",
+      "description": "Voz masculina, sotaque carioca",
+      "audio_path": "voices/ref_male_rj_01.wav",
+      "ref_text": "Oi pessoal, aqui é uma voz carioca bem típica do Rio de Janeiro.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_m_ne_01",
+      "gender": "male",
+      "accent": "nordeste",
+      "age_range": "35-45",
+      "description": "Voz masculina, sotaque nordestino",
+      "audio_path": "voices/ref_male_ne_01.wav",
+      "ref_text": "Olá, meu povo! Essa é uma voz bem nordestina, com aquele jeitinho especial.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_m_rs_01",
+      "gender": "male",
+      "accent": "sul",
+      "age_range": "40-50",
+      "description": "Voz masculina, sotaque gaúcho",
+      "audio_path": "voices/ref_male_rs_01.wav",
+      "ref_text": "Tchê, essa é uma voz gaúcha bem tradicional do Rio Grande do Sul.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_m_mg_01",
+      "gender": "male",
+      "accent": "minas_gerais",
+      "age_range": "30-40",
+      "description": "Voz masculina, sotaque mineiro",
+      "audio_path": "voices/ref_male_mg_01.wav",
+      "ref_text": "Uai, sô! Essa voz aqui é bem mineira, com aquele jeitinho de Minas Gerais.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_f_sp_01",
+      "gender": "female",
+      "accent": "sao_paulo",
+      "age_range": "25-35",
+      "description": "Voz feminina, sotaque paulista",
+      "audio_path": "voices/ref_female_sp_01.wav",
+      "ref_text": "Olá, esta é uma voz feminina com sotaque paulista, clara e profissional.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_f_rj_01",
+      "gender": "female",
+      "accent": "rio_janeiro",
+      "age_range": "20-30",
+      "description": "Voz feminina, sotaque carioca",
+      "audio_path": "voices/ref_female_rj_01.wav",
+      "ref_text": "Oi gente, essa voz é bem carioca, leve e descontraída do Rio de Janeiro.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_f_ne_01",
+      "gender": "female",
+      "accent": "nordeste",
+      "age_range": "30-40",
+      "description": "Voz feminina, sotaque nordestino",
+      "audio_path": "voices/ref_female_ne_01.wav",
+      "ref_text": "Oi, minha gente! Essa é uma voz feminina bem nordestina, alegre e calorosa.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_f_rs_01",
+      "gender": "female",
+      "accent": "sul",
+      "age_range": "35-45",
+      "description": "Voz feminina, sotaque gaúcho",
+      "audio_path": "voices/ref_female_rs_01.wav",
+      "ref_text": "Olá, tchê! Essa é uma voz feminina gaúcha, firme e tradicional.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    },
+    {
+      "id": "voice_f_mg_01",
+      "gender": "female",
+      "accent": "minas_gerais",
+      "age_range": "25-35",
+      "description": "Voz feminina, sotaque mineiro",
+      "audio_path": "voices/ref_female_mg_01.wav",
+      "ref_text": "Uai, trem bom! Essa voz aqui é bem mineira, suave e simpática.",
+      "duration": "5-8s",
+      "note": "Para usar: fornecer áudio real ou gerar com TTS existente"
+    }
+  ],
+  "test_combinations": {
+    "description": "Combinações recomendadas para testes",
+    "minimal_set": {
+      "texts": ["short_greeting", "medium_news", "long_story", "special_chars"],
+      "voices": ["voice_m_sp_01", "voice_f_sp_01"]
+    },
+    "balanced_set": {
+      "texts": [
+        "short_greeting", "short_question",
+        "medium_news", "medium_tech", "medium_instruction",
+        "long_story", "long_science",
+        "special_chars", "numbers_symbols"
+      ],
+      "voices": [
+        "voice_m_sp_01", "voice_m_rj_01",
+        "voice_f_sp_01", "voice_f_rj_01"
+      ]
+    },
+    "complete_set": {
+      "texts": "all",
+      "voices": "all"
+    }
+  }
+}

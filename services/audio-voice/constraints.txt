@@ -1,3 +1,22 @@
 # Constraints para versões de dependências
 scipy==1.11.4
 numba==0.58.1
+
+# ===== CRITICAL: Transformers compatibility with TTS 0.22.x =====
+# TTS library imports BeamSearchScorer from transformers root namespace
+# BeamSearchScorer is available in transformers 4.30.x - 4.35.x
+# Using flexible range for Python 3.11+ compatibility
+transformers>=4.30.0,<4.36.0
+
+# ===== Blinker fix =====
+# Sistema Ubuntu tem blinker 1.4 (distutils) que não pode ser desinstalado
+# Forçar versão compatível com FastAPI
+blinker>=1.6.0
+
+# ===== Other critical constraints =====
+# Prevent numpy 2.x (breaks torchaudio)
+numpy<2.0.0,>=1.26.0
+
+# Pin torch/torchaudio para CUDA 12.1 (instalado separadamente)
+torch==2.4.0
+torchaudio==2.4.0

@@ -4,8 +4,49 @@ Advanced logging configuration with level separation and FULL RESILIENCE
 import logging
 import sys
 import os
+import warnings
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
+
+
+def _suppress_noisy_loggers():
+    """
+    Suprime logs verbosos de bibliotecas externas
+    Mantém apenas logs WARNING+ de libs e INFO+ da app
+    """
+    # Bibliotecas com DEBUG/INFO excessivo
+    noisy_loggers = [
+        'numba',
+        'numba.core',
+        'numba.core.ssa',
+        'numba.core.byteflow',
+        'numba.core.interpreter',
+        'matplotlib',
+        'matplotlib.font_manager',
+        'matplotlib.pyplot',
+        'PIL',
+        'urllib3',
+        'urllib3.connectionpool',
+        'requests',
+        'multipart',
+        'multipart.multipart',
+        'TTS',
+        'TTS.tts',
+        'TTS.api',
+        'trainer',
+    ]
+    
+    for logger_name in noisy_loggers:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
+    # Suprime warnings conhecidos de bibliotecas externas
+    warnings.filterwarnings('ignore', category=FutureWarning, module='transformers')
+    warnings.filterwarnings('ignore', category=FutureWarning, module='torch')
+    warnings.filterwarnings('ignore', category=UserWarning, module='jieba')
+    warnings.filterwarnings('ignore', category=UserWarning, module='TTS')
+    warnings.filterwarnings('ignore', message='.*pkg_resources.*')
+    warnings.filterwarnings('ignore', message='.*weights_only.*')
+    warnings.filterwarnings('ignore', message='.*_pytree.*')
 
 
 def setup_logging(service_name: str = "audio-voice", log_level: str = "DEBUG"):
@@ -98,6 +139,9 @@ def setup_logging(service_name: str = "audio-voice", log_level: str = "DEBUG"):
     console_handler.setLevel(getattr(logging, log_level.upper()))
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
+    
+    # Suppress noisy DEBUG loggers from external libraries
+    _suppress_noisy_loggers()
     
     # Report logging status
     if file_handlers_ok == 4:

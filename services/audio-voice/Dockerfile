@@ -23,8 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Metadata
 LABEL maintainer="audio-voice-service" \
-      version="1.0.0" \
-      description="Audio Voice Microservice - Dubbing and Voice Cloning with OpenVoice + CUDA Support"
+      version="2.0.0" \
+      description="Audio Voice Microservice - Dubbing and Voice Cloning with XTTS (Coqui TTS) + CUDA Support"
 
 # Ambiente
 ENV PYTHONUNBUFFERED=1 \
@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg libsndfile1 build-essential pkg-config \
     libavformat-dev libavcodec-dev libavdevice-dev \
     libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
+    git \
     curl \
  && rm -rf /var/lib/apt/lists/*
 
@@ -52,10 +53,14 @@ COPY requirements.txt constraints.txt ./
 # PyTorch cu121 + deps Python (respeitando constraints)
 RUN python -m pip install --no-cache-dir --upgrade pip
 RUN python -m pip install --no-cache-dir \
-      torch==2.1.2 torchaudio==2.1.2 \
+      torch==2.4.0 torchaudio==2.4.0 \
       --index-url https://download.pytorch.org/whl/cu121 \
-      -c constraints.txt 
-RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
+      -c constraints.txt
+
+# Instala demais dependências (apenas XTTS - Coqui TTS)
+# --ignore-installed blinker para evitar conflito com sistema
+RUN python -m pip install --no-cache-dir --ignore-installed blinker \
+      -r requirements.txt -c constraints.txt
 
 # Limpa toolchain pesado (mantém ffmpeg etc.)
 RUN apt-get purge -y --auto-remove \
@@ -69,12 +74,17 @@ RUN apt-get purge -y --auto-remove \
 # Copia código
 COPY app/ ./app/
 COPY run.py .
+COPY scripts/ ./scripts/
+
+# Cria speaker default para dubbing genérico
+RUN python scripts/create_default_speaker.py
 
 # Usuário não-root
 RUN useradd -m -u 1000 appuser
 
 # Diretórios e permissões
-RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models && \
+RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
+    /app/voice_profiles /app/models /app/models/f5tts /app/models/whisper && \
     chown -R appuser:appuser /app && \
     chmod -R 755 /app && \
     chmod -R 777 /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models

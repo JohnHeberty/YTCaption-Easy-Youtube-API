@@ -46,26 +46,86 @@ def get_settings():
         'max_concurrent_jobs': int(os.getenv('MAX_CONCURRENT_JOBS', '3')),
         'job_timeout_minutes': int(os.getenv('JOB_TIMEOUT_MINUTES', '15')),
         
-        # ===== OPENVOICE =====
-        'openvoice': {
-            'model_path': os.getenv('OPENVOICE_MODEL_PATH', './models'),
-            'device': os.getenv('OPENVOICE_DEVICE', 'cpu'),  # cpu ou cuda
-            'default_model': os.getenv('OPENVOICE_DEFAULT_MODEL', 'base'),
-            'preload_models': os.getenv('OPENVOICE_PRELOAD_MODELS', 'false').lower() == 'true',
+        # ===== LOW VRAM MODE =====
+        # Quando ativo, carrega/descarrega modelos automaticamente para economizar VRAM
+        'low_vram_mode': os.getenv('LOW_VRAM', 'false').lower() == 'true',
+        
+        # ===== TTS ENGINES (SPRINT 4: Multi-Engine Support) =====
+        'tts_engine_default': os.getenv('TTS_ENGINE_DEFAULT', 'xtts'),  # Default engine
+        'tts_engines': {
+            # XTTS Configuration (default/stable)
+            'xtts': {
+                'enabled': os.getenv('XTTS_ENABLED', 'true').lower() == 'true',
+                'device': os.getenv('XTTS_DEVICE', None),  # None = auto-detect
+                'fallback_to_cpu': os.getenv('XTTS_FALLBACK_CPU', 'true').lower() == 'true',
+                'model_name': os.getenv('XTTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2'),
+            },
+            # F5-TTS Configuration (experimental/high-quality)
+            'f5tts': {
+                'enabled': os.getenv('F5TTS_ENABLED', 'true').lower() == 'true',
+                'device': os.getenv('F5TTS_DEVICE', None),  # None = auto-detect
+                'fallback_to_cpu': os.getenv('F5TTS_FALLBACK_CPU', 'true').lower() == 'true',
+                'model_name': os.getenv('F5TTS_MODEL', 'SWivid/F5-TTS'),
+            }
+        },
+        
+        # ===== XTTS (Coqui TTS - NEW DEFAULT) =====
+        'xtts': {
+            # Modelo padrão
+            'model_name': os.getenv('XTTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2'),
             
-            # Modelos
-            'base_speaker_model': os.getenv('OPENVOICE_BASE_SPEAKER_MODEL', 'checkpoints/base_speakers/EN'),
-            'converter_model': os.getenv('OPENVOICE_CONVERTER_MODEL', 'checkpoints/converter'),
+            # Device (auto, cuda, cpu)
+            'device': os.getenv('XTTS_DEVICE', None),  # None = auto-detect
+            
+            # Fallback para CPU se CUDA não disponível
+            'fallback_to_cpu': os.getenv('XTTS_FALLBACK_CPU', 'true').lower() == 'true',
             
             # Parâmetros de síntese
-            'default_speed': float(os.getenv('OPENVOICE_DEFAULT_SPEED', '1.0')),
-            'default_pitch': float(os.getenv('OPENVOICE_DEFAULT_PITCH', '1.0')),
-            'sample_rate': int(os.getenv('OPENVOICE_SAMPLE_RATE', '24000')),
+            'temperature': float(os.getenv('XTTS_TEMPERATURE', '0.8')),
+            'repetition_penalty': float(os.getenv('XTTS_REPETITION_PENALTY', '1.3')),
+            'length_penalty': float(os.getenv('XTTS_LENGTH_PENALTY', '1.2')),
+            'top_k': int(os.getenv('XTTS_TOP_K', '70')),
+            'top_p': float(os.getenv('XTTS_TOP_P', '0.93')),
+            'speed': float(os.getenv('XTTS_SPEED', '1.0')),
             
-            # Voice cloning
-            'min_clone_duration_sec': int(os.getenv('OPENVOICE_MIN_CLONE_DURATION_SEC', '5')),
-            'max_clone_duration_sec': int(os.getenv('OPENVOICE_MAX_CLONE_DURATION_SEC', '60')),
-            'clone_sample_rate': int(os.getenv('OPENVOICE_CLONE_SAMPLE_RATE', '24000')),
+            # Text splitting para textos longos
+            'enable_text_splitting': os.getenv('XTTS_TEXT_SPLITTING', 'true').lower() == 'true',
+            
+            # Sample rate (XTTS v2 = 24kHz)
+            'sample_rate': int(os.getenv('XTTS_SAMPLE_RATE', '24000')),
+            
+            # Limites
+            'max_text_length': int(os.getenv('XTTS_MAX_TEXT_LENGTH', '5000')),
+            'min_ref_duration': int(os.getenv('XTTS_MIN_REF_DURATION', '3')),  # segundos
+            'max_ref_duration': int(os.getenv('XTTS_MAX_REF_DURATION', '30')),  # segundos
+        },
+        
+        # ===== RVC (Voice Conversion) =====
+        'rvc': {
+            # Device (auto, cuda, cpu)
+            'device': os.getenv('RVC_DEVICE', 'cpu'),  # Default CPU (economiza VRAM)
+            
+            # Fallback para CPU se CUDA não disponível
+            'fallback_to_cpu': os.getenv('RVC_FALLBACK_TO_CPU', 'true').lower() == 'true',
+            
+            # Diretório dos modelos RVC
+            'models_dir': os.getenv('RVC_MODELS_DIR', './models/rvc'),
+            
+            # Parâmetros padrão de conversão
+            'pitch': int(os.getenv('RVC_PITCH', '0')),  # -12 a +12 semitons
+            'filter_radius': int(os.getenv('RVC_FILTER_RADIUS', '3')),
+            'index_rate': float(os.getenv('RVC_INDEX_RATE', '0.75')),
+            'rms_mix_rate': float(os.getenv('RVC_RMS_MIX_RATE', '0.25')),
+            'protect': float(os.getenv('RVC_PROTECT', '0.33')),
+        },
+        
+        # ===== RESILIÊNCIA =====
+        'resilience': {
+            'max_retries': int(os.getenv('MAX_RETRIES', '3')),
+            'retry_delay_seconds': int(os.getenv('RETRY_DELAY_SECONDS', '5')),
+            'circuit_breaker_threshold': int(os.getenv('CIRCUIT_BREAKER_THRESHOLD', '5')),
+            'circuit_breaker_timeout': int(os.getenv('CIRCUIT_BREAKER_TIMEOUT', '60')),
+            'task_timeout_seconds': int(os.getenv('TASK_TIMEOUT_SECONDS', '300')),  # 5min
         },
         
         # ===== VOICE PRESETS =====
@@ -73,22 +133,42 @@ def get_settings():
             'female_generic': {
                 'speaker': 'default_female',
                 'description': 'Voz feminina genérica',
-                'languages': ['en', 'pt', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
+                'languages': ['en', 'pt', 'pt-BR', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
             },
             'male_generic': {
                 'speaker': 'default_male',
                 'description': 'Voz masculina genérica',
-                'languages': ['en', 'pt', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
+                'languages': ['en', 'pt', 'pt-BR', 'es', 'fr', 'de', 'it', 'ja', 'ko', 'zh']
             },
             'female_young': {
                 'speaker': 'young_female',
                 'description': 'Voz feminina jovem',
-                'languages': ['en', 'pt', 'es', 'fr']
+                'languages': ['en', 'pt', 'pt-BR', 'es', 'fr']
             },
             'male_deep': {
                 'speaker': 'deep_male',
                 'description': 'Voz masculina grave',
-                'languages': ['en', 'pt', 'es']
+                'languages': ['en', 'pt', 'pt-BR', 'es']
+            },
+            'female_warm': {
+                'speaker': 'warm_female',
+                'description': 'Voz feminina mais natural, calorosa',
+                'languages': ['pt', 'pt-BR', 'en']
+            },
+            'male_warm': {
+                'speaker': 'warm_male',
+                'description': 'Voz masculina mais natural, calorosa',
+                'languages': ['pt', 'pt-BR', 'en']
+            },
+            'female_soft': {
+                'speaker': 'soft_female',
+                'description': 'Voz feminina suave, naturalidade máxima',
+                'languages': ['pt', 'pt-BR', 'en']
+            },
+            'male_soft': {
+                'speaker': 'soft_male',
+                'description': 'Voz masculina suave, naturalidade máxima',
+                'languages': ['pt', 'pt-BR', 'en']
             }
         },
         

@@ -2,6 +2,7 @@ services:
   audio-transcriber-service:
     build: .
     container_name: audio-transcriber-api
+    runtime: runc
     ports:
       - "${PORT:-8002}:8002"
     volumes:
@@ -15,10 +16,10 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    # peça GPU explicitamente no Compose
-    gpus: all
+      # Audio-transcriber NÃO precisa de GPU (CPU é suficiente para Whisper)
+      # GPU reservada apenas para audio-voice (geração de áudio XTTS)
+      - NVIDIA_VISIBLE_DEVICES=""
+      - WHISPER_DEVICE=cpu
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -33,6 +34,7 @@ services:
   celery-worker:
     build: .
     container_name: audio-transcriber-celery
+    runtime: runc
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
@@ -46,9 +48,10 @@ services:
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-    gpus: all
+      # Audio-transcriber NÃO precisa de GPU (CPU é suficiente para Whisper)
+      # GPU reservada apenas para audio-voice (geração de áudio XTTS)
+      - NVIDIA_VISIBLE_DEVICES=""
+      - WHISPER_DEVICE=cpu
     restart: unless-stopped
     depends_on:
       audio-transcriber-service:

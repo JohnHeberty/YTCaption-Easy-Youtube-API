@@ -1,6 +1,6 @@
 """
 Audio Voice Service - FastAPI Main Application
-Microserviço de Dublagem e Clonagem de Voz com OpenVoice
+Microserviço de Dublagem e Clonagem de Voz com XTTS (Coqui TTS)
 """
 import asyncio
 import os
@@ -8,17 +8,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
+import tempfile
+import subprocess
 
 from .models import (
-    Job, JobStatus, JobMode, VoiceProfile,
+    Job, JobStatus, JobMode, VoiceProfile, QualityProfile, VoicePreset,
     DubbingRequest, VoiceCloneRequest,
-    VoiceListResponse, JobListResponse
+    VoiceListResponse, JobListResponse, RvcModelResponse, RvcModelListResponse
 )
 from .processor import VoiceProcessor
 from .redis_store import RedisJobStore
-from .config import get_settings, is_language_supported, get_voice_presets, is_voice_preset_valid
+from .config import get_settings, is_language_supported, get_voice_presets, is_voice_preset_valid, get_supported_languages
 from .logging_config import setup_logging, get_logger
 from .exceptions import (
     VoiceServiceException, InvalidLanguageException, TextTooLongException,
@@ -40,11 +42,118 @@ app = FastAPI(
 # Exception handlers
 app.add_exception_handler(VoiceServiceException, exception_handler)
 
+# Formatos de áudio suportados para download
+SUPPORTED_AUDIO_FORMATS = {
+    'wav': {'mime': 'audio/wav', 'extension': '.wav'},
+    'mp3': {'mime': 'audio/mpeg', 'extension': '.mp3'},
+    'ogg': {'mime': 'audio/ogg', 'extension': '.ogg'},
+    'flac': {'mime': 'audio/flac', 'extension': '.flac'},
+    'm4a': {'mime': 'audio/mp4', 'extension': '.m4a'},
+    'opus': {'mime': 'audio/opus', 'extension': '.opus'}
+}
+
+def convert_audio_format(input_path: Path, output_format: str) -> Path:
+    """
+    Converte áudio para formato especificado usando ffmpeg.
+    Retorna caminho do arquivo temporário (deve ser limpo após uso).
+    
+    Args:
+        input_path: Caminho do arquivo WAV original
+        output_format: Formato de saída (mp3, ogg, flac, etc.)
+    
+    Returns:
+        Path do arquivo convertido em diretório temp
+    
+    Raises:
+        HTTPException: Se formato não suportado ou conversão falhar
+    """
+    if output_format not in SUPPORTED_AUDIO_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato não suportado: {output_format}. Suportados: {list(SUPPORTED_AUDIO_FORMATS.keys())}"
+        )
+    
+    # Se já é WAV, retorna o original
+    if output_format == 'wav':
+        return input_path
+    
+    # Cria arquivo temporário
+    temp_dir = Path(settings['temp_dir'])
+    temp_dir.mkdir(exist_ok=True, parents=True)
+    
+    extension = SUPPORTED_AUDIO_FORMATS[output_format]['extension']
+    temp_file = temp_dir / f"convert_{datetime.now().strftime('%Y%m%d%H%M%S%f')}{extension}"
+    
+    try:
+        # Configurações de conversão por formato
+        ffmpeg_opts = {
+            'mp3': ['-codec:a', 'libmp3lame', '-qscale:a', '2'],  # VBR ~190 kbps
+            'ogg': ['-codec:a', 'libvorbis', '-qscale:a', '6'],   # VBR ~192 kbps
+            'flac': ['-codec:a', 'flac'],                         # Lossless
+            'm4a': ['-codec:a', 'aac', '-b:a', '192k'],           # AAC 192 kbps
+            'opus': ['-codec:a', 'libopus', '-b:a', '128k']       # Opus 128 kbps
+        }
+        
+        cmd = [
+            'ffmpeg', '-y',
+            '-i', str(input_path),
+            *ffmpeg_opts.get(output_format, []),
+            str(temp_file)
+        ]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"FFmpeg conversion failed: {result.stderr}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Falha na conversão de áudio: {result.stderr[:200]}"
+            )
+        
+        if not temp_file.exists():
+            raise HTTPException(
+                status_code=500,
+                detail="Arquivo convertido não foi criado"
+            )
+        
+        logger.info(f"Audio converted: {input_path.name} -> {temp_file.name} ({output_format})")
+        return temp_file
+        
+    except subprocess.TimeoutExpired:
+        if temp_file.exists():
+            temp_file.unlink()
+        raise HTTPException(
+            status_code=500,
+            detail="Timeout na conversão de áudio (>30s)"
+        )
+    except Exception as e:
+        if temp_file.exists():
+            temp_file.unlink()
+        logger.error(f"Conversion error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao converter áudio: {str(e)}"
+        )
+
 # Stores e processors
 redis_url = settings['redis_url']
 job_store = RedisJobStore(redis_url=redis_url)
-processor = VoiceProcessor()
+
+# API NÃO carrega modelo XTTS (lazy_load=True)
+# Apenas o Celery Worker precisa carregar o modelo (lazy_load=False)
+# Isso economiza ~2GB de VRAM e evita CUDA OOM
+processor = VoiceProcessor(lazy_load=True)
 processor.job_store = job_store
+
+# Inicializa RvcModelManager (Sprint 6)
+from .rvc_model_manager import RvcModelManager
+rvc_storage_dir = Path(settings.get('rvc_models_dir', '/app/models/rvc'))
+processor.rvc_model_manager = RvcModelManager(storage_dir=rvc_storage_dir)
 
 
 @app.get("/")
@@ -98,47 +207,141 @@ def submit_processing_task(job: Job):
 # ===== ENDPOINTS DE DUBLAGEM =====
 
 @app.post("/jobs", response_model=Job)
-async def create_job(request: DubbingRequest) -> Job:
+async def create_job(
+    text: str = Form(..., min_length=1, max_length=10000, description="Texto para dublar (1-10.000 caracteres)"),
+    source_language: str = Form(..., description="Idioma do texto (pt, pt-BR, en, es, fr, etc.)"),
+    mode: JobMode = Form(..., description="Modo: dubbing (voz genérica) ou dubbing_with_clone (voz clonada)"),
+    quality_profile: QualityProfile = Form(QualityProfile.BALANCED, description="Perfil de qualidade: fast, balanced, high_quality"),
+    voice_preset: Optional[VoicePreset] = Form(VoicePreset.female_generic, description="Preset de voz genérica (dropdown, apenas para mode=dubbing)"),
+    voice_id: Optional[str] = Form(None, description="ID de voz clonada (apenas para mode=dubbing_with_clone)"),
+    target_language: Optional[str] = Form(None, description="Idioma de destino (padrão: mesmo que source_language)"),
+    # TTS Engine Selection (Sprint 4)
+    tts_engine: Optional[str] = Form('xtts', description="TTS engine: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)"),
+    ref_text: Optional[str] = Form(None, description="Reference transcription for F5-TTS voice cloning (auto-transcribed if None)"),
+    # RVC Parameters (Sprint 7)
+    enable_rvc: bool = Form(False, description="Enable RVC voice conversion (default: False)"),
+    rvc_model_id: Optional[str] = Form(None, description="RVC model ID (required if enable_rvc=True)"),
+    rvc_pitch: int = Form(0, description="Pitch shift in semitones (-12 to +12)"),
+    rvc_index_rate: float = Form(0.75, description="Index rate for retrieval (0.0 to 1.0)"),
+    rvc_filter_radius: int = Form(3, description="Median filter radius (0 to 7)"),
+    rvc_rms_mix_rate: float = Form(0.25, description="RMS mix rate (0.0 to 1.0)"),
+    rvc_protect: float = Form(0.33, description="Protect voiceless consonants (0.0 to 0.5)")
+) -> Job:
     """
-    Cria job de dublagem
+    Cria job de dublagem com validação rigorosa (similar a admin/cleanup)
     
-    - **mode**: dubbing (genérico) ou dubbing_with_clone (voz clonada)
-    - **text**: Texto para dublar (max 10.000 chars)
-    - **source_language**: Idioma de origem
-    - **voice_preset**: Voz genérica (female_generic, male_deep, etc.)
-    - **voice_id**: ID de voz clonada (se mode=dubbing_with_clone)
+    **Parâmetros validados via Form (evita erros de tipos/valores inválidos):**
+    - **text**: Texto para dublar (1-10.000 caracteres)
+    - **source_language**: Idioma do texto (validado contra lista de suportados)
+    - **mode**: dubbing ou dubbing_with_clone
+    - **quality_profile**: fast, balanced ou high_quality
+    - **voice_preset**: Preset de voz genérica (obrigatório se mode=dubbing)
+    - **voice_id**: ID de voz clonada (obrigatório se mode=dubbing_with_clone)
+    - **target_language**: Idioma de destino (opcional, padrão=source_language)
+    
+    **TTS Engine Selection (NEW - Sprint 4):**
+    - **tts_engine**: 'xtts' (default/stable) or 'f5tts' (experimental/high-quality)
+    - **ref_text**: Reference transcription for F5-TTS (auto-transcribed if None)
+    
+    **RVC Parameters (NEW - Sprint 7):**
+    - **enable_rvc**: Enable RVC voice conversion (default: False)
+    - **rvc_model_id**: RVC model ID (required if enable_rvc=True)
+    - **rvc_pitch**: Pitch shift in semitones (-12 to +12, default: 0)
+    - **rvc_index_rate**: Index rate for retrieval (0.0-1.0, default: 0.75)
+    - **rvc_filter_radius**: Median filter radius (0-7, default: 3)
+    - **rvc_rms_mix_rate**: RMS mix rate (0.0-1.0, default: 0.25)
+    - **rvc_protect**: Protect voiceless consonants (0.0-0.5, default: 0.33)
     """
     try:
-        # Validações
-        if len(request.text) > settings['max_text_length']:
-            raise TextTooLongException(len(request.text), settings['max_text_length'])
+        # Validações adicionais
+        if not is_language_supported(source_language):
+            raise InvalidLanguageException(source_language)
         
-        if not is_language_supported(request.source_language):
-            raise InvalidLanguageException(request.source_language)
+        # Valida tts_engine
+        valid_engines = ['xtts', 'f5tts']
+        if tts_engine not in valid_engines:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tts_engine '{tts_engine}'. Valid options: {valid_engines}"
+            )
         
-        if request.mode == JobMode.DUBBING:
-            if not request.voice_preset:
-                request.voice_preset = 'female_generic'
-            if not is_voice_preset_valid(request.voice_preset):
-                raise HTTPException(status_code=400, detail=f"Invalid voice preset: {request.voice_preset}")
+        # Define target_language se não fornecido
+        if not target_language:
+            target_language = source_language
         
-        if request.mode == JobMode.DUBBING_WITH_CLONE:
-            if not request.voice_id:
-                raise HTTPException(status_code=400, detail="voice_id required for dubbing_with_clone mode")
+        # Validações específicas por modo
+        if mode == JobMode.DUBBING:
+            if not voice_preset:
+                voice_preset = VoicePreset.female_generic
+            if not is_voice_preset_valid(voice_preset.value):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid voice preset: {voice_preset}. Valid presets: {get_voice_presets()}"
+                )
+        
+        if mode == JobMode.DUBBING_WITH_CLONE:
+            if not voice_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="voice_id is required when mode=dubbing_with_clone"
+                )
             # Verifica se voz existe
-            voice_profile = job_store.get_voice_profile(request.voice_id)
+            voice_profile = job_store.get_voice_profile(voice_id)
             if not voice_profile:
-                raise VoiceProfileNotFoundException(request.voice_id)
+                raise VoiceProfileNotFoundException(voice_id)
+        
+        # Validações RVC (Sprint 7)
+        if enable_rvc:
+            if not rvc_model_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="rvc_model_id is required when enable_rvc=True"
+                )
+            
+            # Verifica se modelo RVC existe
+            rvc_model = processor.rvc_model_manager.get_model(rvc_model_id)
+            if not rvc_model:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"RVC model not found: {rvc_model_id}"
+                )
+            
+            # Validar ranges de parâmetros RVC
+            if not -12 <= rvc_pitch <= 12:
+                raise HTTPException(status_code=400, detail="rvc_pitch must be between -12 and +12")
+            if not 0.0 <= rvc_index_rate <= 1.0:
+                raise HTTPException(status_code=400, detail="rvc_index_rate must be between 0.0 and 1.0")
+            if not 0 <= rvc_filter_radius <= 7:
+                raise HTTPException(status_code=400, detail="rvc_filter_radius must be between 0 and 7")
+            if not 0.0 <= rvc_rms_mix_rate <= 1.0:
+                raise HTTPException(status_code=400, detail="rvc_rms_mix_rate must be between 0.0 and 1.0")
+            if not 0.0 <= rvc_protect <= 0.5:
+                raise HTTPException(status_code=400, detail="rvc_protect must be between 0.0 and 0.5")
         
         # Cria job
         new_job = Job.create_new(
-            mode=request.mode,
-            text=request.text,
-            source_language=request.source_language,
-            target_language=request.target_language,
-            voice_preset=request.voice_preset,
-            voice_id=request.voice_id
+            mode=mode,
+            text=text,
+            source_language=source_language,
+            target_language=target_language,
+            voice_preset=voice_preset.value if voice_preset else None,
+            voice_id=voice_id,
+            tts_engine=tts_engine,
+            ref_text=ref_text
         )
+        
+        # Adiciona quality_profile
+        new_job.quality_profile = quality_profile
+        
+        # Adiciona parâmetros RVC (Sprint 7)
+        if enable_rvc:
+            new_job.enable_rvc = True
+            new_job.rvc_model_id = rvc_model_id
+            new_job.rvc_pitch = rvc_pitch
+            new_job.rvc_index_rate = rvc_index_rate
+            new_job.rvc_filter_radius = rvc_filter_radius
+            new_job.rvc_rms_mix_rate = rvc_rms_mix_rate
+            new_job.rvc_protect = rvc_protect
         
         # Verifica cache
         existing_job = job_store.get_job(new_job.id)
@@ -150,7 +353,7 @@ async def create_job(request: DubbingRequest) -> Job:
         job_store.save_job(new_job)
         submit_processing_task(new_job)
         
-        logger.info(f"Job created: {new_job.id}")
+        logger.info(f"Job created: {new_job.id} (RVC: {enable_rvc})")
         return new_job
         
     except HTTPException:
@@ -171,24 +374,141 @@ async def get_job_status(job_id: str) -> Job:
     return job
 
 
-@app.get("/jobs/{job_id}/download")
-async def download_audio(job_id: str):
-    """Download do áudio dublado"""
+@app.get("/jobs/{job_id}/formats")
+async def get_available_formats(job_id: str):
+    """
+    Lista formatos de áudio disponíveis para download.
+    
+    Returns:
+        Lista de formatos suportados com informações de qualidade
+    """
     job = job_store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(status_code=425, detail=f"Job not ready: {job.status}")
     
-    file_path = Path(job.output_file) if job.output_file else None
-    if not file_path or not file_path.exists():
+    formats = [
+        {
+            "format": "wav",
+            "name": "WAV (Original)",
+            "mime_type": "audio/wav",
+            "quality": "Lossless",
+            "description": "Formato original sem compressão"
+        },
+        {
+            "format": "mp3",
+            "name": "MP3",
+            "mime_type": "audio/mpeg",
+            "quality": "VBR ~190 kbps",
+            "description": "Compressão com perdas, alta compatibilidade"
+        },
+        {
+            "format": "ogg",
+            "name": "OGG Vorbis",
+            "mime_type": "audio/ogg",
+            "quality": "VBR ~192 kbps",
+            "description": "Compressão eficiente, código aberto"
+        },
+        {
+            "format": "flac",
+            "name": "FLAC",
+            "mime_type": "audio/flac",
+            "quality": "Lossless",
+            "description": "Compressão sem perdas, tamanho menor que WAV"
+        },
+        {
+            "format": "m4a",
+            "name": "M4A (AAC)",
+            "mime_type": "audio/mp4",
+            "quality": "192 kbps",
+            "description": "AAC, ótima qualidade/tamanho"
+        },
+        {
+            "format": "opus",
+            "name": "OPUS",
+            "mime_type": "audio/opus",
+            "quality": "128 kbps",
+            "description": "Melhor compressão para voz"
+        }
+    ]
+    
+    return {
+        "job_id": job_id,
+        "formats": formats,
+        "download_url_template": f"/jobs/{job_id}/download?format={{format}}"
+    }
+
+
+@app.get("/jobs/{job_id}/download")
+async def download_audio(
+    job_id: str,
+    format: str = Query(default="wav", description="Formato de áudio: wav, mp3, ogg, flac, m4a, opus"),
+    background_tasks: BackgroundTasks = None
+):
+    """
+    Download do áudio em formato especificado.
+    
+    Args:
+        job_id: ID do job
+        format: Formato de áudio desejado (padrão: wav)
+        background_tasks: Background tasks for cleanup
+    
+    Returns:
+        Arquivo de áudio no formato solicitado
+    
+    Note:
+        Arquivos convertidos são criados temporariamente e deletados após envio
+    """
+    job = job_store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(status_code=425, detail=f"Job not ready: {job.status}")
+    
+    original_file = Path(job.output_file) if job.output_file else None
+    if not original_file or not original_file.exists():
         raise HTTPException(status_code=404, detail="File not found")
     
-    return FileResponse(
-        path=file_path,
-        filename=f"dubbed_{job_id}.wav",
-        media_type='audio/wav'
-    )
+    # Normaliza formato
+    format = format.lower().strip()
+    
+    try:
+        # Converte para formato solicitado (ou retorna original se WAV)
+        converted_file = convert_audio_format(original_file, format)
+        
+        # Prepara response
+        format_info = SUPPORTED_AUDIO_FORMATS[format]
+        extension = format_info['extension']
+        filename = f"dubbed_{job_id}{extension}"
+        
+        # Se arquivo convertido (não é o original WAV), agenda limpeza
+        if converted_file != original_file and background_tasks:
+            def cleanup_file():
+                try:
+                    if converted_file.exists():
+                        converted_file.unlink()
+                        logger.debug(f"Cleaned up temp file: {converted_file.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup temp file: {e}")
+            
+            background_tasks.add_task(cleanup_file)
+        
+        # FileResponse
+        return FileResponse(
+            path=converted_file,
+            filename=filename,
+            media_type=format_info['mime']
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao preparar download: {str(e)}"
+        )
 
 
 @app.get("/jobs", response_model=JobListResponse)
@@ -234,7 +554,9 @@ async def clone_voice(
     file: UploadFile = File(...),
     name: str = Form(...),
     language: str = Form(...),
-    description: Optional[str] = Form(None)
+    description: Optional[str] = Form(None),
+    tts_engine: Optional[str] = Form('xtts', description="TTS engine: 'xtts' or 'f5tts'"),
+    ref_text: Optional[str] = Form(None, description="Reference transcription for F5-TTS (auto-transcribed if None)")
 ):
     """
     Clona voz a partir de amostra de áudio (ASYNC)
@@ -245,6 +567,8 @@ async def clone_voice(
     - **name**: Nome do perfil
     - **language**: Idioma base da voz
     - **description**: Descrição opcional
+    - **tts_engine**: 'xtts' (default) or 'f5tts' (experimental)
+    - **ref_text**: Reference transcription for F5-TTS (auto-transcribed if None)
     
     **Response:** HTTP 202 com job_id
     **Polling:** GET /jobs/{job_id} até status="completed"
@@ -254,6 +578,14 @@ async def clone_voice(
         # Validações
         if not is_language_supported(language):
             raise InvalidLanguageException(language)
+        
+        # Valida tts_engine
+        valid_engines = ['xtts', 'f5tts']
+        if tts_engine not in valid_engines:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid tts_engine '{tts_engine}'. Valid options: {valid_engines}"
+            )
         
         # Lê arquivo
         content = await file.read()
@@ -279,7 +611,9 @@ async def clone_voice(
             mode=JobMode.CLONE_VOICE,
             voice_name=name,
             voice_description=description,
-            source_language=language
+            source_language=language,
+            tts_engine=tts_engine,
+            ref_text=ref_text
         )
         # IMPORTANTE: Setar input_file ANTES de salvar/enviar
         clone_job.input_file = str(file_path)
@@ -347,6 +681,257 @@ async def delete_voice(voice_id: str):
     return {"message": "Voice profile deleted", "voice_id": voice_id}
 
 
+# ===== RVC MODEL MANAGEMENT ENDPOINTS (SPRINT 7) =====
+
+@app.post("/rvc-models", response_model=RvcModelResponse, status_code=201)
+async def upload_rvc_model(
+    name: str = Form(..., min_length=1, max_length=100, description="Model name"),
+    description: Optional[str] = Form(None, max_length=500, description="Model description"),
+    pth_file: UploadFile = File(..., description=".pth file (PyTorch checkpoint)"),
+    index_file: Optional[UploadFile] = File(None, description=".index file (FAISS index, optional)")
+):
+    """
+    Upload RVC model for voice conversion
+    
+    **Required:**
+    - **name**: Model name (unique identifier)
+    - **pth_file**: PyTorch checkpoint file (.pth)
+    
+    **Optional:**
+    - **description**: Model description
+    - **index_file**: FAISS index file (.index) for better quality
+    
+    **Returns:** Model metadata with ID for use in /jobs endpoint
+    """
+    try:
+        # Salvar arquivo .pth temporariamente
+        temp_dir = Path(settings['temp_dir'])
+        temp_dir.mkdir(exist_ok=True, parents=True)
+        
+        # Salvar .pth
+        pth_temp_path = temp_dir / f"upload_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.pth"
+        pth_content = await pth_file.read()
+        with open(pth_temp_path, 'wb') as f:
+            f.write(pth_content)
+        
+        # Salvar .index se fornecido
+        index_temp_path = None
+        if index_file:
+            index_temp_path = temp_dir / f"upload_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.index"
+            index_content = await index_file.read()
+            with open(index_temp_path, 'wb') as f:
+                f.write(index_content)
+        
+        # Upload via RvcModelManager
+        model_metadata = await processor.rvc_model_manager.upload_model(
+            name=name,
+            pth_file=pth_temp_path,
+            index_file=index_temp_path,
+            description=description
+        )
+        
+        # Limpar arquivos temporários
+        pth_temp_path.unlink(missing_ok=True)
+        if index_temp_path:
+            index_temp_path.unlink(missing_ok=True)
+        
+        logger.info(f"RVC model uploaded: {model_metadata['id']} ({name})")
+        
+        return RvcModelResponse(**model_metadata)
+        
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid file: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error uploading RVC model: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+@app.get("/rvc-models", response_model=RvcModelListResponse)
+async def list_rvc_models(
+    sort_by: str = Query(default="created_at", description="Sort by: name, created_at, file_size_mb")
+) -> RvcModelListResponse:
+    """
+    List all RVC models
+    
+    **Query Parameters:**
+    - **sort_by**: Sorting field (name, created_at, file_size_mb)
+    
+    **Returns:** List of RVC models with metadata
+    """
+    try:
+        models = processor.rvc_model_manager.list_models(sort_by=sort_by)
+        return RvcModelListResponse(
+            total=len(models),
+            models=[RvcModelResponse(**m) for m in models]
+        )
+    except Exception as e:
+        logger.error(f"Error listing RVC models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+
+
+@app.get("/rvc-models/{model_id}", response_model=RvcModelResponse)
+async def get_rvc_model(model_id: str) -> RvcModelResponse:
+    """
+    Get RVC model details by ID
+    
+    **Parameters:**
+    - **model_id**: Model unique identifier (MD5 hash)
+    
+    **Returns:** Model metadata
+    """
+    try:
+        model = processor.rvc_model_manager.get_model(model_id)
+        if not model:
+            raise HTTPException(status_code=404, detail=f"RVC model not found: {model_id}")
+        return RvcModelResponse(**model)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting RVC model {model_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/rvc-models/{model_id}")
+async def delete_rvc_model(model_id: str):
+    """
+    Delete RVC model by ID
+    
+    **Parameters:**
+    - **model_id**: Model unique identifier
+    
+    **Returns:** Success message
+    """
+    try:
+        success = await processor.rvc_model_manager.delete_model(model_id)
+        if not success:
+            raise HTTPException(status_code=404, detail=f"RVC model not found: {model_id}")
+        
+        logger.info(f"RVC model deleted: {model_id}")
+        return {"message": "RVC model deleted", "model_id": model_id}
+        
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting RVC model {model_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/rvc-models/stats")
+async def get_rvc_models_stats():
+    """
+    Get RVC models statistics
+    
+    **Returns:** Statistics about RVC models (count, size, etc.)
+    """
+    try:
+        stats = processor.rvc_model_manager.get_model_stats()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting RVC stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== VOICE PRESETS (GENERIC) =====
+
+@app.post("/quality-profiles")
+async def create_quality_profile(
+    name: str = Form(..., description="Nome do perfil (ex: high_emotion)"),
+    description: str = Form(..., description="Descrição do perfil"),
+    temperature: float = Form(0.75, description="Controle de variação (0.1-1.0)", ge=0.1, le=1.0),
+    repetition_penalty: float = Form(1.5, description="Penalidade de repetição (1.0-5.0)", ge=1.0, le=5.0),
+    top_p: float = Form(0.9, description="Nucleus sampling (0.1-1.0)", ge=0.1, le=1.0),
+    top_k: int = Form(60, description="Top-k sampling (10-100)", ge=10, le=100),
+    length_penalty: float = Form(1.2, description="Penalidade de comprimento (0.5-2.0)", ge=0.5, le=2.0),
+    speed: float = Form(1.0, description="Velocidade (0.5-2.0)", ge=0.5, le=2.0)
+):
+    """Cria novo perfil de qualidade customizado (XTTS parameters)"""
+    # Validar se já existe
+    if job_store.redis.get(f"quality_profile:{name}"):
+        raise HTTPException(status_code=400, detail=f"Perfil '{name}' já existe.")
+    
+    # Criar perfil
+    profile = {
+        "description": description,
+        "temperature": temperature,
+        "repetition_penalty": repetition_penalty,
+        "top_p": top_p,
+        "top_k": top_k,
+        "length_penalty": length_penalty,
+        "speed": speed,
+        "enable_text_splitting": False  # Customizável se necessário
+    }
+    
+    job_store.save_quality_profile(name, profile)
+    return {"message": f"Perfil de qualidade '{name}' criado com sucesso.", "profile": profile}
+
+
+@app.delete("/quality-profiles/{name}")
+async def delete_quality_profile_endpoint(name: str):
+    """Remove perfil de qualidade customizado (exceto defaults: balanced, expressive, stable)"""
+    defaults = ["balanced", "expressive", "stable"]
+    if name.lower() in defaults:
+        raise HTTPException(status_code=403, detail=f"Não é permitido remover perfis padrão ({', '.join(defaults)}).")
+    
+    if not job_store.redis.get(f"quality_profile:{name}"):
+        raise HTTPException(status_code=404, detail=f"Perfil '{name}' não existe.")
+    
+    job_store.delete_quality_profile(name)
+    return {"message": f"Perfil '{name}' removido com sucesso."}
+
+
+@app.get("/quality-profiles")
+async def list_quality_profiles_endpoint():
+    """Lista todos os perfis de qualidade (defaults + customizados no Redis)"""
+    # Perfis padrão
+    defaults = {
+        "balanced": {
+            "description": "Equilíbrio entre emoção e estabilidade (RECOMENDADO)",
+            "temperature": 0.75,
+            "repetition_penalty": 1.5,
+            "top_p": 0.9,
+            "top_k": 60,
+            "length_penalty": 1.2,
+            "speed": 1.0,
+            "enable_text_splitting": False
+        },
+        "expressive": {
+            "description": "Máxima emoção e naturalidade (pode ter artefatos)",
+            "temperature": 0.85,
+            "repetition_penalty": 1.3,
+            "top_p": 0.95,
+            "top_k": 70,
+            "length_penalty": 1.3,
+            "speed": 0.98,
+            "enable_text_splitting": False
+        },
+        "stable": {
+            "description": "Conservador, produção segura",
+            "temperature": 0.70,
+            "repetition_penalty": 1.7,
+            "top_p": 0.85,
+            "top_k": 55,
+            "length_penalty": 1.1,
+            "speed": 1.0,
+            "enable_text_splitting": True
+        }
+    }
+    
+    # Perfis customizados do Redis
+    custom_profiles = job_store.list_quality_profiles()
+    
+    # Merge (custom não sobrescreve defaults)
+    all_profiles = {**defaults, **custom_profiles}
+    
+    return {
+        "profiles": all_profiles,
+        "total": len(all_profiles),
+        "defaults": list(defaults.keys()),
+        "custom": list(custom_profiles.keys())
+    }
+
+
 # ===== ENDPOINTS INFORMATIVOS =====
 
 @app.get("/presets")
@@ -359,9 +944,18 @@ async def get_presets():
 @app.get("/languages")
 async def get_languages():
     """Lista idiomas suportados"""
-    from .config import get_supported_languages
     languages = get_supported_languages()
-    return {"languages": languages, "total": len(languages)}
+    return {
+        "languages": languages,
+        "total": len(languages),
+        "examples": {
+            "Portuguese (Brazil)": "pt-BR",
+            "Portuguese (Portugal)": "pt",
+            "English": "en",
+            "Spanish": "es",
+            "French": "fr"
+        }
+    }
 
 
 # ===== ADMIN ENDPOINTS =====
@@ -449,17 +1043,82 @@ async def health_check():
         health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
         is_healthy = False
     
-    # OpenVoice
+    # TTS Engine (XTTS)
     try:
-        health_status["checks"]["openvoice"] = {
+        tts_status = {
             "status": "ok",
-            "device": processor.openvoice_client.device,
-            "models_loaded": processor.openvoice_client._models_loaded
+            "engine": "XTTS",
+            "device": processor.engine.device,
+            "model": processor.engine.model_name
         }
+        health_status["checks"]["tts_engine"] = tts_status
     except Exception as e:
-        health_status["checks"]["openvoice"] = {"status": "error", "message": str(e)}
+        health_status["checks"]["tts_engine"] = {"status": "error", "message": str(e)}
     
     health_status["status"] = "healthy" if is_healthy else "unhealthy"
     status_code = 200 if is_healthy else 503
     
     return JSONResponse(content=health_status, status_code=status_code)
+
+
+# =============================================================================
+# Feature Flags Endpoints
+# =============================================================================
+
+@app.get("/feature-flags", tags=["feature-flags"])
+async def get_feature_flags():
+    """
+    Retorna todas as feature flags e seus status atuais.
+    
+    Útil para debugging e monitoramento do rollout gradual.
+    """
+    from .feature_flags import get_feature_flag_manager
+    
+    manager = get_feature_flag_manager()
+    flags = manager.get_all_flags()
+    
+    return {
+        "feature_flags": flags,
+        "timestamp": datetime.now().isoformat()
+    }
+
+
+@app.get("/feature-flags/{feature_name}", tags=["feature-flags"])
+async def check_feature_flag(
+    feature_name: str,
+    user_id: Optional[str] = Query(None, description="User ID para verificar acesso")
+):
+    """
+    Verifica se uma feature específica está habilitada.
+    
+    Args:
+        feature_name: Nome da feature (ex: 'f5tts_engine')
+        user_id: ID do usuário (opcional)
+    
+    Returns:
+        Status da feature para o usuário específico ou globalmente
+    """
+    from .feature_flags import get_feature_flag_manager
+    
+    manager = get_feature_flag_manager()
+    flag = manager.get_flag(feature_name)
+    
+    if not flag:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Feature flag não encontrada: {feature_name}"
+        )
+    
+    is_enabled = manager.is_enabled(feature_name, user_id)
+    
+    return {
+        "feature_name": feature_name,
+        "user_id": user_id,
+        "enabled": is_enabled,
+        "flag_details": {
+            "phase": flag.phase.value,
+            "percentage": flag.percentage,
+            "description": flag.description
+        },
+        "timestamp": datetime.now().isoformat()
+    }

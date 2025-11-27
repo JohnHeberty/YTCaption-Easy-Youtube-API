@@ -43,7 +43,7 @@ docker-compose.yml
 *.md
 docs/
 
-# Tests
-tests/
-conftest.py
-pytest.ini
+# Tests (comentado - necessário para Sprint 1)
+# tests/
+# conftest.py
+# pytest.ini
