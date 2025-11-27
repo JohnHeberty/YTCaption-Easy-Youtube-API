@@ -46,6 +46,10 @@ def get_settings():
         'max_concurrent_jobs': int(os.getenv('MAX_CONCURRENT_JOBS', '3')),
         'job_timeout_minutes': int(os.getenv('JOB_TIMEOUT_MINUTES', '15')),
         
+        # ===== LOW VRAM MODE =====
+        # Quando ativo, carrega/descarrega modelos automaticamente para economizar VRAM
+        'low_vram_mode': os.getenv('LOW_VRAM', 'false').lower() == 'true',
+        
         # ===== TTS ENGINES (SPRINT 4: Multi-Engine Support) =====
         'tts_engine_default': os.getenv('TTS_ENGINE_DEFAULT', 'xtts'),  # Default engine
         'tts_engines': {

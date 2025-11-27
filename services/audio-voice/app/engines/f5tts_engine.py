@@ -39,6 +39,8 @@ import torchaudio
 from .base import TTSEngine
 from ..models import VoiceProfile, QualityProfile
 from ..exceptions import TTSEngineException, InvalidAudioException
+from ..vram_manager import vram_manager
+from ..config import config
 
 logger = logging.getLogger(__name__)
 
@@ -101,12 +103,20 @@ class F5TtsEngine(TTSEngine):
         try:
             from f5_tts import F5TTS
             
-            logger.info(f"Loading F5-TTS model: {model_name}")
-            self.tts = F5TTS.from_pretrained(
-                model_name,
-                device=self.device
-            )
-            logger.info("✅ F5-TTS model loaded successfully")
+            # LOW_VRAM mode: lazy loading via VRAMManager
+            if config.get('low_vram_mode'):
+                logger.info("LOW_VRAM mode enabled: F5-TTS will be loaded on-demand")
+                self.tts = None  # Lazy load
+                self._model_loaded = False
+                self._f5tts_class = F5TTS  # Store class for lazy loading
+            else:
+                # Normal mode: load immediately
+                logger.info(f"Loading F5-TTS model: {model_name}")
+                self.tts = F5TTS.from_pretrained(
+                    model_name,
+                    device=self.device
+                )
+                logger.info("✅ F5-TTS model loaded successfully")
             
         except Exception as e:
             logger.error(f"Failed to load F5-TTS model: {e}", exc_info=True)
@@ -133,6 +143,18 @@ class F5TtsEngine(TTSEngine):
                 raise TTSEngineException("CUDA requested but not available")
         
         return device
+    
+    def _load_model(self):
+        """Load F5-TTS model (used in LOW_VRAM mode for lazy loading)"""
+        if self.tts is None:
+            logger.info(f"Loading F5-TTS model on-demand: {self.model_name}")
+            self.tts = self._f5tts_class.from_pretrained(
+                self.model_name,
+                device=self.device
+            )
+            self._model_loaded = True
+            logger.info("✅ F5-TTS model loaded (lazy)")
+        return self.tts
     
     @property
     def engine_name(self) -> str:
@@ -233,14 +255,28 @@ class F5TtsEngine(TTSEngine):
             
             # Run F5-TTS inference (blocking - use thread pool)
             loop = asyncio.get_event_loop()
-            audio_array = await loop.run_in_executor(
-                None,
-                self._synthesize_blocking,
-                text,
-                ref_audio,
-                ref_text,
-                tts_params
-            )
+            
+            # LOW_VRAM mode: load model → synthesize → unload
+            if config.get('low_vram_mode'):
+                with vram_manager.load_model('f5tts', self._load_model):
+                    audio_array = await loop.run_in_executor(
+                        None,
+                        self._synthesize_blocking,
+                        text,
+                        ref_audio,
+                        ref_text,
+                        tts_params
+                    )
+            else:
+                # Normal mode: model already loaded
+                audio_array = await loop.run_in_executor(
+                    None,
+                    self._synthesize_blocking,
+                    text,
+                    ref_audio,
+                    ref_text,
+                    tts_params
+                )
             
             # Apply speed adjustment if needed
             if speed != 1.0:

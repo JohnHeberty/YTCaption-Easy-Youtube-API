@@ -53,6 +53,8 @@ from .base import TTSEngine
 from ..models import VoiceProfile, QualityProfile, XTTSParameters, RvcModel, RvcParameters
 from ..exceptions import InvalidAudioException, TTSEngineException
 from ..resilience import retry_async, with_timeout
+from ..vram_manager import vram_manager
+from ..config import config
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +111,17 @@ class XttsEngine(TTSEngine):
         # Load XTTS model
         try:
             gpu = (self.device == 'cuda')
-            # progress_bar=False evita prompts interativos
-            self.tts = TTS(self.model_name, gpu=gpu, progress_bar=False)
-            logger.info(f"✅ XTTS model loaded: {self.model_name}")
+            
+            # LOW_VRAM mode: lazy loading via VRAMManager
+            if config.get('low_vram_mode'):
+                logger.info("LOW_VRAM mode enabled: models will be loaded on-demand")
+                self.tts = None  # Lazy load
+                self._model_loaded = False
+            else:
+                # Normal mode: load immediately
+                # progress_bar=False evita prompts interativos
+                self.tts = TTS(self.model_name, gpu=gpu, progress_bar=False)
+                logger.info(f"✅ XTTS model loaded: {self.model_name}")
             
         except Exception as e:
             logger.error(f"Failed to load XTTS model: {e}", exc_info=True)
@@ -135,6 +145,16 @@ class XttsEngine(TTSEngine):
                 raise TTSEngineException("CUDA requested but not available")
         
         return device
+    
+    def _load_model(self):
+        """Load XTTS model (used in LOW_VRAM mode for lazy loading)"""
+        if self.tts is None:
+            gpu = (self.device == 'cuda')
+            logger.info(f"Loading XTTS model on-demand: {self.model_name}")
+            self.tts = TTS(self.model_name, gpu=gpu, progress_bar=False)
+            self._model_loaded = True
+            logger.info("✅ XTTS model loaded (lazy)")
+        return self.tts
     
     def _load_rvc_client(self):
         """
@@ -277,18 +297,35 @@ class XttsEngine(TTSEngine):
             # Run XTTS inference (blocking - use thread pool)
             loop = asyncio.get_event_loop()
             
-            await with_timeout(
-                loop.run_in_executor(
-                    None,
-                    self._synthesize_blocking,
-                    text,
-                    output_path,
-                    speaker_wav,
-                    normalized_lang,
-                    params
-                ),
-                timeout_seconds=300
-            )
+            # LOW_VRAM mode: load model → synthesize → unload
+            if config.get('low_vram_mode'):
+                with vram_manager.load_model('xtts', self._load_model):
+                    await with_timeout(
+                        loop.run_in_executor(
+                            None,
+                            self._synthesize_blocking,
+                            text,
+                            output_path,
+                            speaker_wav,
+                            normalized_lang,
+                            params
+                        ),
+                        timeout_seconds=300
+                    )
+            else:
+                # Normal mode: model already loaded
+                await with_timeout(
+                    loop.run_in_executor(
+                        None,
+                        self._synthesize_blocking,
+                        text,
+                        output_path,
+                        speaker_wav,
+                        normalized_lang,
+                        params
+                    ),
+                    timeout_seconds=300
+                )
             
             # Read generated audio
             audio_data, sr = sf.read(output_path)
