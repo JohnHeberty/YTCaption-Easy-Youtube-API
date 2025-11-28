@@ -1,79 +1,33 @@
-# ============================================
-# STAGE 1: Builder (dependências pesadas)
-# ============================================
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS builder
+# Base com CUDA 12.4 + cuDNN p/ Ubuntu 22.04
+# Atualizado de 12.1 (deprecated) para 12.4 (current LTS)
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
+# Evita prompts (tzdata) e define fuso
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
-# Configurações de build otimizadas
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-# Instala Python 3.11 e ferramentas essenciais em UMA ÚNICA camada
+# --- Python 3.11 (via deadsnakes) ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Ferramentas essenciais
-    ca-certificates curl wget git software-properties-common \
-    # Build tools (apenas temporários)
-    build-essential pkg-config \
-    # Runtime libraries (permanentes)
-    ffmpeg libsndfile1 \
-    libavformat-dev libavcodec-dev libavdevice-dev \
-    libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
- # Python 3.11
+    ca-certificates curl wget git \
+    software-properties-common \
  && add-apt-repository ppa:deadsnakes/ppa -y \
  && apt-get update && apt-get install -y --no-install-recommends \
     python3.11 python3.11-dev python3.11-distutils python3.11-venv \
- # Instala pip
+ # pip para o Python 3.11 (evita confusão com pip do 3.10)
  && curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py \
  && python3.11 /tmp/get-pip.py \
+ # symlinks (muitos scripts esperam "python")
  && ln -sf /usr/bin/python3.11 /usr/bin/python \
  && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
- # LIMPA TUDO em uma única camada
  && rm -f /tmp/get-pip.py \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/* \
- && rm -rf /tmp/* /var/tmp/*
-
-WORKDIR /app
-
-# Copia apenas arquivos de dependências
-COPY requirements.txt constraints.txt ./
-
-# Instala dependências Python em UMA ÚNICA camada gigante
-# Isso evita múltiplas camadas intermediárias
-RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel \
- # PyTorch CUDA
- && python -m pip install --no-cache-dir \
-      torch==2.4.0 torchaudio==2.4.0 \
-      --index-url https://download.pytorch.org/whl/cu121 \
-      -c constraints.txt \
- # Demais dependências
- && python -m pip install --no-cache-dir --ignore-installed blinker \
-      -r requirements.txt -c constraints.txt \
- # LIMPA caches residuais do pip e build artifacts
- && rm -rf /root/.cache/pip \
- && rm -rf /tmp/* \
- && find /usr/local/lib/python3.11 -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true \
- && find /usr/local/lib/python3.11 -type f -name "*.pyc" -delete \
- && find /usr/local/lib/python3.11 -type f -name "*.pyo" -delete
-
-# ============================================
-# STAGE 2: Runtime (imagem final limpa)
-# ============================================
-FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 AS runtime
-
-ARG DEBIAN_FRONTEND=noninteractive
-ENV TZ=Etc/UTC
+ && rm -rf /var/lib/apt/lists/*
 
 # Metadata
 LABEL maintainer="audio-voice-service" \
-      version="3.0.0" \
-      description="Audio Voice Microservice - Optimized for disk usage"
+      version="2.0.0" \
+      description="Audio Voice Microservice - Dubbing and Voice Cloning with XTTS (Coqui TTS) + CUDA Support"
 
-# Configurações de runtime
+# Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -83,55 +37,65 @@ ENV PYTHONUNBUFFERED=1 \
     CUDA_VISIBLE_DEVICES=0 \
     FORCE_CUDA=1
 
-# Instala APENAS runtime dependencies (SEM build-essential)
+# Dependências de sistema (ffmpeg etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Python 3.11 runtime
-    software-properties-common \
- && add-apt-repository ppa:deadsnakes/ppa -y \
- && apt-get update && apt-get install -y --no-install-recommends \
-    python3.11 python3.11-distutils \
-    # Runtime libraries
-    ffmpeg libsndfile1 curl \
-    libavformat58 libavcodec58 libavdevice58 \
-    libavutil56 libavfilter7 libswscale5 libswresample3 \
- # Symlinks Python
- && ln -sf /usr/bin/python3.11 /usr/bin/python \
- && ln -sf /usr/bin/python3.11 /usr/bin/python3 \
- # LIMPA TUDO
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/* \
- && rm -rf /tmp/* /var/tmp/*
-
-# Cria usuário não-root ANTES de copiar arquivos
-RUN useradd -m -u 1000 appuser
+    ffmpeg libsndfile1 build-essential pkg-config \
+    libavformat-dev libavcodec-dev libavdevice-dev \
+    libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
+    git \
+    curl \
+ && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copia bibliotecas Python do builder
-COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
-COPY --from=builder /usr/local/bin /usr/local/bin
+# Requirements
+COPY requirements.txt constraints.txt ./
 
-# Copia APENAS código necessário (app, run.py, scripts)
-COPY --chown=appuser:appuser app/ ./app/
-COPY --chown=appuser:appuser run.py ./
-COPY --chown=appuser:appuser scripts/ ./scripts/
+# PyTorch cu121 + deps Python (respeitando constraints)
+RUN python -m pip install --no-cache-dir --upgrade pip
+RUN python -m pip install --no-cache-dir \
+      torch==2.4.0 torchaudio==2.4.0 \
+      --index-url https://download.pytorch.org/whl/cu121 \
+      -c constraints.txt
 
-# Cria diretórios com permissões corretas (755 é suficiente)
-RUN mkdir -p uploads processed temp logs voice_profiles \
-             models models/f5tts models/whisper \
- && chown -R appuser:appuser /app \
- && chmod -R 755 /app
+# Instala demais dependências (apenas XTTS - Coqui TTS)
+# --ignore-installed blinker para evitar conflito com sistema
+RUN python -m pip install --no-cache-dir --ignore-installed blinker \
+      -r requirements.txt -c constraints.txt
 
-# Muda para usuário não-root
+# Limpa toolchain pesado (mantém ffmpeg etc.)
+RUN apt-get purge -y --auto-remove \
+    build-essential pkg-config \
+    libavformat-dev libavcodec-dev libavdevice-dev \
+    libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
+ && apt-get autoremove -y \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+# Copia código
+COPY app/ ./app/
+COPY run.py .
+COPY scripts/ ./scripts/
+
+# Cria speaker default para dubbing genérico
+RUN python scripts/create_default_speaker.py
+
+# Usuário não-root
+RUN useradd -m -u 1000 appuser
+
+# Diretórios e permissões
+RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
+    /app/voice_profiles /app/models /app/models/f5tts /app/models/whisper && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/uploads /app/processed /app/temp /app/logs /app/voice_profiles /app/models
+
 USER appuser
-
-# ⚠️ IMPORTANTE: NÃO rode create_default_speaker.py aqui!
-# Modelos devem ser baixados no PRIMEIRO RUN (runtime) via volume persistente
-# ou pre-carregados via script de inicialização
 
 EXPOSE 8005
 
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-  CMD curl -f http://localhost:8005/health || exit 1
+  CMD curl -f http://localhost:8005/ || exit 1
 
 CMD ["python", "run.py"]
