@@ -96,11 +96,11 @@ class F5TtsEngine(TTSEngine):
         # Model configuration
         # E2-TTS: Enhanced F5-TTS with emotion support
         # F5-TTS: Base model with high expressiveness
-        # Model names: 'E2TTS' or 'F5TTS' (no _v1_Base suffix)
+        # Model names match YAML config files in f5_tts/configs/
         if 'E2-TTS' in model_name or 'E2TTS' in model_name:
-            self.model_name = 'E2TTS'  # Emotion model
+            self.model_name = 'E2TTS_Base'  # Emotion model (E2TTS_Base.yaml)
         else:
-            self.model_name = 'F5TTS'  # Base model
+            self.model_name = 'F5TTS_Base'  # Base model (F5TTS_Base.yaml)
         self.whisper_model_name = whisper_model
         
         # Cache directory para modelos
@@ -109,10 +109,19 @@ class F5TtsEngine(TTSEngine):
         logger.info(f"F5-TTS model cache: {self.cache_dir}")
         
         # Device selection
-        # F5-TTS SEMPRE USA CPU para evitar OOM em GPUs pequenas (<8GB)
-        # XTTS já ocupa ~3.5GB, F5-TTS precisa ~2GB adicional
-        self.device = 'cpu'  # FIXME: Force CPU até implementar VRAM management
-        logger.info(f"F5TtsEngine initializing on device: {self.device} (forced CPU to avoid OOM)")
+        self.device = self._select_device(device, fallback_to_cpu)
+        logger.info(f"F5TtsEngine initializing on device: {self.device}")
+        
+        # Aviso se GPU pequena sem LOW_VRAM
+        settings = get_settings()
+        if self.device == 'cuda' and not settings.get('low_vram_mode'):
+            if torch.cuda.is_available():
+                vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                if vram_gb < 6.0:
+                    logger.warning(
+                        f"⚠️  GPU pequena ({vram_gb:.2f}GB) sem LOW_VRAM! "
+                        f"Risco de OOM. Recomenda-se LOW_VRAM=true."
+                    )
         
         # Load F5-TTS model (new API)
         try:

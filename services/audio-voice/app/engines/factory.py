@@ -33,8 +33,9 @@ _ENGINE_CACHE: Dict[str, TTSEngine] = {}
 
 # Engine registry for lazy loading (populated on first use)
 _ENGINE_REGISTRY: Dict[str, Optional[Type[TTSEngine]]] = {
-    'xtts': None,   # Loaded lazily: XttsEngine
-    'f5tts': None   # Loaded lazily: F5TtsEngine
+    'xtts': None,        # Loaded lazily: XttsEngine
+    'f5tts': None,       # Loaded lazily: F5TtsEngine
+    'f5tts-ptbr': None   # Loaded lazily: F5TtsPtBrEngine (TESTE)
 }
 
 
@@ -90,6 +91,18 @@ def create_engine(
                 device=f5tts_config.get('device'),
                 fallback_to_cpu=f5tts_config.get('fallback_to_cpu', True),
                 model_name=f5tts_config.get('model_name', 'SWivid/F5-TTS')
+            )
+        elif engine_type == 'f5tts-ptbr':
+            if _ENGINE_REGISTRY['f5tts-ptbr'] is None:
+                from .f5tts_ptbr_engine import F5TtsPtBrEngine
+                _ENGINE_REGISTRY['f5tts-ptbr'] = F5TtsPtBrEngine
+            
+            engine_class = _ENGINE_REGISTRY['f5tts-ptbr']
+            f5tts_config = settings.get('tts_engines', {}).get('f5tts', {})  # Usar mesmas configs do f5tts
+            engine = engine_class(
+                device=f5tts_config.get('device'),
+                fallback_to_cpu=f5tts_config.get('fallback_to_cpu', True),
+                whisper_model=f5tts_config.get('whisper_model', 'base')
             )
         else:
             raise ValueError(
