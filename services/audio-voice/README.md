@@ -8,6 +8,28 @@ Microserviço de **dublagem de texto em áudio** e **clonagem de vozes** usando 
 > 🎭 Voice Conversion: **RVC** para conversão de voz de alta qualidade  
 > 🧪 **236 testes** profissionais (TDD completo)
 
+---
+
+## 🚨 ALERTA IMPORTANTE: OTIMIZAÇÃO DE DISCO
+
+> ⚠️ **ANTES DE FAZER BUILD** desta imagem, leia a documentação de otimização!  
+> O Dockerfile anterior causava **estouro de disco** (22-25 GB durante build).  
+> 
+> **📚 DOCUMENTAÇÃO COMPLETA:**
+> - 🚀 [INDEX.md](./INDEX.md) - Índice de toda documentação
+> - 📋 [README_OPTIMIZATION.md](./README_OPTIMIZATION.md) - Quick start e visão geral
+> - 🔧 [APPLY_OPTIMIZATION.md](./APPLY_OPTIMIZATION.md) - Guia passo a passo
+> - 📊 [INCIDENT_REPORT.md](./INCIDENT_REPORT.md) - Relatório executivo do incidente
+>
+> **✅ VERSÃO OTIMIZADA:** Use `Dockerfile.optimized` (redução de 40% no uso de disco)
+>
+> ```bash
+> # Aplicar otimizações automaticamente
+> ./apply-all-optimizations.sh
+> ```
+
+---
+
 ## 🎯 Funcionalidades
 
 ### 1. Dublagem de Texto (Text-to-Speech)
