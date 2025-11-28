@@ -95,8 +95,12 @@ class F5TtsEngine(TTSEngine):
         """
         # Model configuration
         # E2-TTS: Enhanced F5-TTS with emotion support
-        # Options: 'F5TTS_v1_Base', 'E2TTS_v1_Base'
-        self.model_name = 'E2TTS_v1_Base' if model_name == 'SWivid/E2-TTS' else 'F5TTS_v1_Base'
+        # F5-TTS: Base model with high expressiveness
+        # Model names: 'E2TTS' or 'F5TTS' (no _v1_Base suffix)
+        if 'E2-TTS' in model_name or 'E2TTS' in model_name:
+            self.model_name = 'E2TTS'  # Emotion model
+        else:
+            self.model_name = 'F5TTS'  # Base model
         self.whisper_model_name = whisper_model
         
         # Cache directory para modelos

@@ -60,12 +60,38 @@ def get_settings():
                 'fallback_to_cpu': os.getenv('XTTS_FALLBACK_CPU', 'true').lower() == 'true',
                 'model_name': os.getenv('XTTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2'),
             },
-            # F5-TTS Configuration (experimental/high-quality)
+            # F5-TTS / E2-TTS Configuration (experimental/high-quality)
             'f5tts': {
                 'enabled': os.getenv('F5TTS_ENABLED', 'true').lower() == 'true',
-                'device': os.getenv('F5TTS_DEVICE', None),  # None = auto-detect
+                'device': os.getenv('F5TTS_DEVICE', 'cpu'),  # cpu ou cuda (recomendado: cpu)
                 'fallback_to_cpu': os.getenv('F5TTS_FALLBACK_CPU', 'true').lower() == 'true',
-                'model_name': os.getenv('F5TTS_MODEL', 'SWivid/F5-TTS'),
+                'model_name': os.getenv('F5TTS_MODEL', 'SWivid/E2-TTS'),  # E2-TTS (emotion) por padrão
+                
+                # Whisper (auto-transcription)
+                'whisper_model': os.getenv('F5TTS_WHISPER_MODEL', 'base'),
+                'whisper_device': os.getenv('F5TTS_WHISPER_DEVICE', 'cpu'),
+                
+                # Quality Profiles (NFE Steps)
+                'nfe_step_fast': int(os.getenv('F5TTS_NFE_STEP_FAST', '24')),
+                'nfe_step_balanced': int(os.getenv('F5TTS_NFE_STEP_BALANCED', '40')),
+                'nfe_step_ultra': int(os.getenv('F5TTS_NFE_STEP_ULTRA', '64')),
+                
+                # Synthesis Parameters
+                'cfg_strength': float(os.getenv('F5TTS_CFG_STRENGTH', '2.0')),
+                'sway_sampling_coef': float(os.getenv('F5TTS_SWAY_SAMPLING_COEF', '-1.0')),
+                'speed': float(os.getenv('F5TTS_SPEED', '1.0')),
+                
+                # DSP Post-Processing
+                'denoise_strength': float(os.getenv('F5TTS_DENOISE_STRENGTH', '0.85')),
+                'deessing_freq': int(os.getenv('F5TTS_DEESSING_FREQ', '7000')),
+                'highpass_freq': int(os.getenv('F5TTS_HIGHPASS_FREQ', '50')),
+                'lowpass_freq': int(os.getenv('F5TTS_LOWPASS_FREQ', '12000')),
+                
+                # Audio Constraints
+                'sample_rate': int(os.getenv('F5TTS_SAMPLE_RATE', '24000')),
+                'min_ref_duration': int(os.getenv('F5TTS_MIN_REF_DURATION', '3')),
+                'max_ref_duration': int(os.getenv('F5TTS_MAX_REF_DURATION', '30')),
+                'max_text_length': int(os.getenv('F5TTS_MAX_TEXT_LENGTH', '10000')),
             }
         },
         
