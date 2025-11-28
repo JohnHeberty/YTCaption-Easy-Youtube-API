@@ -1,7 +1,9 @@
 # === CORE WEB FRAMEWORK ===
 fastapi==0.120.0
 uvicorn[standard]==0.38.0
-pydantic==2.12.3
+
+# Pydantic compatível com FastAPI, pydantic-settings e F5-TTS
+pydantic>=2.7.0,<2.11.0
 pydantic-settings==2.11.0
 python-multipart==0.0.20
 
@@ -9,29 +11,24 @@ python-multipart==0.0.20
 celery==5.3.4
 redis==5.0.1
 
-# === AUDIO PROCESSING ===
+# === AUDIO PROCESSING CORE ===
 torch==2.4.0
 torchaudio==2.4.0
-numpy==1.26.4
+numpy>=1.26.0,<1.27.0
 soundfile==0.12.1
 
 # === XTTS (Coqui TTS - PRIMARY TTS ENGINE) ===
-TTS>=0.22.0
+coqui-tts>=0.27.0
 
-# === F5-TTS / E2-TTS (EMOTION MODEL - Sprint 8) ===
-f5-tts>=0.1.0
+# === F5-TTS / E2-TTS (EMOTION MODEL) ===
+# Versão nova, já com pyproject declarando pydantic<=2.10.6 
+f5-tts==1.1.9
 cached-path>=1.6.2
-faster-whisper>=1.0.0  # Required for F5-TTS ref_text auto-transcription
+faster-whisper>=1.0.0  # pra transcrição de ref_text
 
-# === RVC DEPENDENCIES (Sprint 2) ===
-# See docker/requirements-rvc.txt for details
-tts-with-rvc==0.1.9
-fairseq>=0.12.0
-faiss-gpu==1.7.2
-librosa==0.10.1
+# === RVC HELPERS (sem tts-with-rvc aqui!) ===
+faiss-cpu>=1.7.4
 praat-parselmouth==0.4.3
-torchcrepe==0.0.23
-scipy>=1.11.4
 resampy>=0.4.2
 
 # === UTILITIES ===

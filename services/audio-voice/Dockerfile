@@ -1,5 +1,6 @@
-# Base com CUDA 12.1 + cuDNN p/ Ubuntu 22.04
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# Base com CUDA 12.4 + cuDNN p/ Ubuntu 22.04
+# Atualizado de 12.1 (deprecated) para 12.4 (current LTS)
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
 # Evita prompts (tzdata) e define fuso
 ARG DEBIAN_FRONTEND=noninteractive

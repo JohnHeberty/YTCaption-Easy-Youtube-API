@@ -6,6 +6,7 @@ from .base import TTSEngine
 from .factory import create_engine, create_engine_with_fallback, clear_engine_cache
 from .xtts_engine import XttsEngine
 from .f5tts_engine import F5TtsEngine
+from .f5tts_ptbr_engine import F5TtsPtBrEngine
 
 __all__ = [
     'TTSEngine',
@@ -13,5 +14,6 @@ __all__ = [
     'create_engine_with_fallback',
     'clear_engine_cache',
     'XttsEngine',
-    'F5TtsEngine'
+    'F5TtsEngine',
+    'F5TtsPtBrEngine'
 ]

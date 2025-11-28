@@ -34,13 +34,23 @@ class VRAMManager:
     """
     
     def __init__(self):
+        settings = get_settings()
         self.low_vram_mode = settings.get('low_vram_mode', False)
+        
+        # Debug: Logar valor raw da variável de ambiente e valor parseado
+        import os
+        env_value = os.getenv('LOW_VRAM', 'NOT_SET')
+        logger.info(f"🔍 DEBUG: LOW_VRAM env='{env_value}', parsed={self.low_vram_mode}")
+        
         self._model_cache = {}  # Cache de modelos (quando LOW_VRAM=false)
         
         if self.low_vram_mode:
             logger.info("🔋 LOW VRAM MODE: ATIVADO - Modelos serão carregados/descarregados automaticamente")
+            logger.info("    💡 Economia de VRAM: 70-75%")
+            logger.info("    ⚠️  Latência aumentada: +2-5s por requisição")
         else:
             logger.info("⚡ NORMAL MODE: Modelos permanecerão na VRAM")
+            logger.info("    💡 Melhor performance, maior consumo de VRAM")
     
     @contextmanager
     def load_model(self, model_key: str, load_fn: Callable, *args, **kwargs):
@@ -66,12 +76,24 @@ class VRAMManager:
             # Em modo LOW_VRAM, sempre carrega fresh
             # Em modo NORMAL, usa cache
             if self.low_vram_mode:
-                logger.debug(f"🔋 Carregando modelo '{model_key}' (LOW VRAM)")
+                logger.info(f"🔋 LOW_VRAM: Carregando modelo '{model_key}' na GPU...")
+                
+                # Log VRAM antes do load (se CUDA disponível)
+                if torch.cuda.is_available():
+                    before_allocated = torch.cuda.memory_allocated() / 1024**3
+                    logger.debug(f"📊 VRAM antes do load: {before_allocated:.2f} GB")
+                
                 model = load_fn(*args, **kwargs)
+                
+                # Log VRAM após load
+                if torch.cuda.is_available():
+                    after_allocated = torch.cuda.memory_allocated() / 1024**3
+                    delta = after_allocated - before_allocated
+                    logger.info(f"📊 VRAM alocada: {after_allocated:.2f} GB (Δ +{delta:.2f} GB)")
             else:
                 # Usar cache
                 if model_key not in self._model_cache:
-                    logger.debug(f"⚡ Carregando modelo '{model_key}' (primeira vez)")
+                    logger.info(f"⚡ Carregando modelo '{model_key}' (primeira vez, será cacheado)")
                     self._model_cache[model_key] = load_fn(*args, **kwargs)
                 else:
                     logger.debug(f"⚡ Usando modelo '{model_key}' do cache")
@@ -82,9 +104,20 @@ class VRAMManager:
         finally:
             # Descarregar apenas em modo LOW_VRAM
             if self.low_vram_mode and model is not None:
-                logger.debug(f"🔋 Descarregando modelo '{model_key}' da VRAM")
+                logger.info(f"🔋 LOW_VRAM: Descarregando modelo '{model_key}' da VRAM...")
+                
+                # Log VRAM antes do unload
+                if torch.cuda.is_available():
+                    before_free = torch.cuda.memory_allocated() / 1024**3
+                
                 self._unload_model(model)
                 del model
+                
+                # Log VRAM depois do unload
+                if torch.cuda.is_available():
+                    after_free = torch.cuda.memory_allocated() / 1024**3
+                    freed = before_free - after_free
+                    logger.info(f"📊 VRAM liberada: {freed:.2f} GB (antes={before_free:.2f}, depois={after_free:.2f} GB)")
     
     def _unload_model(self, model):
         """
@@ -94,23 +127,68 @@ class VRAMManager:
             model: Modelo a ser descarregado
         """
         try:
-            # Mover modelo para CPU
+            models_moved = 0
+            
+            # Estratégia 1: Mover modelo direto (PyTorch nn.Module)
             if hasattr(model, 'to'):
+                logger.debug("Moving model to CPU via .to('cpu')")
                 model.to('cpu')
+                models_moved += 1
             elif hasattr(model, 'cpu'):
+                logger.debug("Moving model to CPU via .cpu()")
                 model.cpu()
+                models_moved += 1
+            
+            # Estratégia 2: Procurar submodelos (F5TTS API wrapper)
+            # F5TTS API tem atributos: .model, .vocoder, etc
+            for attr_name in dir(model):
+                if attr_name.startswith('_'):
+                    continue
+                try:
+                    attr = getattr(model, attr_name)
+                    # Se é um módulo PyTorch, mover para CPU
+                    if hasattr(attr, 'to') and callable(attr.to):
+                        logger.debug(f"Moving submodel '{attr_name}' to CPU")
+                        attr.to('cpu')
+                        models_moved += 1
+                    elif hasattr(attr, 'cpu') and callable(attr.cpu):
+                        logger.debug(f"Moving submodel '{attr_name}' to CPU via .cpu()")
+                        attr.cpu()
+                        models_moved += 1
+                except Exception as e:
+                    # Ignorar atributos que não são modelos
+                    logger.debug(f"Skipping attribute '{attr_name}': {e}")
+                    continue
+            
+            # Estratégia 3: Verificar __dict__ para modelos encapsulados
+            if hasattr(model, '__dict__'):
+                for key, value in model.__dict__.items():
+                    if key.startswith('_'):
+                        continue
+                    try:
+                        if hasattr(value, 'to') and callable(value.to):
+                            logger.debug(f"Moving __dict__ model '{key}' to CPU")
+                            value.to('cpu')
+                            models_moved += 1
+                    except Exception as e:
+                        logger.debug(f"Skipping __dict__ key '{key}': {e}")
+                        continue
+            
+            logger.debug(f"📦 Moved {models_moved} model(s) to CPU")
             
             # Liberar referências
             if hasattr(model, 'eval'):
                 model.eval()
             
-            # Limpar cache CUDA
+            # Limpar cache CUDA (crítico!)
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Aguardar operações CUDA completarem
                 torch.cuda.ipc_collect()
             
-            # Garbage collection
+            # Garbage collection agressivo
             gc.collect()
+            gc.collect()  # Segunda passagem
             
             logger.debug("✅ Modelo descarregado com sucesso")
         
