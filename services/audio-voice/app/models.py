@@ -33,6 +33,12 @@ class JobMode(str, Enum):
     CLONE_VOICE = "clone_voice"              # Clonagem de voz
 
 
+class TTSJobMode(str, Enum):
+    """Modos válidos para endpoint /jobs (apenas TTS, não clonagem)"""
+    DUBBING = "dubbing"                      # Dublagem com voz genérica
+    DUBBING_WITH_CLONE = "dubbing_with_clone"  # Dublagem com voz clonada
+
+
 class TTSEngine(str, Enum):
     """TTS Engines disponíveis"""
     XTTS = "xtts"

@@ -15,6 +15,5 @@ transformers>=4.52.1,<4.56.0
 # Blinker fix
 blinker>=1.6.0
 
-# Torch / torchaudio
-torch==2.4.0
-torchaudio==2.4.0
+# ⚠️  Torch / torchaudio REMOVIDO daqui - instalado via index-url no Dockerfile
+# (constraints.txt não suporta index-url, então não podemos forçar cu118 aqui)

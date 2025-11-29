@@ -63,9 +63,9 @@ def get_settings():
             # F5-TTS / E2-TTS Configuration (experimental/high-quality)
             'f5tts': {
                 'enabled': os.getenv('F5TTS_ENABLED', 'true').lower() == 'true',
-                'device': os.getenv('F5TTS_DEVICE', 'cpu'),  # cpu ou cuda (recomendado: cpu)
+                'device': os.getenv('F5TTS_DEVICE', 'cuda'),  # cuda ou cpu
                 'fallback_to_cpu': os.getenv('F5TTS_FALLBACK_CPU', 'true').lower() == 'true',
-                'model_name': os.getenv('F5TTS_MODEL', 'SWivid/E2-TTS'),  # E2-TTS (emotion) por padrão
+                'model_name': os.getenv('F5TTS_MODEL', 'firstpixel/F5-TTS-pt-br'),  # PT-BR otimizado por padrão
                 
                 # Whisper (auto-transcription)
                 'whisper_model': os.getenv('F5TTS_WHISPER_MODEL', 'base'),

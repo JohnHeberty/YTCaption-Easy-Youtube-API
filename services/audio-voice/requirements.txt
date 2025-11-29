@@ -12,8 +12,7 @@ celery==5.3.4
 redis==5.0.1
 
 # === AUDIO PROCESSING CORE ===
-torch==2.4.0
-torchaudio==2.4.0
+# torch e torchaudio são instalados no Dockerfile com versão específica cu118
 numpy>=1.26.0,<1.27.0
 soundfile==0.12.1
 

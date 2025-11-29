@@ -14,7 +14,7 @@ import tempfile
 import subprocess
 
 from .models import (
-    Job, JobStatus, JobMode, VoiceProfile, QualityProfile, VoicePreset,
+    Job, JobStatus, JobMode, TTSJobMode, VoiceProfile, QualityProfile, VoicePreset,
     DubbingRequest, VoiceCloneRequest,
     VoiceListResponse, JobListResponse, RvcModelResponse, RvcModelListResponse,
     RvcF0Method  # TTSEngine já vem de quality_profiles
@@ -220,7 +220,7 @@ def submit_processing_task(job: Job):
 async def create_job(
     text: str = Form(..., min_length=1, max_length=10000, description="Texto para dublar (1-10.000 caracteres)"),
     source_language: str = Form(..., description="Idioma do texto (pt, pt-BR, en, es, fr, etc.)"),
-    mode: JobMode = Form(..., description="Modo: dubbing (voz genérica) ou dubbing_with_clone (voz clonada)"),
+    mode: TTSJobMode = Form(..., description="Modo: dubbing (voz genérica) ou dubbing_with_clone (voz clonada)"),
     voice_preset: Optional[VoicePreset] = Form(VoicePreset.female_generic, description="Preset de voz genérica (dropdown, apenas para mode=dubbing)"),
     voice_id: Optional[str] = Form(None, description="ID de voz clonada (apenas para mode=dubbing_with_clone)"),
     target_language: Optional[str] = Form(None, description="Idioma de destino (padrão: mesmo que source_language)"),
@@ -278,8 +278,8 @@ async def create_job(
         if not target_language:
             target_language = source_language
         
-        # Validações específicas por modo
-        if mode == JobMode.DUBBING:
+        # Validações específicas por modo (comparar com string value para compatibilidade)
+        if mode.value == "dubbing":
             if not voice_preset:
                 voice_preset = VoicePreset.female_generic
             if not is_voice_preset_valid(voice_preset.value if isinstance(voice_preset, VoicePreset) else voice_preset):
@@ -288,7 +288,7 @@ async def create_job(
                     detail=f"Invalid voice preset: {voice_preset}. Valid presets: {get_voice_presets()}"
                 )
         
-        if mode == JobMode.DUBBING_WITH_CLONE:
+        if mode.value == "dubbing_with_clone":
             if not voice_id:
                 raise HTTPException(
                     status_code=400,
@@ -327,9 +327,12 @@ async def create_job(
             if not 0.0 <= rvc_protect <= 0.5:
                 raise HTTPException(status_code=400, detail="rvc_protect must be between 0.0 and 0.5")
         
+        # Converte TTSJobMode para JobMode (são compatíveis por valor)
+        job_mode = JobMode(mode.value) if isinstance(mode, TTSJobMode) else mode
+        
         # Cria job
         new_job = Job.create_new(
-            mode=mode,
+            mode=job_mode,
             text=text,
             source_language=source_language,
             target_language=target_language,

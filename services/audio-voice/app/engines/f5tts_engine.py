@@ -80,7 +80,7 @@ class F5TtsEngine(TTSEngine):
         self,
         device: Optional[str] = None,
         fallback_to_cpu: bool = True,
-        model_name: str = 'SWivid/E2-TTS',
+        model_name: str = 'firstpixel/F5-TTS-pt-br',
         whisper_model: str = 'base'
     ):
         """
@@ -89,16 +89,19 @@ class F5TtsEngine(TTSEngine):
         Args:
             device: Device ('cuda', 'cpu', or None for auto-detect)
             fallback_to_cpu: If True, fallback to CPU when CUDA unavailable
-            model_name: HuggingFace model name (default: E2-TTS with emotion support)
+            model_name: HuggingFace model name (default: firstpixel/F5-TTS-pt-br)
             whisper_model: Whisper model for auto-transcription
                           ('tiny', 'base', 'small', 'medium', 'large')
         """
         # Model configuration
         # E2-TTS: Enhanced F5-TTS with emotion support
         # F5-TTS: Base model with high expressiveness
+        # pt-br: Modelo otimizado para português brasileiro
         # Model names match YAML config files in f5_tts/configs/
         if 'E2-TTS' in model_name or 'E2TTS' in model_name:
             self.model_name = 'E2TTS_Base'  # Emotion model (E2TTS_Base.yaml)
+        elif 'pt-br' in model_name.lower() or 'firstpixel' in model_name.lower():
+            self.model_name = 'F5TTS_Base'  # PT-BR model uses F5TTS_Base config
         else:
             self.model_name = 'F5TTS_Base'  # Base model (F5TTS_Base.yaml)
         self.whisper_model_name = whisper_model
