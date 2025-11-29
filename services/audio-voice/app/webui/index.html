@@ -1,0 +1,1367 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Voice Service - Control Panel</title>
+    <!-- Favicon inline SVG para evitar 404 -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-yellow: #d29922;
+            --hover-bg: #30363d;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px 30px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        .status-badge {
+            background: var(--accent-green);
+            color: #000;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-badge.offline {
+            background: var(--accent-red);
+            color: #fff;
+        }
+
+        /* Tabs Navigation */
+        .tabs-nav {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0;
+        }
+
+        .tab-button {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            padding: 12px 20px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .tab-button:hover {
+            color: var(--text-primary);
+            background: var(--hover-bg);
+        }
+
+        .tab-button.active {
+            color: var(--accent-blue);
+            border-bottom-color: var(--accent-blue);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Cards */
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            font-size: 18px;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+
+        .card h3 {
+            font-size: 14px;
+            margin-bottom: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        input[type="file"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        input[type="range"] {
+            flex: 1;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border-color);
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+        }
+
+        .slider-value {
+            min-width: 50px;
+            text-align: center;
+            font-weight: 600;
+            color: var(--accent-blue);
+        }
+
+        /* Buttons */
+        button {
+            background: var(--accent-blue);
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background: #4a94e8;
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            background: var(--border-color);
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--hover-bg);
+        }
+
+        .btn-danger {
+            background: var(--accent-red);
+        }
+
+        .btn-danger:hover {
+            background: #e04139;
+        }
+
+        .btn-success {
+            background: var(--accent-green);
+            color: #000;
+        }
+
+        .btn-success:hover {
+            background: #33a044;
+        }
+
+        /* Messages */
+        .message {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            display: none;
+        }
+
+        .message.show {
+            display: block;
+        }
+
+        .message.success {
+            background: rgba(63, 185, 80, 0.15);
+            border: 1px solid var(--accent-green);
+            color: var(--accent-green);
+        }
+
+        .message.error {
+            background: rgba(248, 81, 73, 0.15);
+            border: 1px solid var(--accent-red);
+            color: var(--accent-red);
+        }
+
+        .message.info {
+            background: rgba(88, 166, 255, 0.15);
+            border: 1px solid var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        .message.warning {
+            background: rgba(210, 153, 34, 0.15);
+            border: 1px solid var(--accent-yellow);
+            color: var(--accent-yellow);
+        }
+
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .grid-2 {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        /* Audio Player */
+        .audio-player {
+            width: 100%;
+            margin-top: 12px;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            padding: 12px;
+        }
+
+        audio {
+            width: 100%;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        tr:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .badge.completed {
+            background: rgba(63, 185, 80, 0.2);
+            color: var(--accent-green);
+        }
+
+        .badge.processing {
+            background: rgba(88, 166, 255, 0.2);
+            color: var(--accent-blue);
+        }
+
+        .badge.failed {
+            background: rgba(248, 81, 73, 0.2);
+            color: var(--accent-red);
+        }
+
+        .badge.pending {
+            background: rgba(210, 153, 34, 0.2);
+            color: var(--accent-yellow);
+        }
+
+        /* Action Buttons */
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .action-buttons button {
+            flex: 1;
+        }
+
+        /* Code Block */
+        pre {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        code {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 3px solid var(--border-color);
+            border-top: 3px solid var(--accent-blue);
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Progress Bar */
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--accent-blue);
+            transition: width 0.3s;
+        }
+
+        /* Voice Card */
+        .voice-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .voice-card h4 {
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .voice-card p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+
+            header {
+                flex-direction: column;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎙️ Audio Voice Service</h1>
+            <div class="status-badge" id="serviceStatus">● Checking...</div>
+        </header>
+
+        <div class="tabs-nav">
+            <button class="tab-button active" onclick="switchTab('tts')">🎤 TTS & Dubbing</button>
+            <button class="tab-button" onclick="switchTab('voices')">👤 Voice Cloning</button>
+            <button class="tab-button" onclick="switchTab('jobs')">📋 Jobs Manager</button>
+            <button class="tab-button" onclick="switchTab('advanced')">⚙️ Advanced</button>
+            <button class="tab-button" onclick="switchTab('monitor')">📊 Monitor</button>
+            <button class="tab-button" onclick="switchTab('docs')">📚 Docs</button>
+        </div>
+
+        <!-- TAB 1: TTS & Dubbing -->
+        <div id="tab-tts" class="tab-content active">
+            <div class="card">
+                <h2>Geração de Áudio (Text-to-Speech)</h2>
+                <div id="tts-message" class="message"></div>
+
+                <div class="form-group">
+                    <label for="tts-text">Texto para Sintetizar *</label>
+                    <textarea id="tts-text" placeholder="Digite o texto aqui... (até 10.000 caracteres)">Olá, tudo bem? Eu estou testando a síntese de fala em português brasileiro. A velocidade está adequada, e as pausas nas vírgulas e pontos devem funcionar naturalmente.</textarea>
+                </div>
+
+                <div class="grid">
+                    <div class="form-group">
+                        <label for="tts-language">Idioma *</label>
+                        <select id="tts-language">
+                            <option value="pt-BR" selected>Português Brasileiro</option>
+                            <option value="pt-PT">Português Europeu</option>
+                            <option value="en-US">English (US)</option>
+                            <option value="en-GB">English (UK)</option>
+                            <option value="es">Español</option>
+                            <option value="fr">Français</option>
+                            <option value="de">Deutsch</option>
+                            <option value="it">Italiano</option>
+                            <option value="zh">中文</option>
+                            <option value="ja">日本語</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tts-voice">Voz Clonada</label>
+                        <select id="tts-voice">
+                            <option value="" selected>Voz Padrão (sem clonagem)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tts-engine">Engine TTS</label>
+                        <select id="tts-engine">
+                            <option value="f5tts" selected>F5-TTS (Recomendado para PT-BR)</option>
+                            <option value="xtts">XTTS (Rápido, Multilíngue)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="tts-quality">Perfil de Qualidade</label>
+                        <select id="tts-quality">
+                            <option value="stable">Stable (Rápido - ~1 min)</option>
+                            <option value="balanced" selected>Balanced (Recomendado - ~2 min)</option>
+                            <option value="expressive">Expressive (Máxima Qualidade - ~3 min)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="tts-speed">Velocidade da Fala: <span class="slider-value" id="tts-speed-value">0.80</span></label>
+                    <div class="slider-container">
+                        <span style="color: var(--text-secondary); font-size: 12px;">0.5x</span>
+                        <input type="range" id="tts-speed" min="0.5" max="2.0" step="0.05" value="0.80">
+                        <span style="color: var(--text-secondary); font-size: 12px;">2.0x</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="tts-enable-rvc">
+                        Ativar RVC (Voice Conversion) para maior controle de timbre
+                    </label>
+                </div>
+
+                <div class="form-group" id="tts-rvc-model-group" style="display: none;">
+                    <label for="tts-rvc-model">Modelo RVC</label>
+                    <select id="tts-rvc-model">
+                        <option value="">Selecione um modelo RVC...</option>
+                    </select>
+                </div>
+
+                <div class="action-buttons">
+                    <button onclick="generateAudio()" id="tts-generate-btn">
+                        <span class="spinner" style="display: none;" id="tts-spinner"></span>
+                        Gerar Áudio
+                    </button>
+                    <button class="btn-secondary" onclick="clearTTSForm()">Limpar</button>
+                </div>
+
+                <div id="tts-result" style="display: none;">
+                    <h3 style="margin-top: 24px;">Resultado</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 12px;">
+                        Job ID: <code id="tts-job-id" style="color: var(--accent-blue);"></code>
+                    </p>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="tts-progress" style="width: 0%"></div>
+                    </div>
+                    <p style="margin-top: 8px; font-size: 13px; color: var(--text-secondary);" id="tts-status-text">Processando...</p>
+                    <div class="audio-player" id="tts-audio-container" style="display: none;">
+                        <audio id="tts-audio" controls></audio>
+                        <div class="action-buttons" style="margin-top: 12px;">
+                            <button class="btn-success" onclick="downloadAudio('tts-job-id', 'mp3')">⬇️ Download MP3</button>
+                            <button class="btn-success" onclick="downloadAudio('tts-job-id', 'wav')">⬇️ Download WAV</button>
+                            <button class="btn-success" onclick="downloadAudio('tts-job-id', 'flac')">⬇️ Download FLAC</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: Voice Cloning -->
+        <div id="tab-voices" class="tab-content">
+            <div class="grid">
+                <div class="card">
+                    <h2>Clonar Nova Voz</h2>
+                    <div id="clone-message" class="message"></div>
+
+                    <div class="form-group">
+                        <label for="clone-name">Nome da Voz *</label>
+                        <input type="text" id="clone-name" placeholder="Ex: João Silva">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="clone-audio">Áudio de Referência * (3-30s, WAV/MP3/OGG)</label>
+                        <input type="file" id="clone-audio" accept="audio/*">
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                            Dica: Use áudio sem ruído de fundo, voz clara e natural.
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="clone-language">Idioma da Voz *</label>
+                        <select id="clone-language">
+                            <option value="pt-BR" selected>Português Brasileiro</option>
+                            <option value="pt-PT">Português Europeu</option>
+                            <option value="en-US">English (US)</option>
+                            <option value="es">Español</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="clone-ref-text">Transcrição do Áudio (Recomendado)</label>
+                        <textarea id="clone-ref-text" placeholder="Digite o que está sendo falado no áudio..." rows="3"></textarea>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                            Melhor qualidade se você fornecer a transcrição exata.
+                        </p>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="clone-description">Descrição (Opcional)</label>
+                        <input type="text" id="clone-description" placeholder="Ex: Voz masculina, tom grave, sotaque paulista">
+                    </div>
+
+                    <div class="action-buttons">
+                        <button onclick="cloneVoice()" id="clone-btn">
+                            <span class="spinner" style="display: none;" id="clone-spinner"></span>
+                            Clonar Voz
+                        </button>
+                        <button class="btn-secondary" onclick="clearCloneForm()">Limpar</button>
+                    </div>
+
+                    <div id="clone-result" style="display: none; margin-top: 16px;">
+                        <p style="color: var(--accent-green);">✓ Clonagem iniciada!</p>
+                        <p style="font-size: 13px; color: var(--text-secondary);">
+                            Job ID: <code id="clone-job-id" style="color: var(--accent-blue);"></code>
+                        </p>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="clone-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Vozes Clonadas</h2>
+                    <button class="btn-secondary" onclick="loadVoices()" style="margin-bottom: 16px;">🔄 Atualizar Lista</button>
+                    <div id="voices-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: Jobs Manager -->
+        <div id="tab-jobs" class="tab-content">
+            <div class="card">
+                <h2>Gerenciador de Jobs</h2>
+                <div style="display: flex; gap: 12px; margin-bottom: 16px;">
+                    <button onclick="loadJobs()" class="btn-secondary">🔄 Atualizar</button>
+                    <select id="jobs-filter" onchange="loadJobs()">
+                        <option value="">Todos os Status</option>
+                        <option value="completed">Completos</option>
+                        <option value="processing">Em Processamento</option>
+                        <option value="pending">Pendentes</option>
+                        <option value="failed">Falhados</option>
+                    </select>
+                    <input type="number" id="jobs-limit" value="20" min="5" max="100" placeholder="Limite" style="width: 100px;">
+                </div>
+
+                <div id="jobs-table-container">
+                    <table id="jobs-table">
+                        <thead>
+                            <tr>
+                                <th>Job ID</th>
+                                <th>Status</th>
+                                <th>Engine</th>
+                                <th>Criado Em</th>
+                                <th>Progresso</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="jobs-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: Advanced -->
+        <div id="tab-advanced" class="tab-content">
+            <div class="grid">
+                <div class="card">
+                    <h2>Perfis de Qualidade</h2>
+                    <button onclick="loadQualityProfiles()" class="btn-secondary">Carregar Perfis</button>
+                    <div id="quality-profiles-list" style="margin-top: 16px;"></div>
+                </div>
+
+                <div class="card">
+                    <h2>Formatos de Áudio</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Formato</th>
+                                <th>MIME Type</th>
+                                <th>Descrição</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>WAV</strong></td>
+                                <td>audio/wav</td>
+                                <td>PCM sem compressão</td>
+                            </tr>
+                            <tr>
+                                <td><strong>MP3</strong></td>
+                                <td>audio/mpeg</td>
+                                <td>128 kbps (compatível)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>FLAC</strong></td>
+                                <td>audio/flac</td>
+                                <td>Lossless comprimido</td>
+                            </tr>
+                            <tr>
+                                <td><strong>OGG</strong></td>
+                                <td>audio/ogg</td>
+                                <td>Opus 96 kbps</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Idiomas Suportados</h2>
+                <button onclick="loadLanguages()" class="btn-secondary">Carregar Idiomas</button>
+                <div id="languages-list" style="margin-top: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;"></div>
+            </div>
+        </div>
+
+        <!-- TAB 5: Monitor -->
+        <div id="tab-monitor" class="tab-content">
+            <div class="card">
+                <h2>Status do Serviço</h2>
+                <button onclick="checkHealth()" class="btn-secondary">🔄 Atualizar Status</button>
+                <div id="health-info" style="margin-top: 16px;"></div>
+            </div>
+
+            <div class="card">
+                <h2>Estatísticas de Uso</h2>
+                <div class="grid">
+                    <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 6px; text-align: center;">
+                        <h3 style="color: var(--text-secondary);">Total de Jobs</h3>
+                        <p style="font-size: 32px; font-weight: 600; color: var(--accent-blue);" id="stats-total-jobs">-</p>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 6px; text-align: center;">
+                        <h3 style="color: var(--text-secondary);">Vozes Clonadas</h3>
+                        <p style="font-size: 32px; font-weight: 600; color: var(--accent-green);" id="stats-total-voices">-</p>
+                    </div>
+                    <div style="background: var(--bg-tertiary); padding: 20px; border-radius: 6px; text-align: center;">
+                        <h3 style="color: var(--text-secondary);">Jobs Ativos</h3>
+                        <p style="font-size: 32px; font-weight: 600; color: var(--accent-yellow);" id="stats-active-jobs">-</p>
+                    </div>
+                </div>
+                <button onclick="loadStats()" class="btn-secondary" style="margin-top: 16px;">🔄 Atualizar Estatísticas</button>
+            </div>
+        </div>
+
+        <!-- TAB 6: Docs -->
+        <div id="tab-docs" class="tab-content">
+            <div class="card">
+                <h2>Documentação da API</h2>
+                <p style="margin-bottom: 16px;">Acesse a documentação completa e interativa da API:</p>
+                <div class="action-buttons">
+                    <button onclick="window.open('/docs', '_blank')" class="btn-success">📖 Swagger UI (OpenAPI)</button>
+                    <button onclick="window.open('/FORUIX.md', '_blank')" class="btn-success">📚 FORUIX.md (Guia Completo)</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Exemplo de Uso - JavaScript</h2>
+                <pre><code>// Criar job de TTS
+const response = await fetch('/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        text: "Olá, mundo!",
+        language: "pt-BR",
+        engine: "f5tts",
+        quality_profile: "balanced",
+        speed: 0.80
+    })
+});
+
+const { job_id } = await response.json();
+
+// Polling do status
+const checkStatus = async () => {
+    const res = await fetch(`/jobs/${job_id}`);
+    const data = await res.json();
+    
+    if (data.status === 'completed') {
+        // Download do áudio
+        window.location.href = `/jobs/${job_id}/download?format=mp3`;
+    } else if (data.status === 'processing') {
+        setTimeout(checkStatus, 2000);
+    }
+};
+
+checkStatus();</code></pre>
+            </div>
+
+            <div class="card">
+                <h2>Exemplo de Uso - Python</h2>
+                <pre><code>import requests
+import time
+
+# Criar job
+response = requests.post('http://localhost:8005/jobs', json={
+    'text': 'Olá, mundo!',
+    'language': 'pt-BR',
+    'engine': 'f5tts',
+    'quality_profile': 'balanced',
+    'speed': 0.80
+})
+
+job_id = response.json()['job_id']
+
+# Polling
+while True:
+    status_response = requests.get(f'http://localhost:8005/jobs/{job_id}')
+    data = status_response.json()
+    
+    if data['status'] == 'completed':
+        # Download
+        audio = requests.get(f'http://localhost:8005/jobs/{job_id}/download?format=mp3')
+        with open('output.mp3', 'wb') as f:
+            f.write(audio.content)
+        break
+    
+    time.sleep(2)</code></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let currentTab = 'tts';
+        let pollingIntervals = {};
+
+        // Tab switching
+        function switchTab(tabName) {
+            currentTab = tabName;
+            
+            // Update tab buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+            
+            // Load data for specific tabs
+            if (tabName === 'voices') loadVoices();
+            if (tabName === 'jobs') loadJobs();
+            if (tabName === 'monitor') {
+                checkHealth();
+                loadStats();
+            }
+        }
+
+        // Health check
+        async function checkHealth() {
+            try {
+                const response = await fetch('/');
+                const data = await response.json();
+                const statusBadge = document.getElementById('serviceStatus');
+                
+                if (data.status === 'running') {
+                    statusBadge.textContent = `● Online - v${data.version}`;
+                    statusBadge.classList.remove('offline');
+                    
+                    document.getElementById('health-info').innerHTML = `
+                        <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 6px;">
+                            <p><strong>Service:</strong> ${data.service}</p>
+                            <p><strong>Status:</strong> <span style="color: var(--accent-green);">✓ Running</span></p>
+                            <p><strong>Version:</strong> ${data.version}</p>
+                        </div>
+                    `;
+                } else {
+                    statusBadge.textContent = '● Offline';
+                    statusBadge.classList.add('offline');
+                }
+            } catch (error) {
+                const statusBadge = document.getElementById('serviceStatus');
+                statusBadge.textContent = '● Offline';
+                statusBadge.classList.add('offline');
+            }
+        }
+
+        // TTS: Slider update
+        document.getElementById('tts-speed').addEventListener('input', (e) => {
+            document.getElementById('tts-speed-value').textContent = parseFloat(e.target.value).toFixed(2);
+        });
+
+        // TTS: RVC toggle
+        document.getElementById('tts-enable-rvc').addEventListener('change', (e) => {
+            document.getElementById('tts-rvc-model-group').style.display = e.target.checked ? 'block' : 'none';
+        });
+
+        // Generate Audio
+        async function generateAudio() {
+            const text = document.getElementById('tts-text').value.trim();
+            const language = document.getElementById('tts-language').value;
+            const voice_id = document.getElementById('tts-voice').value;
+            const engine = document.getElementById('tts-engine').value;
+            const quality_profile = document.getElementById('tts-quality').value;
+            const speed = parseFloat(document.getElementById('tts-speed').value);
+            const enable_rvc = document.getElementById('tts-enable-rvc').checked;
+            const rvc_model = document.getElementById('tts-rvc-model').value;
+
+            if (!text) {
+                showMessage('tts-message', 'error', 'Por favor, digite um texto para sintetizar.');
+                return;
+            }
+
+            const btn = document.getElementById('tts-generate-btn');
+            const spinner = document.getElementById('tts-spinner');
+            btn.disabled = true;
+            spinner.style.display = 'inline-block';
+
+            try {
+                // API usa Form Data (multipart/form-data), não JSON
+                const formData = new FormData();
+                formData.append('text', text);
+                formData.append('source_language', language);
+                formData.append('target_language', language);
+                
+                // Determina mode e voice
+                if (voice_id) {
+                    formData.append('mode', 'dubbing_with_clone');
+                    formData.append('voice_id', voice_id);
+                } else {
+                    formData.append('mode', 'dubbing');
+                    formData.append('voice_preset', 'female_generic');
+                }
+                
+                // Engine TTS (f5tts ou xtts)
+                formData.append('tts_engine', engine);
+                
+                // Quality profile mapping
+                const profileMap = {
+                    'stable': engine === 'f5tts' ? 'f5tts_fast' : 'xtts_fast',
+                    'balanced': engine === 'f5tts' ? 'f5tts_balanced' : 'xtts_balanced',
+                    'expressive': engine === 'f5tts' ? 'f5tts_ultra_quality' : 'xtts_ultra_quality'
+                };
+                formData.append('quality_profile_id', profileMap[quality_profile] || profileMap['balanced']);
+                
+                // RVC
+                if (enable_rvc && rvc_model) {
+                    formData.append('enable_rvc', 'true');
+                    formData.append('rvc_model_id', rvc_model);
+                }
+
+                const response = await fetch('/jobs', {
+                    method: 'POST',
+                    body: formData  // Sem headers - browser adiciona multipart/form-data automaticamente
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Erro ao criar job');
+                }
+
+                const data = await response.json();
+                document.getElementById('tts-job-id').textContent = data.job_id;
+                document.getElementById('tts-result').style.display = 'block';
+                document.getElementById('tts-audio-container').style.display = 'none';
+                
+                showMessage('tts-message', 'success', `Job criado com sucesso! ID: ${data.job_id}`);
+                
+                // Start polling
+                pollJobStatus(data.job_id, 'tts');
+            } catch (error) {
+                showMessage('tts-message', 'error', error.message);
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Poll job status
+        function pollJobStatus(jobId, prefix) {
+            const interval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/jobs/${jobId}`);
+                    const data = await response.json();
+                    
+                    const progress = data.progress || 0;
+                    document.getElementById(`${prefix}-progress`).style.width = `${progress}%`;
+                    
+                    if (data.status === 'completed') {
+                        clearInterval(interval);
+                        document.getElementById(`${prefix}-status-text`).textContent = '✓ Concluído!';
+                        document.getElementById(`${prefix}-status-text`).style.color = 'var(--accent-green)';
+                        
+                        if (prefix === 'tts') {
+                            // Load audio
+                            const audioEl = document.getElementById('tts-audio');
+                            audioEl.src = `/jobs/${jobId}/download?format=mp3`;
+                            document.getElementById('tts-audio-container').style.display = 'block';
+                        }
+                    } else if (data.status === 'failed') {
+                        clearInterval(interval);
+                        document.getElementById(`${prefix}-status-text`).textContent = `✗ Falhou: ${data.error || 'Erro desconhecido'}`;
+                        document.getElementById(`${prefix}-status-text`).style.color = 'var(--accent-red)';
+                    } else {
+                        document.getElementById(`${prefix}-status-text`).textContent = `Processando... ${progress.toFixed(1)}%`;
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                }
+            }, 2000);
+            
+            pollingIntervals[jobId] = interval;
+        }
+
+        // Download audio
+        function downloadAudio(jobIdElementId, format) {
+            const jobId = document.getElementById(jobIdElementId).textContent;
+            window.open(`/jobs/${jobId}/download?format=${format}`, '_blank');
+        }
+
+        // Clone Voice
+        async function cloneVoice() {
+            const name = document.getElementById('clone-name').value.trim();
+            const audioFile = document.getElementById('clone-audio').files[0];
+            const language = document.getElementById('clone-language').value;
+            const ref_text = document.getElementById('clone-ref-text').value.trim();
+            const description = document.getElementById('clone-description').value.trim();
+
+            if (!name || !audioFile) {
+                showMessage('clone-message', 'error', 'Por favor, preencha nome e selecione um arquivo de áudio.');
+                return;
+            }
+
+            const btn = document.getElementById('clone-btn');
+            const spinner = document.getElementById('clone-spinner');
+            btn.disabled = true;
+            spinner.style.display = 'inline-block';
+
+            try {
+                const formData = new FormData();
+                formData.append('audio', audioFile);
+                formData.append('name', name);
+                formData.append('language', language);
+                if (ref_text) formData.append('ref_text', ref_text);
+                if (description) formData.append('description', description);
+
+                const response = await fetch('/voices/clone', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Erro ao clonar voz');
+                }
+
+                const data = await response.json();
+                document.getElementById('clone-job-id').textContent = data.job_id;
+                document.getElementById('clone-result').style.display = 'block';
+                
+                showMessage('clone-message', 'success', `Clonagem iniciada! Job ID: ${data.job_id}`);
+                
+                // Start polling
+                pollJobStatus(data.job_id, 'clone');
+                
+                // Reload voices after completion
+                setTimeout(() => {
+                    loadVoices();
+                }, 20000);
+            } catch (error) {
+                showMessage('clone-message', 'error', error.message);
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+            }
+        }
+
+        // Load voices
+        async function loadVoices() {
+            try {
+                const response = await fetch('/voices');
+                const data = await response.json();
+                
+                const voicesList = document.getElementById('voices-list');
+                const voiceSelect = document.getElementById('tts-voice');
+                
+                if (data.voices.length === 0) {
+                    voicesList.innerHTML = '<p style="color: var(--text-secondary);">Nenhuma voz clonada ainda.</p>';
+                } else {
+                    voicesList.innerHTML = data.voices.map(voice => `
+                        <div class="voice-card">
+                            <h4>${voice.name}</h4>
+                            <p><strong>ID:</strong> ${voice.voice_id}</p>
+                            <p><strong>Idioma:</strong> ${voice.language}</p>
+                            <p><strong>Criado:</strong> ${new Date(voice.created_at).toLocaleString('pt-BR')}</p>
+                            ${voice.description ? `<p><strong>Descrição:</strong> ${voice.description}</p>` : ''}
+                            <div class="action-buttons">
+                                <button class="btn-secondary" onclick="viewVoiceDetails('${voice.voice_id}')">Ver Detalhes</button>
+                                <button class="btn-danger" onclick="deleteVoice('${voice.voice_id}')">Deletar</button>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    // Update voice select in TTS tab
+                    voiceSelect.innerHTML = '<option value="">Voz Padrão (sem clonagem)</option>' + 
+                        data.voices.map(v => `<option value="${v.voice_id}">${v.name} (${v.language})</option>`).join('');
+                }
+            } catch (error) {
+                console.error('Error loading voices:', error);
+            }
+        }
+
+        // View voice details
+        async function viewVoiceDetails(voiceId) {
+            try {
+                const response = await fetch(`/voices/${voiceId}`);
+                const voice = await response.json();
+                
+                alert(`Detalhes da Voz:\n\n` +
+                    `Nome: ${voice.name}\n` +
+                    `ID: ${voice.voice_id}\n` +
+                    `Idioma: ${voice.language}\n` +
+                    `Duração do Áudio: ${voice.source_audio_duration}s\n` +
+                    `Criado em: ${new Date(voice.created_at).toLocaleString('pt-BR')}\n` +
+                    `${voice.ref_text ? `Transcrição: ${voice.ref_text}\n` : ''}` +
+                    `${voice.description ? `Descrição: ${voice.description}` : ''}`
+                );
+            } catch (error) {
+                alert('Erro ao carregar detalhes da voz.');
+            }
+        }
+
+        // Delete voice
+        async function deleteVoice(voiceId) {
+            if (!confirm('Tem certeza que deseja deletar esta voz?')) return;
+            
+            try {
+                const response = await fetch(`/voices/${voiceId}`, { method: 'DELETE' });
+                
+                if (response.ok) {
+                    alert('Voz deletada com sucesso!');
+                    loadVoices();
+                } else {
+                    alert('Erro ao deletar voz.');
+                }
+            } catch (error) {
+                alert('Erro ao deletar voz.');
+            }
+        }
+
+        // Load jobs
+        async function loadJobs() {
+            const statusFilter = document.getElementById('jobs-filter').value;
+            const limit = document.getElementById('jobs-limit').value || 100;
+            
+            try {
+                // API não suporta filtro por status, então fazemos client-side
+                const response = await fetch(`/jobs?limit=${limit}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const tbody = document.getElementById('jobs-tbody');
+                
+                // Filtra jobs pelo status se selecionado
+                let jobs = data.jobs || [];
+                if (statusFilter) {
+                    jobs = jobs.filter(j => j.status === statusFilter);
+                }
+                
+                if (jobs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhum job encontrado.</td></tr>';
+                } else {
+                    tbody.innerHTML = jobs.map(job => `
+                        <tr>
+                            <td><code style="font-size: 11px;">${job.job_id.substring(0, 16)}...</code></td>
+                            <td><span class="badge ${job.status}">${job.status}</span></td>
+                            <td>${job.tts_engine || job.engine || '-'}</td>
+                            <td style="font-size: 12px;">${new Date(job.created_at).toLocaleString('pt-BR')}</td>
+                            <td>${job.progress ? job.progress.toFixed(1) + '%' : '-'}</td>
+                            <td>
+                                <button class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="viewJobDetails('${job.job_id}')">Ver</button>
+                                ${job.status === 'completed' ? `<button class="btn-success" style="font-size: 11px; padding: 4px 8px;" onclick="downloadJobAudio('${job.job_id}')">⬇️</button>` : ''}
+                                <button class="btn-danger" style="font-size: 11px; padding: 4px 8px;" onclick="deleteJob('${job.job_id}')">✕</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading jobs:', error);
+                const tbody = document.getElementById('jobs-tbody');
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--accent-red);">Erro ao carregar jobs: ${error.message}</td></tr>`;
+            }
+        }
+
+        // Download job audio
+        function downloadJobAudio(jobId) {
+            window.open(`/jobs/${jobId}/download?format=mp3`, '_blank');
+        }
+
+        // View job details
+        async function viewJobDetails(jobId) {
+            try {
+                const response = await fetch(`/jobs/${jobId}`);
+                const job = await response.json();
+                
+                alert(`Detalhes do Job:\n\n` +
+                    `Job ID: ${job.job_id}\n` +
+                    `Status: ${job.status}\n` +
+                    `Engine: ${job.engine || 'N/A'}\n` +
+                    `Criado em: ${new Date(job.created_at).toLocaleString('pt-BR')}\n` +
+                    `${job.completed_at ? `Concluído em: ${new Date(job.completed_at).toLocaleString('pt-BR')}\n` : ''}` +
+                    `${job.progress ? `Progresso: ${job.progress.toFixed(1)}%\n` : ''}` +
+                    `${job.error ? `Erro: ${job.error}` : ''}`
+                );
+            } catch (error) {
+                alert('Erro ao carregar detalhes do job.');
+            }
+        }
+
+        // Delete job
+        async function deleteJob(jobId) {
+            if (!confirm('Tem certeza que deseja deletar este job?')) return;
+            
+            try {
+                const response = await fetch(`/jobs/${jobId}`, { method: 'DELETE' });
+                
+                if (response.ok) {
+                    loadJobs();
+                } else {
+                    alert('Erro ao deletar job.');
+                }
+            } catch (error) {
+                alert('Erro ao deletar job.');
+            }
+        }
+
+        // Load quality profiles
+        async function loadQualityProfiles() {
+            try {
+                const response = await fetch('/quality-profiles-legacy');
+                const data = await response.json();
+                
+                const list = document.getElementById('quality-profiles-list');
+                list.innerHTML = data.profiles.map(profile => `
+                    <div style="background: var(--bg-tertiary); padding: 16px; border-radius: 6px; margin-bottom: 12px;">
+                        <h4>${profile.name}</h4>
+                        <p style="font-size: 13px; color: var(--text-secondary);">${profile.description}</p>
+                        <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                            NFE Steps: ${profile.nfe_step} | Tempo: ${profile.processing_time}
+                        </p>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading quality profiles:', error);
+            }
+        }
+
+        // Load languages
+        async function loadLanguages() {
+            try {
+                const response = await fetch('/languages');
+                const data = await response.json();
+                
+                const list = document.getElementById('languages-list');
+                list.innerHTML = data.languages.map(lang => `
+                    <div style="background: var(--bg-tertiary); padding: 12px; border-radius: 6px; text-align: center;">
+                        <strong>${lang.code}</strong><br>
+                        <span style="font-size: 12px; color: var(--text-secondary);">${lang.name}</span>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading languages:', error);
+            }
+        }
+
+        // Load stats
+        async function loadStats() {
+            try {
+                const [jobsRes, voicesRes] = await Promise.all([
+                    fetch('/jobs?limit=1000'),
+                    fetch('/voices')
+                ]);
+                
+                const jobsData = await jobsRes.json();
+                const voicesData = await voicesRes.json();
+                
+                document.getElementById('stats-total-jobs').textContent = jobsData.total || jobsData.jobs.length;
+                document.getElementById('stats-total-voices').textContent = voicesData.total || voicesData.voices.length;
+                
+                const activeJobs = jobsData.jobs.filter(j => j.status === 'processing' || j.status === 'pending').length;
+                document.getElementById('stats-active-jobs').textContent = activeJobs;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // Clear forms
+        function clearTTSForm() {
+            document.getElementById('tts-text').value = '';
+            document.getElementById('tts-language').value = 'pt-BR';
+            document.getElementById('tts-voice').value = '';
+            document.getElementById('tts-engine').value = 'f5tts';
+            document.getElementById('tts-quality').value = 'balanced';
+            document.getElementById('tts-speed').value = 0.80;
+            document.getElementById('tts-speed-value').textContent = '0.80';
+            document.getElementById('tts-enable-rvc').checked = false;
+            document.getElementById('tts-result').style.display = 'none';
+            hideMessage('tts-message');
+        }
+
+        function clearCloneForm() {
+            document.getElementById('clone-name').value = '';
+            document.getElementById('clone-audio').value = '';
+            document.getElementById('clone-language').value = 'pt-BR';
+            document.getElementById('clone-ref-text').value = '';
+            document.getElementById('clone-description').value = '';
+            document.getElementById('clone-result').style.display = 'none';
+            hideMessage('clone-message');
+        }
+
+        // Message helpers
+        function showMessage(id, type, text) {
+            const el = document.getElementById(id);
+            el.className = `message show ${type}`;
+            el.textContent = text;
+        }
+
+        function hideMessage(id) {
+            const el = document.getElementById(id);
+            el.className = 'message';
+        }
+
+        // Error handler global para evitar erros de extensões
+        window.addEventListener('error', (e) => {
+            // Ignora erros de extensões do browser
+            if (e.message && e.message.includes('Extension context invalidated')) {
+                e.preventDefault();
+                return;
+            }
+        });
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkHealth();
+            loadVoices();
+            setInterval(checkHealth, 30000); // Check every 30s
+        });
+    </script>
+</body>
+</html>
