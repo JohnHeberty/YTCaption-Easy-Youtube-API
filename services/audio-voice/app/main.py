@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 import tempfile
 import subprocess
 
@@ -51,6 +52,14 @@ app = FastAPI(
 
 # Exception handlers
 app.add_exception_handler(VoiceServiceException, exception_handler)
+
+# Mount WebUI static files
+webui_path = Path(__file__).parent / "webui"
+if webui_path.exists():
+    app.mount("/webui", StaticFiles(directory=str(webui_path)), name="webui")
+    logger.info(f"✅ WebUI mounted at /webui from {webui_path}")
+else:
+    logger.warning(f"⚠️ WebUI directory not found: {webui_path}")
 
 # Formatos de áudio suportados para download
 SUPPORTED_AUDIO_FORMATS = {
@@ -853,110 +862,6 @@ async def get_rvc_models_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===== VOICE PRESETS (GENERIC) =====
-
-# DEPRECATED: Mantido para compatibilidade com clientes antigos
-# Use o novo endpoint JSON em /quality-profiles (linha 1241+)
-@app.post("/quality-profiles-legacy-form")
-async def create_quality_profile_legacy(
-    name: str = Form(..., description="Nome do perfil (ex: high_emotion)"),
-    description: str = Form(..., description="Descrição do perfil"),
-    temperature: float = Form(0.75, description="Controle de variação (0.1-1.0)", ge=0.1, le=1.0),
-    repetition_penalty: float = Form(1.5, description="Penalidade de repetição (1.0-5.0)", ge=1.0, le=5.0),
-    top_p: float = Form(0.9, description="Nucleus sampling (0.1-1.0)", ge=0.1, le=1.0),
-    top_k: int = Form(60, description="Top-k sampling (10-100)", ge=10, le=100),
-    length_penalty: float = Form(1.2, description="Penalidade de comprimento (0.5-2.0)", ge=0.5, le=2.0),
-    speed: float = Form(1.0, description="Velocidade (0.5-2.0)", ge=0.5, le=2.0)
-):
-    """[DEPRECATED] Cria novo perfil de qualidade customizado (XTTS parameters only)
-    
-    ⚠️ Este endpoint está deprecado. Use POST /quality-profiles com JSON body.
-    """
-    # Validar se já existe
-    if job_store.redis.get(f"quality_profile:{name}"):
-        raise HTTPException(status_code=400, detail=f"Perfil '{name}' já existe.")
-    
-    # Criar perfil
-    profile = {
-        "description": description,
-        "temperature": temperature,
-        "repetition_penalty": repetition_penalty,
-        "top_p": top_p,
-        "top_k": top_k,
-        "length_penalty": length_penalty,
-        "speed": speed,
-        "enable_text_splitting": False  # Customizável se necessário
-    }
-    
-    job_store.save_quality_profile(name, profile)
-    return {"message": f"Perfil de qualidade '{name}' criado com sucesso.", "profile": profile}
-
-
-@app.delete("/quality-profiles/{name}")
-async def delete_quality_profile_endpoint(name: str):
-    """Remove perfil de qualidade customizado (exceto defaults: balanced, expressive, stable)"""
-    defaults = ["balanced", "expressive", "stable"]
-    if name.lower() in defaults:
-        raise HTTPException(status_code=403, detail=f"Não é permitido remover perfis padrão ({', '.join(defaults)}).")
-    
-    if not job_store.redis.get(f"quality_profile:{name}"):
-        raise HTTPException(status_code=404, detail=f"Perfil '{name}' não existe.")
-    
-    job_store.delete_quality_profile(name)
-    return {"message": f"Perfil '{name}' removido com sucesso."}
-
-
-@app.get("/quality-profiles-legacy")
-async def list_quality_profiles_endpoint():
-    """Lista todos os perfis de qualidade (defaults + customizados no Redis)"""
-    # Perfis padrão
-    defaults = {
-        "balanced": {
-            "description": "Equilíbrio entre emoção e estabilidade (RECOMENDADO)",
-            "temperature": 0.75,
-            "repetition_penalty": 1.5,
-            "top_p": 0.9,
-            "top_k": 60,
-            "length_penalty": 1.2,
-            "speed": 1.0,
-            "enable_text_splitting": False
-        },
-        "expressive": {
-            "description": "Máxima emoção e naturalidade (pode ter artefatos)",
-            "temperature": 0.85,
-            "repetition_penalty": 1.3,
-            "top_p": 0.95,
-            "top_k": 70,
-            "length_penalty": 1.3,
-            "speed": 0.98,
-            "enable_text_splitting": False
-        },
-        "stable": {
-            "description": "Conservador, produção segura",
-            "temperature": 0.70,
-            "repetition_penalty": 1.7,
-            "top_p": 0.85,
-            "top_k": 55,
-            "length_penalty": 1.1,
-            "speed": 1.0,
-            "enable_text_splitting": True
-        }
-    }
-    
-    # Perfis customizados do Redis
-    custom_profiles = job_store.list_quality_profiles()
-    
-    # Merge (custom não sobrescreve defaults)
-    all_profiles = {**defaults, **custom_profiles}
-    
-    return {
-        "profiles": all_profiles,
-        "total": len(all_profiles),
-        "defaults": list(defaults.keys()),
-        "custom": list(custom_profiles.keys())
-    }
-
-
 # ===== ENDPOINTS INFORMATIVOS =====
 
 @app.get("/presets")
@@ -1305,7 +1210,8 @@ async def create_quality_profile(
         
         # Gerar ID único
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        profile_id = f"{request.engine}_{hashlib.md5(f'{request.name}_{timestamp}'.encode()).hexdigest()[:12]}"
+        engine_str = request.engine.value if hasattr(request.engine, 'value') else str(request.engine)
+        profile_id = f"{engine_str}_{hashlib.md5(f'{request.name}_{timestamp}'.encode()).hexdigest()[:12]}"
         
         # Criar perfil baseado no engine
         if request.engine == TTSEngine.XTTS:
@@ -1338,6 +1244,26 @@ async def create_quality_profile(
     except Exception as e:
         logger.error(f"Erro ao criar perfil: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/quality-profiles/{engine}",
+    status_code=201,
+    summary="Criar perfil de qualidade (engine no path)",
+    description="Cria novo perfil de qualidade - engine extraído do path"
+)
+async def create_quality_profile_with_engine(
+    engine: TTSEngine,
+    request: QualityProfileCreate
+):
+    """
+    Wrapper para create_quality_profile que extrai engine do path.
+    Compatibilidade com frontend que envia engine na URL.
+    """
+    # Override engine do request com o do path
+    request.engine = engine
+    return await create_quality_profile(request)
+
 
 
 @app.patch(
@@ -1469,6 +1395,98 @@ async def set_default_quality_profile(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post(
+    "/quality-profiles/{engine}/{profile_id}/duplicate",
+    status_code=201,
+    summary="Duplicar perfil de qualidade",
+    description="Cria cópia de um perfil existente com novo nome"
+)
+async def duplicate_quality_profile(
+    engine: TTSEngine,
+    profile_id: str,
+    new_name: str = None
+):
+    """
+    Duplica perfil existente.
+    
+    Args:
+        engine: xtts ou f5tts
+        profile_id: ID do perfil a duplicar
+        new_name: Nome para o novo perfil (opcional, usa "Copy of {original}")
+    
+    Returns:
+        Novo perfil criado
+    """
+    try:
+        import hashlib
+        from datetime import datetime
+        
+        # Buscar perfil original
+        original = quality_profile_manager.get_profile(engine, profile_id)
+        if not original:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Perfil {profile_id} não encontrado"
+            )
+        
+        # Gerar novo ID e nome
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        engine_str = engine.value if hasattr(engine, 'value') else str(engine)
+        new_profile_id = f"{engine_str}_{hashlib.md5(f'{original.name}_copy_{timestamp}'.encode()).hexdigest()[:12]}"
+        final_name = new_name or f"Copy of {original.name}"
+        
+        # Criar novo perfil com mesmos parâmetros
+        if engine == TTSEngine.XTTS:
+            new_profile = XTTSQualityProfile(
+                id=new_profile_id,
+                name=final_name,
+                description=f"Duplicado de {original.name}",
+                engine=engine,
+                is_default=False,  # Duplicatas nunca são padrão
+                temperature=original.temperature,
+                repetition_penalty=original.repetition_penalty,
+                top_p=original.top_p,
+                top_k=original.top_k,
+                length_penalty=original.length_penalty,
+                speed=original.speed,
+                enable_text_splitting=original.enable_text_splitting
+            )
+        else:  # F5TTS
+            new_profile = F5TTSQualityProfile(
+                id=new_profile_id,
+                name=final_name,
+                description=f"Duplicado de {original.name}",
+                engine=engine,
+                is_default=False,
+                nfe_step=original.nfe_step,
+                cfg_scale=original.cfg_scale,
+                sway_sampling_coef=original.sway_sampling_coef,
+                speed=original.speed,
+                denoise_audio=original.denoise_audio,
+                noise_reduction_strength=original.noise_reduction_strength,
+                apply_normalization=original.apply_normalization,
+                target_loudness=original.target_loudness,
+                apply_declipping=original.apply_declipping,
+                apply_deessing=original.apply_deessing,
+                deessing_frequency=original.deessing_frequency,
+                add_breathing=original.add_breathing,
+                breathing_strength=original.breathing_strength,
+                pause_optimization=original.pause_optimization
+            )
+        
+        # Salvar
+        created = quality_profile_manager.create_profile(new_profile)
+        
+        logger.info(f"✅ Perfil duplicado: {profile_id} → {new_profile_id}")
+        return created
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao duplicar perfil: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ===== WEB UI =====
 
 from fastapi.responses import HTMLResponse
@@ -1476,181 +1494,12 @@ from fastapi.responses import HTMLResponse
 @app.get("/webui", response_class=HTMLResponse)
 async def webui():
     """Full Control Panel - 100% API Coverage"""
-    html_path = Path(__file__).parent / "webui" / "full-control.html"
-    
-    if not html_path.exists():
-        # Fallback: criar HTML inline
-        return HTMLResponse(content="""
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Voice Service - Web UI</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #c9d1d9; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
-        header { background: linear-gradient(135deg, #1f6feb 0%, #58a6ff 100%); padding: 2rem; border-radius: 12px; margin-bottom: 2rem; }
-        h1 { font-size: 2rem; margin-bottom: 0.5rem; }
-        .subtitle { opacity: 0.9; font-size: 1rem; }
-        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; }
-        .card h2 { font-size: 1.25rem; margin-bottom: 1rem; color: #58a6ff; }
-        textarea, input[type="text"], select { width: 100%; padding: 0.75rem; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 1rem; margin-bottom: 1rem; }
-        textarea { min-height: 120px; resize: vertical; font-family: inherit; }
-        button { background: #238636; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; font-size: 1rem; cursor: pointer; font-weight: 600; transition: background 0.2s; }
-        button:hover { background: #2ea043; }
-        button:disabled { background: #484f58; cursor: not-allowed; }
-        .slider-container { margin-bottom: 1rem; }
-        .slider-label { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 0.875rem; color: #8b949e; }
-        input[type="range"] { width: 100%; }
-        .status { padding: 0.75rem; border-radius: 6px; margin-top: 1rem; display: none; }
-        .status.success { background: #238636; display: block; }
-        .status.error { background: #da3633; display: block; }
-        .status.loading { background: #1f6feb; display: block; }
-        audio { width: 100%; margin-top: 1rem; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <header>
-            <h1>🎙️ Audio Voice Service</h1>
-            <p class="subtitle">Teste de TTS com F5-TTS PT-BR</p>
-        </header>
+    html_path = Path(__file__).parent / "webui" / "index.html"
 
-        <div class="grid">
-            <div class="card">
-                <h2>Síntese de Fala</h2>
-                <textarea id="text" placeholder="Digite o texto aqui... (ex: Olá, tudo bem? Eu estou testando a velocidade da fala, para ver se as pausas funcionam bem.)">Olá, tudo bem? Eu estou testando a velocidade da fala, para ver se as pausas funcionam bem.</textarea>
-                
-                <select id="engine">
-                    <option value="f5tts" selected>F5-TTS (Recomendado PT-BR)</option>
-                    <option value="xtts">XTTS</option>
-                </select>
-
-                <select id="quality">
-                    <option value="stable">Stable (Rápido)</option>
-                    <option value="balanced" selected>Balanced (Recomendado)</option>
-                    <option value="expressive">Expressive (Máxima Qualidade)</option>
-                </select>
-
-                <div class="slider-container">
-                    <div class="slider-label">
-                        <span>Velocidade</span>
-                        <span id="speedValue">0.80</span>
-                    </div>
-                    <input type="range" id="speed" min="0.5" max="2.0" step="0.05" value="0.80">
-                </div>
-
-                <button id="generateBtn" onclick="generateAudio()">🎵 Gerar Áudio</button>
-                
-                <div id="status" class="status"></div>
-                <audio id="player" controls style="display:none;"></audio>
-            </div>
-
-            <div class="card">
-                <h2>📖 Documentação da API</h2>
-                <p style="margin-bottom: 1rem; color: #8b949e;">
-                    Consulte <a href="/docs" style="color: #58a6ff; text-decoration: none;">Swagger Docs</a> para referência completa da API.
-                </p>
-                <p style="color: #8b949e;">
-                    Documentação detalhada para UIX designers: <code>FORUIX.md</code>
-                </p>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const speedSlider = document.getElementById('speed');
-        const speedValue = document.getElementById('speedValue');
-        const statusDiv = document.getElementById('status');
-        const player = document.getElementById('player');
-        const generateBtn = document.getElementById('generateBtn');
-
-        speedSlider.addEventListener('input', (e) => {
-            speedValue.textContent = e.target.value;
-        });
-
-        async function generateAudio() {
-            const text = document.getElementById('text').value.trim();
-            const engine = document.getElementById('engine').value;
-            const quality = document.getElementById('quality').value;
-            const speed = parseFloat(document.getElementById('speed').value);
-
-            if (!text) {
-                showStatus('error', 'Por favor, digite um texto.');
-                return;
-            }
-
-            generateBtn.disabled = true;
-            showStatus('loading', 'Gerando áudio...');
-            player.style.display = 'none';
-
-            try {
-                // 1. Criar job
-                const createResponse = await fetch('/jobs', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        text: text,
-                        language: 'pt-BR',
-                        engine: engine,
-                        quality_profile: quality,
-                        speed: speed
-                    })
-                });
-
-                if (!createResponse.ok) {
-                    const error = await createResponse.json();
-                    throw new Error(error.detail || 'Erro ao criar job');
-                }
-
-                const {job_id} = await createResponse.json();
-                
-                // 2. Polling de status
-                let attempts = 0;
-                while (attempts < 60) {
-                    await new Promise(r => setTimeout(r, 1000));
-                    
-                    const statusResponse = await fetch(`/jobs/${job_id}`);
-                    const status = await statusResponse.json();
-                    
-                    if (status.status === 'completed') {
-                        showStatus('success', '✅ Áudio gerado com sucesso!');
-                        player.src = `/jobs/${job_id}/download?format=mp3`;
-                        player.style.display = 'block';
-                        player.play();
-                        break;
-                    } else if (status.status === 'failed') {
-                        throw new Error(status.error || 'Job falhou');
-                    }
-                    
-                    showStatus('loading', `Processando... (${Math.round(status.progress || 0)}%)`);
-                    attempts++;
-                }
-                
-                if (attempts >= 60) {
-                    throw new Error('Timeout: job demorou mais de 60 segundos');
-                }
-                
-            } catch (error) {
-                showStatus('error', `❌ Erro: ${error.message}`);
-            } finally {
-                generateBtn.disabled = false;
-            }
-        }
-
-        function showStatus(type, message) {
-            statusDiv.className = `status ${type}`;
-            statusDiv.textContent = message;
-        }
-    </script>
-</body>
-</html>
-        """)
-    
     # Se arquivo existe, serve ele
     with open(html_path, 'r', encoding='utf-8') as f:
         return HTMLResponse(content=f.read())
+
+
+# webui já está montada em /webui acima
+
