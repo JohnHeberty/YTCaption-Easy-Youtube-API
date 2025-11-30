@@ -313,82 +313,109 @@ DEFAULT_XTTS_PROFILES = {
 }
 
 DEFAULT_F5TTS_PROFILES = {
-    "ultra_quality": F5TTSQualityProfile(
-        id="f5tts_ultra_quality",
-        name="Ultra Quality (Máxima Qualidade)",
-        description="Qualidade máxima com todos os filtros. Melhor para audiolivros e conteúdo premium.",
+    "ultra_natural": F5TTSQualityProfile(
+        id="f5tts_ultra_natural",
+        name="Ultra Natural (Podcast/YouTube)",
+        description="Fala mais lenta e natural com respirações. Ideal para conteúdo educacional, podcasts e narração profissional.",
         engine=TTSEngine.F5TTS,
         is_default=True,
-        nfe_step=64,  # ↑ Aumentado para reduzir artefatos
-        cfg_scale=2.0,  # ↓ Reduzido para menos over-sharpening
-        speed=1.0,
+        nfe_step=48,  # Sweet spot qualidade/performance
+        cfg_scale=2.5,  # Natural e expressivo
+        speed=0.9,  # 10% mais lento = mais articulado
         sway_sampling_coef=-1.0,
         denoise_audio=True,
-        noise_reduction_strength=0.85,  # ↑ Mais agressivo no denoise
+        noise_reduction_strength=0.7,  # Boa remoção sem perder naturalidade
         enhance_prosody=True,
         prosody_strength=0.9,
         apply_normalization=True,
-        target_loudness=-20.0,
+        target_loudness=-16.0,  # Padrão YouTube/Podcast
         apply_declipping=True,
         apply_deessing=True,
-        deessing_frequency=7000,  # ↑ Ajustado para pegar mais sibilância
+        deessing_frequency=7000,  # Sweet spot para voz humana
+        add_breathing=True,  # CRÍTICO para soar humano
+        breathing_strength=0.5,  # Perceptível mas não exagerado
+        pause_optimization=True,  # Ritmo mais natural
+        quality_score=9.5,
+        latency_ms=2000,
+        naturalness_score=9.8
+    ),
+    "ultra_quality": F5TTSQualityProfile(
+        id="f5tts_ultra_quality",
+        name="Ultra Quality (Máxima Qualidade)",
+        description="Qualidade máxima com todos os filtros. Melhor para audiolivros e conteúdo premium de velocidade normal.",
+        engine=TTSEngine.F5TTS,
+        is_default=False,
+        nfe_step=64,  # Máxima qualidade (diminishing returns >64)
+        cfg_scale=2.0,
+        speed=1.0,
+        sway_sampling_coef=-1.0,
+        denoise_audio=True,
+        noise_reduction_strength=0.85,
+        enhance_prosody=True,
+        prosody_strength=0.9,
+        apply_normalization=True,
+        target_loudness=-16.0,
+        apply_declipping=True,
+        apply_deessing=True,
+        deessing_frequency=7000,
         add_breathing=True,
         breathing_strength=0.4,
         pause_optimization=True,
-        quality_score=9.5,
-        latency_ms=2500,  # Ajustado para NFE=64
-        naturalness_score=9.8
+        quality_score=9.8,
+        latency_ms=2500,
+        naturalness_score=9.5
     ),
     "balanced": F5TTSQualityProfile(
         id="f5tts_balanced",
         name="Balanced (Equilíbrio)",
-        description="Equilíbrio entre qualidade e velocidade. Recomendado para uso geral.",
+        description="Equilíbrio entre qualidade e velocidade. Recomendado para uso geral e produção em volume.",
         engine=TTSEngine.F5TTS,
         is_default=False,
-        nfe_step=40,  # ↑ 32→40 para melhor qualidade com pouco custo
-        cfg_scale=1.8,  # ↓ 2.0→1.8 para reduzir sharpening excessivo
+        nfe_step=32,  # Baseline do paper
+        cfg_scale=2.0,
         speed=1.0,
         sway_sampling_coef=-1.0,
         denoise_audio=True,
-        noise_reduction_strength=0.75,  # ↑ Aumentado levemente
+        noise_reduction_strength=0.5,
         enhance_prosody=True,
         prosody_strength=0.8,
         apply_normalization=True,
-        target_loudness=-20.0,
-        apply_declipping=True,
+        target_loudness=-14.0,
+        apply_declipping=False,
         apply_deessing=True,
-        deessing_frequency=6500,  # ↑ Ajustado
-        add_breathing=True,
+        deessing_frequency=6000,
+        add_breathing=False,
         breathing_strength=0.3,
         pause_optimization=True,
         quality_score=8.5,
-        latency_ms=1700,  # Ajustado para NFE=40
-        naturalness_score=9.0
+        latency_ms=1300,
+        naturalness_score=8.5
     ),
     "fast": F5TTSQualityProfile(
         id="f5tts_fast",
-        name="Fast (Rápido)",
-        description="Prioriza velocidade mantendo boa qualidade. Menos filtros de pós-processamento.",
+        name="Fast (Produção em Massa)",
+        description="Prioriza velocidade. Mínimo de pós-processamento. Ideal para produção em larga escala.",
         engine=TTSEngine.F5TTS,
         is_default=False,
-        nfe_step=24,  # ↑ 16→24 (mínimo para qualidade aceitável)
-        cfg_scale=1.5,  # Mantido (já é baixo)
-        speed=1.1,
+        nfe_step=16,  # Mínimo aceitável
+        cfg_scale=1.5,
+        speed=1.0,
         sway_sampling_coef=-1.0,
-        denoise_audio=True,
-        noise_reduction_strength=0.6,  # ↑ Aumentado um pouco
+        denoise_audio=False,
+        noise_reduction_strength=0.0,
         enhance_prosody=False,
         prosody_strength=0.5,
         apply_normalization=True,
-        target_loudness=-20.0,
-        apply_declipping=True,  # ✓ Ativado (leve)
-        apply_deessing=True,  # ✓ Ativado (essencial contra chiado)
-        deessing_frequency=6500,  # Ajustado
+        target_loudness=-14.0,
+        apply_declipping=False,
+        apply_deessing=False,
+        deessing_frequency=6000,
         add_breathing=False,
-        breathing_strength=0.2,
+        breathing_strength=0.0,
         pause_optimization=False,
-        quality_score=7.5,
-        latency_ms=1000,  # Ajustado para NFE=24
-        naturalness_score=7.8
+        quality_score=7.0,
+        latency_ms=700,
+        naturalness_score=7.0
     )
 }
+

@@ -83,3 +83,7 @@ services:
     depends_on:
       audio-voice-service:
         condition: service_healthy
+
+  # nginx-webui service REMOVED - using /webui2 endpoint directly
+  # Reason: Simplify architecture, improve code quality
+  # See: DECISAO_REMOVER_NGINX.md for full justification

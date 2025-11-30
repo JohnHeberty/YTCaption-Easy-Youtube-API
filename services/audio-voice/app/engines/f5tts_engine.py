@@ -96,14 +96,20 @@ class F5TtsEngine(TTSEngine):
         # Model configuration
         # E2-TTS: Enhanced F5-TTS with emotion support
         # F5-TTS: Base model with high expressiveness
-        # pt-br: Modelo otimizado para português brasileiro
+        # pt-br: Modelo otimizado para português brasileiro (firstpixel/F5-TTS-pt-br)
+        
+        # Salvar nome do modelo HuggingFace original
+        self.hf_model_name = model_name
+        
+        # Config name (usado apenas para determinar YAML config interno)
         # Model names match YAML config files in f5_tts/configs/
         if 'E2-TTS' in model_name or 'E2TTS' in model_name:
-            self.model_name = 'E2TTS_Base'  # Emotion model (E2TTS_Base.yaml)
+            self.config_name = 'E2TTS_Base'  # Emotion model (E2TTS_Base.yaml)
         elif 'pt-br' in model_name.lower() or 'firstpixel' in model_name.lower():
-            self.model_name = 'F5TTS_Base'  # PT-BR model uses F5TTS_Base config
+            self.config_name = 'F5TTS_Base'  # PT-BR model uses F5TTS_Base config
         else:
-            self.model_name = 'F5TTS_Base'  # Base model (F5TTS_Base.yaml)
+            self.config_name = 'F5TTS_Base'  # Base model (F5TTS_Base.yaml)
+        
         self.whisper_model_name = whisper_model
         
         # Cache directory para modelos
@@ -139,13 +145,19 @@ class F5TtsEngine(TTSEngine):
                 self._f5tts_class = F5TTS  # Store class for lazy loading
             else:
                 # Normal mode: load immediately
-                logger.info(f"Loading F5-TTS model: {self.model_name}")
+                logger.info(f"Loading F5-TTS model: {self.hf_model_name}")
+                ckpt_file = self._get_model_ckpt_file()
                 self.tts = F5TTS(
-                    model=self.model_name,
+                    model=self.config_name,  # Config YAML name (F5TTS_Base, E2TTS_Base)
+                    ckpt_file=ckpt_file,     # Model checkpoint (pt-br ou vazio para default)
                     device=self.device,
                     hf_cache_dir=str(self.cache_dir)
                 )
-                logger.info(f"✅ F5-TTS model loaded successfully: {self.model_name}")
+                
+                # CRÍTICO: Garantir que todos os tensors estão no device correto
+                self._ensure_model_on_device(self.tts)
+                
+                logger.info(f"✅ F5-TTS model loaded successfully: {self.hf_model_name}")
             
         except Exception as e:
             logger.error(f"Failed to load F5-TTS model: {e}", exc_info=True)
@@ -158,6 +170,26 @@ class F5TtsEngine(TTSEngine):
         
         # RVC client (lazy load from processor)
         self.rvc_client = None
+    
+    def _get_model_ckpt_file(self) -> str:
+        """Get checkpoint file path for the model.
+        
+        For pt-br model (firstpixel/F5-TTS-pt-br), downloads from HuggingFace.
+        For other models, returns empty string (uses default SWivid repo).
+        """
+        if 'firstpixel' in self.hf_model_name.lower() or 'pt-br' in self.hf_model_name.lower():
+            from huggingface_hub import hf_hub_download
+            logger.info(f"Downloading pt-br model checkpoint from {self.hf_model_name}...")
+            ckpt_path = hf_hub_download(
+                repo_id='firstpixel/F5-TTS-pt-br',
+                filename='pt-br/model_last.safetensors',
+                cache_dir=str(self.cache_dir)
+            )
+            logger.info(f"✅ PT-BR checkpoint downloaded: {ckpt_path}")
+            return ckpt_path
+        else:
+            # Use default SWivid repo (leave ckpt_file empty)
+            return ''
     
     def _select_device(self, device: Optional[str], fallback_to_cpu: bool) -> str:
         """Select computation device with fallback logic"""
@@ -173,17 +205,75 @@ class F5TtsEngine(TTSEngine):
         
         return device
     
+    def _ensure_model_on_device(self, model):
+        """Garante que todos os tensors do modelo estão no device correto.
+        
+        Crítico para evitar RuntimeError: Expected all tensors to be on the same device.
+        Isso acontece quando o modelo é recarregado no modo LOW_VRAM.
+        """
+        if not torch.cuda.is_available() or self.device == 'cpu':
+            return  # Não fazer nada se for CPU
+        
+        try:
+            # Estratégia 1: Mover modelo principal
+            if hasattr(model, 'to'):
+                logger.debug(f"Moving main model to {self.device}")
+                model.to(self.device)
+            
+            # Estratégia 2: Mover submodelos internos (F5TTS API wrapper)
+            # F5TTS tem: .ema_model, .vocoder, etc
+            moved_count = 0
+            for attr_name in ['ema_model', 'vocoder', 'model', 'mel_spec']:
+                if hasattr(model, attr_name):
+                    try:
+                        attr = getattr(model, attr_name)
+                        if hasattr(attr, 'to') and callable(attr.to):
+                            logger.debug(f"Moving {attr_name} to {self.device}")
+                            attr.to(self.device)
+                            moved_count += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to move {attr_name} to {self.device}: {e}")
+            
+            # Estratégia 3: Verificar tensors dentro do __dict__
+            if hasattr(model, '__dict__'):
+                for key, value in model.__dict__.items():
+                    if isinstance(value, torch.nn.Module):
+                        try:
+                            logger.debug(f"Moving __dict__['{key}'] to {self.device}")
+                            value.to(self.device)
+                            moved_count += 1
+                        except Exception as e:
+                            logger.debug(f"Skip moving {key}: {e}")
+            
+            if moved_count > 0:
+                logger.info(f"✅ Ensured {moved_count} submodel(s) are on {self.device}")
+            
+            # Flush CUDA cache para garantir
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+        except Exception as e:
+            logger.error(f"Failed to ensure model on device {self.device}: {e}")
+            # Não falhar aqui, apenas logar
+    
     def _load_model(self):
         """Load F5-TTS model (used in LOW_VRAM mode for lazy loading)"""
         if self.tts is None:
-            logger.info(f"Loading F5-TTS model on-demand: {self.model_name}")
+            logger.info(f"Loading F5-TTS model on-demand: {self.hf_model_name}")
+            ckpt_file = self._get_model_ckpt_file()
             self.tts = self._f5tts_class(
-                model=self.model_name,
+                model=self.config_name,  # Config YAML name (F5TTS_Base, E2TTS_Base)
+                ckpt_file=ckpt_file,     # Model checkpoint (pt-br ou vazio para default)
                 device=self.device,
                 hf_cache_dir=str(self.cache_dir)
             )
             self._model_loaded = True
-            logger.info(f"✅ F5-TTS model loaded (lazy): {self.model_name}")
+            logger.info(f"✅ F5-TTS model loaded (lazy): {self.hf_model_name}")
+        
+        # CRÍTICO: SEMPRE garantir que modelo está no device correto
+        # Isso é essencial após unload em modo LOW_VRAM
+        self._ensure_model_on_device(self.tts)
+        
         return self.tts
     
     @property
@@ -308,28 +398,40 @@ class F5TtsEngine(TTSEngine):
             # Add speed to params
             tts_params['speed'] = speed
             
+            # CHUNKING: Verificar se deve dividir texto por pontuação
+            settings = get_settings()
+            chunk_by_punctuation = settings.get('chunk_by_punctuation', True)
+            max_chunk_chars = settings.get('max_chunk_chars', 200)
+            cross_fade_duration = settings.get('cross_fade_duration', 0.05)
+            
             # LOW_VRAM mode: load model → synthesize → unload
             if settings.get('low_vram_mode'):
                 with vram_manager.load_model('f5tts', self._load_model):
                     model_params = self._normalize_f5_params(tts_params)
                     audio_array = await loop.run_in_executor(
                         None,
-                        self._synthesize_blocking,
+                        self._synthesize_with_chunking,
                         text,
                         ref_audio_path,
                         ref_text,
-                        model_params
+                        model_params,
+                        chunk_by_punctuation,
+                        max_chunk_chars,
+                        cross_fade_duration
                     )
             else:
                 # Normal mode: model already loaded
                 model_params = self._normalize_f5_params(tts_params)
                 audio_array = await loop.run_in_executor(
                     None,
-                    self._synthesize_blocking,
+                    self._synthesize_with_chunking,
                     text,
                     ref_audio_path,
                     ref_text,
-                    model_params
+                    model_params,
+                    chunk_by_punctuation,
+                    max_chunk_chars,
+                    cross_fade_duration
                 )
             
             # Apply speed adjustment if needed (already done in infer)
@@ -366,6 +468,120 @@ class F5TtsEngine(TTSEngine):
             logger.error(f"F5-TTS synthesis failed: {e}", exc_info=True)
             raise TTSEngineException(f"F5-TTS synthesis error: {e}") from e
     
+    def _synthesize_with_chunking(
+        self,
+        text: str,
+        ref_audio_path: str,
+        ref_text: str,
+        tts_params: dict,
+        chunk_by_punctuation: bool = True,
+        max_chunk_chars: int = 200,
+        cross_fade_duration: float = 0.05
+    ) -> np.ndarray:
+        """
+        Sintetiza texto com chunking inteligente por pontuação.
+        
+        OBJETIVO: Respeitar vírgulas e pontos para pausas naturais.
+        
+        Se chunk_by_punctuation=True:
+        - Divide texto em chunks por pontuação
+        - Sintetiza cada chunk separadamente
+        - Concatena com cross-fade suave
+        
+        Isso resulta em fala mais natural e menos corrida.
+        
+        Args:
+            text: Texto completo
+            ref_audio_path: Caminho do áudio de referência
+            ref_text: Transcrição do áudio de referência
+            tts_params: Parâmetros F5-TTS
+            chunk_by_punctuation: Se True, divide por pontuação
+            max_chunk_chars: Tamanho máximo de cada chunk
+            cross_fade_duration: Duração do cross-fade (segundos)
+        
+        Returns:
+            Audio array concatenado
+        """
+        if not chunk_by_punctuation or len(text) <= max_chunk_chars:
+            # Texto pequeno ou chunking desabilitado: síntese direta
+            logger.debug("Text chunking disabled or text is short, using direct synthesis")
+            return self._synthesize_blocking(text, ref_audio_path, ref_text, tts_params)
+        
+        # Dividir texto por pontuação
+        chunks = self._split_text_by_punctuation(text, max_chunk_chars)
+        logger.info(f"Text split into {len(chunks)} chunks for natural prosody")
+        
+        # Sintetizar cada chunk
+        audio_chunks = []
+        for i, chunk in enumerate(chunks):
+            logger.debug(f"Synthesizing chunk {i+1}/{len(chunks)}: {len(chunk)} chars")
+            chunk_audio = self._synthesize_blocking(chunk, ref_audio_path, ref_text, tts_params)
+            audio_chunks.append(chunk_audio)
+        
+        # Concatenar com cross-fade
+        final_audio = self._concatenate_audio_chunks(
+            audio_chunks,
+            cross_fade_duration,
+            self.sample_rate
+        )
+        
+        logger.info(f"✅ Concatenated {len(chunks)} chunks with cross-fade")
+        return final_audio
+    
+    def _concatenate_audio_chunks(
+        self,
+        chunks: List[np.ndarray],
+        cross_fade_duration: float,
+        sample_rate: int
+    ) -> np.ndarray:
+        """
+        Concatena chunks de áudio com cross-fade suave.
+        
+        Cross-fade evita clicks e transições bruscas entre chunks,
+        criando uma fala mais natural e contínua.
+        
+        Args:
+            chunks: Lista de arrays de áudio
+            cross_fade_duration: Duração do cross-fade (segundos)
+            sample_rate: Taxa de amostragem
+        
+        Returns:
+            Array de áudio concatenado
+        """
+        if len(chunks) == 0:
+            return np.array([], dtype=np.float32)
+        
+        if len(chunks) == 1:
+            return chunks[0]
+        
+        # Número de samples para cross-fade
+        fade_samples = int(cross_fade_duration * sample_rate)
+        
+        # Começar com primeiro chunk
+        result = chunks[0]
+        
+        for chunk in chunks[1:]:
+            # Aplicar cross-fade entre final de result e início de chunk
+            if len(result) >= fade_samples and len(chunk) >= fade_samples:
+                # Fade out no final de result
+                fade_out = np.linspace(1.0, 0.0, fade_samples)
+                result[-fade_samples:] *= fade_out
+                
+                # Fade in no início de chunk
+                fade_in = np.linspace(0.0, 1.0, fade_samples)
+                chunk[:fade_samples] *= fade_in
+                
+                # Sobrepor a região de cross-fade
+                result[-fade_samples:] += chunk[:fade_samples]
+                
+                # Adicionar resto do chunk
+                result = np.concatenate([result, chunk[fade_samples:]])
+            else:
+                # Chunk muito curto para cross-fade, concatenar direto
+                result = np.concatenate([result, chunk])
+        
+        return result
+    
     def _synthesize_blocking(
         self,
         text: str,
@@ -385,20 +601,69 @@ class F5TtsEngine(TTSEngine):
         Returns:
             np.ndarray: Generated audio
         """
-        # F5-TTS API nova: infer(ref_file, ref_text, gen_text, ...)
-        audio_np, sample_rate, _ = self.tts.infer(
-            ref_file=ref_audio_path,
-            ref_text=ref_text,
-            gen_text=text,
-            nfe_step=tts_params.get('nfe_step', 32),
-            cfg_strength=tts_params.get('cfg_strength', 2.0),
-            sway_sampling_coef=tts_params.get('sway_sampling_coef', -1.0),
-            speed=tts_params.get('speed', 1.0),
-            show_info=lambda x: None  # Suppress print
-            # progress removed - uses default tqdm
-        )
-        
-        return audio_np
+        try:
+            # Garantir modelo no device correto ANTES de inferência
+            self._ensure_model_on_device(self.tts)
+            
+            # F5-TTS API nova: infer(ref_file, ref_text, gen_text, ...)
+            audio_np, sample_rate, _ = self.tts.infer(
+                ref_file=ref_audio_path,
+                ref_text=ref_text,
+                gen_text=text,
+                nfe_step=tts_params.get('nfe_step', 32),
+                cfg_strength=tts_params.get('cfg_strength', 2.0),
+                sway_sampling_coef=tts_params.get('sway_sampling_coef', -1.0),
+                speed=tts_params.get('speed', 1.0),
+                show_info=lambda x: None  # Suppress print
+                # progress removed - uses default tqdm
+            )
+            
+            return audio_np
+            
+        except RuntimeError as e:
+            # Proteção contra device mismatch
+            if 'Expected all tensors to be on the same device' in str(e):
+                logger.warning(f"⚠️  Device mismatch detected, attempting recovery...")
+                logger.warning(f"Original error: {e}")
+                
+                # Estratégia de recuperação: mover tudo para CPU e tentar novamente
+                if self.device == 'cuda':
+                    logger.warning("🔄 Falling back to CPU for this synthesis...")
+                    
+                    # Mover modelo para CPU temporariamente
+                    if hasattr(self.tts, 'to'):
+                        self.tts.to('cpu')
+                    
+                    # Mover submodelos
+                    for attr_name in ['ema_model', 'vocoder', 'model']:
+                        if hasattr(self.tts, attr_name):
+                            attr = getattr(self.tts, attr_name)
+                            if hasattr(attr, 'to'):
+                                attr.to('cpu')
+                    
+                    # Tentar síntese em CPU
+                    try:
+                        audio_np, sample_rate, _ = self.tts.infer(
+                            ref_file=ref_audio_path,
+                            ref_text=ref_text,
+                            gen_text=text,
+                            nfe_step=tts_params.get('nfe_step', 32),
+                            cfg_strength=tts_params.get('cfg_strength', 2.0),
+                            sway_sampling_coef=tts_params.get('sway_sampling_coef', -1.0),
+                            speed=tts_params.get('speed', 1.0),
+                            show_info=lambda x: None
+                        )
+                        logger.info("✅ CPU fallback synthesis succeeded")
+                        return audio_np
+                    except Exception as cpu_error:
+                        logger.error(f"❌ CPU fallback also failed: {cpu_error}")
+                        raise
+                else:
+                    # Já estava em CPU, não tem como fazer fallback
+                    raise
+            else:
+                # Outro tipo de RuntimeError
+                raise
     
     async def clone_voice(
         self,
@@ -557,14 +822,14 @@ class F5TtsEngine(TTSEngine):
             return {
                 'nfe_step': 64,
                 'cfg_strength': 2.5,
-                'sway_sampling_coef': 0.0
+                'sway_sampling_coef': 0.5
             }
-        else:  # BALANCED (default)
-            # Good balance of quality and speed
+        else:  # BALANCED (default) - Otimizado para PT-BR natural
+            # Good balance of quality and speed, prosódia natural
             return {
-                'nfe_step': 32,
-                'cfg_strength': 2.0,
-                'sway_sampling_coef': -1.0
+                'nfe_step': 40,
+                'cfg_strength': 2.2,
+                'sway_sampling_coef': 0.3  # Micro-variações naturais
             }
     
     def _normalize_language(self, language: str) -> str:
@@ -590,6 +855,98 @@ class F5TtsEngine(TTSEngine):
             logger.warning(f"Language {language} may not be optimized for F5-TTS")
         
         return normalized
+    
+    def _split_text_by_punctuation(self, text: str, max_chunk_chars: int = 200) -> List[str]:
+        """
+        Divide texto em chunks respeitando pontuação para prosódia natural.
+        
+        ESTRATÉGIA:
+        1. Quebra por pontuação final (.!?) -> sentenças
+        2. Se sentença > max_chunk_chars, quebra por vírgulas/ponto-e-vírgula
+        3. Se ainda grande, quebra por espaços respeitando limite
+        
+        Isso garante:
+        - Pausas naturais nas vírgulas e pontos
+        - Chunks processáveis pelo modelo
+        - Fala mais humana e menos corrida
+        
+        Args:
+            text: Texto completo a processar
+            max_chunk_chars: Máximo de caracteres por chunk
+        
+        Returns:
+            Lista de chunks de texto prontos para síntese
+        """
+        import re
+        
+        # Remover espaços extras
+        text = ' '.join(text.split())
+        
+        # Quebra por pontuação final (., !, ?, ..., !!, ??)
+        sentence_pattern = r'([.!?]+)\s+'
+        sentences = re.split(sentence_pattern, text)
+        
+        # Recompor sentenças com sua pontuação
+        full_sentences = []
+        i = 0
+        while i < len(sentences):
+            if i + 1 < len(sentences) and sentences[i + 1] and sentences[i + 1][0] in '.!?':
+                # Juntar texto + pontuação
+                full_sentences.append(sentences[i] + sentences[i + 1])
+                i += 2
+            else:
+                if sentences[i].strip():
+                    full_sentences.append(sentences[i])
+                i += 1
+        
+        # Se última sentença não tem pontuação, adicionar ponto
+        if full_sentences and not full_sentences[-1].rstrip()[-1:] in '.!?':
+            full_sentences[-1] += '.'
+        
+        chunks = []
+        for sentence in full_sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            
+            # Se sentença cabe no limite, adiciona direto
+            if len(sentence) <= max_chunk_chars:
+                chunks.append(sentence)
+            else:
+                # Sentença grande: quebrar por vírgulas
+                sub_pattern = r'([,;:])\s+'
+                sub_parts = re.split(sub_pattern, sentence)
+                
+                # Recompor partes com pontuação
+                current_chunk = ""
+                i = 0
+                while i < len(sub_parts):
+                    part = sub_parts[i]
+                    
+                    # Se é pontuação, adiciona ao chunk atual
+                    if part in ',;:':
+                        current_chunk += part + ' '
+                        i += 1
+                        continue
+                    
+                    # Tentar adicionar ao chunk atual
+                    test_chunk = current_chunk + part
+                    if len(test_chunk) <= max_chunk_chars:
+                        current_chunk = test_chunk
+                    else:
+                        # Chunk atual cheio, salvar e começar novo
+                        if current_chunk.strip():
+                            chunks.append(current_chunk.strip())
+                        current_chunk = part
+                    
+                    i += 1
+                
+                # Adicionar último chunk
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+        
+        logger.debug(f"Split text into {len(chunks)} chunks: {[len(c) for c in chunks]}")
+        return chunks
     
     def _normalize_audio(self, audio: np.ndarray) -> np.ndarray:
         """Normalize audio amplitude to prevent clipping"""

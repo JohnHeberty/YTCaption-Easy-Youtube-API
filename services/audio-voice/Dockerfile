@@ -62,12 +62,12 @@ RUN apt-get purge -y --auto-remove \
  && apt-get autoremove -y && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-
+# Copy application files
 COPY app/ ./app/
 COPY run.py .
 COPY scripts/ ./scripts/
 
-# Criar speaker default
+# Criar speaker default (será recriado pelo entrypoint se volume sobrescrever)
 RUN python scripts/create_default_speaker.py
 
 # Não sobrescrever libcuda.so — usar a versão montada do host

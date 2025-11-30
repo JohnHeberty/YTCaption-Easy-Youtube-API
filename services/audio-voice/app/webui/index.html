@@ -1,0 +1,1412 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Voice Service - Painel de Controle</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/webui/assets/css/styles.css">
+    <!-- Prevent "app is not defined" errors during page load -->
+    <script>
+        // Temporary app object to prevent errors before main script loads
+        window.app = window.app || {
+            navigate: function() { console.log('App loading...'); },
+            createJob: function() { console.log('App loading...'); },
+            cloneVoice: function() { console.log('App loading...'); }
+        };
+    </script>
+    <!-- App JS (loaded early with defer to make app object available) -->
+    <script defer src="/webui/assets/js/app.js"></script>
+</head>
+<body>
+    
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#" onclick="app.navigate('dashboard')">
+                <i class="bi bi-mic-fill"></i> Audio Voice Service
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="app.navigate('dashboard')">
+                            <i class="bi bi-speedometer2"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="app.navigate('create-job')">
+                            <i class="bi bi-plus-circle"></i> Dublar Texto
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="app.navigate('jobs')">
+                            <i class="bi bi-list-task"></i> Jobs & Downloads
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="app.navigate('voices')">
+                            <i class="bi bi-person-voice"></i> Vozes Clonadas
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="app.navigate('rvc-models')">
+                            <i class="bi bi-cpu"></i> Modelos RVC
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="app.navigate('quality-profiles')">
+                            <i class="bi bi-sliders"></i> Perfis de Qualidade
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-gear"></i> Admin
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="app.navigate('admin')">
+                                <i class="bi bi-heart-pulse"></i> Health & Stats
+                            </a></li>
+                            <li><a class="dropdown-item" href="#" onclick="app.navigate('feature-flags')">
+                                <i class="bi bi-flag"></i> Feature Flags
+                            </a></li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 9999; margin-top: 60px;">
+        <div id="toast" class="toast" role="alert">
+            <div class="toast-header">
+                <strong class="me-auto" id="toast-title">Notificação</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toast-body"></div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container-fluid main-content">
+
+        <!-- ==================== DASHBOARD ==================== -->
+        <section id="section-dashboard" class="content-section">
+            <h1 class="mb-4"><i class="bi bi-speedometer2"></i> Dashboard</h1>
+            
+            <div class="row">
+                <!-- Status da API -->
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <i class="bi bi-check-circle"></i> Status da API
+                        </div>
+                        <div class="card-body" id="dashboard-api-status">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Estatísticas do Sistema -->
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <i class="bi bi-bar-chart"></i> Estatísticas do Sistema
+                        </div>
+                        <div class="card-body" id="dashboard-stats">
+                            <div class="text-center">
+                                <div class="spinner-border text-success" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modelos RVC -->
+                <div class="col-md-4 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            <i class="bi bi-cpu"></i> Modelos RVC
+                        </div>
+                        <div class="card-body" id="dashboard-rvc-stats">
+                            <div class="text-center">
+                                <div class="spinner-border text-info" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <!-- Últimos Jobs -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-warning">
+                            <i class="bi bi-clock-history"></i> Últimos Jobs
+                        </div>
+                        <div class="card-body" id="dashboard-recent-jobs">
+                            <div class="text-center">
+                                <div class="spinner-border text-warning" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Últimas Vozes -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-secondary text-white">
+                            <i class="bi bi-person-voice"></i> Últimas Vozes Clonadas
+                        </div>
+                        <div class="card-body" id="dashboard-recent-voices">
+                            <div class="text-center">
+                                <div class="spinner-border text-secondary" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center mt-3">
+                <button class="btn btn-primary btn-lg" onclick="app.loadDashboard()">
+                    <i class="bi bi-arrow-clockwise"></i> Atualizar Dashboard
+                </button>
+            </div>
+        </section>
+
+        <!-- ==================== DUBLAR TEXTO (CREATE JOB) ==================== -->
+        <section id="section-create-job" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-plus-circle"></i> Criar Job de Dublagem</h1>
+            
+            <div class="card">
+                <div class="card-body">
+                    <form id="form-create-job">
+                        <!-- Texto para dublar -->
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-chat-text"></i> Texto para Dublar *
+                                <small class="text-muted">(1-10.000 caracteres)</small>
+                            </label>
+                            <textarea class="form-control" id="job-text" rows="4" required 
+                                minlength="1" maxlength="10000"
+                                placeholder="Digite o texto que deseja converter em áudio..."></textarea>
+                            <div class="form-text">Caracteres: <span id="text-counter">0</span> / 10000</div>
+                        </div>
+
+                        <div class="row">
+                            <!-- Idioma de origem -->
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-translate"></i> Idioma de Origem *
+                                </label>
+                                <select class="form-select" id="job-source-language" required>
+                                    <option value="">Carregando...</option>
+                                </select>
+                            </div>
+
+                            <!-- Idioma de destino -->
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-globe"></i> Idioma de Destino
+                                    <small class="text-muted">(opcional)</small>
+                                </label>
+                                <select class="form-select" id="job-target-language">
+                                    <option value="">Mesmo que origem</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Modo -->
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-toggles"></i> Modo de Dublagem *
+                            </label>
+                            <select class="form-select" id="job-mode" required>
+                                <option value="dubbing">Dubbing (Voz Genérica)</option>
+                                <option value="dubbing_with_clone">Dubbing com Voz Clonada</option>
+                            </select>
+                        </div>
+
+                        <!-- Voice Preset (se mode = dubbing) -->
+                        <div class="mb-3" id="container-voice-preset">
+                            <label class="form-label">
+                                <i class="bi bi-mic"></i> Voz Genérica (Preset) *
+                            </label>
+                            <select class="form-select" id="job-voice-preset">
+                                <option value="">Carregando...</option>
+                            </select>
+                        </div>
+
+                        <!-- Voice ID (se mode = dubbing_with_clone) -->
+                        <div class="mb-3" id="container-voice-id" style="display: none;">
+                            <label class="form-label">
+                                <i class="bi bi-person-voice"></i> Voz Clonada *
+                            </label>
+                            <select class="form-select" id="job-voice-id">
+                                <option value="">Carregando...</option>
+                            </select>
+                        </div>
+
+                        <div class="row">
+                            <!-- TTS Engine -->
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-cpu"></i> Engine de TTS *
+                                </label>
+                                <select class="form-select" id="job-tts-engine" required>
+                                    <option value="xtts">XTTS (Estável/Padrão)</option>
+                                    <option value="f5tts">F5-TTS (Experimental/Alta Qualidade)</option>
+                                </select>
+                            </div>
+
+                            <!-- Perfil de Qualidade -->
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-sliders"></i> Perfil de Qualidade
+                                    <small class="text-muted">(opcional)</small>
+                                </label>
+                                <select class="form-select" id="job-quality-profile">
+                                    <option value="">Usar padrão do engine</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Ref Text (F5-TTS) -->
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-file-text"></i> Texto de Referência (F5-TTS)
+                                <small class="text-muted">(opcional, auto-transcrito se vazio)</small>
+                            </label>
+                            <input type="text" class="form-control" id="job-ref-text"
+                                placeholder="Deixe vazio para transcrição automática">
+                        </div>
+
+                        <!-- Configurações RVC (colapsável) -->
+                        <div class="card mb-3">
+                            <div class="card-header bg-light">
+                                <a class="text-decoration-none" data-bs-toggle="collapse" href="#rvc-settings">
+                                    <i class="bi bi-chevron-down"></i> Configurações Avançadas RVC (Voice Conversion)
+                                </a>
+                            </div>
+                            <div class="collapse" id="rvc-settings">
+                                <div class="card-body">
+                                    <!-- Enable RVC -->
+                                    <div class="form-check form-switch mb-3">
+                                        <input class="form-check-input" type="checkbox" id="job-enable-rvc">
+                                        <label class="form-check-label" for="job-enable-rvc">
+                                            <strong>Ativar RVC (Voice Conversion)</strong>
+                                        </label>
+                                    </div>
+
+                                    <div id="rvc-params" style="display: none;">
+                                        <!-- Modelo RVC -->
+                                        <div class="mb-3">
+                                            <label class="form-label">Modelo RVC *</label>
+                                            <select class="form-select" id="job-rvc-model-id">
+                                                <option value="">Selecione um modelo RVC</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="row">
+                                            <!-- Pitch -->
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">
+                                                    Pitch (semitons): <span id="rvc-pitch-val">0</span>
+                                                </label>
+                                                <input type="range" class="form-range" id="job-rvc-pitch"
+                                                    min="-12" max="12" value="0" step="1">
+                                            </div>
+
+                                            <!-- Index Rate -->
+                                            <div class="col-md-6 mb-3">
+                                                <label class="form-label">
+                                                    Index Rate: <span id="rvc-index-rate-val">0.75</span>
+                                                </label>
+                                                <input type="range" class="form-range" id="job-rvc-index-rate"
+                                                    min="0" max="1" value="0.75" step="0.05">
+                                            </div>
+                                        </div>
+
+                                        <div class="row">
+                                            <!-- Filter Radius -->
+                                            <div class="col-md-4 mb-3">
+                                                <label class="form-label">
+                                                    Filter Radius: <span id="rvc-filter-radius-val">3</span>
+                                                </label>
+                                                <input type="range" class="form-range" id="job-rvc-filter-radius"
+                                                    min="0" max="7" value="3" step="1">
+                                            </div>
+
+                                            <!-- RMS Mix Rate -->
+                                            <div class="col-md-4 mb-3">
+                                                <label class="form-label">
+                                                    RMS Mix Rate: <span id="rvc-rms-mix-rate-val">0.25</span>
+                                                </label>
+                                                <input type="range" class="form-range" id="job-rvc-rms-mix-rate"
+                                                    min="0" max="1" value="0.25" step="0.05">
+                                            </div>
+
+                                            <!-- Protect -->
+                                            <div class="col-md-4 mb-3">
+                                                <label class="form-label">
+                                                    Protect: <span id="rvc-protect-val">0.33</span>
+                                                </label>
+                                                <input type="range" class="form-range" id="job-rvc-protect"
+                                                    min="0" max="0.5" value="0.33" step="0.01">
+                                            </div>
+                                        </div>
+
+                                        <!-- F0 Method -->
+                                        <div class="mb-3">
+                                            <label class="form-label">Método de Extração de Pitch (F0)</label>
+                                            <select class="form-select" id="job-rvc-f0-method">
+                                                <option value="rmvpe" selected>RMVPE (Recomendado)</option>
+                                                <option value="fcpe">FCPE</option>
+                                                <option value="pm">PM</option>
+                                                <option value="harvest">Harvest</option>
+                                                <option value="dio">DIO</option>
+                                                <option value="crepe">Crepe</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Botão Submit -->
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg" id="btn-create-job">
+                                <i class="bi bi-check-circle"></i> Criar Job de Dublagem
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== JOBS & DOWNLOADS ==================== -->
+        <section id="section-jobs" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-list-task"></i> Jobs & Downloads</h1>
+            
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row align-items-end">
+                        <div class="col-md-3">
+                            <label class="form-label">Limite de jobs</label>
+                            <input type="number" class="form-control" id="jobs-limit" value="20" min="1" max="100">
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-primary" onclick="app.loadJobs()">
+                                <i class="bi bi-arrow-clockwise"></i> Atualizar
+                            </button>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <div class="form-check form-switch d-inline-block">
+                                <input class="form-check-input" type="checkbox" id="jobs-auto-refresh">
+                                <label class="form-check-label" for="jobs-auto-refresh">
+                                    Atualizar automaticamente (10s)
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Buscar job específico -->
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5><i class="bi bi-search"></i> Buscar Job por ID</h5>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <input type="text" class="form-control" id="search-job-id" 
+                                placeholder="Digite o ID do job">
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-secondary w-100" onclick="app.searchJobById()">
+                                <i class="bi bi-search"></i> Buscar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabela de Jobs -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-table"></i> Lista de Jobs
+                </div>
+                <div class="card-body">
+                    <div id="jobs-table-container">
+                        <div class="text-center">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="mt-2">Carregando jobs...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== VOZES CLONADAS ==================== -->
+        <section id="section-voices" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-person-voice"></i> Vozes Clonadas</h1>
+            
+            <!-- Formulário de Clonagem -->
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <i class="bi bi-plus-circle"></i> Clonar Nova Voz
+                </div>
+                <div class="card-body">
+                    <form id="form-clone-voice">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-file-earmark-music"></i> Áudio de Referência *
+                                </label>
+                                <input type="file" class="form-control" id="clone-audio-file" 
+                                    accept="audio/wav,audio/mpeg,audio/mp3,audio/ogg,audio/flac,audio/x-m4a,audio/mp4,.wav,.mp3,.ogg,.flac,.m4a" 
+                                    required>
+                                <div class="form-text">WAV, MP3, OGG, FLAC, M4A (máx. 50MB)</div>
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-tag"></i> Nome da Voz *
+                                </label>
+                                <input type="text" class="form-control" id="clone-voice-name" 
+                                    required placeholder="Ex: João Narrador">
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-translate"></i> Idioma *
+                                </label>
+                                <select class="form-select" id="clone-language" required>
+                                    <option value="">Carregando...</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-cpu"></i> Engine de TTS *
+                                </label>
+                                <select class="form-select" id="clone-tts-engine" required>
+                                    <option value="xtts">XTTS (Padrão)</option>
+                                    <option value="f5tts">F5-TTS (Experimental)</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-file-text"></i> Texto de Referência
+                                    <small class="text-muted">(opcional)</small>
+                                </label>
+                                <input type="text" class="form-control" id="clone-ref-text"
+                                    placeholder="Auto-transcrito se vazio">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-chat-left-text"></i> Descrição
+                                <small class="text-muted">(opcional)</small>
+                            </label>
+                            <textarea class="form-control" id="clone-description" rows="2"
+                                placeholder="Descrição da voz..."></textarea>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-success btn-lg" id="btn-clone-voice">
+                                <i class="bi bi-check-circle"></i> Iniciar Clonagem
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Clonagens em Andamento -->
+            <div class="card mb-4" id="cloning-jobs-card" style="display: none;">
+                <div class="card-header bg-warning">
+                    <i class="bi bi-hourglass-split"></i> Clonagens em Andamento
+                </div>
+                <div class="card-body" id="cloning-jobs-list"></div>
+            </div>
+
+            <!-- Lista de Vozes Clonadas -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-people"></i> Vozes Disponíveis
+                    <button class="btn btn-sm btn-light float-end" onclick="app.loadVoices()">
+                        <i class="bi bi-arrow-clockwise"></i> Atualizar
+                    </button>
+                </div>
+                <div class="card-body" id="voices-list-container">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Carregando vozes...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== MODELOS RVC ==================== -->
+        <section id="section-rvc-models" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-cpu"></i> Modelos RVC</h1>
+            
+            <!-- Upload de Modelo -->
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <i class="bi bi-upload"></i> Upload de Modelo RVC
+                </div>
+                <div class="card-body">
+                    <form id="form-upload-rvc">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-tag"></i> Nome do Modelo *
+                                </label>
+                                <input type="text" class="form-control" id="rvc-model-name" 
+                                    required maxlength="100" placeholder="Ex: voz_masculina_modelo">
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-file-earmark-binary"></i> Arquivo .pth *
+                                </label>
+                                <input type="file" class="form-control" id="rvc-pth-file" 
+                                    accept=".pth" required>
+                            </div>
+
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">
+                                    <i class="bi bi-file-earmark-code"></i> Arquivo .index
+                                    <small class="text-muted">(opcional)</small>
+                                </label>
+                                <input type="file" class="form-control" id="rvc-index-file" 
+                                    accept=".index">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-chat-left-text"></i> Descrição
+                                <small class="text-muted">(opcional, máx 500 chars)</small>
+                            </label>
+                            <textarea class="form-control" id="rvc-model-description" 
+                                rows="2" maxlength="500"></textarea>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-info btn-lg" id="btn-upload-rvc">
+                                <i class="bi bi-cloud-upload"></i> Fazer Upload
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Estatísticas RVC -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <i class="bi bi-bar-chart"></i> Estatísticas dos Modelos
+                </div>
+                <div class="card-body" id="rvc-stats-container">
+                    <div class="text-center">
+                        <div class="spinner-border text-secondary" role="status"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lista de Modelos -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-grid-3x3"></i> Modelos Cadastrados
+                    <div class="float-end">
+                        <select class="form-select form-select-sm d-inline-block" 
+                            id="rvc-sort-by" style="width: auto;">
+                            <option value="created_at">Ordenar por: Data</option>
+                            <option value="name">Ordenar por: Nome</option>
+                            <option value="file_size_mb">Ordenar por: Tamanho</option>
+                        </select>
+                        <button class="btn btn-sm btn-light" onclick="app.loadRvcModels()">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body" id="rvc-models-list-container">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Carregando modelos...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== PERFIS DE QUALIDADE ==================== -->
+        <section id="section-quality-profiles" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-sliders"></i> Perfis de Qualidade</h1>
+            
+            <div class="mb-4">
+                <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#modal-create-profile">
+                    <i class="bi bi-plus-circle"></i> Criar Novo Perfil
+                </button>
+            </div>
+
+            <!-- Tabs XTTS / F5-TTS -->
+            <ul class="nav nav-tabs" id="profile-tabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="xtts-tab" data-bs-toggle="tab" 
+                        data-bs-target="#xtts-profiles" type="button" role="tab">
+                        <i class="bi bi-mic"></i> XTTS
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="f5tts-tab" data-bs-toggle="tab" 
+                        data-bs-target="#f5tts-profiles" type="button" role="tab">
+                        <i class="bi bi-stars"></i> F5-TTS
+                    </button>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="profile-tabs-content">
+                <!-- XTTS Profiles -->
+                <div class="tab-pane fade show active" id="xtts-profiles" role="tabpanel">
+                    <div class="card mt-3">
+                        <div class="card-body" id="xtts-profiles-container">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- F5-TTS Profiles -->
+                <div class="tab-pane fade" id="f5tts-profiles" role="tabpanel">
+                    <div class="card mt-3">
+                        <div class="card-body" id="f5tts-profiles-container">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== ADMIN & HEALTH ==================== -->
+        <section id="section-admin" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-heart-pulse"></i> Admin & Health</h1>
+            
+            <div class="row">
+                <!-- Health Básico -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <i class="bi bi-check-circle"></i> Health Check Básico
+                        </div>
+                        <div class="card-body" id="admin-health-basic">
+                            <div class="text-center">
+                                <div class="spinner-border text-success" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Health Profundo -->
+                <div class="col-md-6 mb-3">
+                    <div class="card">
+                        <div class="card-header bg-primary text-white">
+                            <i class="bi bi-heart-pulse"></i> Health Check Profundo
+                        </div>
+                        <div class="card-body" id="admin-health-deep">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats -->
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <i class="bi bi-bar-chart"></i> Estatísticas do Sistema
+                </div>
+                <div class="card-body" id="admin-stats">
+                    <div class="text-center">
+                        <div class="spinner-border text-info" role="status"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Limpeza -->
+            <div class="card">
+                <div class="card-header bg-warning">
+                    <i class="bi bi-trash"></i> Limpeza do Sistema
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-warning">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        <strong>Atenção:</strong> Esta operação pode remover arquivos temporários e cache.
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="cleanup-deep">
+                        <label class="form-check-label" for="cleanup-deep">
+                            <strong>Limpeza profunda (deep cleanup)</strong>
+                        </label>
+                    </div>
+                    <button class="btn btn-warning" onclick="app.performCleanup()">
+                        <i class="bi bi-trash"></i> Executar Limpeza
+                    </button>
+                </div>
+            </div>
+
+            <div class="text-center mt-4">
+                <button class="btn btn-primary btn-lg" onclick="app.loadAdminSection()">
+                    <i class="bi bi-arrow-clockwise"></i> Atualizar Informações
+                </button>
+            </div>
+        </section>
+
+        <!-- ==================== FEATURE FLAGS ==================== -->
+        <section id="section-feature-flags" class="content-section" style="display: none;">
+            <h1 class="mb-4"><i class="bi bi-flag"></i> Feature Flags</h1>
+            
+            <!-- Buscar flag específica -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <i class="bi bi-search"></i> Consultar Flag Específica
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-5 mb-2">
+                            <input type="text" class="form-control" id="flag-name" 
+                                placeholder="Nome da feature (ex: f5tts_engine)">
+                        </div>
+                        <div class="col-md-4 mb-2">
+                            <input type="text" class="form-control" id="flag-user-id" 
+                                placeholder="User ID (opcional)">
+                        </div>
+                        <div class="col-md-3 mb-2">
+                            <button class="btn btn-secondary w-100" onclick="app.checkFeatureFlag()">
+                                <i class="bi bi-search"></i> Checar
+                            </button>
+                        </div>
+                    </div>
+                    <div id="flag-result" class="mt-3"></div>
+                </div>
+            </div>
+
+            <!-- Lista de todas as flags -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <i class="bi bi-list-ul"></i> Todas as Feature Flags
+                    <button class="btn btn-sm btn-light float-end" onclick="app.loadFeatureFlags()">
+                        <i class="bi bi-arrow-clockwise"></i> Atualizar
+                    </button>
+                </div>
+                <div class="card-body" id="feature-flags-list">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status"></div>
+                        <p class="mt-2">Carregando feature flags...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- ==================== MODALS ==================== -->
+
+    <!-- Modal: Job Details -->
+    <div class="modal fade" id="modal-job-details" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-info-circle"></i> Detalhes do Job
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="modal-job-details-body">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Voice Details -->
+    <div class="modal fade" id="modal-voice-details" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-person-voice"></i> Detalhes da Voz
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="modal-voice-details-body">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: RVC Model Details -->
+    <div class="modal fade" id="modal-rvc-details" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-cpu"></i> Detalhes do Modelo RVC
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="modal-rvc-details-body">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Create Quality Profile -->
+    <div class="modal fade" id="modal-create-profile" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-plus-circle"></i> Criar Perfil de Qualidade
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="form-create-quality-profile">
+                        <!-- Campos Comuns -->
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Nome do Perfil *</label>
+                                <input type="text" class="form-control" id="qp-name" required 
+                                    placeholder="Ex: high_quality, fast_mode">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Engine *</label>
+                                <select class="form-select" id="qp-engine" required onchange="app.toggleQualityProfileEngine(this.value)">
+                                    <option value="xtts">XTTS (Stable)</option>
+                                    <option value="f5tts">F5-TTS (Experimental)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Descrição</label>
+                            <textarea class="form-control" id="qp-description" rows="2" 
+                                placeholder="Descreva o uso ideal deste perfil..."></textarea>
+                        </div>
+                        <div class="form-check mb-4">
+                            <input class="form-check-input" type="checkbox" id="qp-is-default">
+                            <label class="form-check-label" for="qp-is-default">
+                                Definir como perfil padrão do engine
+                            </label>
+                        </div>
+
+                        <!-- Parâmetros XTTS -->
+                        <div id="qp-xtts-params" class="params-group">
+                            <h6 class="text-primary mb-3">
+                                <i class="bi bi-sliders"></i> Parâmetros XTTS
+                            </h6>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Temperatura (0.1 - 1.0)
+                                        <i class="bi bi-info-circle" title="Criatividade vs Estabilidade. Maior = mais criativo"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-xtts-temperature" 
+                                        min="0.1" max="1.0" step="0.05" value="0.75">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Velocidade (0.5 - 2.0)
+                                        <i class="bi bi-info-circle" title="Multiplier de velocidade da fala"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-xtts-speed" 
+                                        min="0.5" max="2.0" step="0.1" value="1.0">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Penalidade de Repetição (1.0 - 3.0)
+                                        <i class="bi bi-info-circle" title="Maior = menos repetições"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-xtts-repetition-penalty" 
+                                        min="1.0" max="3.0" step="0.1" value="1.5">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Top-P (0.5 - 1.0)
+                                        <i class="bi bi-info-circle" title="Nucleus sampling - diversidade"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-xtts-top-p" 
+                                        min="0.5" max="1.0" step="0.05" value="0.9">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Top-K (10 - 100)
+                                        <i class="bi bi-info-circle" title="Número de tokens candidatos"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-xtts-top-k" 
+                                        min="10" max="100" step="5" value="60">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Penalidade de Comprimento (0.5 - 2.0)
+                                        <i class="bi bi-info-circle" title="Controle de duração"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-xtts-length-penalty" 
+                                        min="0.5" max="2.0" step="0.1" value="1.2">
+                                </div>
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="qp-xtts-enable-text-splitting">
+                                <label class="form-check-label" for="qp-xtts-enable-text-splitting">
+                                    Dividir texto longo em sentenças (recomendado para textos grandes)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Parâmetros F5-TTS -->
+                        <div id="qp-f5tts-params" class="params-group" style="display: none;">
+                            <h6 class="text-success mb-3">
+                                <i class="bi bi-sliders"></i> Parâmetros F5-TTS
+                            </h6>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        NFE Steps (8 - 64)
+                                        <i class="bi bi-info-circle" title="Diffusion steps. Maior = melhor qualidade, mais lento"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-f5tts-nfe-step" 
+                                        min="8" max="64" step="4" value="32">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        CFG Scale (1.0 - 5.0)
+                                        <i class="bi bi-info-circle" title="Classifier-free guidance - fidelidade à referência"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-f5tts-cfg-scale" 
+                                        min="1.0" max="5.0" step="0.5" value="2.0">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Velocidade (0.5 - 2.0)
+                                        <i class="bi bi-info-circle" title="Velocidade da fala"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-f5tts-speed" 
+                                        min="0.5" max="2.0" step="0.1" value="1.0">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">
+                                        Sway Sampling Coef (-1.0 - 1.0)
+                                        <i class="bi bi-info-circle" title="Controle de variação. -1 = automático"></i>
+                                    </label>
+                                    <input type="number" class="form-control" id="qp-f5tts-sway-sampling-coef" 
+                                        min="-1.0" max="1.0" step="0.1" value="-1.0">
+                                </div>
+                            </div>
+                            
+                            <h6 class="mt-4 mb-3">Pós-Processamento</h6>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="qp-f5tts-denoise-audio" checked>
+                                        <label class="form-check-label" for="qp-f5tts-denoise-audio">
+                                            Aplicar denoising no áudio de referência
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Força da Redução de Ruído (0.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="qp-f5tts-noise-reduction-strength" 
+                                        min="0.0" max="1.0" step="0.1" value="0.7">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="qp-f5tts-enhance-prosody" checked>
+                                        <label class="form-check-label" for="qp-f5tts-enhance-prosody">
+                                            Melhorar prosódia (entonação, ritmo, ênfase)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Força da Melhoria de Prosódia (0.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="qp-f5tts-prosody-strength" 
+                                        min="0.0" max="1.0" step="0.1" value="0.8">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="qp-f5tts-apply-normalization" checked>
+                                        <label class="form-check-label" for="qp-f5tts-apply-normalization">
+                                            Normalizar volume do áudio final
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">LUFS Alvo (-30 a -10)</label>
+                                    <input type="number" class="form-control" id="qp-f5tts-target-loudness" 
+                                        min="-30" max="-10" step="1" value="-20">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="qp-f5tts-apply-declipping" checked>
+                                        <label class="form-check-label" for="qp-f5tts-apply-declipping">
+                                            Remover clipping
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="qp-f5tts-apply-deessing" checked>
+                                        <label class="form-check-label" for="qp-f5tts-apply-deessing">
+                                            Reduzir sibilância (S/SH)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Freq. De-essing (Hz)</label>
+                                    <input type="number" class="form-control" id="qp-f5tts-deessing-frequency" 
+                                        min="4000" max="10000" step="500" value="6000">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="qp-f5tts-add-breathing" checked>
+                                        <label class="form-check-label" for="qp-f5tts-add-breathing">
+                                            Adicionar respiração natural
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Intensidade da Respiração (0.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="qp-f5tts-breathing-strength" 
+                                        min="0.0" max="1.0" step="0.1" value="0.3">
+                                </div>
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="qp-f5tts-pause-optimization" checked>
+                                <label class="form-check-label" for="qp-f5tts-pause-optimization">
+                                    Otimizar pausas entre frases
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-save"></i> Criar Perfil
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Edit Quality Profile -->
+    <!-- BUG-03 FIX: Modal Edit agora usa formulário estruturado igual ao Create -->
+    <div class="modal fade" id="modal-edit-profile" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-pencil"></i> Editar Perfil de Qualidade
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="form-edit-quality-profile">
+                        <input type="hidden" id="edit-qp-id">
+                        <input type="hidden" id="edit-qp-engine">
+                        
+                        <!-- Campos Comuns -->
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Nome do Perfil *</label>
+                                <input type="text" class="form-control" id="edit-qp-name" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Engine</label>
+                                <input type="text" class="form-control" id="edit-qp-engine-display" disabled>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Descrição</label>
+                            <textarea class="form-control" id="edit-qp-description" rows="2"></textarea>
+                        </div>
+                        <div class="form-check mb-4">
+                            <input class="form-check-input" type="checkbox" id="edit-qp-is-default">
+                            <label class="form-check-label" for="edit-qp-is-default">
+                                Definir como perfil padrão do engine
+                            </label>
+                        </div>
+
+                        <!-- Parâmetros XTTS -->
+                        <div id="edit-qp-xtts-params" class="params-group">
+                            <h6 class="text-primary mb-3">
+                                <i class="bi bi-sliders"></i> Parâmetros XTTS
+                            </h6>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Temperatura (0.1 - 1.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-xtts-temperature" 
+                                        min="0.1" max="1.0" step="0.05">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Velocidade (0.5 - 2.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-xtts-speed" 
+                                        min="0.5" max="2.0" step="0.1">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Penalidade de Repetição (1.0 - 3.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-xtts-repetition-penalty" 
+                                        min="1.0" max="3.0" step="0.1">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Top-P (0.5 - 1.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-xtts-top-p" 
+                                        min="0.5" max="1.0" step="0.05">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Top-K (10 - 100)</label>
+                                    <input type="number" class="form-control" id="edit-qp-xtts-top-k" 
+                                        min="10" max="100" step="5">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Penalidade de Comprimento (0.5 - 2.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-xtts-length-penalty" 
+                                        min="0.5" max="2.0" step="0.1">
+                                </div>
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="edit-qp-xtts-enable-text-splitting">
+                                <label class="form-check-label" for="edit-qp-xtts-enable-text-splitting">
+                                    Dividir texto longo em sentenças
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Parâmetros F5-TTS -->
+                        <div id="edit-qp-f5tts-params" class="params-group" style="display: none;">
+                            <h6 class="text-success mb-3">
+                                <i class="bi bi-sliders"></i> Parâmetros F5-TTS
+                            </h6>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">NFE Steps (8 - 64)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-nfe-step" 
+                                        min="8" max="64" step="4">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">CFG Scale (1.0 - 5.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-cfg-scale" 
+                                        min="1.0" max="5.0" step="0.5">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Velocidade (0.5 - 2.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-speed" 
+                                        min="0.5" max="2.0" step="0.1">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Sway Sampling Coef (-1.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-sway-sampling-coef" 
+                                        min="-1.0" max="1.0" step="0.1">
+                                </div>
+                            </div>
+                            
+                            <h6 class="mt-4 mb-3">Pós-Processamento</h6>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-denoise-audio">
+                                        <label class="form-check-label" for="edit-qp-f5tts-denoise-audio">
+                                            Aplicar denoising no áudio de referência
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Força da Redução de Ruído (0.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-noise-reduction-strength" 
+                                        min="0.0" max="1.0" step="0.1">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-enhance-prosody">
+                                        <label class="form-check-label" for="edit-qp-f5tts-enhance-prosody">
+                                            Melhorar prosódia
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Força da Melhoria de Prosódia (0.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-prosody-strength" 
+                                        min="0.0" max="1.0" step="0.1">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-apply-normalization">
+                                        <label class="form-check-label" for="edit-qp-f5tts-apply-normalization">
+                                            Normalizar volume do áudio final
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">LUFS Alvo (-30 a -10)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-target-loudness" 
+                                        min="-30" max="-10" step="1">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-apply-declipping">
+                                        <label class="form-check-label" for="edit-qp-f5tts-apply-declipping">
+                                            Remover clipping
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-apply-deessing">
+                                        <label class="form-check-label" for="edit-qp-f5tts-apply-deessing">
+                                            Reduzir sibilância
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Freq. De-essing (Hz)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-deessing-frequency" 
+                                        min="4000" max="10000" step="500">
+                                </div>
+                            </div>
+                            
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-add-breathing">
+                                        <label class="form-check-label" for="edit-qp-f5tts-add-breathing">
+                                            Adicionar respiração natural
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Intensidade da Respiração (0.0 - 1.0)</label>
+                                    <input type="number" class="form-control" id="edit-qp-f5tts-breathing-strength" 
+                                        min="0.0" max="1.0" step="0.1">
+                                </div>
+                            </div>
+                            
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="edit-qp-f5tts-pause-optimization">
+                                <label class="form-check-label" for="edit-qp-f5tts-pause-optimization">
+                                    Otimizar pausas entre frases
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-save"></i> Salvar Alterações
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Confirm Delete -->
+    <div class="modal fade" id="modal-confirm-delete" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle"></i> Confirmar Exclusão
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="modal-confirm-delete-body">
+                    Tem certeza que deseja excluir este item?
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="button" class="btn btn-danger" id="btn-confirm-delete">
+                        <i class="bi bi-trash"></i> Excluir
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>

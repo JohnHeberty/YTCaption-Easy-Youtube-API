@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Query, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 import tempfile
 import subprocess
 
@@ -51,6 +52,14 @@ app = FastAPI(
 
 # Exception handlers
 app.add_exception_handler(VoiceServiceException, exception_handler)
+
+# Mount WebUI static files
+webui_path = Path(__file__).parent / "webui"
+if webui_path.exists():
+    app.mount("/webui", StaticFiles(directory=str(webui_path)), name="webui")
+    logger.info(f"✅ WebUI mounted at /webui from {webui_path}")
+else:
+    logger.warning(f"⚠️ WebUI directory not found: {webui_path}")
 
 # Formatos de áudio suportados para download
 SUPPORTED_AUDIO_FORMATS = {
@@ -853,105 +862,6 @@ async def get_rvc_models_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ===== VOICE PRESETS (GENERIC) =====
-
-@app.post("/quality-profiles")
-async def create_quality_profile(
-    name: str = Form(..., description="Nome do perfil (ex: high_emotion)"),
-    description: str = Form(..., description="Descrição do perfil"),
-    temperature: float = Form(0.75, description="Controle de variação (0.1-1.0)", ge=0.1, le=1.0),
-    repetition_penalty: float = Form(1.5, description="Penalidade de repetição (1.0-5.0)", ge=1.0, le=5.0),
-    top_p: float = Form(0.9, description="Nucleus sampling (0.1-1.0)", ge=0.1, le=1.0),
-    top_k: int = Form(60, description="Top-k sampling (10-100)", ge=10, le=100),
-    length_penalty: float = Form(1.2, description="Penalidade de comprimento (0.5-2.0)", ge=0.5, le=2.0),
-    speed: float = Form(1.0, description="Velocidade (0.5-2.0)", ge=0.5, le=2.0)
-):
-    """Cria novo perfil de qualidade customizado (XTTS parameters)"""
-    # Validar se já existe
-    if job_store.redis.get(f"quality_profile:{name}"):
-        raise HTTPException(status_code=400, detail=f"Perfil '{name}' já existe.")
-    
-    # Criar perfil
-    profile = {
-        "description": description,
-        "temperature": temperature,
-        "repetition_penalty": repetition_penalty,
-        "top_p": top_p,
-        "top_k": top_k,
-        "length_penalty": length_penalty,
-        "speed": speed,
-        "enable_text_splitting": False  # Customizável se necessário
-    }
-    
-    job_store.save_quality_profile(name, profile)
-    return {"message": f"Perfil de qualidade '{name}' criado com sucesso.", "profile": profile}
-
-
-@app.delete("/quality-profiles/{name}")
-async def delete_quality_profile_endpoint(name: str):
-    """Remove perfil de qualidade customizado (exceto defaults: balanced, expressive, stable)"""
-    defaults = ["balanced", "expressive", "stable"]
-    if name.lower() in defaults:
-        raise HTTPException(status_code=403, detail=f"Não é permitido remover perfis padrão ({', '.join(defaults)}).")
-    
-    if not job_store.redis.get(f"quality_profile:{name}"):
-        raise HTTPException(status_code=404, detail=f"Perfil '{name}' não existe.")
-    
-    job_store.delete_quality_profile(name)
-    return {"message": f"Perfil '{name}' removido com sucesso."}
-
-
-@app.get("/quality-profiles-legacy")
-async def list_quality_profiles_endpoint():
-    """Lista todos os perfis de qualidade (defaults + customizados no Redis)"""
-    # Perfis padrão
-    defaults = {
-        "balanced": {
-            "description": "Equilíbrio entre emoção e estabilidade (RECOMENDADO)",
-            "temperature": 0.75,
-            "repetition_penalty": 1.5,
-            "top_p": 0.9,
-            "top_k": 60,
-            "length_penalty": 1.2,
-            "speed": 1.0,
-            "enable_text_splitting": False
-        },
-        "expressive": {
-            "description": "Máxima emoção e naturalidade (pode ter artefatos)",
-            "temperature": 0.85,
-            "repetition_penalty": 1.3,
-            "top_p": 0.95,
-            "top_k": 70,
-            "length_penalty": 1.3,
-            "speed": 0.98,
-            "enable_text_splitting": False
-        },
-        "stable": {
-            "description": "Conservador, produção segura",
-            "temperature": 0.70,
-            "repetition_penalty": 1.7,
-            "top_p": 0.85,
-            "top_k": 55,
-            "length_penalty": 1.1,
-            "speed": 1.0,
-            "enable_text_splitting": True
-        }
-    }
-    
-    # Perfis customizados do Redis
-    custom_profiles = job_store.list_quality_profiles()
-    
-    # Merge (custom não sobrescreve defaults)
-    all_profiles = {**defaults, **custom_profiles}
-    
-    return {
-        "profiles": all_profiles,
-        "total": len(all_profiles),
-        "defaults": list(defaults.keys()),
-        "custom": list(custom_profiles.keys())
-    }
-
-
 # ===== ENDPOINTS INFORMATIVOS =====
 
 @app.get("/presets")
@@ -1300,7 +1210,8 @@ async def create_quality_profile(
         
         # Gerar ID único
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
-        profile_id = f"{request.engine}_{hashlib.md5(f'{request.name}_{timestamp}'.encode()).hexdigest()[:12]}"
+        engine_str = request.engine.value if hasattr(request.engine, 'value') else str(request.engine)
+        profile_id = f"{engine_str}_{hashlib.md5(f'{request.name}_{timestamp}'.encode()).hexdigest()[:12]}"
         
         # Criar perfil baseado no engine
         if request.engine == TTSEngine.XTTS:
@@ -1333,6 +1244,26 @@ async def create_quality_profile(
     except Exception as e:
         logger.error(f"Erro ao criar perfil: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/quality-profiles/{engine}",
+    status_code=201,
+    summary="Criar perfil de qualidade (engine no path)",
+    description="Cria novo perfil de qualidade - engine extraído do path"
+)
+async def create_quality_profile_with_engine(
+    engine: TTSEngine,
+    request: QualityProfileCreate
+):
+    """
+    Wrapper para create_quality_profile que extrai engine do path.
+    Compatibilidade com frontend que envia engine na URL.
+    """
+    # Override engine do request com o do path
+    request.engine = engine
+    return await create_quality_profile(request)
+
 
 
 @app.patch(
@@ -1462,3 +1393,113 @@ async def set_default_quality_profile(
     except Exception as e:
         logger.error(f"Erro ao definir perfil padrão: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post(
+    "/quality-profiles/{engine}/{profile_id}/duplicate",
+    status_code=201,
+    summary="Duplicar perfil de qualidade",
+    description="Cria cópia de um perfil existente com novo nome"
+)
+async def duplicate_quality_profile(
+    engine: TTSEngine,
+    profile_id: str,
+    new_name: str = None
+):
+    """
+    Duplica perfil existente.
+    
+    Args:
+        engine: xtts ou f5tts
+        profile_id: ID do perfil a duplicar
+        new_name: Nome para o novo perfil (opcional, usa "Copy of {original}")
+    
+    Returns:
+        Novo perfil criado
+    """
+    try:
+        import hashlib
+        from datetime import datetime
+        
+        # Buscar perfil original
+        original = quality_profile_manager.get_profile(engine, profile_id)
+        if not original:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Perfil {profile_id} não encontrado"
+            )
+        
+        # Gerar novo ID e nome
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+        engine_str = engine.value if hasattr(engine, 'value') else str(engine)
+        new_profile_id = f"{engine_str}_{hashlib.md5(f'{original.name}_copy_{timestamp}'.encode()).hexdigest()[:12]}"
+        final_name = new_name or f"Copy of {original.name}"
+        
+        # Criar novo perfil com mesmos parâmetros
+        if engine == TTSEngine.XTTS:
+            new_profile = XTTSQualityProfile(
+                id=new_profile_id,
+                name=final_name,
+                description=f"Duplicado de {original.name}",
+                engine=engine,
+                is_default=False,  # Duplicatas nunca são padrão
+                temperature=original.temperature,
+                repetition_penalty=original.repetition_penalty,
+                top_p=original.top_p,
+                top_k=original.top_k,
+                length_penalty=original.length_penalty,
+                speed=original.speed,
+                enable_text_splitting=original.enable_text_splitting
+            )
+        else:  # F5TTS
+            new_profile = F5TTSQualityProfile(
+                id=new_profile_id,
+                name=final_name,
+                description=f"Duplicado de {original.name}",
+                engine=engine,
+                is_default=False,
+                nfe_step=original.nfe_step,
+                cfg_scale=original.cfg_scale,
+                sway_sampling_coef=original.sway_sampling_coef,
+                speed=original.speed,
+                denoise_audio=original.denoise_audio,
+                noise_reduction_strength=original.noise_reduction_strength,
+                apply_normalization=original.apply_normalization,
+                target_loudness=original.target_loudness,
+                apply_declipping=original.apply_declipping,
+                apply_deessing=original.apply_deessing,
+                deessing_frequency=original.deessing_frequency,
+                add_breathing=original.add_breathing,
+                breathing_strength=original.breathing_strength,
+                pause_optimization=original.pause_optimization
+            )
+        
+        # Salvar
+        created = quality_profile_manager.create_profile(new_profile)
+        
+        logger.info(f"✅ Perfil duplicado: {profile_id} → {new_profile_id}")
+        return created
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao duplicar perfil: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===== WEB UI =====
+
+from fastapi.responses import HTMLResponse
+
+@app.get("/webui", response_class=HTMLResponse)
+async def webui():
+    """Full Control Panel - 100% API Coverage"""
+    html_path = Path(__file__).parent / "webui" / "index.html"
+
+    # Se arquivo existe, serve ele
+    with open(html_path, 'r', encoding='utf-8') as f:
+        return HTMLResponse(content=f.read())
+
+
+# webui já está montada em /webui acima
+
