@@ -100,6 +100,140 @@ const app = {
         currentJobMonitorInterval: null, // Intervalo de monitoramento do job buscado
     },
 
+    // ==================== CACHE / LOCALSTORAGE ====================
+    
+    // Auto-save do formulário de criar job (com debounce)
+    autoSaveCreateJobForm() {
+        if (this.autoSaveTimer) {
+            clearTimeout(this.autoSaveTimer);
+        }
+        this.autoSaveTimer = setTimeout(() => {
+            const formData = {
+                text: document.getElementById('job-text')?.value || '',
+                sourceLanguage: document.getElementById('job-source-language')?.value || '',
+                targetLanguage: document.getElementById('job-target-language')?.value || '',
+                mode: document.getElementById('job-mode')?.value || 'preset',
+                voicePreset: document.getElementById('job-voice-preset')?.value || '',
+                voiceId: document.getElementById('job-voice-id')?.value || '',
+                ttsEngine: document.getElementById('job-tts-engine')?.value || 'edge',
+                qualityProfile: document.getElementById('job-quality-profile')?.value || '',
+                refText: document.getElementById('job-ref-text')?.value || '',
+                enableRvc: document.getElementById('job-enable-rvc')?.checked || false,
+                rvcModelId: document.getElementById('job-rvc-model-id')?.value || '',
+                rvcPitch: document.getElementById('job-rvc-pitch')?.value || '0',
+                rvcIndexRate: document.getElementById('job-rvc-index-rate')?.value || '0.75',
+                rvcFilterRadius: document.getElementById('job-rvc-filter-radius')?.value || '3',
+                rvcRmsMixRate: document.getElementById('job-rvc-rms-mix-rate')?.value || '0.25',
+                rvcProtect: document.getElementById('job-rvc-protect')?.value || '0.33',
+                rvcF0Method: document.getElementById('job-rvc-f0-method')?.value || 'rmvpe'
+            };
+            this.saveFormCache('create-job', formData);
+        }, 500); // Debounce de 500ms
+    },
+
+    // Restaurar formulário de criar job do cache
+    restoreCreateJobForm() {
+        const cached = this.loadFormCache('create-job');
+        if (!cached) return;
+
+        if (cached.text) document.getElementById('job-text').value = cached.text;
+        if (cached.sourceLanguage) document.getElementById('job-source-language').value = cached.sourceLanguage;
+        if (cached.targetLanguage) document.getElementById('job-target-language').value = cached.targetLanguage;
+        if (cached.mode) {
+            document.getElementById('job-mode').value = cached.mode;
+            this.toggleVoiceMode(cached.mode);
+        }
+        if (cached.voicePreset) document.getElementById('job-voice-preset').value = cached.voicePreset;
+        if (cached.voiceId) document.getElementById('job-voice-id').value = cached.voiceId;
+        if (cached.ttsEngine) {
+            document.getElementById('job-tts-engine').value = cached.ttsEngine;
+            this.loadQualityProfilesForEngine(cached.ttsEngine);
+        }
+        if (cached.qualityProfile) document.getElementById('job-quality-profile').value = cached.qualityProfile;
+        if (cached.refText) document.getElementById('job-ref-text').value = cached.refText;
+        if (cached.enableRvc) {
+            document.getElementById('job-enable-rvc').checked = cached.enableRvc;
+            document.getElementById('rvc-params').style.display = cached.enableRvc ? 'block' : 'none';
+        }
+        if (cached.rvcModelId) document.getElementById('job-rvc-model-id').value = cached.rvcModelId;
+        if (cached.rvcPitch) document.getElementById('job-rvc-pitch').value = cached.rvcPitch;
+        if (cached.rvcIndexRate) document.getElementById('job-rvc-index-rate').value = cached.rvcIndexRate;
+        if (cached.rvcFilterRadius) document.getElementById('job-rvc-filter-radius').value = cached.rvcFilterRadius;
+        if (cached.rvcRmsMixRate) document.getElementById('job-rvc-rms-mix-rate').value = cached.rvcRmsMixRate;
+        if (cached.rvcProtect) document.getElementById('job-rvc-protect').value = cached.rvcProtect;
+        if (cached.rvcF0Method) document.getElementById('job-rvc-f0-method').value = cached.rvcF0Method;
+
+        // Atualizar contador de caracteres
+        const textLength = cached.text ? cached.text.length : 0;
+        const counter = document.getElementById('text-counter');
+        if (counter) counter.textContent = textLength;
+
+        console.log('✓ Formulário restaurado do cache');
+    },
+    
+    /**
+     * Salvar formulário no localStorage
+     */
+    saveFormCache(formId, data) {
+        try {
+            localStorage.setItem(`form_cache_${formId}`, JSON.stringify(data));
+            console.log(`💾 Cache salvo: ${formId}`);
+        } catch (error) {
+            console.error('Erro ao salvar cache:', error);
+        }
+    },
+
+    /**
+     * Carregar formulário do localStorage
+     */
+    loadFormCache(formId) {
+        try {
+            const cached = localStorage.getItem(`form_cache_${formId}`);
+            if (cached) {
+                console.log(`📂 Cache carregado: ${formId}`);
+                return JSON.parse(cached);
+            }
+        } catch (error) {
+            console.error('Erro ao carregar cache:', error);
+        }
+        return null;
+    },
+
+    /**
+     * Limpar cache de um formulário
+     */
+    clearFormCache(formId) {
+        try {
+            localStorage.removeItem(`form_cache_${formId}`);
+            console.log(`🗑️ Cache limpo: ${formId}`);
+        } catch (error) {
+            console.error('Erro ao limpar cache:', error);
+        }
+    },
+
+    /**
+     * Salvar última busca de job
+     */
+    saveLastJobSearch(jobId) {
+        try {
+            localStorage.setItem('last_job_search', jobId);
+        } catch (error) {
+            console.error('Erro ao salvar última busca:', error);
+        }
+    },
+
+    /**
+     * Carregar última busca de job
+     */
+    loadLastJobSearch() {
+        try {
+            return localStorage.getItem('last_job_search');
+        } catch (error) {
+            console.error('Erro ao carregar última busca:', error);
+        }
+        return null;
+    },
+
     // ==================== INICIALIZAÇÃO ====================
     init() {
         console.log('🚀 Inicializando Audio Voice Service WebUI...');
@@ -150,17 +284,20 @@ const app = {
         // Text counter
         document.getElementById('job-text')?.addEventListener('input', (e) => {
             document.getElementById('text-counter').textContent = e.target.value.length;
+            this.autoSaveCreateJobForm(); // Auto-save
         });
 
         // Mode change handler
         document.getElementById('job-mode')?.addEventListener('change', (e) => {
             this.toggleVoiceMode(e.target.value);
+            this.autoSaveCreateJobForm(); // Auto-save
         });
 
         // TTS Engine change handler
         document.getElementById('job-tts-engine')?.addEventListener('change', (e) => {
             this.loadQualityProfilesForEngine(e.target.value);
             this.updateRefTextVisibility(); // BUG-02 fix
+            this.autoSaveCreateJobForm(); // Auto-save
         });
         
         // Mode change also affects ref_text visibility
@@ -172,6 +309,24 @@ const app = {
         // Enable RVC toggle
         document.getElementById('job-enable-rvc')?.addEventListener('change', (e) => {
             document.getElementById('rvc-params').style.display = e.target.checked ? 'block' : 'none';
+            this.autoSaveCreateJobForm(); // Auto-save
+        });
+
+        // Auto-save em outros campos do formulário
+        const autoSaveFields = [
+            'job-source-language', 'job-target-language', 'job-voice-preset',
+            'job-voice-id', 'job-quality-profile', 'job-ref-text',
+            'job-rvc-model-id', 'job-rvc-pitch', 'job-rvc-index-rate',
+            'job-rvc-filter-radius', 'job-rvc-rms-mix-rate', 'job-rvc-protect',
+            'job-rvc-f0-method'
+        ];
+        
+        autoSaveFields.forEach(fieldId => {
+            const field = document.getElementById(fieldId);
+            if (field) {
+                field.addEventListener('change', () => this.autoSaveCreateJobForm());
+                field.addEventListener('input', () => this.autoSaveCreateJobForm());
+            }
         });
 
         // RVC sliders
@@ -245,11 +400,42 @@ const app = {
             this.loadSectionData(section);
 
             // Atualizar navbar (active state)
-            document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
-                link.classList.remove('active');
-            });
+            this.updateNavbarActive(section);
         } else {
             console.warn(`⚠️ Seção não encontrada: ${section}`);
+        }
+    },
+
+    /**
+     * Update navbar active state
+     */
+    updateNavbarActive(section) {
+        // Remove active class from all nav links
+        document.querySelectorAll('.navbar-nav .nav-link').forEach(link => {
+            link.classList.remove('active');
+        });
+        
+        // Map sections to their nav links
+        const sectionMap = {
+            'dashboard': 'dashboard',
+            'create-job': 'create-job',
+            'jobs': 'jobs',
+            'voices': 'voices',
+            'rvc-models': 'rvc-models',
+            'quality-profiles': 'quality-profiles',
+            'admin': 'admin',
+            'feature-flags': 'feature-flags'
+        };
+        
+        const targetSection = sectionMap[section];
+        if (targetSection) {
+            // Find and activate the corresponding nav link
+            document.querySelectorAll('.navbar-nav .nav-link, .navbar .dropdown-item').forEach(link => {
+                const onclick = link.getAttribute('onclick');
+                if (onclick && onclick.includes(`'${targetSection}'`)) {
+                    link.classList.add('active');
+                }
+            });
         }
     },
 
@@ -263,10 +449,24 @@ const app = {
                 this.loadRvcModels();
                 this.loadQualityProfiles();
                 // QA FIX: Inicializar visibilidade do campo ref_text
-                setTimeout(() => this.updateRefTextVisibility(), 100);
+                setTimeout(() => {
+                    this.updateRefTextVisibility();
+                    this.restoreCreateJobForm(); // Restaurar cache
+                }, 100);
                 break;
             case 'jobs':
                 this.loadJobs();
+                // Restaurar última busca de job (se houver)
+                setTimeout(() => {
+                    const lastSearch = this.loadLastJobSearch();
+                    if (lastSearch) {
+                        const searchInput = document.getElementById('search-job-id');
+                        if (searchInput) {
+                            searchInput.value = lastSearch;
+                            console.log(`✓ Última busca restaurada: ${lastSearch}`);
+                        }
+                    }
+                }, 100);
                 break;
             case 'voices':
                 this.loadVoices();
@@ -315,8 +515,20 @@ const app = {
             }
 
             // Handle 204 No Content (DELETE operations)
-            if (response.status === 204 || response.headers.get('content-length') === '0') {
-                return null;
+            if (response.status === 204) {
+                console.log('✓ DELETE 204 No Content - operação bem-sucedida');
+                return { success: true };
+            }
+
+            // Check if response has content
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await response.text();
+                if (!text || text.trim() === '') {
+                    console.log('✓ Resposta vazia - operação bem-sucedida');
+                    return { success: true };
+                }
+                throw new Error('Resposta não é JSON válido');
             }
 
             return await response.json();
@@ -363,7 +575,8 @@ const app = {
     async loadDashboard() {
         console.log('📊 Carregando dashboard...');
         
-        await Promise.all([
+        // Use allSettled to prevent one failure from breaking all
+        await Promise.allSettled([
             this.loadApiStatus(),
             this.loadAdminStats(),
             this.loadRvcStats(),
@@ -398,9 +611,33 @@ const app = {
         const container = document.getElementById('dashboard-stats');
         try {
             const data = await this.fetchJson(`${API_BASE}/admin/stats`);
-            container.innerHTML = this.renderStatsHtml(data);
+            const stats = [
+                { icon: 'file-earmark-music', label: 'Total Jobs', value: data.total_jobs || 0, color: 'primary' },
+                { icon: 'check-circle', label: 'Completados', value: data.completed_jobs || 0, color: 'success' },
+                { icon: 'person-voice', label: 'Vozes', value: data.total_voices || 0, color: 'info' },
+                { icon: 'cpu', label: 'Modelos RVC', value: data.total_rvc_models || 0, color: 'warning' }
+            ];
+            
+            container.innerHTML = `
+                <div class="row g-2">
+                    ${stats.map(stat => `
+                        <div class="col-6">
+                            <div class="text-center p-2 border rounded">
+                                <i class="bi bi-${stat.icon} text-${stat.color} fs-3"></i>
+                                <h4 class="mb-0 mt-2 fw-bold">${stat.value}</h4>
+                                <small class="text-muted">${stat.label}</small>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
         } catch (error) {
-            container.innerHTML = `<p class="text-danger">Erro: ${error.message}</p>`;
+            container.innerHTML = `
+                <div class="text-center text-danger">
+                    <i class="bi bi-exclamation-triangle fs-1"></i>
+                    <p class="mt-2">Erro ao carregar</p>
+                </div>
+            `;
         }
     },
 
@@ -408,9 +645,33 @@ const app = {
         const container = document.getElementById('dashboard-rvc-stats');
         try {
             const data = await this.fetchJson(`${API_BASE}/rvc-models/stats`);
-            container.innerHTML = this.renderStatsHtml(data);
+            const stats = [
+                { icon: 'files', label: 'Total', value: data.total_models || 0, color: 'primary' },
+                { icon: 'file-check', label: 'Com Index', value: data.models_with_index || 0, color: 'success' },
+                { icon: 'hdd', label: 'Tamanho', value: `${data.total_size_mb || 0} MB`, color: 'info' }
+            ];
+            
+            container.innerHTML = `
+                <div class="row g-2">
+                    ${stats.map(stat => `
+                        <div class="col-4">
+                            <div class="text-center p-2 border rounded">
+                                <i class="bi bi-${stat.icon} text-${stat.color} fs-4"></i>
+                                <h5 class="mb-0 mt-2 fw-bold">${stat.value}</h5>
+                                <small class="text-muted">${stat.label}</small>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
         } catch (error) {
-            container.innerHTML = `<p class="text-danger">Erro: ${error.message}</p>`;
+            console.warn('⚠️ RVC Stats não disponível:', error.message);
+            container.innerHTML = `
+                <div class="text-center text-warning">
+                    <i class="bi bi-info-circle fs-1"></i>
+                    <p class="mt-2">RVC indisponível</p>
+                </div>
+            `;
         }
     },
 
@@ -420,16 +681,45 @@ const app = {
             const data = await this.fetchJson(`${API_BASE}/jobs?limit=5`);
             if (data.jobs && data.jobs.length > 0) {
                 container.innerHTML = `
-                    <div class="list-group">
-                        ${data.jobs.map(job => `
-                            <div class="list-group-item">
-                                <div class="d-flex justify-content-between">
-                                    <span class="text-monospace">${job.id.substring(0, 8)}...</span>
-                                    <span class="badge status-badge status-${job.status}">${job.status}</span>
+                    <div class="list-group list-group-flush">
+                        ${data.jobs.map(job => {
+                            const statusColors = {
+                                completed: 'success',
+                                processing: 'primary',
+                                pending: 'warning',
+                                failed: 'danger'
+                            };
+                            const statusIcons = {
+                                completed: 'check-circle-fill',
+                                processing: 'arrow-clockwise',
+                                pending: 'hourglass-split',
+                                failed: 'x-circle-fill'
+                            };
+                            const color = statusColors[job.status] || 'secondary';
+                            const icon = statusIcons[job.status] || 'question-circle';
+                            
+                            return `
+                            <div class="list-group-item list-group-item-action px-0 border-bottom" style="cursor: pointer;" onclick="app.navigate('jobs'); app.showJobDetails('${job.id}');">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <div>
+                                        <strong class="text-dark" style="font-family: monospace; font-size: 0.9rem;">
+                                            <i class="bi bi-file-earmark-music"></i> ${job.id.substring(0, 12)}...
+                                        </strong>
+                                    </div>
+                                    <span class="badge bg-${color}" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;">
+                                        <i class="bi bi-${icon}"></i> ${job.status}
+                                    </span>
                                 </div>
-                                <small class="text-muted">${job.tts_engine || 'xtts'} • ${new Date(job.created_at).toLocaleString('pt-BR')}</small>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-dark fw-bold">
+                                        <i class="bi bi-cpu"></i> ${job.tts_engine || 'xtts'}
+                                    </small>
+                                    <small class="text-muted">
+                                        <i class="bi bi-clock"></i> ${new Date(job.created_at).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}
+                                    </small>
+                                </div>
                             </div>
-                        `).join('')}
+                        `}).join('')}
                     </div>
                 `;
             } else {
@@ -446,11 +736,25 @@ const app = {
             const data = await this.fetchJson(`${API_BASE}/voices?limit=5`);
             if (data.voices && data.voices.length > 0) {
                 container.innerHTML = `
-                    <div class="list-group">
+                    <div class="list-group list-group-flush">
                         ${data.voices.map(voice => `
-                            <div class="list-group-item">
-                                <div><strong>${voice.name}</strong></div>
-                                <small class="text-muted">${voice.language} • ${voice.engine || 'xtts'} • ${new Date(voice.created_at).toLocaleString('pt-BR')}</small>
+                            <div class="list-group-item list-group-item-action px-0 border-bottom" style="cursor: pointer;" onclick="app.navigate('voices'); app.showVoiceDetails('${voice.id}');">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <strong class="text-dark">
+                                        <i class="bi bi-person-voice"></i> ${voice.name}
+                                    </strong>
+                                    <span class="badge bg-info" style="font-size: 0.75rem;">
+                                        <i class="bi bi-cpu"></i> ${voice.engine || voice.tts_engine || 'xtts'}
+                                    </span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-dark fw-bold">
+                                        <i class="bi bi-translate"></i> ${voice.language}
+                                    </small>
+                                    <small class="text-muted">
+                                        <i class="bi bi-clock"></i> ${new Date(voice.created_at).toLocaleString('pt-BR', {day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit'})}
+                                    </small>
+                                </div>
                             </div>
                         `).join('')}
                     </div>
@@ -477,39 +781,61 @@ const app = {
     // ==================== JOBS ====================
     async loadJobs() {
         const container = document.getElementById('jobs-table-container');
+        const countBadge = document.getElementById('jobs-count-badge');
         const limit = document.getElementById('jobs-limit')?.value || 20;
         
         try {
-            container.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">Carregando...</p></div>';
+            container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div><p class="mt-3 text-muted">Carregando...</p></div>';
             
             const data = await this.fetchJson(`${API_BASE}/jobs?limit=${limit}`);
             
+            // Update count badge
+            if (countBadge) {
+                countBadge.textContent = `${data.jobs?.length || 0} de ${data.total || 0} jobs`;
+            }
+            
             if (data.jobs && data.jobs.length > 0) {
                 container.innerHTML = `
-                    <p class="text-muted">Total: ${data.total} jobs</p>
                     <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
+                        <table class="table table-hover table-striped mb-0">
+                            <thead class="table-light sticky-top">
                                 <tr>
-                                    <th>Job ID</th>
-                                    <th>Status</th>
-                                    <th>Engine</th>
-                                    <th>Mode</th>
-                                    <th>Criado em</th>
-                                    <th>Ações</th>
+                                    <th style="width: 15%;"><i class="bi bi-hash"></i> Job ID</th>
+                                    <th style="width: 12%;"><i class="bi bi-info-circle"></i> Status</th>
+                                    <th style="width: 10%;"><i class="bi bi-cpu"></i> Engine</th>
+                                    <th style="width: 10%;"><i class="bi bi-gear"></i> Mode</th>
+                                    <th style="width: 15%;"><i class="bi bi-clock"></i> Criado em</th>
+                                    <th style="width: 15%;"><i class="bi bi-clock-history"></i> Atualizado</th>
+                                    <th style="width: 23%;" class="text-center"><i class="bi bi-tools"></i> Ações</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="jobs-table-body">
                                 ${data.jobs.map(job => this.renderJobRow(job)).join('')}
                             </tbody>
                         </table>
                     </div>
                 `;
             } else {
-                container.innerHTML = this.renderEmptyState('Nenhum job encontrado', 'Crie um novo job na seção "Dublar Texto"');
+                container.innerHTML = `
+                    <div class="text-center py-5">
+                        <i class="bi bi-inbox" style="font-size: 4rem; color: #ccc;"></i>
+                        <h5 class="mt-3 text-muted">Nenhum job encontrado</h5>
+                        <p class="text-muted">Crie um novo job na seção "Dublar Texto"</p>
+                    </div>
+                `;
+            }
+            
+            // Restore filters if active
+            const searchInput = document.getElementById('search-job-id');
+            const statusFilter = document.getElementById('filter-status');
+            if (searchInput && searchInput.value) {
+                this.filterJobsInRealTime(searchInput.value.trim().toLowerCase());
+            }
+            if (statusFilter && statusFilter.value !== 'all') {
+                this.filterJobsByStatus(statusFilter.value);
             }
         } catch (error) {
-            container.innerHTML = `<div class="alert alert-danger">Erro: ${error.message}</div>`;
+            container.innerHTML = `<div class="alert alert-danger m-3"><i class="bi bi-exclamation-triangle"></i> Erro: ${error.message}</div>`;
             this.showToast('Erro', `Falha ao carregar jobs: ${error.message}`, 'error');
         }
     },
@@ -517,29 +843,59 @@ const app = {
     renderJobRow(job) {
         const statusClass = `status-${job.status}`;
         const canDownload = job.status === 'completed';
+        const statusIcons = {
+            completed: 'check-circle-fill',
+            processing: 'arrow-repeat',
+            pending: 'hourglass-split',
+            failed: 'x-circle-fill'
+        };
+        const statusIcon = statusIcons[job.status] || 'question-circle';
+        
+        // Format dates
+        const createdAt = new Date(job.created_at).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        const updatedAt = job.updated_at ? new Date(job.updated_at).toLocaleString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        }) : '-';
         
         return `
-            <tr>
-                <td class="text-monospace" style="font-size: 0.85rem;">${job.id}</td>
-                <td><span class="badge status-badge ${statusClass}">${job.status}</span></td>
-                <td>${job.tts_engine || 'xtts'}</td>
-                <td>${job.mode}</td>
-                <td>${new Date(job.created_at).toLocaleString('pt-BR')}</td>
+            <tr data-job-id="${job.id}" data-status="${job.status}">
+                <td class="text-monospace job-id-cell" style="font-size: 0.8rem; word-break: break-all;">
+                    <span class="text-primary fw-bold">${job.id.substring(0, 8)}</span><span class="text-muted">...</span>
+                </td>
                 <td>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary" onclick="app.showJobDetails('${job.id}')">
+                    <span class="badge status-badge ${statusClass}">
+                        <i class="bi bi-${statusIcon}"></i> ${job.status}
+                    </span>
+                </td>
+                <td><span class="badge bg-secondary">${job.tts_engine || 'xtts'}</span></td>
+                <td><span class="badge bg-info">${job.mode}</span></td>
+                <td style="font-size: 0.85rem;">${createdAt}</td>
+                <td style="font-size: 0.85rem;">${updatedAt}</td>
+                <td>
+                    <div class="btn-group btn-group-sm d-flex gap-1 justify-content-center" role="group">
+                        <button class="btn btn-outline-primary" onclick="app.showJobDetails('${job.id}')" title="Ver Detalhes">
                             <i class="bi bi-info-circle"></i>
                         </button>
                         ${canDownload ? `
-                            <button class="btn btn-outline-success" onclick="app.showJobFormats('${job.id}')">
-                                <i class="bi bi-file-earmark-music"></i>
+                            <button class="btn btn-success" onclick="app.showDownloadFormats('${job.id}')" title="Download">
+                                <i class="bi bi-download"></i>
                             </button>
-                            <a href="${API_BASE}/jobs/${job.id}/download?format=wav" 
-                               class="btn btn-outline-info" target="_blank">
-                                <i class="bi bi-download"></i> WAV
-                            </a>
+                        ` : job.status === 'processing' ? `
+                            <button class="btn btn-outline-secondary" disabled title="Processando...">
+                                <span class="spinner-border spinner-border-sm"></span>
+                            </button>
                         ` : ''}
-                        <button class="btn btn-outline-danger" onclick="app.deleteJob('${job.id}')">
+                        <button class="btn btn-outline-danger" onclick="app.deleteJob('${job.id}')" title="Deletar">
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
@@ -681,18 +1037,207 @@ const app = {
         }
     },
 
-    async searchJobById() {
-        const jobId = document.getElementById('search-job-id').value.trim();
-        if (!jobId) {
-            this.showToast('Atenção', 'Digite um Job ID', 'warning');
-            return;
-        }
+    /**
+     * Show download formats modal for a job
+     * @param {string} jobId - Job identifier
+     */
+    showDownloadFormats(jobId) {
+        const modal = new bootstrap.Modal(document.getElementById('modal-download-formats'));
+        const body = document.getElementById('modal-download-formats-body');
         
-        await this.searchAndMonitorJob(jobId);
+        // Format options with icons and descriptions
+        const formats = [
+            { 
+                format: 'wav', 
+                icon: 'file-earmark-music', 
+                title: 'WAV (Original)', 
+                desc: 'Alta qualidade, sem compressão',
+                color: 'primary'
+            },
+            { 
+                format: 'mp3', 
+                icon: 'file-earmark-music-fill', 
+                title: 'MP3 (Comprimido)', 
+                desc: 'Formato universal, menor tamanho',
+                color: 'success'
+            },
+            { 
+                format: 'ogg', 
+                icon: 'file-earmark-music', 
+                title: 'OGG Vorbis', 
+                desc: 'Código aberto, boa qualidade',
+                color: 'info'
+            },
+            { 
+                format: 'flac', 
+                icon: 'file-earmark-music', 
+                title: 'FLAC (Lossless)', 
+                desc: 'Sem perda, compactado',
+                color: 'warning'
+            }
+        ];
+        
+        body.innerHTML = formats.map(f => `
+            <button class="btn btn-outline-${f.color} btn-lg text-start" onclick="app.downloadJobFile('${jobId}', '${f.format}'); bootstrap.Modal.getInstance(document.getElementById('modal-download-formats')).hide();">
+                <i class="bi bi-${f.icon} me-2"></i>
+                <strong>${f.title}</strong>
+                <br>
+                <small class="text-muted">${f.desc}</small>
+            </button>
+        `).join('');
+        
+        modal.show();
     },
 
     /**
-     * Busca um job e monitora até completar/falhar
+     * Filtrar jobs em tempo real - chamado direto do HTML (oninput)
+     */
+    filterJobsInRealTime(searchTerm) {
+        console.log('🔍 [FILTRO] Iniciando filtro com termo:', searchTerm);
+        
+        const jobsTable = document.querySelector('#jobs-table-container tbody');
+        const totalDisplay = document.querySelector('#jobs-table-container p.text-muted');
+        
+        if (!jobsTable) {
+            console.error('❌ [FILTRO] Tabela de jobs não encontrada! Selector: #jobs-table-container tbody');
+            console.log('📊 [FILTRO] Elementos encontrados:', {
+                container: document.getElementById('jobs-table-container'),
+                allTables: document.querySelectorAll('table').length,
+                allTbody: document.querySelectorAll('tbody').length
+            });
+            return;
+        }
+
+        const rows = jobsTable.querySelectorAll('tr');
+        console.log(`📋 [FILTRO] Total de linhas encontradas: ${rows.length}`);
+        
+        if (!searchTerm || searchTerm === '') {
+            console.log('✓ [FILTRO] Termo vazio - mostrando todas as linhas');
+            // Mostrar todas as linhas
+            rows.forEach(row => row.style.display = '');
+            
+            // Restaurar contador original
+            if (totalDisplay && totalDisplay.dataset.originalTotal) {
+                totalDisplay.textContent = totalDisplay.dataset.originalTotal;
+            }
+            return;
+        }
+
+        // Filtrar linhas
+        let visibleCount = 0;
+        rows.forEach((row, index) => {
+            // Tentar pegar Job ID do atributo data-job-id primeiro
+            let jobId = row.getAttribute('data-job-id');
+            
+            // Se não tiver data-job-id, pegar da primeira célula
+            if (!jobId) {
+                const jobIdCell = row.querySelector('td:first-child, td.job-id-cell');
+                if (jobIdCell) {
+                    jobId = jobIdCell.textContent.trim();
+                }
+            }
+            
+            if (jobId) {
+                const jobIdLower = jobId.toLowerCase();
+                const matches = jobIdLower.includes(searchTerm);
+                
+                if (matches) {
+                    row.style.display = '';
+                    visibleCount++;
+                    console.log(`✓ [FILTRO] Linha ${index} VISÍVEL: ${jobId}`);
+                } else {
+                    row.style.display = 'none';
+                    console.log(`✗ [FILTRO] Linha ${index} OCULTA: ${jobId}`);
+                }
+            } else {
+                console.warn(`⚠️ [FILTRO] Linha ${index} sem Job ID!`);
+            }
+        });
+
+        // Atualizar contador
+        if (totalDisplay) {
+            if (!totalDisplay.dataset.originalTotal) {
+                totalDisplay.dataset.originalTotal = totalDisplay.textContent;
+            }
+            const totalMatch = totalDisplay.dataset.originalTotal.match(/\d+/);
+            const totalJobs = totalMatch ? totalMatch[0] : rows.length;
+            totalDisplay.textContent = `Mostrando: ${visibleCount} de ${totalJobs} jobs`;
+            console.log(`📊 [FILTRO] Contador atualizado: ${visibleCount} de ${totalJobs}`);
+        }
+        
+        console.log(`✓ [FILTRO] Concluído: ${visibleCount} jobs visíveis de ${rows.length} total`);
+    },
+
+    /**
+     * Limpar busca de jobs
+     */
+    clearJobSearch() {
+        const searchInput = document.getElementById('search-job-id');
+        if (searchInput) {
+            searchInput.value = '';
+        }
+        this.filterJobsInRealTime('');
+    },
+
+    /**
+     * Filtrar jobs por status
+     */
+    filterJobsByStatus(status) {
+        const jobsTable = document.querySelector('#jobs-table-body');
+        if (!jobsTable) return;
+        
+        const rows = jobsTable.querySelectorAll('tr');
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+            const jobStatus = row.getAttribute('data-status');
+            
+            if (status === 'all' || jobStatus === status) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+        
+        // Update badge count
+        const countBadge = document.getElementById('jobs-count-badge');
+        if (countBadge) {
+            const totalMatch = countBadge.textContent.match(/de (\d+)/);
+            const total = totalMatch ? totalMatch[1] : rows.length;
+            countBadge.textContent = `${visibleCount} de ${total} jobs`;
+        }
+        
+        console.log(`✓ [FILTRO STATUS] ${visibleCount} jobs com status: ${status}`);
+    },
+
+    /**
+     * Toggle auto-refresh for jobs
+     */
+    toggleAutoRefresh() {
+        const checkbox = document.getElementById('jobs-auto-refresh');
+        
+        if (checkbox.checked) {
+            // Enable auto-refresh
+            this.state.jobsAutoRefreshInterval = setInterval(() => {
+                console.log('🔄 Auto-atualizando jobs...');
+                this.loadJobs();
+            }, 10000); // 10 seconds
+            
+            this.showToast('Auto-atualização ativada', 'Jobs serão atualizados a cada 10 segundos', 'success');
+        } else {
+            // Disable auto-refresh
+            if (this.state.jobsAutoRefreshInterval) {
+                clearInterval(this.state.jobsAutoRefreshInterval);
+                this.state.jobsAutoRefreshInterval = null;
+            }
+            
+            this.showToast('Auto-atualização desativada', '', 'info');
+        }
+    },
+
+    /**
+     * Busca um job e monitora até completar/falhar (usado após criar job)
      */
     async searchAndMonitorJob(jobId) {
         // Limpar intervalo anterior se existir
@@ -706,15 +1251,10 @@ const app = {
                 const job = await this.fetchJson(`${API_BASE}/jobs/${jobId}`);
                 
                 // Renderizar apenas este job na tabela
-                const container = document.getElementById('jobs-container');
+                const container = document.getElementById('jobs-table-container');
                 container.innerHTML = `
+                    <p class="text-muted">Monitorando job: ${jobId}</p>
                     <div class="table-responsive">
-                        <div class="d-flex justify-content-between align-items-center mb-3">
-                            <h5 class="mb-0">Resultado da Busca</h5>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="app.loadJobs()">
-                                <i class="bi bi-arrow-clockwise"></i> Mostrar Todos
-                            </button>
-                        </div>
                         <table class="table table-hover">
                             <thead>
                                 <tr>
@@ -722,7 +1262,7 @@ const app = {
                                     <th>Status</th>
                                     <th>Engine</th>
                                     <th>Mode</th>
-                                    <th>Data</th>
+                                    <th>Criado em</th>
                                     <th>Ações</th>
                                 </tr>
                             </thead>
@@ -864,12 +1404,9 @@ const app = {
             
             this.showToast('Sucesso', `Job criado com sucesso! ID: ${job.id}`, 'success');
             
-            // Reset form
-            document.getElementById('form-create-job').reset();
-            document.getElementById('text-counter').textContent = '0';
-            
-            // Recarregar idiomas após reset
-            this.loadLanguages();
+            // NÃO limpar formulário - manter dados para facilitar criação de jobs similares
+            // Apenas navegar para a tela de Jobs
+            console.log('✓ Job criado, navegando para tela de Jobs...');
             
             // Navigate to jobs
             this.navigate('jobs');
@@ -2168,6 +2705,37 @@ const app = {
 };
 
 // ==================== INITIALIZATION ====================
+// Expose app to window for inline onclick handlers in dynamically created modals
+window.app = app;
+
+// Debug function to verify all methods are available
+window.debugApp = function() {
+    console.log('🔍 Verificando funções do app:');
+    const methods = [
+        'filterJobsInRealTime',
+        'clearJobSearch',
+        'filterJobsByStatus',
+        'toggleAutoRefresh',
+        'duplicateProfileFromEdit',
+        'duplicateQualityProfile',
+        'loadJobs',
+        'showJobDetails',
+        'downloadJobFile'
+    ];
+    
+    methods.forEach(method => {
+        const exists = typeof app[method] === 'function';
+        console.log(`${exists ? '✅' : '❌'} app.${method}: ${exists ? 'OK' : 'MISSING'}`);
+    });
+    
+    console.log('\n📦 App object:', app);
+    console.log('🌍 Window.app:', window.app);
+    console.log('🔗 Same object?', app === window.app);
+};
+
+console.log('✅ App object exposed to window');
+console.log('💡 Para debug, execute: debugApp()');
+
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });

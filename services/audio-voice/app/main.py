@@ -800,6 +800,38 @@ async def list_rvc_models(
         raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
 
 
+@app.get("/rvc-models/stats")
+async def get_rvc_models_stats():
+    """
+    Get RVC models statistics
+    
+    **Returns:** Statistics about RVC models (count, size, etc.)
+    """
+    try:
+        # Check if RVC model manager is available
+        if not hasattr(processor, 'rvc_model_manager') or processor.rvc_model_manager is None:
+            return {
+                'total_models': 0,
+                'models_with_index': 0,
+                'total_size_bytes': 0,
+                'total_size_mb': 0.0,
+                'message': 'RVC model manager not initialized'
+            }
+        
+        stats = processor.rvc_model_manager.get_model_stats()
+        return stats
+    except Exception as e:
+        logger.error(f"Error getting RVC stats: {e}", exc_info=True)
+        # Return empty stats instead of 500 error
+        return {
+            'total_models': 0,
+            'models_with_index': 0,
+            'total_size_bytes': 0,
+            'total_size_mb': 0.0,
+            'error': str(e)
+        }
+
+
 @app.get("/rvc-models/{model_id}", response_model=RvcModelResponse)
 async def get_rvc_model(model_id: str) -> RvcModelResponse:
     """
@@ -844,21 +876,6 @@ async def delete_rvc_model(model_id: str):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         logger.error(f"Error deleting RVC model {model_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/rvc-models/stats")
-async def get_rvc_models_stats():
-    """
-    Get RVC models statistics
-    
-    **Returns:** Statistics about RVC models (count, size, etc.)
-    """
-    try:
-        stats = processor.rvc_model_manager.get_model_stats()
-        return stats
-    except Exception as e:
-        logger.error(f"Error getting RVC stats: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
