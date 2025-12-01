@@ -514,7 +514,7 @@ const app = {
         
         return `
             <tr>
-                <td class="text-monospace">${job.id.substring(0, 12)}...</td>
+                <td class="text-monospace" style="font-size: 0.85rem;">${job.id}</td>
                 <td><span class="badge status-badge ${statusClass}">${job.status}</span></td>
                 <td>${job.tts_engine || 'xtts'}</td>
                 <td>${job.mode}</td>
@@ -682,7 +682,42 @@ const app = {
             return;
         }
         
-        await this.showJobDetails(jobId);
+        // Filtrar a tabela de jobs em vez de abrir modal
+        try {
+            const response = await this.fetchJson(`${API_BASE}/jobs/${jobId}`);
+            
+            // Renderizar apenas este job na tabela
+            const container = document.getElementById('jobs-container');
+            container.innerHTML = `
+                <div class="table-responsive">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Resultado da Busca</h5>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="app.loadJobs()">
+                            <i class="bi bi-arrow-clockwise"></i> Mostrar Todos
+                        </button>
+                    </div>
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Job ID</th>
+                                <th>Status</th>
+                                <th>Engine</th>
+                                <th>Mode</th>
+                                <th>Data</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${this.renderJobRow(response)}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            this.showToast('Sucesso', `Job ${jobId} encontrado`, 'success');
+        } catch (error) {
+            this.showToast('Erro', `Job não encontrado: ${error.message}`, 'error');
+        }
     },
 
     async deleteJob(jobId) {
