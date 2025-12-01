@@ -1959,6 +1959,24 @@ const app = {
         }
     },
 
+    /**
+     * Duplicar perfil a partir do modal de edição
+     */
+    async duplicateProfileFromEdit() {
+        const engine = document.getElementById('edit-qp-engine').value;
+        const profileId = document.getElementById('edit-qp-id').value;
+        const currentName = document.getElementById('edit-qp-name').value;
+        
+        // Fechar modal de edição
+        const editModal = bootstrap.Modal.getInstance(document.getElementById('modal-edit-profile'));
+        if (editModal) {
+            editModal.hide();
+        }
+        
+        // Chamar função de duplicação
+        await this.duplicateQualityProfile(engine, profileId, currentName);
+    },
+
     async setDefaultProfile(engine, profileId) {
         try {
             await this.fetchJson(`${API_BASE}/quality-profiles/${engine}/${profileId}/set-default`, { method: 'POST' });
