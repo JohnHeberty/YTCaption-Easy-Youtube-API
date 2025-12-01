@@ -3,6 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Content Security Policy: Reduce extension script injection -->
+    <meta http-equiv="Content-Security-Policy" 
+          content="script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; 
+                   object-src 'none'; 
+                   base-uri 'self'; 
+                   frame-ancestors 'none';">
     <title>Audio Voice Service - Painel de Controle</title>
     
     <!-- Bootstrap 5 CSS -->
@@ -11,16 +17,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/webui/assets/css/styles.css">
-    <!-- Prevent "app is not defined" errors during page load -->
-    <script>
-        // Temporary app object to prevent errors before main script loads
-        window.app = window.app || {
-            navigate: function() { console.log('App loading...'); },
-            createJob: function() { console.log('App loading...'); },
-            cloneVoice: function() { console.log('App loading...'); }
-        };
-    </script>
-    <!-- App JS (loaded early with defer to make app object available) -->
+    <!-- App JS (defer ensures execution after DOM ready) -->
     <script defer src="/webui/assets/js/app.js"></script>
 </head>
 <body>
@@ -1372,6 +1369,9 @@
                         
                         <div class="modal-footer">
                             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="button" class="btn btn-info" id="btn-duplicate-from-edit" onclick="app.duplicateProfileFromEdit()">
+                                <i class="bi bi-files"></i> Duplicar
+                            </button>
                             <button type="submit" class="btn btn-primary">
                                 <i class="bi bi-save"></i> Salvar Alterações
                             </button>

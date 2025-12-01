@@ -61,14 +61,6 @@ if webui_path.exists():
 else:
     logger.warning(f"⚠️ WebUI directory not found: {webui_path}")
 
-# Mount WebUI2 static files (versão atualizada)
-webui2_path = Path(__file__).parent / "webui2"
-if webui2_path.exists():
-    app.mount("/webui2", StaticFiles(directory=str(webui2_path)), name="webui2")
-    logger.info(f"✅ WebUI2 mounted at /webui2 from {webui2_path}")
-else:
-    logger.warning(f"⚠️ WebUI2 directory not found: {webui2_path}")
-
 # Formatos de áudio suportados para download
 SUPPORTED_AUDIO_FORMATS = {
     'wav': {'mime': 'audio/wav', 'extension': '.wav'},

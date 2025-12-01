@@ -3,8 +3,88 @@
  * Gerencia toda a interação com a API REST
  */
 
-// Detecta se está rodando via Nginx (porta 8080) ou direto na API (porta 8005)
-const API_BASE = window.location.port === '8080' ? '/api' : 'https://clone.loadstask.com';
+/**
+ * ========================================================
+ * FIX INT-05: Suppress Chrome Extension Runtime Errors
+ * ========================================================
+ * 
+ * Reference: https://stackoverflow.com/questions/54126343
+ * Issue: CRITICAL_ISSUE_INT05_RUNTIME_ERROR.md
+ * 
+ * CONTEXT:
+ * Chrome extensions (VPN, AdBlock, Translators, etc) intercept page events
+ * and cause "Unchecked runtime.lastError: The message port closed before a response was received"
+ * 
+ * This is NOT a bug in our application code - it's caused by third-party extensions
+ * that don't properly handle async responses in chrome.runtime.sendMessage().
+ * 
+ * IMPACT WITHOUT FIX:
+ * - Console polluted with irrelevant errors
+ * - Difficult to debug real application errors
+ * - QA wastes time investigating false positives
+ * 
+ * SOLUTION:
+ * Monkey patch console.error to filter known extension error patterns.
+ */
+(function suppressExtensionErrors() {
+  // Known error patterns from Chrome extensions
+  const EXTENSION_ERROR_PATTERNS = [
+    'message port closed',
+    'Extension context invalidated',
+    'runtime.lastError',
+    'chrome.runtime',
+    'browser.runtime',
+    'Could not establish connection',
+    'Receiving end does not exist'
+  ];
+
+  // Save original console.error
+  const originalConsoleError = console.error.bind(console);
+
+  // Replace console.error with filter
+  console.error = function(...args) {
+    const errorString = args.join(' ').toLowerCase();
+    
+    // Check if it's an extension error
+    const isExtensionError = EXTENSION_ERROR_PATTERNS.some(pattern => 
+      errorString.includes(pattern.toLowerCase())
+    );
+    
+    if (isExtensionError) {
+      // Log to debug only (for developers who want to see)
+      console.debug('[SUPPRESSED EXTENSION ERROR]', ...args);
+      return;
+    }
+    
+    // Real errors pass through normally
+    originalConsoleError(...args);
+  };
+
+  console.log('✅ Extension error suppression activated (INT-05 fix)');
+})();
+
+/**
+ * API Base URL Configuration
+ * 
+ * Uses hostname-based detection (more robust than port detection):
+ * - Local development: '' (same origin - localhost:8005)
+ * - Production: 'https://clone.loadstask.com'
+ * 
+ * Previous approach used port detection (8080 vs 8005) which was:
+ * - ❌ Magic number (8080 hardcoded)
+ * - ❌ Environment-specific (breaks on different ports)
+ * - ❌ Infrastructure logic in frontend (violation of SoC)
+ * 
+ * Current approach:
+ * - ✅ Hostname-based (works on any port)
+ * - ✅ Environment-agnostic
+ * - ✅ Separation of concerns
+ */
+const API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ? '' // Same origin (e.g., http://localhost:8005)
+  : 'https://clone.loadstask.com';
+
+console.log(`🌐 API Base URL: ${API_BASE || window.location.origin}`);
 
 const app = {
     // ==================== ESTADO GLOBAL ====================
@@ -17,6 +97,7 @@ const app = {
         qualityProfiles: { xtts_profiles: [], f5tts_profiles: [] },
         cloningJobs: {}, // Job IDs de clonagens em andamento
         jobsAutoRefreshInterval: null,
+        currentJobMonitorInterval: null, // Intervalo de monitoramento do job buscado
     },
 
     // ==================== INICIALIZAÇÃO ====================
@@ -233,6 +314,11 @@ const app = {
                 throw new Error(errorMsg);
             }
 
+            // Handle 204 No Content (DELETE operations)
+            if (response.status === 204 || response.headers.get('content-length') === '0') {
+                return null;
+            }
+
             return await response.json();
         } catch (error) {
             console.error('❌ Fetch error:', error);
@@ -434,7 +520,7 @@ const app = {
         
         return `
             <tr>
-                <td class="text-monospace">${job.id.substring(0, 12)}...</td>
+                <td class="text-monospace" style="font-size: 0.85rem;">${job.id}</td>
                 <td><span class="badge status-badge ${statusClass}">${job.status}</span></td>
                 <td>${job.tts_engine || 'xtts'}</td>
                 <td>${job.mode}</td>
@@ -471,9 +557,44 @@ const app = {
         
         try {
             const job = await this.fetchJson(`${API_BASE}/jobs/${jobId}`);
+            
+            // Botões de ação disponíveis conforme status do job
+            let actionButtons = '';
+            if (job.status === 'completed') {
+                actionButtons = `
+                    <div class="d-flex gap-2 mb-3">
+                        <button class="btn btn-success" onclick="app.showJobFormats('${jobId}')">
+                            <i class="bi bi-download"></i> Baixar Áudio
+                        </button>
+                        <button class="btn btn-outline-danger" onclick="app.deleteJob('${jobId}'); bootstrap.Modal.getInstance(document.getElementById('modal-job-details')).hide();">
+                            <i class="bi bi-trash"></i> Deletar Job
+                        </button>
+                    </div>
+                `;
+            } else if (job.status === 'failed') {
+                actionButtons = `
+                    <div class="alert alert-danger mb-3">
+                        <i class="bi bi-exclamation-triangle"></i> 
+                        <strong>Job falhou:</strong> ${job.error_message || 'Erro desconhecido'}
+                    </div>
+                    <button class="btn btn-outline-danger mb-3" onclick="app.deleteJob('${jobId}'); bootstrap.Modal.getInstance(document.getElementById('modal-job-details')).hide();">
+                        <i class="bi bi-trash"></i> Deletar Job
+                    </button>
+                `;
+            } else if (job.status === 'processing' || job.status === 'pending') {
+                actionButtons = `
+                    <div class="alert alert-info mb-3">
+                        <i class="bi bi-hourglass-split"></i> 
+                        <strong>Status:</strong> ${job.status}
+                        ${job.progress ? ` - Progresso: ${(job.progress * 100).toFixed(1)}%` : ''}
+                    </div>
+                `;
+            }
+            
             body.innerHTML = `
+                ${actionButtons}
+                <h6>Detalhes do Job:</h6>
                 <div class="json-display">${JSON.stringify(job, null, 2)}</div>
-                ${job.progress ? `<div class="mt-3"><strong>Progresso:</strong> ${(job.progress * 100).toFixed(1)}%</div>` : ''}
             `;
         } catch (error) {
             body.innerHTML = `<div class="alert alert-danger">Erro: ${error.message}</div>`;
@@ -486,23 +607,28 @@ const app = {
             
             let html = '<h6>Formatos disponíveis:</h6><div class="list-group">';
             
+            /**
+             * INT-04 FIX: Replace direct links with JavaScript buttons for error handling
+             */
             if (Array.isArray(formats)) {
                 formats.forEach(format => {
                     html += `
-                        <a href="${API_BASE}/jobs/${jobId}/download?format=${format}" 
-                           target="_blank" class="list-group-item list-group-item-action">
+                        <button onclick="app.downloadJobFile('${jobId}', '${format}')" 
+                           class="list-group-item list-group-item-action btn-download-format">
                             <i class="bi bi-file-earmark-music"></i> ${format.toUpperCase()}
-                        </a>
+                            <i class="bi bi-download float-end"></i>
+                        </button>
                     `;
                 });
             } else {
                 // Se retornar objeto
                 Object.keys(formats).forEach(key => {
                     html += `
-                        <a href="${API_BASE}/jobs/${jobId}/download?format=${key}" 
-                           target="_blank" class="list-group-item list-group-item-action">
+                        <button onclick="app.downloadJobFile('${jobId}', '${key}')" 
+                           class="list-group-item list-group-item-action btn-download-format">
                             <i class="bi bi-file-earmark-music"></i> ${key.toUpperCase()}
-                        </a>
+                            <i class="bi bi-download float-end"></i>
+                        </button>
                     `;
                 });
             }
@@ -515,6 +641,46 @@ const app = {
         }
     },
 
+    /**
+     * INT-04 FIX: Download job file with proper error handling
+     * Replaces direct window.open() with fetch + blob download
+     * 
+     * @param {string} jobId - Job identifier
+     * @param {string} format - File format (e.g., 'wav', 'mp3')
+     */
+    async downloadJobFile(jobId, format) {
+        try {
+            const response = await fetch(`${API_BASE}/jobs/${jobId}/download?format=${format}`);
+            
+            if (!response.ok) {
+                // Handle HTTP errors with user-friendly messages
+                if (response.status === 404) {
+                    throw new Error('Job ou arquivo não encontrado');
+                } else if (response.status === 500) {
+                    throw new Error('Erro no servidor. Tente novamente.');
+                } else {
+                    const errorText = await response.text();
+                    throw new Error(errorText || `Erro HTTP ${response.status}`);
+                }
+            }
+            
+            // Download via blob to ensure error handling
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `job_${jobId}.${format}`;
+            document.body.appendChild(a); // Required for Firefox
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            
+            this.showToast('Sucesso', `Download de ${format.toUpperCase()} iniciado`, 'success');
+        } catch (error) {
+            this.showToast('Erro', `Falha no download: ${error.message}`, 'error');
+        }
+    },
+
     async searchJobById() {
         const jobId = document.getElementById('search-job-id').value.trim();
         if (!jobId) {
@@ -522,7 +688,84 @@ const app = {
             return;
         }
         
-        await this.showJobDetails(jobId);
+        await this.searchAndMonitorJob(jobId);
+    },
+
+    /**
+     * Busca um job e monitora até completar/falhar
+     */
+    async searchAndMonitorJob(jobId) {
+        // Limpar intervalo anterior se existir
+        if (this.state.currentJobMonitorInterval) {
+            clearInterval(this.state.currentJobMonitorInterval);
+            this.state.currentJobMonitorInterval = null;
+        }
+
+        const renderJob = async () => {
+            try {
+                const job = await this.fetchJson(`${API_BASE}/jobs/${jobId}`);
+                
+                // Renderizar apenas este job na tabela
+                const container = document.getElementById('jobs-container');
+                container.innerHTML = `
+                    <div class="table-responsive">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0">Resultado da Busca</h5>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="app.loadJobs()">
+                                <i class="bi bi-arrow-clockwise"></i> Mostrar Todos
+                            </button>
+                        </div>
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Job ID</th>
+                                    <th>Status</th>
+                                    <th>Engine</th>
+                                    <th>Mode</th>
+                                    <th>Data</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${this.renderJobRow(job)}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                // Se job está em processamento, continuar monitorando
+                if (job.status === 'processing' || job.status === 'pending') {
+                    if (!this.state.currentJobMonitorInterval) {
+                        this.state.currentJobMonitorInterval = setInterval(() => renderJob(), 3000);
+                    }
+                } else {
+                    // Job completou ou falhou, parar monitoramento
+                    if (this.state.currentJobMonitorInterval) {
+                        clearInterval(this.state.currentJobMonitorInterval);
+                        this.state.currentJobMonitorInterval = null;
+                    }
+                    
+                    if (job.status === 'completed') {
+                        this.showToast('Sucesso', `Job ${jobId} completado!`, 'success');
+                    } else if (job.status === 'failed') {
+                        this.showToast('Erro', `Job ${jobId} falhou`, 'error');
+                    }
+                }
+                
+                return job;
+            } catch (error) {
+                // Job não encontrado, parar monitoramento
+                if (this.state.currentJobMonitorInterval) {
+                    clearInterval(this.state.currentJobMonitorInterval);
+                    this.state.currentJobMonitorInterval = null;
+                }
+                this.showToast('Erro', `Job não encontrado: ${error.message}`, 'error');
+                throw error;
+            }
+        };
+
+        // Renderizar imediatamente
+        await renderJob();
     },
 
     async deleteJob(jobId) {
@@ -588,9 +831,22 @@ const app = {
             
             if (enableRvc) {
                 const rvcModelId = document.getElementById('job-rvc-model-id').value;
+                const rvcModelSelect = document.getElementById('job-rvc-model-id');
+                
+                /**
+                 * INT-03 FIX: Enhanced RVC validation with visual feedback
+                 */
                 if (!rvcModelId) {
-                    throw new Error('Selecione um modelo RVC');
+                    // Add visual feedback (red border)
+                    rvcModelSelect.classList.add('is-invalid');
+                    
+                    // Show error message
+                    throw new Error('Selecione um modelo RVC quando RVC estiver ativado');
                 }
+                
+                // Remove invalid state if exists (user fixed it)
+                rvcModelSelect.classList.remove('is-invalid');
+                
                 formData.append('rvc_model_id', rvcModelId);
                 formData.append('rvc_pitch', document.getElementById('job-rvc-pitch').value);
                 formData.append('rvc_index_rate', document.getElementById('job-rvc-index-rate').value);
@@ -617,6 +873,15 @@ const app = {
             
             // Navigate to jobs
             this.navigate('jobs');
+            
+            // Preencher barra de busca com Job ID
+            const searchInput = document.getElementById('search-job-id');
+            if (searchInput) {
+                searchInput.value = job.id;
+            }
+            
+            // Buscar e monitorar o job criado
+            await this.searchAndMonitorJob(job.id);
             
         } catch (error) {
             this.showToast('Erro', `Falha ao criar job: ${error.message}`, 'error');
@@ -1354,6 +1619,11 @@ const app = {
                                 <i class="bi bi-star"></i> Definir padrão
                             </button>
                         ` : ''}
+                        <button class="btn btn-sm btn-outline-info" 
+                            onclick="app.duplicateQualityProfile('${engine}', '${profile.id}', '${profile.name}')" 
+                            title="Duplicar este perfil">
+                            <i class="bi bi-files"></i> Duplicar
+                        </button>
                         <button class="btn btn-sm btn-outline-primary" 
                             onclick="app.editQualityProfile('${engine}', '${profile.id}')">
                             <i class="bi bi-pencil"></i>
@@ -1661,6 +1931,52 @@ const app = {
         }
     },
 
+    /**
+     * INT-02 FIX: Duplicate Quality Profile
+     * Endpoint: POST /quality-profiles/{engine}/{profile_id}/duplicate
+     */
+    async duplicateQualityProfile(engine, profileId, originalName) {
+        // Prompt for new name (optional)
+        const newName = prompt(`Duplicar perfil "${originalName}"\n\nNovo nome (deixe vazio para auto-gerar):`, `${originalName} - Cópia`);
+        
+        // User cancelled
+        if (newName === null) return;
+        
+        try {
+            // Build URL with optional new_name query param
+            const url = newName.trim() 
+                ? `${API_BASE}/quality-profiles/${engine}/${profileId}/duplicate?new_name=${encodeURIComponent(newName.trim())}`
+                : `${API_BASE}/quality-profiles/${engine}/${profileId}/duplicate`;
+            
+            const duplicated = await this.fetchJson(url, {
+                method: 'POST'
+            });
+            
+            this.showToast('Sucesso', `Perfil "${duplicated.name}" criado com sucesso`, 'success');
+            await this.loadQualityProfiles(); // Reload list to show new profile
+        } catch (error) {
+            this.showToast('Erro', `Falha ao duplicar: ${error.message}`, 'error');
+        }
+    },
+
+    /**
+     * Duplicar perfil a partir do modal de edição
+     */
+    async duplicateProfileFromEdit() {
+        const engine = document.getElementById('edit-qp-engine').value;
+        const profileId = document.getElementById('edit-qp-id').value;
+        const currentName = document.getElementById('edit-qp-name').value;
+        
+        // Fechar modal de edição
+        const editModal = bootstrap.Modal.getInstance(document.getElementById('modal-edit-profile'));
+        if (editModal) {
+            editModal.hide();
+        }
+        
+        // Chamar função de duplicação
+        await this.duplicateQualityProfile(engine, profileId, currentName);
+    },
+
     async setDefaultProfile(engine, profileId) {
         try {
             await this.fetchJson(`${API_BASE}/quality-profiles/${engine}/${profileId}/set-default`, { method: 'POST' });
@@ -1855,3 +2171,47 @@ const app = {
 document.addEventListener('DOMContentLoaded', () => {
     app.init();
 });
+
+/**
+ * ========================================================
+ * FIX INT-05: Global Error Handlers for Extension Errors
+ * ========================================================
+ * 
+ * Capture unhandled errors and filter out Chrome extension errors
+ * before they reach the console.
+ */
+
+// Handler for synchronous errors
+window.addEventListener('error', (event) => {
+  const errorMsg = (event.message || '').toLowerCase();
+  
+  const isExtensionError = [
+    'message port closed',
+    'extension context',
+    'runtime.lasterror',
+    'chrome.runtime'
+  ].some(pattern => errorMsg.includes(pattern));
+  
+  if (isExtensionError) {
+    console.debug('[GLOBAL ERROR HANDLER] Extension error suppressed:', event.message);
+    event.preventDefault(); // Prevent default browser logging
+    return true;
+  }
+});
+
+// Handler for unhandled Promise rejections
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = (event.reason?.message || event.reason || '').toString().toLowerCase();
+  
+  const isExtensionError = [
+    'message port closed',
+    'extension context'
+  ].some(pattern => reason.includes(pattern));
+  
+  if (isExtensionError) {
+    console.debug('[PROMISE REJECTION] Extension error suppressed:', event.reason);
+    event.preventDefault();
+  }
+});
+
+console.log('✅ Global error handlers installed (INT-05 fix)');

@@ -96,7 +96,7 @@ Este documento consolida **TODAS as implementações concluídas** do Audio Voic
 6. ✅ **FIX**: Busca de Job mostra botão de download
 7. ✅ **FIX**: IDs de perfil corrigidos (xtts_xxx em vez de TTSEngine.XTTS_xxx)
 8. ✅ **FIX**: Endpoints legacy removidos (3 endpoints deletados)
-9. ✅ **FIX**: Paths /webui corrigidos (era /webui2)
+9. ✅ **FIX**: Paths /webui corrigidos (era /webui)
 
 ---
 

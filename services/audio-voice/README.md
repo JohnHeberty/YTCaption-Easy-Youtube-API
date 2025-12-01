@@ -75,7 +75,7 @@ audio-voice/
 │   ├── config.py            # Configurações (.env)
 │   ├── celery_tasks.py      # Tarefas assíncronas
 │   ├── redis_store.py       # Redis cache
-│   └── webui2/              # Interface Web
+│   └── webui/              # Interface Web
 │       ├── index.html       # SPA Bootstrap 5
 │       └── assets/
 │           ├── js/app.js    # 2100+ linhas

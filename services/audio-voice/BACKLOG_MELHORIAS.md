@@ -96,9 +96,9 @@ Este arquivo consolida **TODOS os itens do backlog** - funcionalidades planejada
 - [ ] Confirmação antes de sair com formulário preenchido
 
 **Arquivos afetados**:
-- `app/webui2/assets/js/app.js`
-- `app/webui2/assets/css/styles.css`
-- `app/webui2/index.html`
+- `app/webui/assets/js/app.js`
+- `app/webui/assets/css/styles.css`
+- `app/webui/index.html`
 
 **Estimativa**: 3-4 dias
 
@@ -127,7 +127,7 @@ Este arquivo consolida **TODOS os itens do backlog** - funcionalidades planejada
 
 **Arquivos afetados**:
 - `app/main.py` (validação de idiomas)
-- `app/webui2/assets/js/app.js` (select de idiomas)
+- `app/webui/assets/js/app.js` (select de idiomas)
 - `README.md` (documentação)
 
 **Estimativa**: 2-3 dias
