@@ -97,6 +97,7 @@ const app = {
         qualityProfiles: { xtts_profiles: [], f5tts_profiles: [] },
         cloningJobs: {}, // Job IDs de clonagens em andamento
         jobsAutoRefreshInterval: null,
+        currentJobMonitorInterval: null, // Intervalo de monitoramento do job buscado
     },
 
     // ==================== INICIALIZAÇÃO ====================
@@ -311,6 +312,11 @@ const app = {
                     errorMsg = await response.text() || errorMsg;
                 }
                 throw new Error(errorMsg);
+            }
+
+            // Handle 204 No Content (DELETE operations)
+            if (response.status === 204 || response.headers.get('content-length') === '0') {
+                return null;
             }
 
             return await response.json();
@@ -682,42 +688,84 @@ const app = {
             return;
         }
         
-        // Filtrar a tabela de jobs em vez de abrir modal
-        try {
-            const response = await this.fetchJson(`${API_BASE}/jobs/${jobId}`);
-            
-            // Renderizar apenas este job na tabela
-            const container = document.getElementById('jobs-container');
-            container.innerHTML = `
-                <div class="table-responsive">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0">Resultado da Busca</h5>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="app.loadJobs()">
-                            <i class="bi bi-arrow-clockwise"></i> Mostrar Todos
-                        </button>
-                    </div>
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>Job ID</th>
-                                <th>Status</th>
-                                <th>Engine</th>
-                                <th>Mode</th>
-                                <th>Data</th>
-                                <th>Ações</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${this.renderJobRow(response)}
-                        </tbody>
-                    </table>
-                </div>
-            `;
-            
-            this.showToast('Sucesso', `Job ${jobId} encontrado`, 'success');
-        } catch (error) {
-            this.showToast('Erro', `Job não encontrado: ${error.message}`, 'error');
+        await this.searchAndMonitorJob(jobId);
+    },
+
+    /**
+     * Busca um job e monitora até completar/falhar
+     */
+    async searchAndMonitorJob(jobId) {
+        // Limpar intervalo anterior se existir
+        if (this.state.currentJobMonitorInterval) {
+            clearInterval(this.state.currentJobMonitorInterval);
+            this.state.currentJobMonitorInterval = null;
         }
+
+        const renderJob = async () => {
+            try {
+                const job = await this.fetchJson(`${API_BASE}/jobs/${jobId}`);
+                
+                // Renderizar apenas este job na tabela
+                const container = document.getElementById('jobs-container');
+                container.innerHTML = `
+                    <div class="table-responsive">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0">Resultado da Busca</h5>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="app.loadJobs()">
+                                <i class="bi bi-arrow-clockwise"></i> Mostrar Todos
+                            </button>
+                        </div>
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Job ID</th>
+                                    <th>Status</th>
+                                    <th>Engine</th>
+                                    <th>Mode</th>
+                                    <th>Data</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${this.renderJobRow(job)}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                // Se job está em processamento, continuar monitorando
+                if (job.status === 'processing' || job.status === 'pending') {
+                    if (!this.state.currentJobMonitorInterval) {
+                        this.state.currentJobMonitorInterval = setInterval(() => renderJob(), 3000);
+                    }
+                } else {
+                    // Job completou ou falhou, parar monitoramento
+                    if (this.state.currentJobMonitorInterval) {
+                        clearInterval(this.state.currentJobMonitorInterval);
+                        this.state.currentJobMonitorInterval = null;
+                    }
+                    
+                    if (job.status === 'completed') {
+                        this.showToast('Sucesso', `Job ${jobId} completado!`, 'success');
+                    } else if (job.status === 'failed') {
+                        this.showToast('Erro', `Job ${jobId} falhou`, 'error');
+                    }
+                }
+                
+                return job;
+            } catch (error) {
+                // Job não encontrado, parar monitoramento
+                if (this.state.currentJobMonitorInterval) {
+                    clearInterval(this.state.currentJobMonitorInterval);
+                    this.state.currentJobMonitorInterval = null;
+                }
+                this.showToast('Erro', `Job não encontrado: ${error.message}`, 'error');
+                throw error;
+            }
+        };
+
+        // Renderizar imediatamente
+        await renderJob();
     },
 
     async deleteJob(jobId) {
@@ -825,6 +873,15 @@ const app = {
             
             // Navigate to jobs
             this.navigate('jobs');
+            
+            // Preencher barra de busca com Job ID
+            const searchInput = document.getElementById('search-job-id');
+            if (searchInput) {
+                searchInput.value = job.id;
+            }
+            
+            // Buscar e monitorar o job criado
+            await this.searchAndMonitorJob(job.id);
             
         } catch (error) {
             this.showToast('Erro', `Falha ao criar job: ${error.message}`, 'error');
