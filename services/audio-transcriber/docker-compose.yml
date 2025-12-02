@@ -1,8 +1,9 @@
 services:
+
   audio-transcriber-service:
     build: .
     container_name: audio-transcriber-api
-    runtime: runc
+    runtime: nvidia
     ports:
       - "${PORT:-8002}:8002"
     volumes:
@@ -12,14 +13,26 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
     env_file:
       - .env
     environment:
       - PYTHONPATH=/app
-      # Audio-transcriber NÃO precisa de GPU (CPU é suficiente para Whisper)
-      # GPU reservada apenas para audio-voice (geração de áudio XTTS)
-      - NVIDIA_VISIBLE_DEVICES=""
-      - WHISPER_DEVICE=cpu
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - WHISPER_DEVICE=cuda
+      - WHISPER_FALLBACK_CPU=true
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -34,7 +47,7 @@ services:
   celery-worker:
     build: .
     container_name: audio-transcriber-celery
-    runtime: runc
+    runtime: nvidia
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
@@ -43,15 +56,27 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
     env_file:
       - .env
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
-      # Audio-transcriber NÃO precisa de GPU (CPU é suficiente para Whisper)
-      # GPU reservada apenas para audio-voice (geração de áudio XTTS)
-      - NVIDIA_VISIBLE_DEVICES=""
-      - WHISPER_DEVICE=cpu
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - WHISPER_DEVICE=cuda
+      - WHISPER_FALLBACK_CPU=true
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped
     depends_on:
       audio-transcriber-service:

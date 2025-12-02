@@ -1,7 +1,6 @@
-# Base com CUDA 12.1 + cuDNN p/ Ubuntu 22.04
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# Base NVIDIA correta para driver 550.x (mesma do GPU-OK)
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
-# Evita prompts (tzdata) e define fuso
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
@@ -29,12 +28,11 @@ LABEL maintainer="audio-transcriber-service" \
 # Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
     CUDA_VISIBLE_DEVICES=0 \
-    FORCE_CUDA=1
+    FORCE_CUDA=1 \
+    LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
 # Dependências de sistema (ffmpeg etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -50,13 +48,17 @@ WORKDIR /app
 COPY requirements.txt .
 COPY constraints.txt .
 
-# PyTorch cu121 + deps Python (respeitando constraints)
+# 🔥 Upgrade pip
 RUN python -m pip install --no-cache-dir --upgrade pip
-RUN python -m pip install --no-cache-dir \
-      torch==2.1.2 torchaudio==2.1.2 \
-      --index-url https://download.pytorch.org/whl/cu121 \
-      -c constraints.txt 
-RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
+
+# 🔥 Instalar TODAS as dependências primeiro
+RUN python -m pip install --no-cache-dir --ignore-installed blinker \
+      -r requirements.txt -c constraints.txt
+
+# 🔥 FORÇAR PyTorch cu118 POR ÚLTIMO (compatível com CUDA 11.8)
+RUN python -m pip install --no-cache-dir --force-reinstall \
+      torch==2.4.0+cu118 torchaudio==2.4.0+cu118 \
+      --index-url https://download.pytorch.org/whl/cu118
 
 # Limpa toolchain pesado (mantém ffmpeg etc.)
 RUN apt-get purge -y --auto-remove \
