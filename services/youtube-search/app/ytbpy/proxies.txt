@@ -1,0 +1,10 @@
+23.95.150.145:6114:qobuswsu:nd9ne57aazbx:True
+198.23.239.134:6540:qobuswsu:nd9ne57aazbx:True
+45.38.107.97:6014:qobuswsu:nd9ne57aazbx:True
+207.244.217.165:6712:qobuswsu:nd9ne57aazbx:True
+107.172.163.27:6543:qobuswsu:nd9ne57aazbx:True
+104.222.161.211:6343:qobuswsu:nd9ne57aazbx:True
+64.137.96.74:6641:qobuswsu:nd9ne57aazbx:True
+216.10.27.159:6837:qobuswsu:nd9ne57aazbx:True
+136.0.207.84:6661:qobuswsu:nd9ne57aazbx:True
+142.147.128.93:6593:qobuswsu:nd9ne57aazbx:True

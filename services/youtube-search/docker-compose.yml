@@ -1,0 +1,69 @@
+services:
+  # API Service
+  # Note: Redis is expected to be running externally (shared instance at ${IP_REDIS})
+  youtube-search-service:
+    build: .
+    container_name: youtube-search-api
+    ports:
+      - "${PORT:-8003}:8003"
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    labels:
+      - "com.example.service=youtube-search"
+      - "com.example.version=1.0.0"
+    networks:
+      - youtube-search-network
+
+  # Celery Worker
+  celery-worker:
+    build: .
+    container_name: youtube-search-celery-worker
+    command: celery -A app.celery_config.celery_app worker --loglevel=info --concurrency=2 -Q youtube_search_queue
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    labels:
+      - "com.example.service=youtube-search-worker"
+      - "com.example.version=1.0.0"
+    networks:
+      - youtube-search-network
+
+  # Celery Beat (for periodic tasks)
+  celery-beat:
+    build: .
+    container_name: youtube-search-celery-beat
+    command: celery -A app.celery_config.celery_app beat --loglevel=info
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    labels:
+      - "com.example.service=youtube-search-beat"
+      - "com.example.version=1.0.0"
+    networks:
+      - youtube-search-network
+
+networks:
+  youtube-search-network:
+    driver: bridge
