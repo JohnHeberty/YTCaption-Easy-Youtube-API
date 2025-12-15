@@ -13,6 +13,9 @@ test_output.txt
 *.webm
 *.wav
 *.pt
+*.srt
+*.ogg
+*.mp3
 
 # Distribution / packaging
 .Python
