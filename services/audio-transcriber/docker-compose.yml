@@ -2,7 +2,6 @@ services:
   audio-transcriber-service:
     build: .
     container_name: audio-transcriber-api
-    # runtime: nvidia  <-- Removido! No LXC o mapeamento manual é mais estável
     ports:
       - "${PORT:-8002}:8002"
     volumes:
@@ -12,7 +11,7 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
-      # Mapeamento das bibliotecas e drivers do host
+      # Mapeamento manual de bibliotecas e drivers (Essencial no LXC)
       - /usr/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu:ro
       - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
     devices:
@@ -33,10 +32,7 @@ services:
           memory: 8G
         reservations:
           memory: 4G
-          # Deixamos o capabilities apenas para fins informativos
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
+          # REMOVIDO: drivers nvidia daqui para evitar erro CDI
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -48,7 +44,6 @@ services:
   celery-worker:
     build: .
     container_name: audio-transcriber-celery
-    # runtime: nvidia <-- Removido também
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
@@ -78,9 +73,7 @@ services:
           memory: 8G
         reservations:
           memory: 4G
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
+          # REMOVIDO: drivers nvidia daqui para evitar erro CDI
     restart: unless-stopped
     depends_on:
       audio-transcriber-service:
