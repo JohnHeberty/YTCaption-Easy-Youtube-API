@@ -4,7 +4,7 @@ services:
     container_name: audio-transcriber-api
     runtime: runc
     ports:
-      - "${PORT:-8002}:8002"
+      - "${PORT:-8003}:8003"
     volumes:
       - ./app:/app/app
       - ./uploads:/app/uploads
