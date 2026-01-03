@@ -28,14 +28,14 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      #- CELERY_BROKER_URL=redis://redis:6379/0
       - FORCE_CUDA=0
       - CUDA_VISIBLE_DEVICES=""
       - USE_GPU=false
     restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
+    #depends_on:
+    #  redis:
+    #    condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 30s
@@ -62,14 +62,14 @@ services:
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
-      - CELERY_BROKER_URL=redis://redis:6379/0
+      #- CELERY_BROKER_URL=redis://redis:6379/0
       - FORCE_CUDA=0
       - CUDA_VISIBLE_DEVICES=""
       - USE_GPU=false
     restart: unless-stopped
     depends_on:
-      redis:
-        condition: service_healthy
+      #redis:
+      #  condition: service_healthy
       audio-normalization-service:
         condition: service_started
     healthcheck:
