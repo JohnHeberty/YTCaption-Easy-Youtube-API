@@ -4,7 +4,7 @@ services:
     container_name: audio-transcriber-api
     runtime: runc
     ports:
-      - "${PORT:-8003}:8003"
+      - "${PORT}:${PORT}"
     volumes:
       - ./app:/app/app
       - ./uploads:/app/uploads
@@ -23,22 +23,22 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=${TZ}
       - PYTHONPATH=/app
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
-      - WHISPER_DEVICE=cuda
-      - WHISPER_FALLBACK_CPU=true
+      - WHISPER_DEVICE=${WHISPER_DEVICE}
+      - WHISPER_FALLBACK_CPU=${WHISPER_FALLBACK_CPU}
     deploy:
       resources:
         limits:
           memory: 8G
         reservations:
           memory: 4G
-          # REMOVIDO: drivers nvidia daqui para evitar erro CDI
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8003/health", "-H", "accept: application/json"]
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health", "-H", "accept: application/json"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -66,13 +66,14 @@ services:
     env_file:
       - .env
     environment:
+      - TZ=${TZ}
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu
-      - WHISPER_DEVICE=cuda
-      - WHISPER_FALLBACK_CPU=true
+      - WHISPER_DEVICE=${WHISPER_DEVICE}
+      - WHISPER_FALLBACK_CPU=${WHISPER_FALLBACK_CPU}
     deploy:
       resources:
         limits:
