@@ -26,8 +26,8 @@ celery_app.conf.update(
     task_serializer='json',
     accept_content=['json'],
     result_serializer='json',
-    timezone='UTC',
-    enable_utc=True,
+    timezone='America/Sao_Paulo',
+    enable_utc=False,
     
     # TTL dos resultados (configurável via CACHE_TTL_HOURS)
     result_expires=result_expires,

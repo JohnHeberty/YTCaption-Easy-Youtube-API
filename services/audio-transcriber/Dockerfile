@@ -28,9 +28,6 @@ LABEL maintainer="audio-transcriber-service" \
 # Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    CUDA_VISIBLE_DEVICES=0 \
     FORCE_CUDA=1 \
     LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 

@@ -388,6 +388,53 @@ class TranscriptionProcessor:
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
             
+            # Define current_job_id para permitir atualizações de progresso durante chunking
+            self.current_job_id = job.id
+            
+            # ==========================================
+            # VALIDAÇÃO CRÍTICA: Verifica se arquivo existe
+            # ==========================================
+            input_path = Path(job.input_file)
+            
+            # Tenta encontrar arquivo em múltiplos caminhos possíveis
+            possible_paths = [
+                input_path,  # Caminho original
+                Path("/app") / job.input_file if not input_path.is_absolute() else input_path,  # /app/uploads/...
+                Path("/app/uploads") / input_path.name,  # /app/uploads/filename
+                Path("./uploads") / input_path.name,  # ./uploads/filename
+            ]
+            
+            actual_file_path = None
+            for path in possible_paths:
+                if path.exists() and path.is_file():
+                    actual_file_path = path
+                    logger.info(f"✅ Arquivo encontrado em: {path}")
+                    break
+                else:
+                    logger.debug(f"⚠️ Arquivo NÃO encontrado em: {path}")
+            
+            if actual_file_path is None:
+                error_msg = (
+                    f"Arquivo de entrada não encontrado! "
+                    f"Procurado em: {[str(p) for p in possible_paths]}. "
+                    f"Verifique se o arquivo foi enviado corretamente."
+                )
+                logger.error(f"❌ {error_msg}")
+                raise AudioTranscriptionException(error_msg)
+            
+            # Valida que o arquivo não está vazio
+            file_size = actual_file_path.stat().st_size
+            if file_size == 0:
+                raise AudioTranscriptionException(
+                    f"Arquivo de entrada está vazio (0 bytes): {actual_file_path}"
+                )
+            
+            logger.info(f"📁 Arquivo validado: {actual_file_path} ({file_size / (1024*1024):.2f} MB)")
+            
+            # Atualiza job com caminho correto e absoluto
+            job.input_file = str(actual_file_path.absolute())
+            job.file_size_input = file_size
+            
             # Verifica espaço em disco
             if not self._check_disk_space(job.input_file, self.output_dir):
                 raise AudioTranscriptionException(
@@ -400,7 +447,7 @@ class TranscriptionProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
-            logger.info(f"Processando arquivo (validação será feita pelo whisper): {job.input_file}")
+            logger.info(f"🎵 Processando arquivo: {job.input_file}")
             
             # Carrega modelo se necessário
             self._load_model()
@@ -501,7 +548,20 @@ class TranscriptionProcessor:
         Returns:
             dict: Resultado com 'text', 'segments' e 'language' detectado
         """
-        logger.info(f"Transcrevendo diretamente: {audio_file}")
+        logger.info(f"🎙️ Transcrevendo diretamente: {audio_file}")
+        
+        # Valida que arquivo existe ANTES de processar
+        audio_path = Path(audio_file)
+        if not audio_path.exists():
+            raise AudioTranscriptionException(
+                f"Arquivo de áudio não encontrado para transcrição: {audio_file}"
+            )
+        
+        # Valida que arquivo não está vazio
+        if audio_path.stat().st_size == 0:
+            raise AudioTranscriptionException(
+                f"Arquivo de áudio está vazio: {audio_file}"
+            )
         
         # Se language_out for especificado e diferente de language_in, usa translate
         needs_translation = language_out is not None and language_out != language_in and language_in != ''
@@ -516,8 +576,8 @@ class TranscriptionProcessor:
                 needs_translation = False
         
         ##############################################################
-        #############################################################
-        ##########################################################
+        # CONFIGURAÇÃO DE OPÇÕES DO WHISPER
+        ##############################################################
         base_options = {
             "fp16": self.settings.get('whisper_fp16', False),
             #"beam_size": self.settings.get('whisper_beam_size', 5),
@@ -525,24 +585,49 @@ class TranscriptionProcessor:
             #"temperature": self.settings.get('whisper_temperature', 0.0)
         }
         
-        if needs_translation:
-            # Traduzir para inglês usando task="translate" explicitamente
-            transcribe_options = base_options.copy()
-            transcribe_options["task"] = "translate"  # Força tradução para inglês
-            # Não especifica language para deixar Whisper detectar automaticamente
-            logger.info("Usando Whisper com task='translate' para traduzir para inglês")
-            result = self.model.transcribe(audio_file, **transcribe_options)
-            logger.info(f"Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
-        else:
-            # Transcrever no idioma original usando task="transcribe" explicitamente
-            transcribe_options = base_options.copy()
-            transcribe_options["task"] = "transcribe"  # Força transcrição no idioma original
-            transcribe_options["language"] = None if language_in == "auto" else language_in
-            logger.info(f"Usando Whisper com task='transcribe' para transcrever em {language_in}")
-            result = self.model.transcribe(audio_file, **transcribe_options)
-            logger.info(f"Transcrição concluída. Idioma: {result.get('language', language_in)}")
+        # Retry com backoff exponencial para lidar com problemas temporários
+        max_retries = 3
+        retry_delay = 2.0
+        last_error = None
         
-        return result
+        for attempt in range(max_retries):
+            try:
+                if needs_translation:
+                    # Traduzir para inglês usando task="translate" explicitamente
+                    transcribe_options = base_options.copy()
+                    transcribe_options["task"] = "translate"  # Força tradução para inglês
+                    # Não especifica language para deixar Whisper detectar automaticamente
+                    logger.info(f"🌐 Usando Whisper com task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
+                    result = self.model.transcribe(audio_file, **transcribe_options)
+                    logger.info(f"✅ Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
+                else:
+                    # Transcrever no idioma original usando task="transcribe" explicitamente
+                    transcribe_options = base_options.copy()
+                    transcribe_options["task"] = "transcribe"  # Força transcrição no idioma original
+                    transcribe_options["language"] = None if language_in == "auto" else language_in
+                    logger.info(f"📝 Usando Whisper com task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
+                    result = self.model.transcribe(audio_file, **transcribe_options)
+                    logger.info(f"✅ Transcrição concluída. Idioma: {result.get('language', language_in)}")
+                
+                return result
+                
+            except Exception as e:
+                last_error = e
+                error_msg = str(e)
+                logger.error(f"❌ Erro na transcrição (tentativa {attempt + 1}/{max_retries}): {error_msg}")
+                
+                # Se é o último retry, lança exceção
+                if attempt == max_retries - 1:
+                    logger.error(f"❌ Todas as tentativas falharam. Último erro: {error_msg}")
+                    raise AudioTranscriptionException(f"Falha após {max_retries} tentativas: {error_msg}")
+                
+                # Aguarda antes de tentar novamente (backoff exponencial)
+                sleep_time = retry_delay * (2 ** attempt)
+                logger.info(f"⏳ Aguardando {sleep_time}s antes de tentar novamente...")
+                time.sleep(sleep_time)
+        
+        # Nunca deve chegar aqui, mas por segurança
+        raise AudioTranscriptionException(f"Falha inesperada na transcrição: {last_error}")
     
     async def _transcribe_with_chunking(self, audio_file: str, language_in: str, language_out: str = None, audio: AudioSegment = None):
         """
@@ -558,9 +643,22 @@ class TranscriptionProcessor:
             dict: Resultado com 'text' e 'segments' no formato Whisper
         """
         try:
+            # Valida que arquivo existe
+            audio_path = Path(audio_file)
+            if not audio_path.exists():
+                raise AudioTranscriptionException(
+                    f"Arquivo de áudio não encontrado para chunking: {audio_file}"
+                )
+            
             # Carrega áudio se não foi fornecido
             if audio is None:
-                audio = AudioSegment.from_file(audio_file)
+                logger.info(f"🎵 Carregando áudio para chunking: {audio_file}")
+                try:
+                    audio = AudioSegment.from_file(str(audio_path))
+                except Exception as e:
+                    raise AudioTranscriptionException(
+                        f"Erro ao carregar arquivo de áudio com pydub: {str(e)}"
+                    )
             
             duration_ms = len(audio)
             duration_seconds = duration_ms / 1000.0
@@ -628,12 +726,16 @@ class TranscriptionProcessor:
                 chunk_file.unlink()
                 
                 # Atualiza progresso (25% inicial + 50% durante chunks)
-                if self.job_store:
-                    progress = 25.0 + (50.0 * (i + 1) / len(chunks))
-                    job = self.job_store.get_job(self.current_job_id) if hasattr(self, 'current_job_id') else None
-                    if job:
-                        job.progress = progress
-                        self.job_store.update_job(job)
+                if self.job_store and hasattr(self, 'current_job_id'):
+                    try:
+                        progress = 25.0 + (50.0 * (i + 1) / len(chunks))
+                        job = self.job_store.get_job(self.current_job_id)
+                        if job:
+                            job.progress = progress
+                            self.job_store.update_job(job)
+                            logger.info(f"✅ Progresso atualizado: {progress:.1f}% (chunk {i+1}/{len(chunks)})")
+                    except Exception as e:
+                        logger.error(f"❌ Erro ao atualizar progresso: {e}")
             
             # Mescla segmentos sobrepostos (remove duplicatas no overlap)
             merged_segments = self._merge_overlapping_segments(all_segments, overlap_seconds)

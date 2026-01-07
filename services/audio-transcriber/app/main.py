@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Request, Form
 from fastapi.responses import FileResponse, JSONResponse
@@ -194,8 +195,52 @@ async def create_transcription_job(
                     logger.info(f"Job {new_job.id} já em processamento (idade: {job_age})")
                     return existing_job
             elif existing_job.status == JobStatus.FAILED:
-                # Falhou antes - tenta novamente
-                logger.info(f"Reprocessando job falhado: {new_job.id}")
+                # Falhou antes - tenta novamente salvando o arquivo novamente
+                logger.info(f"Reprocessando job falhado: {new_job.id} - salvando arquivo novamente")
+                
+                # Salva arquivo novamente com PATH ABSOLUTO
+                upload_dir = Path("/app/uploads")
+                upload_dir.mkdir(parents=True, exist_ok=True)
+                original_extension = Path(file.filename).suffix if file.filename else ""
+                file_path = upload_dir / f"{existing_job.id}{original_extension}"
+                
+                # Lê conteúdo do arquivo
+                content = await file.read()
+                if not content:
+                    logger.error(f"❌ ERRO: Arquivo enviado está vazio")
+                    raise HTTPException(status_code=400, detail="Arquivo enviado está vazio")
+                
+                # Salva arquivo com retry
+                max_retries = 3
+                saved_successfully = False
+                for retry in range(max_retries):
+                    try:
+                        with open(file_path, "wb") as f:
+                            f.write(content)
+                            f.flush()
+                            os.fsync(f.fileno())  # Força escrita no disco
+                        
+                        # VALIDA que arquivo foi salvo corretamente
+                        if file_path.exists() and file_path.stat().st_size > 0:
+                            saved_successfully = True
+                            break
+                        else:
+                            logger.warning(f"⚠️ Tentativa {retry+1}/{max_retries}: Arquivo não foi salvo corretamente")
+                    except Exception as e:
+                        logger.error(f"❌ Tentativa {retry+1}/{max_retries} falhou ao salvar: {e}")
+                        if retry == max_retries - 1:
+                            raise
+                        time.sleep(0.5 * (retry + 1))
+                
+                if not saved_successfully:
+                    logger.error(f"❌ ERRO: Falha ao salvar arquivo após {max_retries} tentativas")
+                    raise HTTPException(status_code=500, detail="Erro ao salvar arquivo no servidor")
+                
+                file_size = file_path.stat().st_size
+                logger.info(f"✅ Arquivo salvo com sucesso: {file_path} ({file_size / (1024*1024):.2f} MB)")
+                
+                existing_job.input_file = str(file_path.absolute())
+                existing_job.file_size_input = file_size
                 existing_job.status = JobStatus.QUEUED
                 existing_job.error_message = None
                 existing_job.progress = 0.0
@@ -203,20 +248,54 @@ async def create_transcription_job(
                 
                 # Submete para processamento
                 submit_processing_task(existing_job)
+                logger.info(f"🚀 Job {existing_job.id} submetido para reprocessamento")
                 return existing_job
         
-        # Job novo - salva arquivo
-        upload_dir = Path("./uploads")
-        upload_dir.mkdir(exist_ok=True)
+        # Job novo - salva arquivo com PATH ABSOLUTO
+        upload_dir = Path("/app/uploads")
+        upload_dir.mkdir(parents=True, exist_ok=True)
         
         # Usar apenas job_id para evitar problemas com caracteres especiais
         original_extension = Path(file.filename).suffix if file.filename else ""
         file_path = upload_dir / f"{new_job.id}{original_extension}"
-        with open(file_path, "wb") as f:
-            content = await file.read()
-            f.write(content)
         
-        new_job.input_file = str(file_path)
+        # Lê conteúdo do arquivo
+        content = await file.read()
+        if not content:
+            logger.error(f"❌ ERRO: Arquivo enviado está vazio")
+            raise HTTPException(status_code=400, detail="Arquivo enviado está vazio")
+        
+        # Salva arquivo com retry
+        max_retries = 3
+        saved_successfully = False
+        for retry in range(max_retries):
+            try:
+                with open(file_path, "wb") as f:
+                    f.write(content)
+                    f.flush()
+                    os.fsync(f.fileno())  # Força escrita no disco
+                
+                # VALIDA que arquivo foi salvo corretamente
+                if file_path.exists() and file_path.stat().st_size > 0:
+                    saved_successfully = True
+                    break
+                else:
+                    logger.warning(f"⚠️ Tentativa {retry+1}/{max_retries}: Arquivo não foi salvo corretamente")
+            except Exception as e:
+                logger.error(f"❌ Tentativa {retry+1}/{max_retries} falhou ao salvar: {e}")
+                if retry == max_retries - 1:
+                    raise
+                time.sleep(0.5 * (retry + 1))
+        
+        if not saved_successfully:
+            logger.error(f"❌ ERRO: Falha ao salvar arquivo após {max_retries} tentativas")
+            raise HTTPException(status_code=500, detail="Erro ao salvar arquivo no servidor")
+        
+        file_size = file_path.stat().st_size
+        logger.info(f"✅ Arquivo salvo com sucesso: {file_path} ({file_size / (1024*1024):.2f} MB)")
+        
+        new_job.input_file = str(file_path.absolute())
+        new_job.file_size_input = file_size
         
         # Salva job e submete para processamento
         job_store.save_job(new_job)

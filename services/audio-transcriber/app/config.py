@@ -60,6 +60,7 @@ def get_settings():
         'enable_chunking': os.getenv('WHISPER_ENABLE_CHUNKING', 'true').lower() == 'true',
         'chunk_length_seconds': int(os.getenv('WHISPER_CHUNK_LENGTH_SECONDS', '30')),  # 30s por chunk
         'chunk_overlap_seconds': float(os.getenv('WHISPER_CHUNK_OVERLAP_SECONDS', '1.0')),  # 1s overlap
+        'whisper_min_duration_for_chunks': int(os.getenv('WHISPER_MIN_DURATION_FOR_CHUNKS', '300')),  # 5 min
         
         # ===== WHISPER - OTIMIZAÇÕES =====
         'whisper_fp16': os.getenv('WHISPER_FP16', 'false').lower() == 'true',  # Usar FP16 (GPU)
