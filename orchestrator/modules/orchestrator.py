@@ -9,6 +9,7 @@ Lógica de orquestração do pipeline completo (resiliente)
 import os
 import asyncio
 import logging
+import random
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timedelta
@@ -74,7 +75,7 @@ class MicroserviceClient:
         if self._circuit_state == "OPEN":
             # Se passou o tempo de recovery, transiciona para HALF_OPEN
             if self.last_failure_time and datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
-                logger.info(f"[{self.service_name}] Circuit breaker transitioning to HALF_OPEN - testing recovery")
+                logger.warning(f"🟡 [{self.service_name}] Circuit breaker OPEN → HALF_OPEN - testing recovery after {self.recovery_timeout}s downtime")
                 self._circuit_state = "HALF_OPEN"
                 self._half_open_attempts = 0
                 return False  # Permite tentativas no estado HALF_OPEN
@@ -83,7 +84,7 @@ class MicroserviceClient:
         # Estado HALF_OPEN: permite algumas tentativas de teste
         if self._circuit_state == "HALF_OPEN":
             if self._half_open_attempts >= self.half_open_max_requests:
-                logger.warning(f"[{self.service_name}] Circuit breaker HALF_OPEN limit reached, reopening")
+                logger.warning(f"⚠️ [{self.service_name}] Circuit breaker HALF_OPEN limit reached ({self._half_open_attempts}/{self.half_open_max_requests}), reopening")
                 self._circuit_state = "OPEN"
                 self.last_failure_time = datetime.now()
                 return True
@@ -93,8 +94,9 @@ class MicroserviceClient:
     
     def _record_success(self):
         """Registra sucesso - fecha circuit breaker completamente"""
+        previous_state = self._circuit_state
         if self._circuit_state != "CLOSED":
-            logger.info(f"[{self.service_name}] Circuit breaker CLOSED - service recovered (was {self._circuit_state})")
+            logger.info(f"✅ [{self.service_name}] Circuit breaker {previous_state} → CLOSED - service recovered successfully")
         self._circuit_state = "CLOSED"
         self.failure_count = 0
         self._half_open_attempts = 0
@@ -109,14 +111,15 @@ class MicroserviceClient:
             self._half_open_attempts += 1
             if self._half_open_attempts >= self.half_open_max_requests:
                 self._circuit_state = "OPEN"
-                logger.error(f"[{self.service_name}] Circuit breaker OPENED - recovery failed after {self._half_open_attempts} attempts")
+                logger.error(f"🔴 [{self.service_name}] Circuit breaker HALF_OPEN → OPEN - recovery failed after {self._half_open_attempts} attempts at {self.last_failure_time.strftime('%H:%M:%S')}")
             return
         
         if self._circuit_state == "CLOSED":
             self.failure_count += 1
+            logger.warning(f"⚠️ [{self.service_name}] Failure {self.failure_count}/{self.max_failures} recorded")
             if self.failure_count >= self.max_failures:
                 self._circuit_state = "OPEN"
-                logger.error(f"[{self.service_name}] Circuit breaker OPENED after {self.failure_count} consecutive failures - will retry in {self.recovery_timeout}s")
+                logger.critical(f"🚨 [{self.service_name}] Circuit breaker CLOSED → OPEN after {self.failure_count} consecutive failures - will retry in {self.recovery_timeout}s at {(datetime.now() + timedelta(seconds=self.recovery_timeout)).strftime('%H:%M:%S')}")
 
     async def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
         """Executa função com retry exponential backoff e circuit breaker"""
@@ -143,16 +146,20 @@ class MicroserviceClient:
                     raise
                 
                 if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
-                    logger.warning(f"[{self.service_name}] Attempt {attempt + 1}/{self.max_retries} failed with {status}, retrying in {delay}s...")
+                    base_delay = self.retry_delay * (2 ** attempt)  # Exponential backoff
+                    jitter = random.uniform(0, base_delay * 0.1)  # 10% jitter
+                    delay = base_delay + jitter
+                    logger.warning(f"[{self.service_name}] Attempt {attempt + 1}/{self.max_retries} failed with {status}, retrying in {delay:.1f}s...")
                     await asyncio.sleep(delay)
                 else:
                     logger.error(f"[{self.service_name}] All {self.max_retries} attempts failed")
             except (httpx.ConnectError, httpx.TimeoutException, httpx.ReadTimeout) as e:
                 last_error = e
                 if attempt < self.max_retries - 1:
-                    delay = self.retry_delay * (2 ** attempt)
-                    logger.warning(f"[{self.service_name}] Network error on attempt {attempt + 1}/{self.max_retries}, retrying in {delay}s: {type(e).__name__}")
+                    base_delay = self.retry_delay * (2 ** attempt)
+                    jitter = random.uniform(0, base_delay * 0.1)  # 10% jitter
+                    delay = base_delay + jitter
+                    logger.warning(f"[{self.service_name}] Network error on attempt {attempt + 1}/{self.max_retries}, retrying in {delay:.1f}s: {type(e).__name__}")
                     await asyncio.sleep(delay)
                 else:
                     logger.error(f"[{self.service_name}] All {self.max_retries} attempts failed with network errors")
@@ -205,13 +212,23 @@ class MicroserviceClient:
         try:
             return await self._retry_with_backoff(_do_request)
         except httpx.HTTPStatusError as e:
+            # Captura corpo da resposta para diagnóstico
+            error_body = ""
+            try:
+                error_body = e.response.text[:500]  # Primeiros 500 chars
+            except:
+                pass
+            
             if e.response.status_code == 400:
-                raise RuntimeError(f"[{self.service_name}] Bad request - check file format or parameters: {e}")
+                logger.error(f"[{self.service_name}] Bad request (400): {error_body}")
+                raise RuntimeError(f"[{self.service_name}] Bad request - check file format or parameters: {error_body[:200]}")
             elif e.response.status_code == 413:
                 raise RuntimeError(f"[{self.service_name}] File too large for service: {e}")
             elif e.response.status_code == 422:
-                raise RuntimeError(f"[{self.service_name}] Validation error - check file and parameters: {e}")
+                logger.error(f"[{self.service_name}] Validation error (422): {error_body}")
+                raise RuntimeError(f"[{self.service_name}] Validation error - check file and parameters: {error_body[:200]}")
             else:
+                logger.error(f"[{self.service_name}] HTTP error ({e.response.status_code}): {error_body}")
                 raise RuntimeError(f"[{self.service_name}] HTTP error submitting multipart: {e}")
         except (httpx.ConnectError, httpx.TimeoutException) as e:
             raise RuntimeError(f"[{self.service_name}] Network error submitting multipart - service may be down: {e}")
@@ -279,13 +296,17 @@ class MicroserviceClient:
                 r = await client.get(url)
                 healthy = r.status_code == 200
                 if healthy:
-                    self._record_success()  # Health check bem-sucedido conta como sucesso
+                    # Health check bem-sucedido - registra sucesso para ajudar na recuperação
+                    # mas apenas se não estivermos em HALF_OPEN (para não interferir no teste)
+                    if self._circuit_state != "HALF_OPEN":
+                        self._record_success()
                 else:
                     logger.warning(f"Health check for {self.service_name} returned status {r.status_code}")
                 return healthy
         except Exception as e:
             logger.error(f"Health check failed for {self.service_name}: {e}")
-            self._record_failure()  # Health check falho conta como falha
+            # ✅ CORREÇÃO: Health check NÃO conta como falha operacional
+            # Apenas retorna status sem afetar circuit breaker
             return False
 
 # --- utilidades locais (adicione abaixo dos imports, antes do PipelineOrchestrator) ---
@@ -453,6 +474,7 @@ class PipelineOrchestrator:
                 "convert_to_mono": _bool_to_str(job.convert_to_mono if job.convert_to_mono is not None else defaults.get("convert_to_mono", False)),
                 "apply_highpass_filter": _bool_to_str(job.apply_highpass_filter if job.apply_highpass_filter is not None else defaults.get("apply_highpass_filter", False)),
                 "set_sample_rate_16k": _bool_to_str(job.set_sample_rate_16k if job.set_sample_rate_16k is not None else defaults.get("set_sample_rate_16k", False)),
+                "isolate_vocals": _bool_to_str(job.isolate_vocals if job.isolate_vocals is not None else defaults.get("isolate_vocals", False)),
             }
 
             resp = await self.audio_client.submit_multipart(files=files, data=data)
@@ -575,7 +597,25 @@ class PipelineOrchestrator:
         consecutive_errors = 0
         max_consecutive_errors = 5
         
+        # Define timeout específico baseado no serviço
+        service_name = client.service_name
+        if service_name == "audio-normalization":
+            max_wait_time = self.settings.get("audio_normalization_job_timeout", 3600)
+        elif service_name == "audio-transcriber":
+            max_wait_time = self.settings.get("audio_transcriber_job_timeout", 2400)
+        else:  # video-downloader
+            max_wait_time = self.settings.get("video_downloader_job_timeout", 1800)
+        
+        start_time = asyncio.get_event_loop().time()
+        
         while attempts < self.max_attempts:
+            # Verifica timeout global
+            elapsed_time = asyncio.get_event_loop().time() - start_time
+            if elapsed_time > max_wait_time:
+                logger.error(f"Job {job_id} timeout after {elapsed_time:.0f}s (max: {max_wait_time}s)")
+                stage.fail(f"Timeout after {elapsed_time:.0f}s")
+                return None
+            
             try:
                 status = await client.get_job_status(job_id)
                 consecutive_errors = 0  # Reset contador de erros em caso de sucesso
@@ -590,7 +630,7 @@ class PipelineOrchestrator:
                 
                 state = (status.get("status") or status.get("state") or "").lower()
                 if state in {"completed", "success", "done", "finished"}:
-                    logger.info(f"Job {job_id} completed successfully")
+                    logger.info(f"Job {job_id} completed successfully after {elapsed_time:.0f}s")
                     return status
                 if state in {"failed", "error", "cancelled", "canceled", "aborted"}:
                     error_msg = status.get("error") or status.get("error_message", f"Job failed with state: {state}")
@@ -599,7 +639,7 @@ class PipelineOrchestrator:
                     return None
                     
                 # Estado em progresso
-                logger.debug(f"Job {job_id} status: {state}, progress: {stage.progress}%")
+                logger.debug(f"Job {job_id} status: {state}, progress: {stage.progress}%, elapsed: {elapsed_time:.0f}s")
                 
             except httpx.HTTPStatusError as e:
                 consecutive_errors += 1

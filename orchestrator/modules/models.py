@@ -85,6 +85,7 @@ class PipelineJob(BaseModel):
     convert_to_mono: bool = True
     apply_highpass_filter: bool = False
     set_sample_rate_16k: bool = True
+    isolate_vocals: bool = False  # Isolamento de vocais (operação pesada)
     
     # Estágios do pipeline
     download_stage: PipelineStage = Field(default_factory=lambda: PipelineStage(name="download"))
