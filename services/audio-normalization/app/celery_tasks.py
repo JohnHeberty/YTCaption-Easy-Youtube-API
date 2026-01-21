@@ -212,15 +212,45 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             # PROCESSAMENTO REAL COM TIMEOUT DE SEGURANÇA (configurável)
             from .config import get_settings
             settings = get_settings()
-            async_timeout = int(settings.get('async_timeout_seconds', 900))
+            async_timeout = int(settings.get('timeouts', {}).get('async_timeout_sec', 900))
+            heartbeat_interval = int(settings.get('timeouts', {}).get('job_heartbeat_interval_sec', 30))
             
-            async def process_with_timeout():
-                return await self.processor.process_audio_job(job)
+            async def process_with_timeout_and_heartbeat():
+                """Processa job com heartbeat periódico"""
+                import asyncio
+                
+                # Task de heartbeat em background
+                async def send_heartbeat():
+                    while True:
+                        try:
+                            await asyncio.sleep(heartbeat_interval)
+                            job.update_heartbeat()
+                            self.job_store.update_job(job)
+                            logger.debug(f"💓 Heartbeat enviado para job {job_id}")
+                        except asyncio.CancelledError:
+                            break
+                        except Exception as hb_err:
+                            logger.warning(f"⚠️ Erro ao enviar heartbeat: {hb_err}")
+                
+                # Inicia heartbeat em background
+                heartbeat_task = asyncio.create_task(send_heartbeat())
+                
+                try:
+                    # Processa job
+                    result = await self.processor.process_audio_job(job)
+                    return result
+                finally:
+                    # Cancela heartbeat ao terminar
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass
             
             # Timeout configurável via env (padrão: 15 minutos)
             try:
-                logger.info(f"⏱️ Starting processing with {async_timeout}s timeout for job {job_id}")
-                loop.run_until_complete(asyncio.wait_for(process_with_timeout(), timeout=async_timeout))
+                logger.info(f"⏱️ Starting processing with {async_timeout}s timeout and {heartbeat_interval}s heartbeat for job {job_id}")
+                loop.run_until_complete(asyncio.wait_for(process_with_timeout_and_heartbeat(), timeout=async_timeout))
                 
                 # Verifica se processamento foi bem-sucedido
                 if job.status == JobStatus.COMPLETED:

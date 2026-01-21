@@ -34,10 +34,15 @@ celery_app.conf.update(
     # Timeout das tasks (configurável via .env)
     task_time_limit=task_time_limit,
     task_soft_time_limit=task_soft_time_limit,
-    # Worker settings
-    worker_prefetch_multiplier=1,
-    worker_max_tasks_per_child=50,
+    # Worker settings otimizados para resiliência
+    worker_prefetch_multiplier=int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', '1')),
+    worker_max_tasks_per_child=int(os.getenv('CELERY_WORKER_MAX_TASKS_PER_CHILD', '50')),
+    task_acks_late=os.getenv('CELERY_TASK_ACKS_LATE', 'true').lower() == 'true',
+    task_reject_on_worker_lost=True,
+    worker_cancel_long_running_tasks_on_connection_loss=os.getenv('CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS', 'true').lower() == 'true',
     broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_connection_max_retries=10,
     # 🔧 FILA DEDICADA para audio-normalization
     task_default_queue='audio_normalization_queue',
     task_routes={
