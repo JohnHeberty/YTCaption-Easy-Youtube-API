@@ -1,4 +1,4 @@
-# Use Python 3.11 slim (mais leve e moderno)
+# Use Python 3.11 slim 
 FROM python:3.11-slim
 
 # Metadata para identificação
@@ -12,13 +12,11 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Instala dependências do sistema (curl para healthcheck)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean \
-    && apt-get autoremove -y
+# Instala apenas curl para healthcheck (ffmpeg será instalado via yt-dlp se necessário)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Diretório de trabalho
 WORKDIR /app

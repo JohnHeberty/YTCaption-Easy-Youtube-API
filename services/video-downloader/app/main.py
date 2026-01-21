@@ -40,6 +40,39 @@ downloader = SimpleDownloader()
 downloader.job_store = job_store
 
 
+@app.get("/")
+async def root():
+    """
+    Endpoint raiz - Informações do serviço
+    """
+    return {
+        "service": "Video Downloader Service",
+        "version": "3.0.0",
+        "status": "running",
+        "description": "Microserviço com Celery + Redis para download de vídeos do YouTube",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "jobs": {
+                "create": "POST /jobs",
+                "get": "GET /jobs/{job_id}",
+                "list": "GET /jobs",
+                "download": "GET /jobs/{job_id}/download",
+                "delete": "DELETE /jobs/{job_id}"
+            },
+            "admin": {
+                "stats": "GET /admin/stats",
+                "queue": "GET /admin/queue",
+                "cleanup": "POST /admin/cleanup"
+            },
+            "user_agents": {
+                "stats": "GET /user-agents/stats",
+                "reset": "POST /user-agents/reset/{user_agent_id}"
+            }
+        }
+    }
+
+
 @app.on_event("startup")
 async def startup_event():
     """Inicializa sistema com Celery"""
@@ -751,12 +784,12 @@ async def health_check():
     # 5. Verifica user agents
     try:
         stats = downloader.ua_manager.get_stats()
-        if stats["total"] > 0:
+        if stats["total_user_agents"] > 0:
             health_status["checks"]["user_agents"] = {
                 "status": "ok",
-                "total": stats["total"],
-                "active": stats["active"],
-                "quarantined": stats["quarantined"]
+                "total": stats["total_user_agents"],
+                "available": stats["available_count"],
+                "quarantined": stats["quarantined_count"]
             }
         else:
             health_status["checks"]["user_agents"] = {
