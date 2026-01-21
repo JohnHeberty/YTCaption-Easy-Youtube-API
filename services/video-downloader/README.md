@@ -4,13 +4,33 @@ Microserviço **simples e eficiente** para download de vídeos com cache automá
 
 ## ⚡ Características
 
-- **API REST simples** - Apenas 3 endpoints principais
-- **Download assíncrono** - Jobs em background
+- **API REST completa** - Endpoints para download, status, administração e user-agents
+- **Download assíncrono com Celery** - Jobs processados em background
 - **Cache automático** - Arquivos ficam disponíveis por 24h
 - **Limpeza automática** - Remove arquivos expirados
-- **User-Agent rotation** - Evita bloqueios básicos
-- **Sem banco de dados** - Store em memória (simples e rápido)
-- **Docker ready** - Pronto para produção
+- **User-Agent rotation inteligente** - Sistema de quarentena para UAs problemáticos
+- **Redis como backend** - Store compartilhado entre workers
+- **Health checks completos** - Monitora Redis, disco, Celery, yt-dlp e user-agents
+- **Docker ready** - Pronto para produção com docker-compose
+
+## 🔧 Correções Recentes (Janeiro 2026)
+
+### ✅ Problemas Corrigidos:
+1. **config.py** - Corrigidos parâmetros que estavam do audio-normalization service
+   - Adicionados: `cache_dir`, `downloads_dir`, `temp_dir`, etc.
+2. **run.py** - Porta hardcoded (8000) corrigida para usar `PORT` do `.env`
+3. **main.py** - Adicionado endpoint raiz `/` com documentação da API
+4. **Health check** - Corrigido para usar chaves corretas do `user_agent_manager`
+5. **Dockerfile** - Simplificado para evitar problemas com dependências do ffmpeg
+6. **.env** - Adicionado `TZ` (timezone) para evitar warnings
+
+### 🚀 Status Atual:
+- ✅ Serviço rodando em produção na porta **8001**
+- ✅ Health check: `healthy`
+- ✅ Redis: `Connected`
+- ✅ Disco: `26% livre (1.26GB / 4.84GB)`
+- ✅ User-Agents: `8875 ativos, 0 em quarentena`
+- ✅ yt-dlp: `v2025.10.22`
 
 ## 🚀 Instalação & Execução
 
@@ -19,11 +39,14 @@ Microserviço **simples e eficiente** para download de vídeos com cache automá
 # Clone ou baixe o projeto
 cd video-download-service
 
+# Configure o .env (ajuste DIVISOR se necessário)
+cp .env.example .env
+
 # Suba o serviço
-docker-compose up -d
+docker compose up -d --build
 
 # Verifica se está rodando
-curl http://localhost:8000/health
+curl http://localhost:8001/health
 ```
 
 ### Opção 2: Python Local
@@ -35,9 +58,15 @@ pip install -r requirements.txt
 python run.py
 ```
 
-O serviço estará disponível em `http://localhost:8000`
+O serviço estará disponível em `http://localhost:8001` (porta configurável via `.env`)
 
 ## 📖 Documentação da API
+
+### Endpoint Raiz
+```bash
+GET /
+```
+Retorna informações do serviço e lista de endpoints disponíveis.
 
 ### 1. Criar Job de Download
 ```bash
