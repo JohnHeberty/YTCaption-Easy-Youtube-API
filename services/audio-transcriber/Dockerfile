@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg libsndfile1 build-essential pkg-config \
     libavformat-dev libavcodec-dev libavdevice-dev \
     libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
-    curl \
+    curl grep \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -57,14 +57,8 @@ RUN python -m pip install --no-cache-dir --force-reinstall \
       torch==2.4.0+cu118 torchaudio==2.4.0+cu118 \
       --index-url https://download.pytorch.org/whl/cu118
 
-# Limpa toolchain pesado (mantém ffmpeg etc.)
-RUN apt-get purge -y --auto-remove \
-    build-essential pkg-config \
-    libavformat-dev libavcodec-dev libavdevice-dev \
-    libavutil-dev libavfilter-dev libswscale-dev libswresample-dev \
- && apt-get autoremove -y \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+# Não remover nada - manter todas as dependências instaladas
+# (ffmpeg precisa das bibliotecas libav* que foram instaladas com os pacotes -dev)
 
 # Copia código
 COPY app/ ./app/

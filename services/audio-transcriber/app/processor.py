@@ -113,7 +113,7 @@ class TranscriptionProcessor:
                             try:
                                 self._test_gpu()
                             except Exception:
-                                self.logger.warning("Falha no teste da GPU, trocando para CPU…")
+                                logger.warning("Falha no teste da GPU, trocando para CPU…")
                                 self.device = 'cpu'
                                 
                         # Carrega modelo

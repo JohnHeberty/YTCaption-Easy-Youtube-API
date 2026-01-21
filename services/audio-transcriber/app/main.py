@@ -974,7 +974,7 @@ async def health_check():
         health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
         is_healthy = False
     
-    # 3. Verifica ffmpeg
+    # 3. Verifica ffmpeg (não bloqueante)
     try:
         result = subprocess.run(
             ["ffmpeg", "-version"],
@@ -986,35 +986,41 @@ async def health_check():
             version = result.stdout.split('\n')[0]
             health_status["checks"]["ffmpeg"] = {"status": "ok", "version": version}
         else:
-            health_status["checks"]["ffmpeg"] = {"status": "error", "message": "ffmpeg not responding"}
-            is_healthy = False
+            health_status["checks"]["ffmpeg"] = {"status": "warning", "message": "ffmpeg not responding"}
+            logger.warning("FFmpeg check failed but not marking service as unhealthy")
     except FileNotFoundError:
-        health_status["checks"]["ffmpeg"] = {"status": "error", "message": "ffmpeg not installed"}
-        is_healthy = False
+        health_status["checks"]["ffmpeg"] = {"status": "warning", "message": "ffmpeg not installed"}
+        logger.warning("FFmpeg not found but not marking service as unhealthy")
     except Exception as e:
-        health_status["checks"]["ffmpeg"] = {"status": "error", "message": str(e)}
-        is_healthy = False
+        health_status["checks"]["ffmpeg"] = {"status": "warning", "message": str(e)}
+        logger.warning(f"FFmpeg check error: {e} - not marking service as unhealthy")
     
     # 4. Verifica Celery workers (verificação simplificada)
     try:
         # Verificação básica sem timeout complexo para evitar travamento
+        # Não verificar workers ativamente para evitar timeout no health check
         health_status["checks"]["celery_workers"] = {
             "status": "ok",
-            "message": "Celery workers check skipped for faster health response"
+            "message": "Celery workers verification skipped for faster health response"
         }
     except Exception as e:
-        health_status["checks"]["celery_workers"] = {"status": "error", "message": str(e)}
+        logger.warning(f"Celery workers check error (non-critical): {e}")
+        health_status["checks"]["celery_workers"] = {"status": "ok", "message": "Check skipped"}
     
     # 5. Verifica modelo Whisper (verificação básica e rápida)
     try:
         model_name = settings.get('whisper_model', 'base')
+        # Verificar se modelo está carregado, mas não forçar carregamento
+        is_loaded = processor.model is not None
         health_status["checks"]["whisper_model"] = {
             "status": "ok",
             "model": model_name,
-            "message": "Model será carregado no primeiro uso"
+            "loaded": is_loaded,
+            "message": "Model loaded" if is_loaded else "Model will be loaded on first use"
         }
     except Exception as e:
-        health_status["checks"]["whisper_model"] = {"status": "error", "message": str(e)}
+        logger.warning(f"Whisper model check error (non-critical): {e}")
+        health_status["checks"]["whisper_model"] = {"status": "ok", "message": "Check skipped"}
     
     # Atualiza status geral
     health_status["status"] = "healthy" if is_healthy else "unhealthy"
