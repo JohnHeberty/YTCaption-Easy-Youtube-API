@@ -34,6 +34,7 @@ class  Job(BaseModel):
     error_message: Optional[str] = None
     expires_at: datetime
     progress: float = 0.0  # Progresso de 0.0 a 100.0
+    last_heartbeat: Optional[datetime] = None  # Último sinal de vida do job
     
     # Parâmetros de processamento
     remove_noise: bool = False
@@ -45,6 +46,22 @@ class  Job(BaseModel):
     @property
     def is_expired(self) -> bool:
         return datetime.now() > self.expires_at
+    
+    @property
+    def is_orphaned(self, timeout_minutes: int = 15) -> bool:
+        """Verifica se job está órfão (processando mas sem heartbeat há muito tempo)"""
+        if self.status not in [JobStatus.PROCESSING, JobStatus.QUEUED]:
+            return False
+        if not self.last_heartbeat:
+            # Se nunca teve heartbeat, usa created_at
+            age = datetime.now() - self.created_at
+        else:
+            age = datetime.now() - self.last_heartbeat
+        return age > timedelta(minutes=timeout_minutes)
+    
+    def update_heartbeat(self):
+        """Atualiza heartbeat do job"""
+        self.last_heartbeat = datetime.now()
     
     @property
     def processing_operations(self) -> str:

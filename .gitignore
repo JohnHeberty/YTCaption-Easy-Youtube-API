@@ -16,6 +16,7 @@ test_output.txt
 *.srt
 *.ogg
 *.mp3
+*.mp4
 
 # Distribution / packaging
 .Python

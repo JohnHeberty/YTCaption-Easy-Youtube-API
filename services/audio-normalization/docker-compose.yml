@@ -29,6 +29,8 @@ services:
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      - NUMBA_DISABLE_JIT=0
       #- CELERY_BROKER_URL=redis://redis:6379/0
       - FORCE_CUDA=0
       - CUDA_VISIBLE_DEVICES=""
@@ -63,6 +65,8 @@ services:
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      - NUMBA_DISABLE_JIT=0
       #- CELERY_BROKER_URL=redis://redis:6379/0
       - FORCE_CUDA=0
       - CUDA_VISIBLE_DEVICES=""
