@@ -7,18 +7,26 @@ from pathlib import Path
 from typing import List
 import logging
 
+# Common library imports
+from common.logging import setup_structured_logging, get_logger
+from common.exceptions import setup_exception_handlers
+
 from .models import Job, JobRequest, JobStatus
 from .downloader import SimpleDownloader
 from .redis_store import RedisJobStore
 from .celery_tasks import download_video_task
-from .logging_config import setup_logging
 from .exceptions import VideoDownloadException, ServiceException, exception_handler
 from .config import get_settings
 
 # Configuração de logging
-setup_logging()
-logger = logging.getLogger(__name__)
 settings = get_settings()
+setup_structured_logging(
+    service_name="video-downloader",
+    log_level=settings.get('log_level', 'INFO'),
+    log_dir=settings.get('log_dir', './logs'),
+    json_format=True
+)
+logger = get_logger(__name__)
 
 # Instâncias globais
 app = FastAPI(
@@ -27,7 +35,10 @@ app = FastAPI(
     version="3.0.0"
 )
 
-# Exception handlers
+# Setup exception handlers
+setup_exception_handlers(app, debug=settings.get('debug', False))
+
+# Exception handlers - mantidos para compatibilidade
 app.add_exception_handler(VideoDownloadException, exception_handler)
 app.add_exception_handler(ServiceException, exception_handler)
 

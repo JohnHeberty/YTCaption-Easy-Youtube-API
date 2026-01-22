@@ -7,16 +7,24 @@ from pathlib import Path
 from typing import List, Optional
 import logging
 
+# Common library imports
+from common.logging import setup_structured_logging, get_logger
+from common.exceptions import setup_exception_handlers
+
 from .models import Job, AudioProcessingRequest, JobStatus
 from .processor import AudioProcessor
 from .redis_store import RedisJobStore
 from .config import get_settings
-from .logging_config import setup_logging, get_logger
 from .exceptions import AudioProcessingError
 
 # Configuração inicial
 settings = get_settings()
-setup_logging("audio-normalization", settings['log_level'])
+setup_structured_logging(
+    service_name="audio-normalization",
+    log_level=settings['log_level'],
+    log_dir=settings['log_dir'],
+    json_format=(settings.get('log_format', 'json') == 'json')
+)
 logger = get_logger(__name__)
 
 # Instâncias globais
@@ -25,6 +33,9 @@ app = FastAPI(
     description="Microserviço para normalização de áudio com cache de 24h",
     version="2.0.0"
 )
+
+# Setup exception handlers
+setup_exception_handlers(app, debug=settings.get('debug', False))
 
 # Configurar limite de body size baseado no settings
 from starlette.middleware.base import BaseHTTPMiddleware

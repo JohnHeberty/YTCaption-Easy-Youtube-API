@@ -4,50 +4,45 @@ import os
 import logging
 from typing import Optional, List
 from datetime import datetime
-from redis import Redis
+
+# Use resilient Redis from common library
+from common.redis import ResilientRedisStore
+
 from .models import Job
 
 logger = logging.getLogger(__name__)
 
 
 class RedisJobStore:
-    """Store compartilhado de jobs usando Redis"""
+    """Store compartilhado de jobs usando Redis (com resiliência)"""
     
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
         """
-        Inicializa store com Redis
+        Inicializa store com Redis resiliente
         
         Args:
             redis_url: URL de conexão do Redis
         """
-        self.redis = Redis.from_url(redis_url, decode_responses=True, 
-                                    socket_connect_timeout=5, 
-                                    socket_timeout=5,
-                                    retry_on_timeout=True)
+        # Usa ResilientRedisStore da biblioteca comum
+        self.redis_client = ResilientRedisStore(
+            redis_url=redis_url,
+            max_connections=50,
+            circuit_breaker_enabled=True,
+            circuit_breaker_max_failures=int(os.getenv('REDIS_CIRCUIT_BREAKER_MAX_FAILURES', '5')),
+            circuit_breaker_timeout=int(os.getenv('REDIS_CIRCUIT_BREAKER_TIMEOUT', '60'))
+        )
+        
+        # Mantém interface compatível
+        self.redis = self.redis_client.redis
         self._cleanup_task: Optional[asyncio.Task] = None
         
         # Lê configurações de cache das variáveis de ambiente
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CLEANUP_INTERVAL_MINUTES', '30'))
         
-        # Testa conexão com retry
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                self.redis.ping()
-                logger.info("✅ Redis conectado: %s", redis_url)
-                logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
-                           self.cache_ttl_hours, self.cleanup_interval_minutes)
-                break
-            except Exception as exc:
-                if attempt < max_retries - 1:
-                    import time
-                    wait_time = 2 ** attempt
-                    logger.warning(f"⚠️ Tentativa {attempt + 1}/{max_retries} falhou, aguardando {wait_time}s...")
-                    time.sleep(wait_time)
-                else:
-                    logger.error("❌ Erro ao conectar Redis após %d tentativas: %s", max_retries, exc)
-                    raise
+        logger.info("✅ Redis conectado com resiliência: %s", redis_url)
+        logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
+                   self.cache_ttl_hours, self.cleanup_interval_minutes)
     
     def _job_key(self, job_id: str) -> str:
         """Gera chave Redis para job"""

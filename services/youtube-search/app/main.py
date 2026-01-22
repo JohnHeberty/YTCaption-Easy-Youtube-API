@@ -8,11 +8,14 @@ from pathlib import Path
 from typing import List
 import logging
 
+# Common library imports
+from common.logging import setup_structured_logging, get_logger
+from common.exceptions import setup_exception_handlers
+
 from .models import Job, SearchRequest, JobStatus, SearchType, JobListResponse
 from .processor import YouTubeSearchProcessor
 from .redis_store import RedisJobStore
 from .celery_tasks import youtube_search_task
-from .logging_config import setup_logging, get_logger
 from .exceptions import (
     YouTubeSearchException, 
     ServiceException, 
@@ -23,7 +26,12 @@ from .config import get_settings
 
 # Configuration
 settings = get_settings()
-setup_logging("youtube-search", settings['log_level'])
+setup_structured_logging(
+    service_name="youtube-search",
+    log_level=settings['log_level'],
+    log_dir=settings.get('log_dir', './logs'),
+    json_format=True
+)
 logger = get_logger(__name__)
 
 # Global instances
@@ -33,7 +41,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Exception handlers
+# Setup exception handlers from common library
+setup_exception_handlers(app, debug=settings.get('debug', False))
+
+# Exception handlers - mantidos para compatibilidade
 app.add_exception_handler(YouTubeSearchException, exception_handler)
 app.add_exception_handler(ServiceException, exception_handler)
 app.add_exception_handler(InvalidRequestError, exception_handler)
