@@ -141,9 +141,17 @@ async def create_audio_job(
         
         logger.info(f"Recebido request para processar: {file.filename}")
         
-        # Converte strings form-data para boolean
+        # Converte strings form-data para boolean com validação
         def str_to_bool(value: str) -> bool:
-            return value.lower() in ('true', '1', 'yes', 'on')
+            if not isinstance(value, str):
+                raise HTTPException(status_code=400, detail=f"Invalid parameter type: expected string, got {type(value).__name__}")
+            value_lower = value.lower().strip()
+            if value_lower in ('true', '1', 'yes', 'on'):
+                return True
+            elif value_lower in ('false', '0', 'no', 'off', ''):
+                return False
+            else:
+                raise HTTPException(status_code=400, detail=f"Invalid boolean value: '{value}'. Use 'true' or 'false'")
         
         remove_noise_bool = str_to_bool(remove_noise)
         convert_to_mono_bool = str_to_bool(convert_to_mono)
@@ -151,10 +159,7 @@ async def create_audio_job(
         set_sample_rate_16k_bool = str_to_bool(set_sample_rate_16k)
         isolate_vocals_bool = str_to_bool(isolate_vocals)
         
-        logger.info(f"🔍 DEBUG Parâmetros convertidos:")
-        logger.info(f"  remove_noise: '{remove_noise}' -> {remove_noise_bool}")
-        logger.info(f"  apply_highpass_filter: '{apply_highpass_filter}' -> {apply_highpass_filter_bool}")
-        logger.info(f"  isolate_vocals: '{isolate_vocals}' -> {isolate_vocals_bool}")
+        logger.debug(f"Parâmetros: noise={remove_noise_bool}, highpass={apply_highpass_filter_bool}, vocals={isolate_vocals_bool}")
         
         # Detecta extensão do arquivo original para manter formato
         original_extension = Path(file.filename).suffix if file.filename else ".tmp"
@@ -250,7 +255,14 @@ async def create_audio_job(
             logger.error(f"Erro ao criar diretório: {e}")
             raise HTTPException(status_code=500, detail="Erro ao criar diretório de upload")
         
-        file_path = upload_dir / f"{new_job.id}{original_extension}"
+        # Sanitiza job ID para evitar path traversal
+        import re
+        safe_job_id = re.sub(r'[^a-zA-Z0-9_-]', '', new_job.id[:255])
+        if not safe_job_id or safe_job_id != new_job.id:
+            logger.error(f"Job ID inválido detectado: {new_job.id}")
+            raise HTTPException(status_code=500, detail="Invalid job ID generated")
+        
+        file_path = upload_dir / f"{safe_job_id}{original_extension}"
         try:
             with open(file_path, "wb") as f:
                 f.write(content)
@@ -302,7 +314,12 @@ async def get_job_status(job_id: str):
         logger.error("❌ Job ID vazio ou inválido")
         raise HTTPException(status_code=400, detail="Job ID inválido")
     
+    # Sanitiza job_id para segurança
+    import re
     job_id = job_id.strip()
+    if not re.match(r'^[a-zA-Z0-9_-]{1,255}$', job_id):
+        logger.error(f"❌ Job ID com formato inválido: {job_id}")
+        raise HTTPException(status_code=400, detail="Job ID formato inválido")
     logger.info(f"🔍 Consultando status do job: {job_id}")
     
     try:

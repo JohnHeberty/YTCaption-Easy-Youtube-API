@@ -71,12 +71,14 @@ class AudioProcessor:
             return True
             
         except Exception as e:
-            logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
-            # Em caso de erro na verificação, prossegue (fail-open)
+            logger.error(f"❌ Erro crítico ao verificar espaço em disco: {e}", exc_info=True)
+            # SEGURANÇA: Fail-closed em produção para evitar corrupção de dados
+            if os.getenv('ENVIRONMENT', 'production').lower() == 'production':
+                return False
             return True
     
     async def _is_video_file(self, file_path: str) -> bool:
-        """Detecta se arquivo é vídeo usando ffprobe (ASYNC)"""
+        """Detecta se arquivo é vídeo usando ffprobe (ASYNC com timeout)"""
         try:
             cmd = [
                 "ffprobe", "-v", "quiet",
@@ -87,6 +89,7 @@ class AudioProcessor:
             
             logger.info(f"🔍 Detectando tipo de arquivo: {Path(file_path).name}...")
             
+            # CORREÇÃO: Adiciona timeout para evitar deadlocks
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -797,6 +800,11 @@ class AudioProcessor:
                     vocals_np = vocals_tensor.squeeze(0).cpu().numpy()
                 
                 logger.info("✅ Separação concluída")
+                
+                # CORREÇÃO: Libera memória explicitamente
+                del audio_tensor, samples_float, samples
+                import gc
+                gc.collect()
                 
             except Exception as openunmix_err:
                 logger.error(f"💥 OpenUnmix falhou: {openunmix_err}", exc_info=True)

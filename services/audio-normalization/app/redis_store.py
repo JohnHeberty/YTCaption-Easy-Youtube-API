@@ -20,22 +20,34 @@ class RedisJobStore:
         Args:
             redis_url: URL de conexão do Redis
         """
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
+        self.redis = Redis.from_url(redis_url, decode_responses=True, 
+                                    socket_connect_timeout=5, 
+                                    socket_timeout=5,
+                                    retry_on_timeout=True)
         self._cleanup_task: Optional[asyncio.Task] = None
         
         # Lê configurações de cache das variáveis de ambiente
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CLEANUP_INTERVAL_MINUTES', '30'))
         
-        # Testa conexão
-        try:
-            self.redis.ping()
-            logger.info("✅ Redis conectado: %s", redis_url)
-            logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
-                       self.cache_ttl_hours, self.cleanup_interval_minutes)
-        except Exception as exc:
-            logger.error("❌ Erro ao conectar Redis: %s", exc)
-            raise
+        # Testa conexão com retry
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self.redis.ping()
+                logger.info("✅ Redis conectado: %s", redis_url)
+                logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
+                           self.cache_ttl_hours, self.cleanup_interval_minutes)
+                break
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    import time
+                    wait_time = 2 ** attempt
+                    logger.warning(f"⚠️ Tentativa {attempt + 1}/{max_retries} falhou, aguardando {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error("❌ Erro ao conectar Redis após %d tentativas: %s", max_retries, exc)
+                    raise
     
     def _job_key(self, job_id: str) -> str:
         """Gera chave Redis para job"""
@@ -94,8 +106,17 @@ class RedisJobStore:
             return None
     
     def update_job(self, job: Job) -> None:
-        """Atualiza job existente"""
-        self.save_job(job)  # Redis permite sobrescrever
+        """Atualiza job existente de forma atômica"""
+        # CORREÇÃO: Usa pipeline para operação atômica
+        key = self._job_key(job.id)
+        data = self._serialize_job(job)
+        ttl_seconds = self.cache_ttl_hours * 3600
+        
+        # Pipeline garante atomicidade
+        pipe = self.redis.pipeline()
+        pipe.setex(key, ttl_seconds, data)
+        pipe.execute()
+        logger.debug(f"📝 Job atualizado atomicamente: {job.id}")
     
     def list_jobs(self, limit: int = 50) -> List[Job]:
         """Lista jobs recentes"""
