@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instala dependências do sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copia biblioteca common primeiro
+COPY common/ /app/common/
+
+# Copia requirements (sem -e ../common) e instala
+COPY orchestrator/requirements-docker.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Instala common library
+RUN cd /app/common && pip install --no-cache-dir .
+
+# Copia código do orchestrator
+COPY orchestrator/ /app/
+
+# Cria diretórios
+RUN mkdir -p /app/logs /app/artifacts
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["python", "run.py"]

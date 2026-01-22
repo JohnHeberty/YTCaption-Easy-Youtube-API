@@ -55,11 +55,11 @@ test_service_docker() {
     
     # Para qualquer container existente
     echo "  Limpando containers anteriores..."
-    docker-compose down -v > /dev/null 2>&1 || true
+    docker compose down -v > /dev/null 2>&1 || true
     
     # Tenta fazer build
     echo "  Fazendo build da imagem..."
-    if ! docker-compose build > /dev/null 2>&1; then
+    if ! docker compose build > /dev/null 2>&1; then
         echo -e "${RED}❌ FALHOU: Erro no build${NC}"
         echo ""
         return 1
@@ -68,7 +68,7 @@ test_service_docker() {
     
     # Tenta subir o serviço
     echo "  Iniciando serviço..."
-    if ! docker-compose up -d > /dev/null 2>&1; then
+    if ! docker compose up -d > /dev/null 2>&1; then
         echo -e "${RED}❌ FALHOU: Erro ao iniciar${NC}"
         echo ""
         return 1
@@ -80,16 +80,16 @@ test_service_docker() {
     
     # Verifica logs para erros críticos
     echo "  Verificando logs..."
-    if docker-compose logs | grep -i "error\|exception\|failed" | grep -v "ERROR_THRESHOLD\|redis.*error" > /dev/null 2>&1; then
+    if docker compose logs | grep -i "error\|exception\|failed" | grep -v "ERROR_THRESHOLD\|redis.*error" > /dev/null 2>&1; then
         echo -e "${YELLOW}  ⚠ Avisos/erros encontrados nos logs (verificar manualmente)${NC}"
-        docker-compose logs | grep -i "error\|exception\|failed" | head -5
+        docker compose logs | grep -i "error\|exception\|failed" | head -5
     fi
     
     # Verifica se está rodando
-    if ! docker-compose ps | grep -q "Up"; then
+    if ! docker compose ps | grep -q "Up"; then
         echo -e "${RED}❌ FALHOU: Container não está rodando${NC}"
-        docker-compose logs | tail -20
-        docker-compose down -v > /dev/null 2>&1
+        docker compose logs | tail -20
+        docker compose down -v > /dev/null 2>&1
         echo ""
         return 1
     fi
@@ -99,19 +99,19 @@ test_service_docker() {
     if [ ! -z "$port" ]; then
         if check_service "$service_name" "$port"; then
             echo -e "${GREEN}✅ PASSOU: $service_name${NC}"
-            docker-compose down -v > /dev/null 2>&1
+            docker compose down -v > /dev/null 2>&1
             echo ""
             return 0
         else
             echo -e "${YELLOW}⚠️  PARCIAL: Container rodando mas health não responde${NC}"
-            docker-compose logs | tail -10
-            docker-compose down -v > /dev/null 2>&1
+            docker compose logs | tail -10
+            docker compose down -v > /dev/null 2>&1
             echo ""
             return 2
         fi
     else
         echo -e "${GREEN}✅ PASSOU: $service_name (sem health check)${NC}"
-        docker-compose down -v > /dev/null 2>&1
+        docker compose down -v > /dev/null 2>&1
         echo ""
         return 0
     fi
