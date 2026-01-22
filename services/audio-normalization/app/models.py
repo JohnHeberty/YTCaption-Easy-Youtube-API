@@ -89,13 +89,12 @@ class  Job(BaseModel):
         set_sample_rate_16k: bool = False,
         isolate_vocals: bool = False
     ) -> "Job":
-        # DEBUG: Log dos parâmetros recebidos
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🔍 DEBUG Job.create_new - filename: {filename}")
-        logger.info(f"🔍 DEBUG Job.create_new - remove_noise: {remove_noise}")
-        logger.info(f"🔍 DEBUG Job.create_new - apply_highpass_filter: {apply_highpass_filter}")
-        logger.info(f"🔍 DEBUG Job.create_new - isolate_vocals: {isolate_vocals}")
+        
+        # Validação de entrada
+        if not filename or not isinstance(filename, str):
+            raise ValueError("Filename must be a non-empty string")
         
         # Calcula hash ÚNICO do arquivo + operações + timestamp
         # Isso garante que cada job tenha ID único, evitando colisões de cache

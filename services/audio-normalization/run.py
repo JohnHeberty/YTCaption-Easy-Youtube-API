@@ -19,10 +19,9 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=port,
-        reload=True,
+        reload=False,  # CORRIGIDO: Desabilita reload em produção
         log_level="info",
         # Configurações para arquivos grandes
         limit_max_requests=1000,
         limit_concurrency=100,
-        # uvicorn não tem limite de body size próprio, isso é gerenciado pelo FastAPI/Starlette
     )
