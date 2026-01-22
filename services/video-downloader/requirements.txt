@@ -7,7 +7,7 @@ python-multipart==0.0.6
 # aiofiles==23.2.1 - removido, não utilizado
 
 # === COMMON LIBRARY ===
--e ../../common
+-e ./common
 
 # === REDIS & STORAGE ===
 celery==5.3.4

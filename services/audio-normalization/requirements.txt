@@ -6,7 +6,7 @@ pydantic-settings==2.11.0
 python-multipart==0.0.20
 
 # === COMMON LIBRARY ===
--e ../../common
+-e ./common
 
 # === REDIS & STORAGE ===
 celery==5.3.4
