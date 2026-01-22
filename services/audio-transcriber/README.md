@@ -76,14 +76,14 @@ $form = @{
     convert_to_mono = "true"
 }
 
-$response = Invoke-RestMethod -Method Post -Uri "http://localhost:8001/normalize" -Form $form
+$response = Invoke-RestMethod -Method Post -Uri "http://localhost:8002/normalize" -Form $form
 $jobId = $response.id
 
 # Ver progresso
-Invoke-RestMethod -Uri "http://localhost:8001/jobs/$jobId"
+Invoke-RestMethod -Uri "http://localhost:8002/jobs/$jobId"
 
 # Download do resultado
-Invoke-WebRequest -Uri "http://localhost:8001/jobs/$jobId/download" -OutFile "audio_normalized.mp3"
+Invoke-WebRequest -Uri "http://localhost:8002/jobs/$jobId/download" -OutFile "audio_normalized.mp3"
 ```
 
 ### Testar Sistema de Cache

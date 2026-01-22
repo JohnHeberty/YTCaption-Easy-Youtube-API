@@ -4,7 +4,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import logging
 
 from .models import Job, AudioProcessingRequest, JobStatus
@@ -108,11 +108,11 @@ def submit_processing_task(job: Job):
 async def create_audio_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    remove_noise: str = Form("false"),
-    convert_to_mono: str = Form("false"),
-    apply_highpass_filter: str = Form("false"),
-    set_sample_rate_16k: str = Form("false"),
-    isolate_vocals: str = Form("false")
+    remove_noise: Optional[str] = Form(default="false"),
+    convert_to_mono: Optional[str] = Form(default="false"),
+    apply_highpass_filter: Optional[str] = Form(default="false"),
+    set_sample_rate_16k: Optional[str] = Form(default="false"),
+    isolate_vocals: Optional[str] = Form(default="false")
 ) -> Job:
     """
     Cria um novo job de processamento de áudio
@@ -141,9 +141,17 @@ async def create_audio_job(
         
         logger.info(f"Recebido request para processar: {file.filename}")
         
-        # Converte strings form-data para boolean
+        # Converte strings form-data para boolean com validação
         def str_to_bool(value: str) -> bool:
-            return value.lower() in ('true', '1', 'yes', 'on')
+            if not isinstance(value, str):
+                raise HTTPException(status_code=400, detail=f"Invalid parameter type: expected string, got {type(value).__name__}")
+            value_lower = value.lower().strip()
+            if value_lower in ('true', '1', 'yes', 'on'):
+                return True
+            elif value_lower in ('false', '0', 'no', 'off', ''):
+                return False
+            else:
+                raise HTTPException(status_code=400, detail=f"Invalid boolean value: '{value}'. Use 'true' or 'false'")
         
         remove_noise_bool = str_to_bool(remove_noise)
         convert_to_mono_bool = str_to_bool(convert_to_mono)
@@ -151,10 +159,7 @@ async def create_audio_job(
         set_sample_rate_16k_bool = str_to_bool(set_sample_rate_16k)
         isolate_vocals_bool = str_to_bool(isolate_vocals)
         
-        logger.info(f"🔍 DEBUG Parâmetros convertidos:")
-        logger.info(f"  remove_noise: '{remove_noise}' -> {remove_noise_bool}")
-        logger.info(f"  apply_highpass_filter: '{apply_highpass_filter}' -> {apply_highpass_filter_bool}")
-        logger.info(f"  isolate_vocals: '{isolate_vocals}' -> {isolate_vocals_bool}")
+        logger.debug(f"Parâmetros: noise={remove_noise_bool}, highpass={apply_highpass_filter_bool}, vocals={isolate_vocals_bool}")
         
         # Detecta extensão do arquivo original para manter formato
         original_extension = Path(file.filename).suffix if file.filename else ".tmp"
@@ -250,7 +255,14 @@ async def create_audio_job(
             logger.error(f"Erro ao criar diretório: {e}")
             raise HTTPException(status_code=500, detail="Erro ao criar diretório de upload")
         
-        file_path = upload_dir / f"{new_job.id}{original_extension}"
+        # Sanitiza job ID para evitar path traversal
+        import re
+        safe_job_id = re.sub(r'[^a-zA-Z0-9_-]', '', new_job.id[:255])
+        if not safe_job_id or safe_job_id != new_job.id:
+            logger.error(f"Job ID inválido detectado: {new_job.id}")
+            raise HTTPException(status_code=500, detail="Invalid job ID generated")
+        
+        file_path = upload_dir / f"{safe_job_id}{original_extension}"
         try:
             with open(file_path, "wb") as f:
                 f.write(content)
@@ -302,7 +314,12 @@ async def get_job_status(job_id: str):
         logger.error("❌ Job ID vazio ou inválido")
         raise HTTPException(status_code=400, detail="Job ID inválido")
     
+    # Sanitiza job_id para segurança
+    import re
     job_id = job_id.strip()
+    if not re.match(r'^[a-zA-Z0-9_-]{1,255}$', job_id):
+        logger.error(f"❌ Job ID com formato inválido: {job_id}")
+        raise HTTPException(status_code=400, detail="Job ID formato inválido")
     logger.info(f"🔍 Consultando status do job: {job_id}")
     
     try:
@@ -546,6 +563,39 @@ async def download_file(job_id: str):
         filename=f"normalized_{job_id}.wav",
         media_type='application/octet-stream'
     )
+
+
+@app.post("/jobs/{job_id}/heartbeat")
+async def update_heartbeat(job_id: str):
+    """
+    🔄 Endpoint SIMPLIFICADO para atualizar heartbeat do job
+    
+    Permite que jobs de longa duração sinalizem que ainda estão vivos.
+    Previne que jobs sejam marcados como órfãos.
+    """
+    try:
+        job = job_store.get_job(job_id)
+        
+        if not job:
+            raise HTTPException(status_code=404, detail="Job não encontrado")
+        
+        # Atualiza heartbeat
+        job.update_heartbeat()
+        job_store.update_job(job)
+        
+        logger.debug(f"💓 Heartbeat atualizado para job {job_id}")
+        
+        return {
+            "id": job_id,
+            "status": "ok",
+            "last_heartbeat": job.last_heartbeat
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao atualizar heartbeat do job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao atualizar heartbeat: {str(e)}")
 
 
 @app.get("/jobs", response_model=List[Job])
@@ -1042,3 +1092,96 @@ async def health_check():
     status_code = 200 if is_healthy else 503
     
     return JSONResponse(content=health_status, status_code=status_code)
+
+@app.get("/jobs/orphaned")
+async def list_orphaned_jobs():
+    """
+    🔍 Lista jobs órfãos (processando sem heartbeat há muito tempo)
+    
+    Útil para debug e monitoramento de jobs travados
+    """
+    try:
+        from .config import get_settings
+        settings = get_settings()
+        timeout_minutes = settings.get('timeouts', {}).get('job_orphan_timeout_minutes', 15)
+        
+        all_jobs = job_store.list_jobs(limit=200)
+        orphaned_jobs = []
+        
+        for job in all_jobs:
+            if job.status in [JobStatus.PROCESSING, JobStatus.QUEUED]:
+                # Verifica se está órfão
+                if not job.last_heartbeat:
+                    age = datetime.now() - job.created_at
+                else:
+                    age = datetime.now() - job.last_heartbeat
+                
+                if age > timedelta(minutes=timeout_minutes):
+                    orphaned_jobs.append({
+                        "id": job.id,
+                        "status": str(job.status),
+                        "created_at": job.created_at.isoformat(),
+                        "last_heartbeat": job.last_heartbeat.isoformat() if job.last_heartbeat else None,
+                        "age_minutes": int(age.total_seconds() / 60),
+                        "filename": job.filename,
+                        "progress": job.progress
+                    })
+        
+        return {
+            "orphaned_count": len(orphaned_jobs),
+            "timeout_minutes": timeout_minutes,
+            "jobs": orphaned_jobs
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao listar jobs órfãos: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar jobs órfãos: {str(e)}")
+
+
+@app.post("/jobs/orphaned/cleanup")
+async def cleanup_orphaned_jobs():
+    """
+    🧹 Limpa jobs órfãos (marca como failed)
+    
+    Jobs órfãos são marcados como failed para permitir reprocessamento
+    """
+    try:
+        from .config import get_settings
+        settings = get_settings()
+        timeout_minutes = settings.get('timeouts', {}).get('job_orphan_timeout_minutes', 15)
+        
+        all_jobs = job_store.list_jobs(limit=200)
+        cleaned_jobs = []
+        
+        for job in all_jobs:
+            if job.status in [JobStatus.PROCESSING, JobStatus.QUEUED]:
+                # Verifica se está órfão
+                if not job.last_heartbeat:
+                    age = datetime.now() - job.created_at
+                else:
+                    age = datetime.now() - job.last_heartbeat
+                
+                if age > timedelta(minutes=timeout_minutes):
+                    # Marca como failed
+                    job.status = JobStatus.FAILED
+                    job.error_message = f"Job órfão detectado após {int(age.total_seconds() / 60)}min sem heartbeat"
+                    job.progress = 0.0
+                    job_store.update_job(job)
+                    
+                    cleaned_jobs.append({
+                        "id": job.id,
+                        "age_minutes": int(age.total_seconds() / 60),
+                        "filename": job.filename
+                    })
+                    
+                    logger.info(f"🧹 Job órfão {job.id} marcado como failed")
+        
+        return {
+            "cleaned_count": len(cleaned_jobs),
+            "timeout_minutes": timeout_minutes,
+            "jobs": cleaned_jobs
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao limpar jobs órfãos: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao limpar jobs órfãos: {str(e)}")

@@ -50,14 +50,14 @@ $form = @{
     convert_to_mono = "true"
 }
 
-$response = Invoke-RestMethod -Method Post -Uri "http://localhost:8001/normalize" -Form $form
+$response = Invoke-RestMethod -Method Post -Uri "http://localhost:8002/normalize" -Form $form
 $jobId = $response.id
 
 # Ver progresso
-Invoke-RestMethod -Uri "http://localhost:8001/jobs/$jobId"
+Invoke-RestMethod -Uri "http://localhost:8002/jobs/$jobId"
 
 # Download do resultado
-Invoke-WebRequest -Uri "http://localhost:8001/jobs/$jobId/download" -OutFile "audio_normalized.mp3"
+Invoke-WebRequest -Uri "http://localhost:8002/jobs/$jobId/download" -OutFile "audio_normalized.mp3"
 ```
 
 ### Testar Sistema de Cache
@@ -114,7 +114,7 @@ REDIS_URL=redis://localhost:6379/0
 ```
 ┌─────────────┐
 │   FastAPI   │ ─── Submete jobs ───┐
-│   (8001)    │                      │
+│   (8002)    │                      │
 └─────────────┘                      ▼
                               ┌─────────────┐
                               │    Redis    │
@@ -150,5 +150,5 @@ REDIS_URL=redis://localhost:6379/0
 
 ## 🔐 Portas
 
-- **8001** - API REST
+- **8002** - API REST
 - **6380** - Redis (mapeado do 6379 interno)

@@ -18,7 +18,7 @@ O **Audio Normalization** é responsável por processar e normalizar arquivos de
 ```bash
 # Servidor
 HOST=0.0.0.0
-PORT=8001
+PORT=8002
 
 # Redis
 REDIS_URL=redis://localhost:6379/1
@@ -405,4 +405,4 @@ services/audio-normalization/
 
 ---
 
-**Porta**: 8001 | **Versão**: 2.0.0 | **Tech**: FastAPI + FFmpeg + Redis
+**Porta**: 8002 | **Versão**: 2.0.0 | **Tech**: FastAPI + FFmpeg + Redis
