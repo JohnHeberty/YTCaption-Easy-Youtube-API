@@ -1,9 +1,11 @@
 """
 API principal do orquestrador
 """
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timedelta
@@ -11,6 +13,7 @@ from typing import Optional
 from pathlib import Path
 import json
 import asyncio
+import sys
 
 from modules.models import (
     PipelineRequest,
@@ -20,42 +23,138 @@ from modules.models import (
     PipelineStatus,
     HealthResponse
 )
-from modules.orchestrator import PipelineOrchestrator
+from modules.orchestrator import PipelineOrchestrator, MicroserviceClient
 from modules.redis_store import get_store
 from modules.config import get_orchestrator_settings
 
-# Configuração de logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configuração de logging estruturado
+def setup_logging():
+    """Setup de logging melhorado"""
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
+    
+    # Remove handlers existentes
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_formatter)
+    logger.addHandler(console_handler)
+    
+    # File handler
+    log_dir = Path("./orchestrator/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    
+    from logging.handlers import RotatingFileHandler
+    file_handler = RotatingFileHandler(
+        log_dir / "orchestrator.log",
+        maxBytes=50*1024*1024,  # 50MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_formatter)
+    logger.addHandler(file_handler)
+
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Variáveis globais
 orchestrator: Optional[PipelineOrchestrator] = None
 redis_store = None
+app_start_time = datetime.now()
+
+
+async def validate_configuration():
+    """
+    Valida configuração crítica no startup.
+    Garante que todos os serviços essenciais estão acessíveis.
+    """
+    logger.info("🔍 Validating configuration...")
+    
+    # Valida Redis
+    if not redis_store:
+        raise RuntimeError("Redis store not initialized")
+    
+    if not redis_store.ping():
+        raise RuntimeError("❌ Redis not accessible - cannot start service")
+    
+    logger.info("✅ Redis connection validated")
+    
+    # Valida microserviços (warnings apenas, não bloqueia startup)
+    services_to_check = ["video-downloader", "audio-normalization", "audio-transcriber"]
+    
+    for service_name in services_to_check:
+        try:
+            client = MicroserviceClient(service_name)
+            health = await client.check_health()
+            
+            if health.get("status") == "healthy":
+                logger.info(f"✅ {service_name} is healthy")
+            else:
+                logger.warning(f"⚠️  {service_name} is not healthy: {health}")
+        except Exception as e:
+            logger.warning(f"⚠️  Failed to check {service_name} health: {e}")
+    
+    logger.info("✅ Configuration validation complete")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle da aplicação"""
-    global orchestrator, redis_store
+    """Lifecycle da aplicação com validação"""
+    global orchestrator, redis_store, app_start_time
     
     # Startup
-    logger.info("Starting orchestrator API...")
+    logger.info("=" * 60)
+    logger.info("🚀 Starting YouTube Caption Orchestrator API")
+    logger.info("=" * 60)
     
     try:
+        # Inicializa Redis store
         redis_store = get_store()
+        logger.info("✅ Redis store initialized")
+        
+        # Inicializa orchestrator
         orchestrator = PipelineOrchestrator(redis_store=redis_store)
-        logger.info("Orchestrator initialized successfully")
+        logger.info("✅ Orchestrator initialized")
+        
+        # Valida configuração
+        await validate_configuration()
+        
+        app_start_time = datetime.now()
+        logger.info("=" * 60)
+        logger.info("✅ Orchestrator API started successfully")
+        logger.info("=" * 60)
+        
     except Exception as e:
-        logger.error(f"Failed to initialize orchestrator: {str(e)}")
+        logger.critical(f"❌ Failed to initialize orchestrator: {str(e)}", exc_info=True)
         raise
     
     yield
     
     # Shutdown
-    logger.info("Shutting down orchestrator API...")
+    logger.info("=" * 60)
+    logger.info("🛑 Shutting down Orchestrator API...")
+    logger.info("=" * 60)
+    
+    try:
+        # Cleanup se necessário
+        if redis_store:
+            logger.info("Closing Redis connections...")
+        
+        logger.info("✅ Shutdown complete")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}", exc_info=True)
 
 
 # Configuração da aplicação
@@ -67,6 +166,97 @@ app = FastAPI(
     version=settings["app_version"],
     lifespan=lifespan
 )
+
+# ==========================================
+# EXCEPTION HANDLERS GLOBAIS
+# ==========================================
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handler para erros de validação do Pydantic"""
+    logger.warning(
+        f"Validation error on {request.method} {request.url.path}",
+        extra={'errors': exc.errors()}
+    )
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": "VALIDATION_ERROR",
+            "message": "Request validation failed",
+            "details": exc.errors()
+        }
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """Handler para HTTP exceptions do Starlette"""
+    logger.warning(
+        f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}"
+    )
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": "HTTP_ERROR",
+            "message": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
+
+
+@app.exception_handler(HTTPException)
+async def fastapi_http_exception_handler(request: Request, exc: HTTPException):
+    """Handler para HTTP exceptions do FastAPI"""
+    logger.warning(
+        f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}"
+    )
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": "HTTP_ERROR",
+            "message": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Handler global para exceções não tratadas.
+    Garante que stack traces não sejam expostos em produção.
+    """
+    logger.critical(
+        f"Unhandled exception on {request.method} {request.url.path}",
+        exc_info=True,
+        extra={
+            'exception_type': type(exc).__name__,
+            'exception_message': str(exc)
+        }
+    )
+    
+    response_data = {
+        "error": "INTERNAL_ERROR",
+        "message": "An unexpected error occurred. Please contact support if the problem persists."
+    }
+    
+    # Em modo debug, inclui detalhes (APENAS DESENVOLVIMENTO)
+    if settings.get("debug", False):
+        response_data["debug_info"] = {
+            "exception_type": type(exc).__name__,
+            "exception_message": str(exc)
+        }
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=response_data
+    )
+
+
+logger.info("✅ Exception handlers configured")
 
 # CORS
 app.add_middleware(
@@ -96,31 +286,67 @@ async def root():
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
-    """Verifica saúde do orquestrador e microserviços"""
+    """
+    Verifica saúde do orquestrador e microserviços.
+    
+    Retorna:
+    - Status geral do serviço
+    - Uptime
+    - Status do Redis
+    - Status de cada microserviço
+    """
     try:
+        # Calcula uptime
+        uptime = (datetime.now() - app_start_time).total_seconds()
+        
         # Verifica Redis
-        redis_ok = redis_store.ping() if redis_store else False
+        redis_ok = False
+        if redis_store:
+            try:
+                redis_ok = redis_store.ping()
+            except Exception as e:
+                logger.error(f"Redis health check failed: {e}")
         
         # Verifica microserviços
         microservices_status = {}
         if orchestrator:
-            microservices_status = await orchestrator.check_services_health()
+            try:
+                microservices_status = await orchestrator.check_services_health()
+            except Exception as e:
+                logger.error(f"Failed to check microservices health: {e}")
+                microservices_status = {
+                    "error": str(e)
+                }
         
-        # Status geral
+        # Determina status geral
         all_healthy = redis_ok and all(
-            status == "healthy" for status in microservices_status.values()
+            status == "healthy" 
+            for status in microservices_status.values()
+            if isinstance(status, str)
         )
         
+        overall_status = "healthy" if all_healthy else "degraded"
+        
+        # Se Redis falhou, é unhealthy
+        if not redis_ok:
+            overall_status = "unhealthy"
+        
         return HealthResponse(
-            status="healthy" if all_healthy else "degraded",
+            status=overall_status,
             service="orchestrator",
             version=settings["app_version"],
             timestamp=datetime.now(),
-            microservices=microservices_status
+            microservices=microservices_status,
+            uptime_seconds=uptime,
+            redis_connected=redis_ok
         )
+        
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        raise HTTPException(status_code=503, detail=f"Health check failed: {str(e)}")
+        logger.error(f"Health check failed: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Health check failed: {str(e)}"
+        )
 
 @app.post("/process", response_model=PipelineResponse, tags=["Pipeline"])
 async def process_youtube_video(

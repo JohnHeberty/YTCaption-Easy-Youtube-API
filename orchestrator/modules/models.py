@@ -220,3 +220,5 @@ class HealthResponse(BaseModel):
     version: str
     timestamp: datetime
     microservices: Dict[str, str]  # nome -> status
+    uptime_seconds: Optional[float] = None
+    redis_connected: bool = False
