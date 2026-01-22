@@ -12,7 +12,7 @@ def get_settings():
         'environment': os.getenv('ENVIRONMENT', 'development'),
         'debug': os.getenv('DEBUG', 'false').lower() == 'true',
         'host': os.getenv('HOST', '0.0.0.0'),
-        'port': int(os.getenv('PORT', '8001')),
+        'port': int(os.getenv('PORT', '8002')),
         
         # ===== REDIS =====
         'redis_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
