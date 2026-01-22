@@ -41,22 +41,31 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.18.132:8001"),
         "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.18.132:8002"),
 
-        # Timeouts dos microserviços (segundos) - Aumentados para maior resiliência
+        # Timeouts dos microserviços (segundos) - Otimizados para resiliência
         "video_downloader_timeout": int(os.getenv("VIDEO_DOWNLOADER_TIMEOUT", "900")),   # 15min
-        "audio_normalization_timeout": int(os.getenv("AUDIO_NORMALIZATION_TIMEOUT", "600")),  # 10min
-        "audio_transcriber_timeout": int(os.getenv("AUDIO_TRANSCRIBER_TIMEOUT", "1200")),  # 20min
+        "audio_normalization_timeout": int(os.getenv("AUDIO_NORMALIZATION_TIMEOUT", "300")),  # 5min para HTTP
+        "audio_transcriber_timeout": int(os.getenv("AUDIO_TRANSCRIBER_TIMEOUT", "600")),  # 10min
+        
+        # Job timeouts (quanto tempo esperar o job completar via polling)
+        "video_downloader_job_timeout": int(os.getenv("VIDEO_DOWNLOADER_JOB_TIMEOUT", "1800")),  # 30min
+        "audio_normalization_job_timeout": int(os.getenv("AUDIO_NORMALIZATION_JOB_TIMEOUT", "3600")),  # 60min (jobs longos)
+        "audio_transcriber_job_timeout": int(os.getenv("AUDIO_TRANSCRIBER_JOB_TIMEOUT", "2400")),  # 40min
 
-        # Polling intervals (segundos) - Polling adaptativo
-        "poll_interval_initial": int(os.getenv("POLL_INTERVAL_INITIAL", "2")),  # Polling inicial rápido
-        "poll_interval_max": int(os.getenv("POLL_INTERVAL_MAX", "30")),  # Polling máximo após várias tentativas
-        "max_poll_attempts": int(os.getenv("MAX_POLL_ATTEMPTS", "600")),  # 30min max com polling adaptativo
+        # Polling intervals (segundos) - Polling adaptativo mais agressivo
+        "poll_interval_initial": int(os.getenv("POLL_INTERVAL_INITIAL", "1")),  # Inicia muito rápido
+        "poll_interval_max": int(os.getenv("POLL_INTERVAL_MAX", "20")),  # Max 20s entre polls
+        "max_poll_attempts": int(os.getenv("MAX_POLL_ATTEMPTS", "720")),  # 60min max (720 * 5s média)
 
-        # Retry para requisições HTTP - Configuração unificada e mais robusta
-        "microservice_max_retries": int(os.getenv("MICROSERVICE_MAX_RETRIES", "5")),  # Aumentado para 5
-        "microservice_retry_delay": int(os.getenv("MICROSERVICE_RETRY_DELAY", "3")),  # 3s base para backoff
-        "circuit_breaker_max_failures": int(os.getenv("CIRCUIT_BREAKER_MAX_FAILURES", "10")),  # Aumentado para 10
-        "circuit_breaker_recovery_timeout": int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", "60")),  # Reduzido para 1min
-        "circuit_breaker_half_open_max_requests": int(os.getenv("CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "3")),  # Tentativas no half-open
+        # Retry para requisições HTTP - Configuração otimizada
+        "microservice_max_retries": int(os.getenv("MICROSERVICE_MAX_RETRIES", "3")),  # 3 retries suficientes
+        "microservice_retry_delay": int(os.getenv("MICROSERVICE_RETRY_DELAY", "2")),  # 2s base para backoff
+        "circuit_breaker_max_failures": int(os.getenv("CIRCUIT_BREAKER_MAX_FAILURES", "10")),  # 10 falhas para abrir (mais tolerante)
+        "circuit_breaker_recovery_timeout": int(os.getenv("CIRCUIT_BREAKER_RECOVERY_TIMEOUT", "20")),  # 20s recovery (mais ágil)
+        "circuit_breaker_half_open_max_requests": int(os.getenv("CIRCUIT_BREAKER_HALF_OPEN_MAX_REQUESTS", "5")),  # 5 tentativas no half-open (mais confiável)
+        
+        # Timeouts para detectar jobs órfãos
+        "job_orphan_timeout_minutes": int(os.getenv("JOB_ORPHAN_TIMEOUT_MINUTES", "15")),  # 15min sem update = órfão
+        "job_heartbeat_interval_sec": int(os.getenv("JOB_HEARTBEAT_INTERVAL_SEC", "30")),  # Heartbeat a cada 30s
 
         # Parâmetros padrão dos microserviços
         "default_language": os.getenv("DEFAULT_LANGUAGE", "auto"),
@@ -99,7 +108,8 @@ def get_microservice_config(service_name: str) -> Dict[str, Any]:
                 "remove_noise": settings["default_remove_noise"],
                 "convert_to_mono": settings["default_convert_mono"],
                 "set_sample_rate_16k": settings["default_sample_rate_16k"],
-                "apply_highpass_filter": False
+                "apply_highpass_filter": False,
+                "isolate_vocals": False
             }
         },
         "audio-transcriber": {

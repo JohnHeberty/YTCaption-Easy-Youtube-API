@@ -12,7 +12,7 @@ def get_settings():
         'environment': os.getenv('ENVIRONMENT', 'development'),
         'debug': os.getenv('DEBUG', 'false').lower() == 'true',
         'host': os.getenv('HOST', '0.0.0.0'),
-        'port': int(os.getenv('PORT', '8001')),
+        'port': int(os.getenv('PORT', '8002')),
         
         # ===== REDIS =====
         'redis_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
@@ -74,8 +74,10 @@ def get_settings():
         # ===== TIMEOUTS =====
         'timeouts': {
             'async_timeout_sec': int(os.getenv('ASYNC_TIMEOUT_SECONDS', '900')),
-            'job_processing_timeout_sec': int(os.getenv('JOB_PROCESSING_TIMEOUT_SECONDS', '1800')),
+            'job_processing_timeout_sec': int(os.getenv('JOB_PROCESSING_TIMEOUT_SECONDS', '3600')),
             'poll_interval_sec': int(os.getenv('POLL_INTERVAL_SECONDS', '2')),
+            'job_heartbeat_interval_sec': int(os.getenv('JOB_HEARTBEAT_INTERVAL_SEC', '30')),
+            'job_orphan_timeout_minutes': int(os.getenv('JOB_ORPHAN_TIMEOUT_MINUTES', '15')),
         },
         
         # ===== FFMPEG =====

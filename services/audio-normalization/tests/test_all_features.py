@@ -17,7 +17,7 @@ from typing import Dict, Any, List, Tuple
 import json
 
 # Configuração
-BASE_URL = "http://127.0.0.1:8001"  # Ajuste conforme necessário
+BASE_URL = "http://127.0.0.1:8002"  # Ajuste conforme necessário
 TIMEOUT_SECONDS = 600  # 10 minutos de timeout
 POLL_INTERVAL = 2  # Verifica status a cada 2 segundos
 
