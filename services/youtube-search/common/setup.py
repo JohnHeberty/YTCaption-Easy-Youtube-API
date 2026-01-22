@@ -15,10 +15,11 @@ setup(
         "pydantic-settings>=2.0.0",
         "fastapi>=0.100.0",
     ],
-    python_requires=">=3.11",
+    python_requires=">=3.10",
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
+        "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
 )
