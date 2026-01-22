@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
+# Copy common library FIRST (required for -e ./common)
+COPY common/ ./common/
+
 # Copy requirements
 COPY requirements.txt .
 
