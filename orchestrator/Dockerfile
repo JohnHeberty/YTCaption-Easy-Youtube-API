@@ -7,6 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
+# Copia biblioteca common (necessária para requirements.txt)
+COPY ../common /app/common
+
 # Copia requirements e instala dependências Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
