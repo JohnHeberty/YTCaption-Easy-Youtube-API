@@ -10,7 +10,7 @@ from datetime import datetime
 # Use resilient Redis from common library
 import sys
 sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API')
-from common.redis import ResilientRedisStore
+from common.redis_utils import ResilientRedisStore
 
 from .models import PipelineJob
 from .config import get_orchestrator_settings

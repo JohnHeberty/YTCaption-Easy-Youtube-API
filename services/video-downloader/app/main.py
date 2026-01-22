@@ -8,8 +8,8 @@ from typing import List
 import logging
 
 # Common library imports
-from common.logging import setup_structured_logging, get_logger
-from common.exceptions import setup_exception_handlers
+from common.log_utils import setup_structured_logging, get_logger
+from common.exception_handlers import setup_exception_handlers
 
 from .models import Job, JobRequest, JobStatus
 from .downloader import SimpleDownloader

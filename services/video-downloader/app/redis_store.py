@@ -6,7 +6,7 @@ from typing import Optional
 from datetime import datetime
 
 # Use resilient Redis from common library
-from common.redis import ResilientRedisStore
+from common.redis_utils import ResilientRedisStore
 
 from .models import Job
 
