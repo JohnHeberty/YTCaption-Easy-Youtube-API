@@ -253,33 +253,53 @@ class MicroserviceClient:
 
     async def download_file(self, job_id: str) -> tuple[bytes, str]:
         """
-        GET /jobs/{id}/download -> retorna (conteudo, filename) com verificação de tamanho
+        GET /jobs/{id}/download -> retorna (conteudo, filename) com verificação de tamanho e timeout
         """
         url = self._url("download", job_id=job_id)
         max_size_bytes = get_orchestrator_settings()["max_file_size_mb"] * 1024 * 1024
         
+        # Timeout de 15 minutos para download completo (arquivos grandes)
+        download_timeout = httpx.Timeout(300.0, read=900.0, write=300.0, connect=30.0)
+        
         async def _download():
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                r = await client.get(url)
-                r.raise_for_status()
-                
-                # Verifica Content-Length se disponível
-                content_length = r.headers.get("Content-Length")
-                if content_length:
-                    size_mb = int(content_length) / (1024 * 1024)
-                    if int(content_length) > max_size_bytes:
-                        raise RuntimeError(f"[{self.service_name}] File too large: {size_mb:.1f}MB > {max_size_bytes/(1024*1024)}MB limit")
-                
-                filename = _filename_from_cd(r.headers.get("Content-Disposition")) or f"{self.service_name}-{job_id}"
-                content = r.content
-                
-                # Verifica tamanho real do conteúdo baixado
-                actual_size_mb = len(content) / (1024 * 1024)
-                if len(content) > max_size_bytes:
-                    raise RuntimeError(f"[{self.service_name}] Downloaded file too large: {actual_size_mb:.1f}MB > {max_size_bytes/(1024*1024)}MB limit")
-                
-                logger.info(f"[{self.service_name}] Downloaded {filename}: {actual_size_mb:.1f}MB")
-                return content, filename
+            try:
+                # Timeout adicional de asyncio como fallback
+                async with asyncio.timeout(960):  # 16 minutos total (margem extra)
+                    async with httpx.AsyncClient(timeout=download_timeout) as client:
+                        logger.info(f"[{self.service_name}] Starting download for job {job_id}...")
+                        r = await client.get(url)
+                        r.raise_for_status()
+                        
+                        # Verifica Content-Length se disponível
+                        content_length = r.headers.get("Content-Length")
+                        if content_length:
+                            size_mb = int(content_length) / (1024 * 1024)
+                            logger.info(f"[{self.service_name}] Download size: {size_mb:.1f}MB")
+                            
+                            if int(content_length) > max_size_bytes:
+                                raise RuntimeError(
+                                    f"[{self.service_name}] File too large: {size_mb:.1f}MB > "
+                                    f"{max_size_bytes/(1024*1024)}MB limit"
+                                )
+                        
+                        filename = _filename_from_cd(r.headers.get("Content-Disposition")) or f"{self.service_name}-{job_id}"
+                        content = r.content
+                        
+                        # Verifica tamanho real do conteúdo baixado
+                        actual_size_mb = len(content) / (1024 * 1024)
+                        if len(content) > max_size_bytes:
+                            raise RuntimeError(
+                                f"[{self.service_name}] Downloaded file too large: {actual_size_mb:.1f}MB > "
+                                f"{max_size_bytes/(1024*1024)}MB limit"
+                            )
+                        
+                        logger.info(f"[{self.service_name}] Downloaded {filename}: {actual_size_mb:.1f}MB")
+                        return content, filename
+                        
+            except asyncio.TimeoutError:
+                raise RuntimeError(
+                    f"[{self.service_name}] Download timeout after 16 minutes for job {job_id}"
+                )
         
         return await self._retry_with_backoff(_download)
 
