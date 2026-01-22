@@ -21,6 +21,9 @@ RUN apt-get update && \
 # Diretório de trabalho
 WORKDIR /app
 
+# Copia biblioteca common PRIMEIRO (necessária para -e ./common)
+COPY common/ ./common/
+
 # Copia requirements primeiro (aproveita cache de layers)
 COPY requirements.txt .
 

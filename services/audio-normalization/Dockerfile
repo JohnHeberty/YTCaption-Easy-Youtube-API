@@ -34,6 +34,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Copia biblioteca common PRIMEIRO (necessária para -e ./common)
+COPY common/ ./common/
+
 # Copia requirements antes p/ cache de layers
 COPY requirements.txt .
 COPY constraints.txt .
