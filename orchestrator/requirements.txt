@@ -6,5 +6,5 @@ redis==5.0.1
 httpx==0.25.2
 python-multipart==0.0.6
 
-# Common library
--e ../common
+# Common library (local copy)
+-e ./common

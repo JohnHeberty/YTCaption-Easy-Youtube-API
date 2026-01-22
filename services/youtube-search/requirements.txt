@@ -5,7 +5,7 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 
 # === COMMON LIBRARY ===
--e ../../common
+-e ./common
 
 # Redis and Celery
 redis==5.0.1
