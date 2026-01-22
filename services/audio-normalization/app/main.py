@@ -8,8 +8,8 @@ from typing import List, Optional
 import logging
 
 # Common library imports
-from common.logging import setup_structured_logging, get_logger
-from common.exceptions import setup_exception_handlers
+from common.log_utils import setup_structured_logging, get_logger
+from common.exception_handlers import setup_exception_handlers
 
 from .models import Job, AudioProcessingRequest, JobStatus
 from .processor import AudioProcessor
