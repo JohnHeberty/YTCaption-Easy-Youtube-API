@@ -12,8 +12,8 @@ if __name__ == "__main__":
     # Configurar limite de body size baseado no .env
     max_body_size = settings['max_file_size_mb'] * 1024 * 1024
     
-    # Porta do .env ou 8001 como padrão
-    port = int(os.getenv('PORT', 8001))
+    # Porta do .env ou 8002 como padrão
+    port = int(os.getenv('PORT', 8002))
     
     uvicorn.run(
         "app.main:app",

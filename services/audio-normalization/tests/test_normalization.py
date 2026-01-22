@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 class AudioNormalizationTester:
-    def __init__(self, base_url="http://localhost:8001"):
+    def __init__(self, base_url="http://localhost:8002"):
         self.base_url = base_url
         self.session = requests.Session()
     
