@@ -25,7 +25,7 @@ Microserviço **simples e eficiente** para download de vídeos com cache automá
 6. **.env** - Adicionado `TZ` (timezone) para evitar warnings
 
 ### 🚀 Status Atual:
-- ✅ Serviço rodando em produção na porta **8001**
+- ✅ Serviço rodando em produção na porta **8002**
 - ✅ Health check: `healthy`
 - ✅ Redis: `Connected`
 - ✅ Disco: `26% livre (1.26GB / 4.84GB)`
@@ -46,7 +46,7 @@ cp .env.example .env
 docker compose up -d --build
 
 # Verifica se está rodando
-curl http://localhost:8001/health
+curl http://localhost:8002/health
 ```
 
 ### Opção 2: Python Local
@@ -58,7 +58,7 @@ pip install -r requirements.txt
 python run.py
 ```
 
-O serviço estará disponível em `http://localhost:8001` (porta configurável via `.env`)
+O serviço estará disponível em `http://localhost:8002` (porta configurável via `.env`)
 
 ## 📖 Documentação da API
 
