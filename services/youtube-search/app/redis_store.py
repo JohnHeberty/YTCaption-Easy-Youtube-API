@@ -4,38 +4,45 @@ import os
 import logging
 from typing import Optional, List
 from datetime import datetime
-from redis import Redis
+
+# Use resilient Redis from common library
+from common.redis import ResilientRedisStore
+
 from .models import Job
 
 logger = logging.getLogger(__name__)
 
 
 class RedisJobStore:
-    """Shared job store using Redis"""
+    """Shared job store using Redis (with resilience)"""
     
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
         """
-        Initialize store with Redis
+        Initialize store with resilient Redis
         
         Args:
             redis_url: Redis connection URL
         """
-        self.redis = Redis.from_url(redis_url, decode_responses=True)
+        # Use ResilientRedisStore from common library
+        self.redis_client = ResilientRedisStore(
+            redis_url=redis_url,
+            max_connections=50,
+            circuit_breaker_enabled=True,
+            circuit_breaker_max_failures=int(os.getenv('REDIS_CIRCUIT_BREAKER_MAX_FAILURES', '5')),
+            circuit_breaker_timeout=int(os.getenv('REDIS_CIRCUIT_BREAKER_TIMEOUT', '60'))
+        )
+        
+        # Keep compatible interface
+        self.redis = self.redis_client.redis
         self._cleanup_task: Optional[asyncio.Task] = None
         
         # Read cache configurations from environment variables
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CACHE_CLEANUP_INTERVAL_MINUTES', '30'))
         
-        # Test connection
-        try:
-            self.redis.ping()
-            logger.info("✅ Redis connected: %s", redis_url)
-            logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
-                       self.cache_ttl_hours, self.cleanup_interval_minutes)
-        except Exception as exc:
-            logger.error("❌ Error connecting to Redis: %s", exc)
-            raise
+        logger.info("✅ Redis connected with resilience: %s", redis_url)
+        logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
+                   self.cache_ttl_hours, self.cleanup_interval_minutes)
     
     def _job_key(self, job_id: str) -> str:
         """Generate Redis key for job"""

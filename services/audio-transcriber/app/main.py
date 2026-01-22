@@ -8,16 +8,24 @@ from pathlib import Path
 from typing import List, Optional
 import logging
 
+# Common library imports
+from common.logging import setup_structured_logging, get_logger
+from common.exceptions import setup_exception_handlers
+
 from .models import Job, JobRequest, JobStatus, TranscriptionResponse
 from .processor import TranscriptionProcessor
 from .redis_store import RedisJobStore
-from .logging_config import setup_logging, get_logger
 from .exceptions import AudioTranscriptionException, ServiceException, exception_handler
 from .config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
 
 # Configuração de logging
 settings = get_settings()
-setup_logging("audio-transcriber", settings['log_level'])
+setup_structured_logging(
+    service_name="audio-transcriber",
+    log_level=settings['log_level'],
+    log_dir=settings.get('log_dir', './logs'),
+    json_format=(settings.get('log_format', 'json') == 'json')
+)
 logger = get_logger(__name__)
 
 # Instâncias globais
@@ -27,7 +35,10 @@ app = FastAPI(
     version="2.0.0"
 )
 
-# Exception handlers
+# Setup exception handlers
+setup_exception_handlers(app, debug=settings.get('debug', False))
+
+# Exception handlers - mantidos para compatibilidade
 app.add_exception_handler(AudioTranscriptionException, exception_handler)
 app.add_exception_handler(ServiceException, exception_handler)
 

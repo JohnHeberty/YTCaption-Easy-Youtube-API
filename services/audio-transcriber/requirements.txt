@@ -5,6 +5,9 @@ pydantic==2.5.0
 python-multipart==0.0.6
 pytz==2024.1
 
+# === COMMON LIBRARY ===
+-e ../../common
+
 # === REDIS & STORAGE ===
 redis==5.0.1
 

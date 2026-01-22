@@ -1,12 +1,16 @@
 #redis_store.py
 """
-Armazenamento de jobs usando Redis
+Armazenamento de jobs usando Redis (com resiliência)
 """
 import json
 import logging
 from typing import Optional, List
-import redis
 from datetime import datetime
+
+# Use resilient Redis from common library
+import sys
+sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API')
+from common.redis import ResilientRedisStore
 
 from .models import PipelineJob
 from .config import get_orchestrator_settings
@@ -15,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class RedisStore:
-    """Store para persistência de jobs no Redis"""
+    """Store para persistência de jobs no Redis (com resiliência)"""
 
     def __init__(self):
         settings = get_orchestrator_settings()
@@ -23,19 +27,16 @@ class RedisStore:
         self.ttl_hours = settings["cache_ttl_hours"]
         self.ttl_seconds = self.ttl_hours * 3600
 
-        try:
-            self.client = redis.from_url(
-                self.redis_url,
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5
-            )
-            # Testa conexão
-            self.client.ping()
-            logger.info(f"Connected to Redis: {self.redis_url}")
-        except Exception as e:
-            logger.error(f"Failed to connect to Redis: {str(e)}")
-            raise
+        # Use resilient Redis client
+        self.redis_client = ResilientRedisStore(
+            redis_url=self.redis_url,
+            max_connections=50,
+            circuit_breaker_enabled=True
+        )
+        
+        # Keep compatible interface
+        self.client = self.redis_client.redis
+        logger.info(f"✅ Connected to Redis with resilience: {self.redis_url}")
 
     def _job_key(self, job_id: str) -> str:
         """Gera chave do job"""
