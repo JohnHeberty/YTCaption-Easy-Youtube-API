@@ -366,7 +366,8 @@ async def _perform_basic_cleanup():
                         if age > timedelta(hours=24):
                             redis.delete(key)
                             expired_count += 1
-                    except:
+                    except (ValueError, TypeError, AttributeError, KeyError) as err:
+                        logger.debug(f"Invalid job data in {key}: {err}")
                         pass
             
             report["jobs_removed"] = expired_count

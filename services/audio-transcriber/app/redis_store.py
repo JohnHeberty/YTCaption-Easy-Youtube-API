@@ -143,7 +143,8 @@ class RedisJobStore:
                     else:
                         self.redis.delete(key)
                         total_jobs -= 1
-                except:
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.debug(f"Failed to deserialize job {key}: {e}")
                     self.redis.delete(key)
                     total_jobs -= 1
         
@@ -197,7 +198,8 @@ class RedisJobStore:
                     if job.is_expired:
                         self.redis.delete(key)
                         removed += 1
-                except:
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.debug(f"Failed to deserialize job {key}: {e}")
                     self.redis.delete(key)  # Remove corrompido
                     removed += 1
         
