@@ -43,8 +43,9 @@ class PipelineStage(BaseModel):
     name: str
     status: StageStatus = StageStatus.PENDING
     job_id: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    received_at: datetime = Field(default_factory=datetime.now)  # Quando foi recebido/criado
+    started_at: Optional[datetime] = None   # Quando começou a processar
+    completed_at: Optional[datetime] = None # Quando finalizou
     error_message: Optional[str] = None
     output_file: Optional[str] = None
     progress: float = 0.0
@@ -52,7 +53,8 @@ class PipelineStage(BaseModel):
     def start(self):
         """Marca estágio como iniciado"""
         self.status = StageStatus.PROCESSING
-        self.started_at = datetime.now()
+        if not self.started_at:  # Só seta se ainda não foi setado
+            self.started_at = datetime.now()
     
     def complete(self, output_file: Optional[str] = None):
         """Marca estágio como completo"""
@@ -74,9 +76,11 @@ class PipelineJob(BaseModel):
     id: str
     youtube_url: str
     status: PipelineStatus = PipelineStatus.QUEUED
-    created_at: datetime = Field(default_factory=datetime.now)
+    received_at: datetime = Field(default_factory=datetime.now)  # Quando foi recebido
+    created_at: datetime = Field(default_factory=datetime.now)   # Alias para received_at (compat)
+    started_at: Optional[datetime] = None                        # Quando começou a processar
     updated_at: datetime = Field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None                      # Quando finalizou
     
     # Parâmetros de configuração
     language: str = "auto"

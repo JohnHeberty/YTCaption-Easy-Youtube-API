@@ -5,6 +5,7 @@ Tasks do Celery para download de vídeos
 
 import os
 import logging
+from datetime import datetime
 from celery import Task
 from celery import signals
 from .celery_config import celery_app
@@ -169,6 +170,7 @@ def download_video_task(self, job_dict: dict) -> dict:
         
         # Atualiza status
         job.status = JobStatus.DOWNLOADING
+        job.started_at = datetime.now()  # Marca quando começou
         job.progress = 0.0
         self.job_store.update_job(job)
         

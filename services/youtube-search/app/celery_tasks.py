@@ -4,6 +4,7 @@ Celery tasks for YouTube search service
 import logging
 from typing import Dict, Any
 import asyncio
+from datetime import datetime
 
 from .celery_config import celery_app
 from .models import Job, JobStatus
@@ -41,6 +42,7 @@ def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
         
         # Update job status
         job.status = JobStatus.PROCESSING
+        job.started_at = datetime.now()  # Marca quando começou
         job_store.update_job(job)
         
         # Process job asynchronously

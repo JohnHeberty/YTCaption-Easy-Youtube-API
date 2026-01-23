@@ -24,8 +24,10 @@ class Job(BaseModel):
     filename: Optional[str] = None
     file_path: Optional[str] = None
     file_size: Optional[int] = None
-    created_at: datetime
-    completed_at: Optional[datetime] = None
+    received_at: datetime  # Quando foi recebido
+    created_at: datetime   # Alias para received_at (compatibilidade)
+    started_at: Optional[datetime] = None     # Quando começou a baixar
+    completed_at: Optional[datetime] = None   # Quando finalizou
     error_message: Optional[str] = None
     expires_at: datetime
     current_user_agent: Optional[str] = None  # UA usado no download
@@ -59,6 +61,7 @@ class Job(BaseModel):
             url=url,
             status=JobStatus.QUEUED,
             quality=quality,
+            received_at=now,
             created_at=now,
             expires_at=now + timedelta(hours=24)
         )

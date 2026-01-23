@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+from datetime import datetime
 from celery import Task
 from celery import signals
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -155,6 +156,7 @@ def transcribe_audio_task(self, job_dict):
         
         # Atualiza status
         job.status = JobStatus.PROCESSING
+        job.started_at = datetime.now()  # Marca quando começou
         job.progress = 0.0
         self.job_store.update_job(job)
         

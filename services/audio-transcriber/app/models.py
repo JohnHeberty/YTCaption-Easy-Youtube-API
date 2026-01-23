@@ -102,8 +102,10 @@ class Job(BaseModel):
     filename: Optional[str] = None
     file_size_input: Optional[int] = None
     file_size_output: Optional[int] = None
-    created_at: datetime
-    completed_at: Optional[datetime] = None
+    received_at: datetime  # Quando foi recebido
+    created_at: datetime   # Alias para received_at (compatibilidade)
+    started_at: Optional[datetime] = None     # Quando começou a processar
+    completed_at: Optional[datetime] = None   # Quando finalizou
     error_message: Optional[str] = None
     expires_at: datetime
     progress: float = 0.0  # Progresso de 0.0 a 100.0
@@ -157,6 +159,7 @@ class Job(BaseModel):
             language_in=language_in,
             language_out=language_out,
             filename=filename,
+            received_at=now,
             created_at=now,
             expires_at=now + timedelta(hours=cache_ttl_hours)
         )
