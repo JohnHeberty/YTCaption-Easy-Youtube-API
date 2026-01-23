@@ -372,6 +372,10 @@ class PipelineOrchestrator:
         """Executa pipeline completo com fluxo: download -> normalize -> transcribe"""
         try:
             logger.info(f"Starting pipeline for job {job.id}")
+            
+            # Marca quando o pipeline começou a processar
+            if not job.started_at:
+                job.started_at = datetime.now()
 
             # 0) Pré-checagem de saúde crítica
             health = await self.check_services_health()

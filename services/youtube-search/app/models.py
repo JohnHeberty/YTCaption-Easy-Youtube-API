@@ -106,8 +106,10 @@ class Job(BaseModel):
     include_videos: bool = False
     status: JobStatus
     result: Optional[Dict[str, Any]] = None
-    created_at: datetime
-    completed_at: Optional[datetime] = None
+    received_at: datetime  # Quando foi recebido
+    created_at: datetime   # Alias para received_at (compatibilidade)
+    started_at: Optional[datetime] = None     # Quando começou a processar
+    completed_at: Optional[datetime] = None   # Quando finalizou
     error_message: Optional[str] = None
     expires_at: datetime
     progress: float = 0.0  # Progress from 0.0 to 100.0
@@ -158,6 +160,7 @@ class Job(BaseModel):
             max_results=max_results,
             include_videos=include_videos,
             status=JobStatus.QUEUED,
+            received_at=now,
             created_at=now,
             expires_at=now + timedelta(hours=cache_ttl_hours)
         )

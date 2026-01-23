@@ -6,6 +6,7 @@ Tasks do Celery para normalização de áudio
 import os
 import logging
 import asyncio
+from datetime import datetime
 from celery import Task
 from celery import signals
 from .celery_config import celery_app
@@ -186,6 +187,7 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             
             # Atualiza para PROCESSING
             job.status = JobStatus.PROCESSING
+            job.started_at = datetime.now()  # Marca quando começou
             job.progress = 0.0
             
             try:
