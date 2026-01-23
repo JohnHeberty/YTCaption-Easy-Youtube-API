@@ -56,7 +56,7 @@ class MicroserviceClient:
         """
         try:
             url = f"{self.base_url}/health"
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
                 r = await client.get(url)
                 r.raise_for_status()
                 return r.json()
@@ -179,7 +179,7 @@ class MicroserviceClient:
         async def _do_request():
             url = self._url("submit")
             logger.info(f"Submitting JSON to {self.service_name}: {url}")
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
                 r = await client.post(url, json=payload)
                 r.raise_for_status()
                 return r.json()
@@ -204,7 +204,7 @@ class MicroserviceClient:
         async def _do_request():
             url = self._url("submit")
             logger.info(f"Submitting multipart to {self.service_name}: {url}")
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
                 r = await client.post(url, files=files, data=data or {})
                 r.raise_for_status()
                 return r.json()
@@ -240,7 +240,7 @@ class MicroserviceClient:
         """GET /jobs/{id} com retry para verificar status"""
         async def _do_request():
             url = self._url("status", job_id=job_id)
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
                 r = await client.get(url)
                 r.raise_for_status()
                 return r.json()
@@ -265,7 +265,7 @@ class MicroserviceClient:
             try:
                 # Timeout adicional de asyncio como fallback
                 async with asyncio.timeout(960):  # 16 minutos total (margem extra)
-                    async with httpx.AsyncClient(timeout=download_timeout) as client:
+                    async with httpx.AsyncClient(timeout=download_timeout, verify=False) as client:
                         logger.info(f"[{self.service_name}] Starting download for job {job_id}...")
                         r = await client.get(url)
                         r.raise_for_status()
@@ -312,7 +312,7 @@ class MicroserviceClient:
         endpoint = self.endpoints.get("health", "/health")
         url = f"{self.base_url}{endpoint}"
         try:
-            async with httpx.AsyncClient(timeout=10) as client:  # Timeout maior para health check
+            async with httpx.AsyncClient(timeout=10, verify=False) as client:  # Timeout maior para health check
                 r = await client.get(url)
                 healthy = r.status_code == 200
                 if healthy:
@@ -562,7 +562,7 @@ class PipelineOrchestrator:
             
             try:
                 text_url = self.transcription_client._url("text", job_id=stage.job_id)
-                async with httpx.AsyncClient(timeout=self.transcription_client.timeout) as client:
+                async with httpx.AsyncClient(timeout=self.transcription_client.timeout, verify=False) as client:
                     tr = await client.get(text_url)
                     if tr.status_code == 200:
                         # Parse JSON response para extrair apenas o texto
@@ -575,7 +575,7 @@ class PipelineOrchestrator:
             # Busca os segments com timestamps (endpoint /transcription)
             try:
                 transcription_url = self.transcription_client._url("transcription", job_id=stage.job_id)
-                async with httpx.AsyncClient(timeout=self.transcription_client.timeout) as client:
+                async with httpx.AsyncClient(timeout=self.transcription_client.timeout, verify=False) as client:
                     tr = await client.get(transcription_url)
                     if tr.status_code == 200:
                         # Parse JSON completo com segments
