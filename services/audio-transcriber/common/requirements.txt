@@ -1,0 +1,16 @@
+# Common library requirements
+# Shared dependencies for all microservices
+
+# Core
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Redis
+redis>=5.0.0
+
+# Logging (já incluído no Python)
+# JSON logging handled by stdlib
+
+# Optional: se quiser usar com FastAPI
+fastapi>=0.100.0
+httpx>=0.24.0
