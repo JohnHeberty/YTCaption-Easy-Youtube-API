@@ -304,7 +304,8 @@ class MicroserviceClient:
         
         return await self._retry_with_backoff(_download)
 
-    async def check_health(self) -> bool:
+    async def check_health_simple(self) -> bool:
+        """Health check simples que retorna apenas bool (usado internamente)"""
         # Se circuit breaker está aberto, serviço é considerado unhealthy
         if self._is_circuit_open():
             logger.warning(f"Health check for {self.service_name}: CIRCUIT BREAKER OPEN")
@@ -365,7 +366,7 @@ class PipelineOrchestrator:
             ("audio-normalization", self.audio_client),
             ("audio-transcriber", self.transcription_client),
         ]:
-            ok = await client.check_health()
+            ok = await client.check_health_simple()
             results[name] = "healthy" if ok else "unhealthy"
         return results
 
