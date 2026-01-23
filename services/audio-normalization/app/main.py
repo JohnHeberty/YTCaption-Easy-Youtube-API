@@ -741,7 +741,8 @@ async def _perform_basic_cleanup():
                         if (now - created_at) > timedelta(hours=24):
                             job_store.redis.delete(key)
                             expired_count += 1
-                    except:
+                    except (ValueError, TypeError, AttributeError, KeyError) as err:
+                        logger.debug(f"Invalid job data in {key}: {err}")
                         pass
             report["jobs_removed"] = expired_count
             logger.info(f"🗑️  Redis: {expired_count} jobs expirados removidos")
@@ -859,7 +860,8 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
                         if queue_len > 0:
                             logger.info(f"   Fila '{queue_key}': {queue_len} tasks")
                             tasks_purged += queue_len
-                    except:
+                    except (redis.ResponseError, redis.DataError) as err:
+                        logger.debug(f"Queue {queue_key} not a list: {err}")
                         pass  # Não é uma lista, pode ser outro tipo de key
                     
                     # DELETE remove a key inteira (funciona para qualquer tipo)

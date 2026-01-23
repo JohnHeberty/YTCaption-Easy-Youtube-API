@@ -216,7 +216,8 @@ class MicroserviceClient:
             error_body = ""
             try:
                 error_body = e.response.text[:500]  # Primeiros 500 chars
-            except:
+            except (AttributeError, ValueError, TypeError) as err:
+                logger.debug(f"Could not extract error body: {err}")
                 pass
             
             if e.response.status_code == 400:
