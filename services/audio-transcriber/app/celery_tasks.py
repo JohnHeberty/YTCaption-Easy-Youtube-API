@@ -134,10 +134,14 @@ def transcribe_audio_task(self, job_dict):
     """
     from celery.exceptions import Ignore, WorkerLostError, SoftTimeLimitExceeded
     from pydantic import ValidationError
+    import traceback
+    import sys
     
     job_id = job_dict.get('id', 'unknown')
     retry_count = self.request.retries
     logger.info(f"🚀 Iniciando transcrição do job {job_id} (tentativa {retry_count + 1}/{self.max_retries + 1})")
+    
+    job = None
     
     try:
         # Reconstitui job
@@ -146,12 +150,7 @@ def transcribe_audio_task(self, job_dict):
             logger.info(f"✅ Job {job_id} reconstituído com sucesso")
         except ValidationError as ve:
             logger.error(f"❌ Erro de validação ao reconstituir job {job_id}: {ve}")
-            self.update_state(state='FAILURE', meta={
-                'status': 'failed',
-                'job_id': job_id,
-                'error': f'Job validation failed: {str(ve)}',
-                'progress': 0.0
-            })
+            # Não usa update_state que causa problemas de serialização
             raise Ignore()
         
         # Atualiza status
@@ -159,12 +158,6 @@ def transcribe_audio_task(self, job_dict):
         job.started_at = datetime.now()  # Marca quando começou
         job.progress = 0.0
         self.job_store.update_job(job)
-        
-        self.update_state(state='STARTED', meta={
-            'status': 'processing',
-            'job_id': job_id,
-            'progress': 0.0
-        })
         
         # Processa transcrição
         try:
@@ -174,77 +167,58 @@ def transcribe_audio_task(self, job_dict):
             logger.info(f"✅ Job {job_id} concluído: {result_job.status}")
             
             if result_job.status == JobStatus.COMPLETED:
-                self.update_state(state='SUCCESS', meta={
-                    'status': 'completed',
-                    'job_id': job_id,
-                    'output_file': result_job.output_file,
-                    'progress': 100.0
-                })
+                return result_job.model_dump()
             else:
-                self.update_state(state='FAILURE', meta={
-                    'status': 'failed',
-                    'job_id': job_id,
-                    'error': result_job.error_message or 'Unknown error',
-                    'progress': result_job.progress
-                })
+                # Job falhou no processor
+                logger.error(f"❌ Job {job_id} falhou: {result_job.error_message}")
                 raise Ignore()
-            
-            return result_job.model_dump()
             
         except SoftTimeLimitExceeded:
             logger.error(f"⏰ Job {job_id} excedeu soft time limit")
             job.status = JobStatus.FAILED
             job.error_message = "Transcrição excedeu o tempo limite (45 minutos)"
+            job.progress = 0.0
             self.job_store.update_job(job)
-            self.update_state(state='FAILURE', meta={
-                'status': 'timeout',
-                'job_id': job_id,
-                'error': job.error_message,
-                'progress': job.progress
-            })
             raise Ignore()
             
     except WorkerLostError as worker_lost_err:
         error_msg = f"Worker perdido durante processamento (provável OOM): {str(worker_lost_err)}"
         logger.critical(f"💀 Job {job_id} WORKER LOST: {error_msg}")
         
-        if 'job' in locals():
+        if job:
             job.status = JobStatus.FAILED
             job.error_message = error_msg
+            job.progress = 0.0
             try:
                 self.job_store.update_job(job)
-            except Exception:
-                pass
+            except Exception as store_err:
+                logger.error(f"Erro ao atualizar Redis: {store_err}")
         
-        self.update_state(state='FAILURE', meta={
-            'status': 'worker_lost',
-            'job_id': job_id,
-            'error': error_msg,
-            'progress': 0.0
-        })
         raise Ignore()
         
     except Ignore:
+        # Re-raise Ignore sem processar
         raise
         
     except Exception as e:
+        # Captura todas as outras exceções
+        exc_type, exc_value, exc_tb = sys.exc_info()
         error_msg = str(e)
-        logger.error(f"💥 Erro ao processar job {job_id}: {error_msg}", exc_info=True)
+        error_traceback = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
         
-        if 'job' in locals():
+        logger.error(f"💥 Erro ao processar job {job_id}: {error_msg}")
+        logger.error(f"Traceback:\n{error_traceback}")
+        
+        if job:
             job.status = JobStatus.FAILED
             job.error_message = error_msg
+            job.progress = 0.0
             try:
                 self.job_store.update_job(job)
-            except Exception:
-                pass
+            except Exception as store_err:
+                logger.error(f"Erro ao atualizar Redis: {store_err}")
         
-        self.update_state(state='FAILURE', meta={
-            'status': 'failed',
-            'job_id': job_id,
-            'error': error_msg,
-            'progress': 0.0
-        })
+        # Usa Ignore para evitar problemas de serialização do Celery
         raise Ignore()
 
 
