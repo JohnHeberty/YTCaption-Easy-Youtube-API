@@ -1,6 +1,12 @@
+"""
+Configuration module - Carrega configurações do ambiente
+Seguindo SOLID: configurações centralizadas e tipadas
+"""
 import os
+from typing import Dict, Any
 
-def get_settings():
+
+def get_settings() -> Dict[str, Any]:
     """
     Retorna todas as configurações do serviço a partir de variáveis de ambiente.
     Configurações organizadas por categoria para fácil manutenção.
@@ -39,7 +45,7 @@ def get_settings():
         'cache_max_size_mb': int(os.getenv('CACHE__MAX_CACHE_SIZE_MB', '1024')),
         
         # ===== PROCESSAMENTO - LIMITES =====
-        'max_file_size_mb': int(os.getenv('MAX_FILE_SIZE_MB', os.getenv('PROCESSING__MAX_FILE_SIZE_MB', '500'))),
+        'max_file_size_mb': int(os.getenv('MAX_FILE_SIZE_MB', os.getenv('PROCESSING__MAX_FILE_SIZE_MB', '2048'))),
         'max_duration_minutes': int(os.getenv('MAX_DURATION_MINUTES', os.getenv('PROCESSING__MAX_DURATION_MINUTES', '120'))),
         'max_concurrent_jobs': int(os.getenv('PROCESSING__MAX_CONCURRENT_JOBS', '3')),
         'job_timeout_minutes': int(os.getenv('PROCESSING__JOB_TIMEOUT_MINUTES', '30')),
@@ -71,6 +77,9 @@ def get_settings():
             'order': int(os.getenv('HIGHPASS_FILTER_ORDER', '5')),
         },
         
+        # ===== EXTRACTION =====
+        'extraction_timeout_sec': int(os.getenv('EXTRACTION_TIMEOUT_SEC', '300')),
+        
         # ===== TIMEOUTS =====
         'timeouts': {
             'async_timeout_sec': int(os.getenv('ASYNC_TIMEOUT_SECONDS', '900')),
@@ -101,4 +110,23 @@ def get_settings():
         'log_rotation': os.getenv('LOG_ROTATION', '1 day'),
         'log_retention': os.getenv('LOG_RETENTION', '30 days')
     }
+
+
+def get_service_config() -> Dict[str, Any]:
+    """
+    Retorna configuração específica para os serviços (SOLID)
+    """
+    settings = get_settings()
+    
+    return {
+        'max_file_size_mb': settings['max_file_size_mb'],
+        'max_duration_minutes': settings['max_duration_minutes'],
+        'temp_dir': settings['temp_dir'],
+        'processed_dir': settings['processed_dir'],
+        'noise_reduction': settings['noise_reduction'],
+        'highpass_filter': settings['highpass_filter'],
+        'ffmpeg': settings['ffmpeg'],
+        'extraction_timeout_sec': settings['extraction_timeout_sec'],
+    }
+
 

@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """
 Tasks do Celery para normalização de áudio
+Refatorado seguindo SOLID principles
 """
 
 import os
 import logging
 import asyncio
-from datetime import datetime
-from celery import Task
-from celery import signals
+from celery import Task, signals
 from .celery_config import celery_app
 from .models import Job, JobStatus
-from .processor import AudioProcessor
 from .redis_store import RedisJobStore
-from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
+from .config import get_service_config
+from .services import FileValidator, AudioExtractor, AudioNormalizer, JobManager
 
 logger = logging.getLogger(__name__)
 
@@ -86,18 +85,38 @@ def task_revoked_handler(sender=None, request=None, terminated=None, signum=None
     except Exception as handler_err:
         logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
 
+
 class CallbackTask(Task):
-    def run(self, *args, **kwargs) -> None:
-        """
-        Método abstrato para tasks com callback.
-        """
-        raise NotImplementedError("CallbackTask não implementa run diretamente.")
-    # Task base com callbacks para atualização de progresso
+    """Task base com lazy initialization de serviços"""
     
     def __init__(self):
         super().__init__()
-        self._processor = None
-        self._job_store = None
+        self._job_manager = None
+    
+    @property
+    def job_manager(self) -> JobManager:
+        """Lazy initialization do JobManager com todas as dependências"""
+        if self._job_manager is None:
+            redis_url = os.getenv('REDIS_URL', None)
+            job_store = RedisJobStore(redis_url=redis_url)
+            
+            config = get_service_config()
+            
+            # Cria instâncias dos serviços (Dependency Injection)
+            file_validator = FileValidator(config)
+            audio_extractor = AudioExtractor(config)
+            audio_normalizer = AudioNormalizer(config)
+            
+            # Cria JobManager com todas as dependências
+            self._job_manager = JobManager(
+                job_store=job_store,
+                file_validator=file_validator,
+                audio_extractor=audio_extractor,
+                audio_normalizer=audio_normalizer,
+                config=config
+            )
+        
+        return self._job_manager
     
     @property
     def processor(self):
@@ -187,7 +206,6 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             
             # Atualiza para PROCESSING
             job.status = JobStatus.PROCESSING
-            job.started_at = datetime.now()  # Marca quando começou
             job.progress = 0.0
             
             try:
