@@ -227,13 +227,13 @@ async def search_videos(query: str, max_results: int = 10) -> Job:
     Search for videos
     
     - **query**: Search query
-    - **max_results**: Maximum number of results (1-50)
+    - **max_results**: Maximum number of results (unlimited)
     """
     try:
         logger.info(f"Search videos request: '{query}' (max: {max_results})")
         
-        if max_results < 1 or max_results > 50:
-            raise InvalidRequestError("max_results must be between 1 and 50")
+        if max_results < 1:
+            raise InvalidRequestError("max_results must be at least 1")
         
         new_job = Job.create_new(
             search_type=SearchType.VIDEO,
@@ -258,6 +258,8 @@ async def search_videos(query: str, max_results: int = 10) -> Job:
         logger.info(f"Job {new_job.id} created and submitted to Celery")
         return new_job
         
+    except InvalidRequestError:
+        raise
     except Exception as e:
         logger.error(f"Error creating video search job: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -269,13 +271,13 @@ async def get_related_videos(video_id: str, max_results: int = 10) -> Job:
     Get related videos
     
     - **video_id**: YouTube video ID
-    - **max_results**: Maximum number of results (1-50)
+    - **max_results**: Maximum number of results (unlimited)
     """
     try:
         logger.info(f"Request for related videos: {video_id} (max: {max_results})")
         
-        if max_results < 1 or max_results > 50:
-            raise InvalidRequestError("max_results must be between 1 and 50")
+        if max_results < 1:
+            raise InvalidRequestError("max_results must be at least 1")
         
         new_job = Job.create_new(
             search_type=SearchType.RELATED_VIDEOS,
@@ -300,8 +302,56 @@ async def get_related_videos(video_id: str, max_results: int = 10) -> Job:
         logger.info(f"Job {new_job.id} created and submitted to Celery")
         return new_job
         
+    except InvalidRequestError:
+        raise
     except Exception as e:
         logger.error(f"Error creating related videos job: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/search/shorts", response_model=Job)
+async def search_shorts(query: str, max_results: int = 10) -> Job:
+    """
+    Search for YouTube Shorts only
+    
+    Returns only videos with duration ≤60 seconds
+    
+    - **query**: Search query
+    - **max_results**: Maximum number of shorts to return (unlimited)
+    """
+    try:
+        logger.info(f"Search shorts request: '{query}' (max: {max_results})")
+        
+        if max_results < 1:
+            raise InvalidRequestError("max_results must be at least 1")
+        
+        new_job = Job.create_new(
+            search_type=SearchType.SHORTS,
+            query=query,
+            max_results=max_results,
+            cache_ttl_hours=settings['cache_ttl_hours']
+        )
+        
+        existing_job = job_store.get_job(new_job.id)
+        
+        if existing_job:
+            if existing_job.status == JobStatus.COMPLETED:
+                logger.info(f"Job {new_job.id} already completed (cache hit)")
+                return existing_job
+            elif existing_job.status == JobStatus.PROCESSING:
+                logger.info(f"Job {new_job.id} is processing")
+                return existing_job
+        
+        job_store.save_job(new_job)
+        submit_celery_task(new_job)
+        
+        logger.info(f"Job {new_job.id} created and submitted to Celery")
+        return new_job
+        
+    except InvalidRequestError:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating shorts search job: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -838,6 +888,7 @@ async def root():
             "search_channel_info": "/search/channel-info (POST) - Get channel information",
             "search_playlist_info": "/search/playlist-info (POST) - Get playlist information",
             "search_videos": "/search/videos (POST) - Search videos",
+            "search_shorts": "/search/shorts (POST) - Search YouTube Shorts (≤60s)",
             "search_related_videos": "/search/related-videos (POST) - Get related videos",
             "get_job": "/jobs/{job_id} (GET) - Get job status",
             "list_jobs": "/jobs (GET) - List all jobs",

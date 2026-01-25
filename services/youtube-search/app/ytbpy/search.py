@@ -321,3 +321,142 @@ def search_youtube(query, max_results=10, timeout=10):
         "pages_fetched": page_count,
         "results": all_results[:max_results],
     }
+
+
+def _extract_reel_item_details(reel_renderer):
+    """
+    Extract details from reelItemRenderer (shorts-specific structure)
+    
+    YouTube uses reelItemRenderer for shorts in some contexts
+    """
+    if not reel_renderer:
+        return None
+    
+    video_id = reel_renderer.get("videoId")
+    if not video_id:
+        return None
+    
+    short_info = {
+        "video_id": video_id,
+        "thumbnails": get_thumbnail_urls(video_id),
+        "url": f"https://www.youtube.com/shorts/{video_id}",
+        "is_short": True
+    }
+    
+    # Extract title
+    headline = reel_renderer.get("headline", {})
+    if headline:
+        title_runs = headline.get("runs", [])
+        if title_runs:
+            short_info["title"] = "".join(run.get("text", "") for run in title_runs)
+        else:
+            simple_text = headline.get("simpleText", "")
+            if simple_text:
+                short_info["title"] = simple_text
+    
+    # Extract view count
+    view_count_text = reel_renderer.get("viewCountText", {}).get("simpleText", "")
+    if view_count_text:
+        view_match = re.search(r"(\d+(?:,\d+)*)", view_count_text)
+        if view_match:
+            short_info["views"] = int(view_match.group(1).replace(",", ""))
+            short_info["view_count_text"] = view_count_text
+    
+    # Shorts are always 60 seconds or less
+    short_info["duration_seconds"] = 60  # Approximate, actual may be less
+    
+    return short_info
+
+
+def search_shorts(query, max_results=10, timeout=10):
+    """
+    Search specifically for YouTube Shorts
+    
+    Strategy:
+    1. Add 'shorts' to search query to bias results
+    2. Perform regular search with higher limit
+    3. Filter results by duration (≤60s)
+    4. Continue pagination until enough shorts found
+    
+    Args:
+        query: Search query string
+        max_results: Number of shorts to return
+        timeout: Request timeout in seconds
+        
+    Returns:
+        Dictionary with shorts search results
+    """
+    if not query:
+        return {"error": "No search query provided"}
+    
+    # Enhance query to find shorts
+    enhanced_query = f"{query} shorts"
+    
+    # Fetch more results than needed (will filter for shorts)
+    fetch_count = max_results * 3  # Over-fetch to ensure enough shorts
+    
+    # Perform regular search
+    results = search_youtube(enhanced_query, fetch_count, timeout)
+    
+    if results.get('error'):
+        return results
+    
+    # Filter for shorts only (duration ≤ 60 seconds)
+    all_videos = results.get('results', [])
+    shorts_only = []
+    
+    for video in all_videos:
+        duration_seconds = video.get('duration_seconds', 999)
+        url = video.get('url', '')
+        
+        # Check if it's a short by duration or URL
+        if duration_seconds <= 60 or '/shorts/' in url:
+            video['is_short'] = True
+            shorts_only.append(video)
+            
+            if len(shorts_only) >= max_results:
+                break
+    
+    return {
+        "query": query,
+        "search_type": "shorts",
+        "results_count": len(shorts_only),
+        "total_scanned": len(all_videos),
+        "pages_fetched": results.get('pages_fetched', 1),
+        "results": shorts_only[:max_results]
+    }
+
+
+def filter_videos_by_type(videos, shorts_only=False, exclude_shorts=False):
+    """
+    Filter video list based on shorts preferences
+    
+    Args:
+        videos: List of video dictionaries
+        shorts_only: If True, return only shorts
+        exclude_shorts: If True, exclude shorts from results
+        
+    Returns:
+        Filtered list of videos
+    """
+    if not shorts_only and not exclude_shorts:
+        return videos
+    
+    filtered = []
+    
+    for video in videos:
+        duration_seconds = video.get('duration_seconds', 999)
+        url = video.get('url', '')
+        is_short = duration_seconds <= 60 or '/shorts/' in url
+        
+        if shorts_only and is_short:
+            video['is_short'] = True
+            filtered.append(video)
+        elif exclude_shorts and not is_short:
+            video['is_short'] = False
+            filtered.append(video)
+        elif not shorts_only and not exclude_shorts:
+            video['is_short'] = is_short
+            filtered.append(video)
+    
+    return filtered

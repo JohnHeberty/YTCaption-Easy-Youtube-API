@@ -59,6 +59,8 @@ class YouTubeSearchProcessor:
                 result = await self._search_videos(job.query, job.max_results)
             elif job.search_type == SearchType.RELATED_VIDEOS:
                 result = await self._get_related_videos(job.video_id, job.max_results)
+            elif job.search_type == SearchType.SHORTS:
+                result = await self._search_shorts(job.query, job.max_results)
             else:
                 raise YouTubeSearchException(f"Unsupported search type: {job.search_type}")
             
@@ -207,11 +209,47 @@ class YouTubeSearchProcessor:
                 self.timeout
             )
             
-            if result.get('error'):
+            # Check if result is a dict with error (for backwards compatibility)
+            if isinstance(result, dict) and result.get('error'):
                 raise YouTubeAPIError(result['error'])
+            
+            # If result is a list, wrap it in a dict
+            if isinstance(result, list):
+                return {
+                    "video_id": video_id,
+                    "results_count": len(result),
+                    "results": result
+                }
             
             return result
             
         except Exception as e:
             logger.error(f"Error fetching related videos: {e}")
             raise YouTubeAPIError(f"Failed to get related videos: {str(e)}")
+    
+    async def _search_shorts(self, query: str, max_results: int = 10) -> Dict[str, Any]:
+        """
+        Search for YouTube Shorts only
+        
+        Shorts are videos with duration ≤ 60 seconds
+        """
+        try:
+            logger.info(f"📱 Searching shorts: '{query}' (max: {max_results})")
+            
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                ytb_search.search_shorts,
+                query,
+                max_results,
+                self.timeout
+            )
+            
+            if result.get('error'):
+                raise YouTubeAPIError(result['error'])
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error searching shorts: {e}")
+            raise YouTubeAPIError(f"Failed to search shorts: {str(e)}")
