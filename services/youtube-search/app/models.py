@@ -20,6 +20,7 @@ class SearchType(str, Enum):
     CHANNEL_INFO = "channel_info"
     PLAYLIST_INFO = "playlist_info"
     RELATED_VIDEOS = "related_videos"
+    SHORTS = "shorts"
 
 
 class VideoInfo(BaseModel):
@@ -46,6 +47,7 @@ class VideoInfo(BaseModel):
     author_name: Optional[str] = None
     is_live: Optional[bool] = False
     is_private: Optional[bool] = False
+    is_short: Optional[bool] = False
     category: Optional[str] = None
     keywords: Optional[List[str]] = None
     badges: Optional[List[str]] = None

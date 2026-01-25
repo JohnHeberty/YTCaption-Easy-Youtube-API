@@ -241,7 +241,7 @@ def get_video_info_oembed(url_or_id: str, timeout: int = 5) -> Dict[str, Any]:
 
     return video_info
 
-def get_related_videos(url_or_id: str, timeout: int = 5) -> List[Dict[str, Any]]:
+def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) -> List[Dict[str, Any]]:
     """Get related videos for a YouTube video"""
     video_id = extract_video_id(url_or_id)
     if not video_id:
@@ -268,6 +268,10 @@ def get_related_videos(url_or_id: str, timeout: int = 5) -> List[Dict[str, Any]]
             if secondary_results:
                 items = secondary_results.get("secondaryResults", {}).get("results", [])
                 for item in items:
+                    # Limit results to max_results
+                    if len(related_videos) >= max_results:
+                        break
+                        
                     compact_video = item.get("compactVideoRenderer", {})
                     if not compact_video:
                         continue
@@ -322,3 +326,30 @@ def get_related_videos(url_or_id: str, timeout: int = 5) -> List[Dict[str, Any]]
         pass
 
     return related_videos
+
+
+def is_short(video_info: Dict[str, Any]) -> bool:
+    """
+    Determine if a video is a YouTube Short
+    
+    Criteria:
+    - Duration ≤ 60 seconds
+    - URL contains '/shorts/'
+    
+    Args:
+        video_info: Dictionary containing video information
+        
+    Returns:
+        True if video is a short, False otherwise
+    """
+    # Check duration (primary criterion)
+    duration_seconds = video_info.get('duration_seconds', 0)
+    if duration_seconds > 0 and duration_seconds <= 60:
+        return True
+    
+    # Check URL pattern (secondary criterion)
+    url = video_info.get('url', '')
+    if '/shorts/' in url:
+        return True
+    
+    return False
