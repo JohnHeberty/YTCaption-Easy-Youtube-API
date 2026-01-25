@@ -1,0 +1,31 @@
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+
+# Async HTTP Client
+httpx==0.25.2
+aiofiles==23.2.1
+
+# Task Queue
+celery==5.3.4
+redis==5.0.1
+
+# Data Validation
+pydantic==2.5.2
+pydantic-settings==2.1.0
+
+# Video Processing
+ffmpeg-python==0.2.0
+
+# Audio Processing
+pydub==0.25.1
+
+# Utilities
+python-dotenv==1.0.0
+shortuuid==1.0.11
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0

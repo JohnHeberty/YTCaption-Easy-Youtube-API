@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  make-video:
+    build: .
+    container_name: ytcaption-make-video
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./storage/audio_uploads:/app/storage/audio_uploads
+      - ./storage/shorts_cache:/app/storage/shorts_cache
+      - ./storage/temp:/app/storage/temp
+      - ./storage/output_videos:/app/storage/output_videos
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - YOUTUBE_SEARCH_URL=http://youtube-search:8003
+      - VIDEO_DOWNLOADER_URL=http://video-downloader:8002
+      - AUDIO_TRANSCRIBER_URL=http://audio-transcriber:8005
+      - CACHE_TTL_HOURS=24
+      - MAX_CACHE_SIZE_GB=50
+      - LOG_LEVEL=INFO
+      - PORT=8004
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+      - "youtube-search:192.168.18.110"
+      - "video-downloader:192.168.18.110"
+      - "audio-transcriber:192.168.18.110"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ytcaption-network
+
+  make-video-celery:
+    build: .
+    container_name: ytcaption-make-video-celery
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=2 --queues=make_video_queue
+    volumes:
+      - ./storage/audio_uploads:/app/storage/audio_uploads
+      - ./storage/shorts_cache:/app/storage/shorts_cache
+      - ./storage/temp:/app/storage/temp
+      - ./storage/output_videos:/app/storage/output_videos
+      - ./logs:/app/logs
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - YOUTUBE_SEARCH_URL=http://youtube-search:8003
+      - VIDEO_DOWNLOADER_URL=http://video-downloader:8002
+      - AUDIO_TRANSCRIBER_URL=http://audio-transcriber:8005
+      - LOG_LEVEL=INFO
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+      - "youtube-search:192.168.18.110"
+      - "video-downloader:192.168.18.110"
+      - "audio-transcriber:192.168.18.110"
+    restart: unless-stopped
+    depends_on:
+      make-video:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - ytcaption-network
+
+  make-video-celery-beat:
+    build: .
+    container_name: ytcaption-make-video-celery-beat
+    command: python -m celery -A app.celery_config beat --loglevel=info
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_URL=redis://192.168.18.110:6379/0
+      - LOG_LEVEL=INFO
+    extra_hosts:
+      - "redis-server:192.168.18.110"
+    restart: unless-stopped
+    depends_on:
+      - make-video-celery
+    networks:
+      - ytcaption-network
+
+networks:
+  ytcaption-network:
+    external: true
