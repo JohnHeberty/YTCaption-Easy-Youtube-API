@@ -160,12 +160,7 @@ def download_video_task(self, job_dict: dict) -> dict:
             logger.info(f"✅ Job {job_id} reconstituído com sucesso")
         except Exception as ve:
             logger.error(f"❌ Erro de validação ao reconstituir job {job_id}: {ve}")
-            self.update_state(state='FAILURE', meta={
-                'status': 'failed',
-                'job_id': job_id,
-                'error': f'Job validation failed: {str(ve)}',
-                'progress': 0.0
-            })
+            # Não usa update_state aqui - pode causar crash recursivo
             raise Ignore()
         
         # Atualiza status
@@ -174,11 +169,8 @@ def download_video_task(self, job_dict: dict) -> dict:
         job.progress = 0.0
         self.job_store.update_job(job)
         
-        self.update_state(state='STARTED', meta={
-            'status': 'downloading',
-            'job_id': job_id,
-            'progress': 0.0
-        })
+        # Remove update_state - apenas atualiza Redis Store
+        # self.update_state causa problemas quando há resultados corrompidos
         
         # Executa download
         try:
@@ -187,20 +179,10 @@ def download_video_task(self, job_dict: dict) -> dict:
             
             logger.info(f"✅ Job {job_id} concluído: {result_job.status}")
             
-            if result_job.status == JobStatus.COMPLETED:
-                self.update_state(state='SUCCESS', meta={
-                    'status': 'completed',
-                    'job_id': job_id,
-                    'output_file': result_job.file_path,
-                    'progress': 100.0
-                })
-            else:
-                self.update_state(state='FAILURE', meta={
-                    'status': 'failed',
-                    'job_id': job_id,
-                    'error': result_job.error_message or 'Unknown error',
-                    'progress': result_job.progress
-                })
+            # Se falhou, raise Ignore para que Celery não faça retry
+            # O Redis Store já foi atualizado pelo downloader
+            if result_job.status != JobStatus.COMPLETED:
+                logger.warning(f"Job {job_id} falhou durante download: {result_job.error_message}")
                 raise Ignore()
             
             return result_job.model_dump()
@@ -210,12 +192,7 @@ def download_video_task(self, job_dict: dict) -> dict:
             job.status = JobStatus.FAILED
             job.error_message = "Download excedeu o tempo limite (30 minutos)"
             self.job_store.update_job(job)
-            self.update_state(state='FAILURE', meta={
-                'status': 'timeout',
-                'job_id': job_id,
-                'error': job.error_message,
-                'progress': job.progress
-            })
+            # Redis já atualizado, apenas sinaliza Ignore
             raise Ignore()
             
     except WorkerLostError as worker_lost_err:
@@ -230,12 +207,7 @@ def download_video_task(self, job_dict: dict) -> dict:
             except Exception:
                 pass
         
-        self.update_state(state='FAILURE', meta={
-            'status': 'worker_lost',
-            'job_id': job_id,
-            'error': error_msg,
-            'progress': 0.0
-        })
+        # Não faz update_state - worker está perdido mesmo
         raise Ignore()
         
     except Ignore:
@@ -250,15 +222,11 @@ def download_video_task(self, job_dict: dict) -> dict:
             job.error_message = error_msg
             try:
                 self.job_store.update_job(job)
-            except Exception:
-                pass
+            except Exception as update_exc:
+                logger.error(f"Falha ao atualizar job no Redis: {update_exc}")
         
-        self.update_state(state='FAILURE', meta={
-            'status': 'failed',
-            'job_id': job_id,
-            'error': error_msg,
-            'progress': 0.0
-        })
+        # Redis já atualizado (ou falhou), apenas sinaliza Ignore
+        # Não usa update_state para evitar crash recursivo
         raise Ignore()
 
 

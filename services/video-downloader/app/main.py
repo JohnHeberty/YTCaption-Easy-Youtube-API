@@ -129,8 +129,26 @@ async def create_download_job(request_obj: Request, request: JobRequest) -> Job:
     
     Se o mesmo vídeo já foi baixado, retorna o job existente.
     """
+    from .celery_config import celery_app
+    
     try:
         logger.info(f"Criando job de download para URL: {request.url}")
+        
+        # 🔴 VALIDAÇÃO CRÍTICA: Verifica se worker está ativo
+        try:
+            inspect = celery_app.control.inspect(timeout=2.0)
+            active_workers = inspect.active()
+            
+            if not active_workers or len(active_workers) == 0:
+                logger.warning("⚠️ Nenhum worker Celery disponível!")
+                raise ServiceException(
+                    "Serviço temporariamente indisponível: worker de processamento não está ativo. "
+                    "Tente novamente em alguns instantes."
+                )
+        except Exception as worker_check_err:
+            logger.error(f"Falha ao verificar workers: {worker_check_err}")
+            # Se não consegue verificar, continua mas loga warning
+            logger.warning("⚠️ Não foi possível verificar status do worker - prosseguindo")
         
         # Cria job para extrair ID
         new_job = Job.create_new(request.url, request.quality)
@@ -729,95 +747,128 @@ async def health_check():
     """
     Health check profundo - valida recursos críticos
     """
-    import shutil
-    from fastapi.responses import JSONResponse
     from .celery_config import celery_app
     
-    health_status = {
+    health = {
         "status": "healthy",
-        "service": "video-download-service", 
-        "version": "3.0.0",
+        "service": "video-downloader",
         "timestamp": datetime.now().isoformat(),
-        "checks": {}
+        "checks": {
+            "api": "ok",
+            "redis": "checking",
+            "celery_worker": "checking",
+            "cache_dir": "checking"
+        }
     }
     
-    is_healthy = True
-    
-    # 1. Verifica Redis
+    # Check Redis
     try:
         job_store.redis.ping()
-        health_status["checks"]["redis"] = {"status": "ok", "message": "Connected"}
+        health["checks"]["redis"] = "ok"
     except Exception as e:
-        health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
-        is_healthy = False
+        health["checks"]["redis"] = f"failed: {e}"
+        health["status"] = "unhealthy"
     
-    # 2. Verifica espaço em disco
+    # Check Celery Worker (CRÍTICO!)
     try:
-        cache_dir = Path(settings.get('cache_dir', './cache'))
-        cache_dir.mkdir(exist_ok=True, parents=True)
-        stat = shutil.disk_usage(cache_dir)
-        free_gb = stat.free / (1024**3)
-        total_gb = stat.total / (1024**3)
-        percent_free = (stat.free / stat.total) * 100
+        inspect = celery_app.control.inspect()
+        active_workers = inspect.active()
         
-        disk_status = "ok" if percent_free > 10 else "warning" if percent_free > 5 else "critical"
-        if percent_free <= 5:
-            is_healthy = False
-            
-        health_status["checks"]["disk_space"] = {
-            "status": disk_status,
-            "free_gb": round(free_gb, 2),
-            "total_gb": round(total_gb, 2),
-            "percent_free": round(percent_free, 2)
-        }
-    except Exception as e:
-        health_status["checks"]["disk_space"] = {"status": "error", "message": str(e)}
-        is_healthy = False
-    
-    # 3. Verifica Celery workers (simplificado)
-    try:
-        # Verificação básica para evitar travamento no health check
-        health_status["checks"]["celery_workers"] = {
-            "status": "ok",
-            "message": "Celery workers check skipped for faster health response"
-        }
-    except Exception as e:
-        health_status["checks"]["celery_workers"] = {"status": "error", "message": str(e)}
-    
-    # 4. Verifica yt-dlp
-    try:
-        import yt_dlp
-        version = yt_dlp.version.__version__
-        health_status["checks"]["yt_dlp"] = {"status": "ok", "version": version}
-    except Exception as e:
-        health_status["checks"]["yt_dlp"] = {"status": "error", "message": str(e)}
-        is_healthy = False
-    
-    # 5. Verifica user agents
-    try:
-        stats = downloader.ua_manager.get_stats()
-        if stats["total_user_agents"] > 0:
-            health_status["checks"]["user_agents"] = {
-                "status": "ok",
-                "total": stats["total_user_agents"],
-                "available": stats["available_count"],
-                "quarantined": stats["quarantined_count"]
-            }
+        if active_workers and len(active_workers) > 0:
+            health["checks"]["celery_worker"] = "ok"
+            health["active_workers"] = len(active_workers)
         else:
-            health_status["checks"]["user_agents"] = {
-                "status": "warning",
-                "message": "No user agents available"
-            }
+            health["checks"]["celery_worker"] = "no workers available"
+            health["status"] = "degraded"
+            health["warning"] = "Celery worker não está disponível - jobs não serão processados"
     except Exception as e:
-        health_status["checks"]["user_agents"] = {"status": "error", "message": str(e)}
+        health["checks"]["celery_worker"] = f"failed: {e}"
+        health["status"] = "degraded"
+        health["warning"] = "Não foi possível conectar ao Celery worker"
     
-    # Atualiza status geral
-    health_status["status"] = "healthy" if is_healthy else "unhealthy"
+    # Check cache directory
+    cache_dir = Path("./cache")
+    if cache_dir.exists() and cache_dir.is_dir():
+        health["checks"]["cache_dir"] = "ok"
+    else:
+        health["checks"]["cache_dir"] = "missing"
+        health["status"] = "unhealthy"
     
-    status_code = 200 if is_healthy else 503
+    # Define status code baseado em health
+    status_code = 200
+    if health["status"] == "unhealthy":
+        status_code = 503
+    elif health["status"] == "degraded":
+        status_code = 200  # Ainda aceita requisições mas com warning
     
-    return JSONResponse(content=health_status, status_code=status_code)
+    return JSONResponse(content=health, status_code=status_code)
 
+
+@app.post("/admin/fix-stuck-jobs")
+async def fix_stuck_jobs(max_age_minutes: int = 30):
+    """
+    🔧 Corrige jobs travados em status QUEUED
+    
+    Procura por jobs que estão em QUEUED por mais de X minutos e:
+    - Marca como FAILED (worker provavelmente crashou)
+    - Permite que sejam reprocessados
+    
+    Args:
+        max_age_minutes: Idade máxima em minutos para considerar job travado (padrão: 30)
+    """
+    try:
+        from datetime import timedelta
+        import json
+        
+        logger.info(f"🔍 Procurando jobs travados em QUEUED (>{max_age_minutes}min)")
+        
+        keys = job_store.redis.keys("job:*")
+        now = datetime.now()
+        fixed_count = 0
+        
+        for key in keys:
+            try:
+                data = job_store.redis.get(key)
+                if not data:
+                    continue
+                
+                job_dict = json.loads(data)
+                
+                # Apenas jobs em QUEUED
+                if job_dict.get('status') != 'queued':
+                    continue
+                
+                # Verifica idade
+                created_at = datetime.fromisoformat(job_dict.get('created_at', ''))
+                age = now - created_at
+                
+                if age > timedelta(minutes=max_age_minutes):
+                    # Job travado! Marca como failed
+                    job_dict['status'] = 'failed'
+                    job_dict['error_message'] = f'Job travado em QUEUED por {age.total_seconds()/60:.1f} minutos - worker provavelmente crashou'
+                    job_dict['progress'] = 0.0
+                    
+                    # Atualiza no Redis
+                    job_store.redis.set(key, json.dumps(job_dict))
+                    fixed_count += 1
+                    
+                    logger.info(f"🔧 Job {job_dict['id']} marcado como FAILED (travado por {age.total_seconds()/60:.1f}min)")
+            
+            except Exception as job_err:
+                logger.error(f"Erro ao processar job {key}: {job_err}")
+                continue
+        
+        logger.info(f"✅ Fix concluído: {fixed_count} jobs corrigidos")
+        
+        return {
+            "fixed_count": fixed_count,
+            "max_age_minutes": max_age_minutes,
+            "message": f"Corrigidos {fixed_count} jobs travados em QUEUED"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao corrigir jobs travados: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/user-agents/stats")
