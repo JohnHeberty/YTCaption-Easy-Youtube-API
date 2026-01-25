@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Storage (except examples)
+storage/audio_uploads/*
+!storage/audio_uploads/.gitkeep
+storage/shorts_cache/*
+!storage/shorts_cache/.gitkeep
+storage/temp/*
+!storage/temp/.gitkeep
+storage/output_videos/*
+!storage/output_videos/.gitkeep
+
+# Environment
+.env
+.env.local
