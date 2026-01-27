@@ -136,19 +136,16 @@ async def create_download_job(request_obj: Request, request: JobRequest) -> Job:
         
         # 🔴 VALIDAÇÃO CRÍTICA: Verifica se worker está ativo
         try:
-            inspect = celery_app.control.inspect(timeout=2.0)
+            inspect = celery_app.control.inspect(timeout=3.0)
             active_workers = inspect.active()
             
             if not active_workers or len(active_workers) == 0:
                 logger.warning("⚠️ Nenhum worker Celery disponível!")
-                raise ServiceException(
-                    "Serviço temporariamente indisponível: worker de processamento não está ativo. "
-                    "Tente novamente em alguns instantes."
-                )
+                # Não lança exception - apenas loga warning e continua
+                # O job será enfileirado e processado quando worker estiver disponível
         except Exception as worker_check_err:
-            logger.error(f"Falha ao verificar workers: {worker_check_err}")
-            # Se não consegue verificar, continua mas loga warning
-            logger.warning("⚠️ Não foi possível verificar status do worker - prosseguindo")
+            # Se timeout ou erro na conexão, apenas loga mas continua
+            logger.warning(f"⚠️ Não foi possível verificar status do worker: {worker_check_err}")
         
         # Cria job para extrair ID
         new_job = Job.create_new(request.url, request.quality)
