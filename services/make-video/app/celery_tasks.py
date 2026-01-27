@@ -169,6 +169,11 @@ async def _process_make_video_async(job_id: str):
         audio_duration = await video_builder.get_audio_duration(str(audio_path))
         target_duration = audio_duration + 5.0  # +5s sobra
         
+        # Atualizar job com duração do áudio
+        job.audio_duration = audio_duration
+        job.target_video_duration = target_duration
+        await store.save_job(job)
+        
         logger.info(f"🎵 Audio: {audio_duration:.1f}s → Target: {target_duration:.1f}s")
         
         # Etapa 2: Buscar shorts
@@ -177,6 +182,9 @@ async def _process_make_video_async(job_id: str):
         
         shorts_list = await api_client.search_shorts(job.query, job.max_shorts)
         logger.info(f"✅ Found {len(shorts_list)} shorts")
+        
+        if not shorts_list:
+            raise VideoProcessingException(f"No shorts found for query: {job.query}")
         
         # Etapa 3: Baixar shorts
         logger.info(f"⬇️ [3/7] Downloading shorts...")
@@ -222,6 +230,9 @@ async def _process_make_video_async(job_id: str):
             await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
         
         logger.info(f"📦 Downloads: {len(downloaded_shorts)} total ({cache_hits} from cache)")
+        
+        if not downloaded_shorts:
+            raise VideoProcessingException("No shorts could be downloaded")
         
         # Etapa 4: Selecionar shorts aleatoriamente
         logger.info(f"🎲 [4/7] Selecting shorts randomly...")

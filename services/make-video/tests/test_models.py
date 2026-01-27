@@ -47,10 +47,10 @@ def test_create_video_request():
 
 def test_job_status_enum():
     """Test JobStatus enum values"""
-    assert JobStatus.QUEUED.value == "QUEUED"
-    assert JobStatus.ANALYZING_AUDIO.value == "ANALYZING_AUDIO"
-    assert JobStatus.COMPLETED.value == "COMPLETED"
-    assert JobStatus.FAILED.value == "FAILED"
+    assert JobStatus.QUEUED.value == "queued"
+    assert JobStatus.ANALYZING_AUDIO.value == "analyzing_audio"
+    assert JobStatus.COMPLETED.value == "completed"
+    assert JobStatus.FAILED.value == "failed"
 
 
 def test_job_result():

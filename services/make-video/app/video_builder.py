@@ -77,14 +77,24 @@ class VideoBuilder:
         target_width, target_height = aspect_map[aspect_ratio]
         
         # Calcular crop filter baseado na posição
+        # IMPORTANTE: scale aumenta o vídeo para cobrir o target, depois crop corta o excesso
+        scale_filter = f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase"
+        
         if crop_position == "center":
-            crop_expr = f"crop={target_width}:{target_height}"
+            # Auto-center crop (padrão FFmpeg)
+            crop_filter = f"crop={target_width}:{target_height}"
         elif crop_position == "top":
-            crop_expr = f"crop={target_width}:{target_height}:0:0"
+            # Crop do topo
+            crop_filter = f"crop={target_width}:{target_height}:0:0"
         elif crop_position == "bottom":
-            crop_expr = f"crop={target_width}:{target_height}:0:ih-{target_height}"
+            # Crop do fundo (calcula posição Y)
+            crop_filter = f"crop={target_width}:{target_height}:0:(ih-{target_height})"
         else:
-            crop_expr = f"crop={target_width}:{target_height}"  # Default: center
+            # Default: center
+            crop_filter = f"crop={target_width}:{target_height}"
+        
+        # Combinar filtros: scale → crop → setsar (garantir aspect ratio)
+        video_filter = f"{scale_filter},{crop_filter},setsar=1"
         
         # Criar lista de concatenação
         concat_list_path = self.temp_dir / f"concat_list_{Path(output_path).stem}.txt"
@@ -102,7 +112,7 @@ class VideoBuilder:
                 "-f", "concat",
                 "-safe", "0",
                 "-i", str(concat_list_path),
-                "-vf", f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase,{crop_expr}",
+                "-vf", video_filter,  # Usar o filtro corrigido
                 "-c:v", "libx264",
                 "-preset", "fast",
                 "-crf", "23",
