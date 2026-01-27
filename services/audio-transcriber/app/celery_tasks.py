@@ -1,7 +1,7 @@
 import os
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from celery import Task
 from celery import signals
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -150,6 +150,28 @@ def transcribe_audio_task(self, job_dict):
             logger.info(f"✅ Job {job_id} reconstituído com sucesso")
         except ValidationError as ve:
             logger.error(f"❌ Erro de validação ao reconstituir job {job_id}: {ve}")
+            
+            # Tenta marcar job como FAILED no Redis
+            try:
+                redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+                store = RedisJobStore(redis_url=redis_url)
+                
+                # Cria job mínimo com erro
+                minimal_job = Job(
+                    id=job_id,
+                    status=JobStatus.FAILED,
+                    error_message=f"Schema inválido: {str(ve)}. Job precisa ser recriado com schema atualizado.",
+                    input_file=job_dict.get('input_file', 'unknown'),
+                    operation=job_dict.get('operation', 'transcribe'),
+                    created_at=datetime.now(),
+                    received_at=datetime.now(),
+                    expires_at=datetime.now() + timedelta(hours=24)
+                )
+                store.save_job(minimal_job)
+                logger.info(f"✅ Job {job_id} marcado como FAILED por schema inválido")
+            except Exception as store_err:
+                logger.error(f"❌ Não foi possível marcar job {job_id} como FAILED: {store_err}")
+            
             # Não usa update_state que causa problemas de serialização
             raise Ignore()
         
@@ -239,3 +261,33 @@ def cleanup_expired_jobs_task():
     expired = loop.run_until_complete(store.cleanup_expired())
     
     return {"status": "completed", "expired_jobs": expired}
+
+
+@celery_app.task(name='cleanup_orphan_jobs')
+def cleanup_orphan_jobs_task():
+    """
+    Task para limpar jobs órfãos periodicamente.
+    Deve ser agendada com Celery Beat ou executada manualmente.
+    """
+    logger.info("🧹 Executando limpeza de jobs órfãos")
+    
+    from .orphan_cleaner import OrphanJobCleaner
+    
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    store = RedisJobStore(redis_url=redis_url)
+    cleaner = OrphanJobCleaner(store)
+    
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    stats = loop.run_until_complete(cleaner.cleanup_orphans())
+    
+    logger.info(
+        f"✅ Limpeza de órfãos concluída: {stats['orphans_found']} órfãos, "
+        f"{stats['requeued']} reenfileirados, {stats['failed']} falhados"
+    )
+    
+    return {"status": "completed", "stats": stats}

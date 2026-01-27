@@ -1043,6 +1043,82 @@ async def health_check():
     return JSONResponse(content=health_status, status_code=status_code)
 
 
+@app.get("/health/detailed")
+async def health_check_detailed():
+    """
+    Health check detalhado com verificação profunda de todos os componentes.
+    Usa o novo sistema de health checkers SOLID.
+    """
+    from .health_checker import (
+        CeleryHealthChecker,
+        RedisHealthChecker,
+        ModelHealthChecker,
+        AggregateHealthChecker
+    )
+    from .celery_config import celery_app
+    
+    try:
+        # Cria health checker agregado
+        aggregate = AggregateHealthChecker()
+        
+        # Registra checkers
+        aggregate.register_checker("redis", RedisHealthChecker(job_store))
+        aggregate.register_checker("celery", CeleryHealthChecker(celery_app))
+        aggregate.register_checker("model", ModelHealthChecker(processor))
+        
+        # Executa verificações
+        health_result = aggregate.check_all()
+        
+        # Adiciona informações extras
+        health_result["service"] = "audio-transcription"
+        health_result["version"] = "2.0.0"
+        
+        # Status code baseado em saúde geral
+        status_code = 200 if health_result["overall_healthy"] else 503
+        
+        return JSONResponse(content=health_result, status_code=status_code)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro no health check detalhado: {e}")
+        return JSONResponse(
+            content={
+                "overall_healthy": False,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            },
+            status_code=503
+        )
+
+
+@app.post("/admin/cleanup-orphans")
+async def cleanup_orphan_jobs_endpoint():
+    """
+    🧹 Executa limpeza manual de jobs órfãos.
+    Endpoint administrativo para forçar limpeza de jobs travados.
+    """
+    from .orphan_cleaner import OrphanJobCleaner
+    
+    try:
+        cleaner = OrphanJobCleaner(job_store)
+        stats = await cleaner.cleanup_orphans()
+        
+        return JSONResponse(content={
+            "success": True,
+            "stats": stats,
+            "timestamp": datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"❌ Erro na limpeza de órfãos: {e}")
+        return JSONResponse(
+            content={
+                "success": False,
+                "error": str(e)
+            },
+            status_code=500
+        )
+
+
 @app.post("/model/unload")
 async def unload_whisper_model():
     """

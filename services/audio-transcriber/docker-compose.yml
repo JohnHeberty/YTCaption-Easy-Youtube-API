@@ -78,6 +78,32 @@ services:
           memory: 4G
           # REMOVIDO: drivers nvidia daqui para evitar erro CDI
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'from app.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 180s
     depends_on:
       audio-transcriber-service:
         condition: service_healthy
+
+  celery-beat:
+    build: .
+    container_name: audio-transcriber-beat
+    runtime: runc
+    command: python -m celery -A app.celery_config beat --loglevel=info
+    volumes:
+      - ./app:/app/app
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ}
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
+    restart: unless-stopped
+    depends_on:
+      audio-transcriber-service:
+        condition: service_healthy
+
