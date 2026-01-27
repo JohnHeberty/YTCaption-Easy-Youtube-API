@@ -1,5 +1,8 @@
 import os
+import logging
 from celery import Celery
+
+logger = logging.getLogger(__name__)
 
 # Configuração do Redis via .env
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
@@ -46,8 +49,18 @@ celery_app.conf.update(
     task_routes={
         'transcribe_audio': {'queue': 'audio_transcriber_queue'},
         'cleanup_expired_jobs': {'queue': 'audio_transcriber_queue'},
+        'cleanup_orphan_jobs': {'queue': 'audio_transcriber_queue'},
     },
 )
+
+# ✅ Configuração do Celery Beat para tarefas periódicas
+try:
+    from .celery_beat_config import get_beat_schedule
+    celery_app.conf.beat_schedule = get_beat_schedule()
+    logger.info("✅ Celery Beat schedule configurado")
+except Exception as e:
+    logger.warning(f"⚠️ Celery Beat schedule não configurado: {e}")
+
 
 # ✅ IMPORTANTE: Importa tasks para registrá-las no Celery
 # Isso garante que o worker reconheça as tasks ao inicializar

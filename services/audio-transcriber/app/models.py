@@ -1,6 +1,6 @@
 from enum import Enum
 from datetime import datetime, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 import hashlib
 
@@ -111,6 +111,13 @@ class Job(BaseModel):
     progress: float = 0.0  # Progresso de 0.0 a 100.0
     transcription_text: Optional[str] = None  # Texto da transcrição
     transcription_segments: Optional[List[TranscriptionSegment]] = None  # Segmentos com timestamps
+    
+    # Campos de resiliência
+    retry_count: int = 0  # Número de tentativas
+    status_message: Optional[str] = None  # Mensagem de status atual
+    processing_time: Optional[float] = None  # Tempo de processamento em segundos
+    dlq_at: Optional[datetime] = None  # Quando foi enviado para DLQ
+    result: Optional[Dict] = None  # Resultado completo (TranscriptionResponse serializado)
     
     # Propriedade de compatibilidade com código antigo
     @property
