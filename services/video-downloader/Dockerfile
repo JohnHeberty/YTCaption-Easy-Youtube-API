@@ -12,9 +12,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Instala apenas curl para healthcheck (ffmpeg será instalado via yt-dlp se necessário)
+# Instala ffmpeg para merge de áudio/vídeo + curl para healthcheck
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get install -y --no-install-recommends curl ffmpeg && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

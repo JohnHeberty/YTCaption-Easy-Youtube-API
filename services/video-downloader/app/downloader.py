@@ -55,18 +55,23 @@ class SimpleDownloader:
 
     
     def _get_format_selector(self, quality: str) -> str:
-        """Converte qualidade em seletor de formato"""
+        """Converte qualidade em seletor de formato
+        
+        Evita formatos HLS fragmentados que causam problemas de 'empty file'.
+        Prioriza formatos progressivos (non-HLS) quando possível.
+        """
         quality_map = {
-            'best': 'best[ext=mp4]/best',
-            'worst': 'worst[ext=mp4]/worst', 
-            '720p': 'best[height<=720][ext=mp4]/best[height<=720]',
-            '480p': 'best[height<=480][ext=mp4]/best[height<=480]',
-            '360p': 'best[height<=360][ext=mp4]/best[height<=360]',
+            # Evita HLS/DASH fragmentados, prefere progressive
+            'best': 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b',
+            'worst': 'wv*[ext=mp4]+wa[ext=m4a]/w[ext=mp4]/wv*+wa/w',
+            '720p': 'bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]/bv*[height<=720]+ba/b[height<=720]',
+            '480p': 'bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[height<=480][ext=mp4]/bv*[height<=480]+ba/b[height<=480]',
+            '360p': 'bv*[height<=360][ext=mp4]+ba[ext=m4a]/b[height<=360][ext=mp4]/bv*[height<=360]+ba/b[height<=360]',
             # Áudio: Prioriza Opus (melhor compressão sem perder qualidade)
             # Opus: ~50-160kbps, M4A: ~128-256kbps, WebM: ~128-192kbps
             'audio': 'bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio'
         }
-        return quality_map.get(quality, 'best[ext=mp4]/best')
+        return quality_map.get(quality, 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b')
     
     def _progress_hook(self, d: Dict[str, Any], job: Job) -> None:
         """Hook de progresso do yt-dlp"""
@@ -177,8 +182,9 @@ class SimpleDownloader:
                     # Calcula delay do backoff ANTES da tentativa (exceto primeira)
                     if attempt_global > 1:
                         # Fórmula: 2^(2 + i) onde i começa em 0
-                        delay_seconds = math.pow(2, 2 + (attempt_global - 2))
-                        logger.warning(f"⏳ Aguardando {delay_seconds:.0f}s (backoff exponencial)...")
+                        # Mas LIMITA a 60 segundos máximo!
+                        delay_seconds = min(math.pow(2, 2 + (attempt_global - 2)), 60.0)
+                        logger.warning(f"⏳ Aguardando {delay_seconds:.0f}s (backoff exponencial limitado)...")
                         time.sleep(delay_seconds)
                     
                     # Atualiza UA no job
@@ -250,7 +256,8 @@ class SimpleDownloader:
                     
                     # Se não é a última tentativa com este UA, apenas continua
                     if attempt_ua < max_attempts_per_ua - 1:
-                        logger.warning(f"🔁 Tentando novamente com o mesmo UA em {math.pow(2, 2 + (attempt_global - 1)):.0f}s...")
+                        next_delay = min(math.pow(2, 2 + (attempt_global - 1)), 60.0)
+                        logger.warning(f"🔁 Tentando novamente com o mesmo UA em {next_delay:.0f}s...")
                         continue
                     else:
                         # Última tentativa com este UA - reporta erro e coloca em quarentena
@@ -288,7 +295,16 @@ class SimpleDownloader:
             'progress_hooks': [lambda d: self._progress_hook(d, job)],
             'http_headers': {
                 'User-Agent': user_agent
-            }
+            },
+            # Opções para melhor tratamento de fragmentos HLS
+            'fragment_retries': 10,  # Tenta até 10x baixar fragmento faltante
+            'skip_unavailable_fragments': False,  # Não pula fragmentos (falha se não conseguir)
+            'extractor_retries': 3,  # Retry do extractor
+            'file_access_retries': 3,  # Retry de acesso a arquivo
+            'concurrent_fragment_downloads': 1,  # 1 fragmento por vez (mais estável)
+            # Evita problemas com livestreams/vídeos ao vivo
+            'live_from_start': False,  # Não baixa do início se for livestream
+            'wait_for_video': 0,  # Não aguarda se vídeo ainda não está disponível
         }
         
         return opts
