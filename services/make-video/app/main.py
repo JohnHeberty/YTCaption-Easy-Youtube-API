@@ -76,9 +76,9 @@ async def startup_event():
 
 @app.post("/make-video", status_code=202)
 async def create_video(
-    audio_file: UploadFile = File(...),
-    query: str = Form(...),
-    max_shorts: int = Form(10),
+    audio_file: UploadFile = File(..., description="Audio file (max 100MB)"),
+    query: str = Form(..., min_length=3, max_length=200),
+    max_shorts: int = Form(10, ge=10, le=500),  # Aligned with planning: 10-500
     subtitle_language: str = Form("pt"),
     subtitle_style: str = Form("static"),
     aspect_ratio: str = Form("9:16"),
@@ -88,9 +88,9 @@ async def create_video(
     Criar novo vídeo
     
     **Entrada:**
-    - audio_file: Arquivo de áudio (mp3, wav, m4a, ogg)
-    - query: Query de busca para shorts (ex: "motivação fitness")
-    - max_shorts: Máximo de shorts para buscar (1-50)
+    - audio_file: Arquivo de áudio (mp3, wav, m4a, ogg) - Máx 100MB
+    - query: Query de busca para shorts (3-200 caracteres)
+    - max_shorts: Máximo de shorts para buscar (10-500)
     - subtitle_language: Idioma das legendas (pt, en, es)
     - subtitle_style: Estilo das legendas (static, dynamic, minimal)
     - aspect_ratio: Proporção do vídeo (9:16, 16:9, 1:1, 4:5)
@@ -102,8 +102,22 @@ async def create_video(
     """
     try:
         # Validações
-        if max_shorts < 1 or max_shorts > 50:
-            raise HTTPException(status_code=400, detail="max_shorts deve estar entre 1 e 50")
+        MAX_AUDIO_SIZE = 100 * 1024 * 1024  # 100MB
+        
+        # Ler conteúdo do áudio (com limite)
+        content = await audio_file.read()
+        
+        if len(content) > MAX_AUDIO_SIZE:
+            raise HTTPException(
+                status_code=413, 
+                detail=f"Audio file too large. Max size: 100MB, received: {len(content) / (1024*1024):.1f}MB"
+            )
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Audio file is empty")
+        
+        if max_shorts < 10 or max_shorts > 500:
+            raise HTTPException(status_code=400, detail="max_shorts deve estar entre 10 e 500")
         
         if aspect_ratio not in ["9:16", "16:9", "1:1", "4:5"]:
             raise HTTPException(status_code=400, detail="aspect_ratio inválido")
@@ -131,8 +145,8 @@ async def create_video(
         audio_dir.mkdir(parents=True, exist_ok=True)
         audio_path = audio_dir / f"audio{file_ext}"
         
+        # Salvar áudio (content já foi lido acima)
         with open(audio_path, "wb") as f:
-            content = await audio_file.read()
             f.write(content)
         
         logger.info(f"💾 Audio saved: {audio_path} ({len(content)} bytes)")

@@ -23,9 +23,9 @@ class JobStatus(str, Enum):
 class ShortInfo(BaseModel):
     """Informações de um short usado no vídeo"""
     video_id: str
-    duration_seconds: int
+    duration_seconds: float  # Changed from int to float for precision
     file_path: str
-    position_in_video: int  # Posição em segundos no vídeo final
+    position_in_video: float  # Changed from int to float - posição em segundos no vídeo final
     resolution: str = "1080x1920"
     fps: int = 30
 
@@ -71,8 +71,8 @@ class Job(BaseModel):
     
     # Input data
     query: str
-    audio_duration: float
-    target_video_duration: float
+    audio_duration: Optional[float] = None  # Será preenchido após análise
+    target_video_duration: Optional[float] = None  # Será preenchido após análise
     max_shorts: int = 100
     subtitle_language: str = "pt"
     subtitle_style: str = "dynamic"

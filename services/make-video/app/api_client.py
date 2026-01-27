@@ -29,18 +29,23 @@ class MicroservicesClient:
                  youtube_search_url: str = "http://localhost:8003",
                  video_downloader_url: str = "http://localhost:8002",
                  audio_transcriber_url: str = "http://localhost:8005",
-                 timeout: float = 600.0):
+                 timeout: float = 30.0,  # Timeout menor para requests individuais
+                 max_retries: int = 3):
         
         self.youtube_search_url = youtube_search_url.rstrip('/')
         self.video_downloader_url = video_downloader_url.rstrip('/')
         self.audio_transcriber_url = audio_transcriber_url.rstrip('/')
+        self.max_retries = max_retries
         
-        self.client = httpx.AsyncClient(timeout=timeout)
+        # Cliente HTTP com retry automático
+        transport = httpx.AsyncHTTPTransport(retries=max_retries)
+        self.client = httpx.AsyncClient(timeout=timeout, transport=transport)
         
         logger.info(f"🌐 Microservices Client initialized:")
         logger.info(f"   ├─ YouTube Search: {self.youtube_search_url}")
         logger.info(f"   ├─ Video Downloader: {self.video_downloader_url}")
-        logger.info(f"   └─ Audio Transcriber: {self.audio_transcriber_url}")
+        logger.info(f"   ├─ Audio Transcriber: {self.audio_transcriber_url}")
+        logger.info(f"   └─ Max retries: {max_retries}")
     
     async def close(self):
         """Fecha cliente HTTP"""
