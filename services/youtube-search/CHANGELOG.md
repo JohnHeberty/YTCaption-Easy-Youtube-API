@@ -103,7 +103,7 @@ CELERY_RESULT_BACKEND=redis://redis:6379/0
 **Depois:**
 ```env
 # Redis configurado para usar instância compartilhada externa
-IP_REDIS=192.168.18.110
+IP_REDIS=192.168.1.110
 DIVISOR=3
 REDIS_URL=redis://${IP_REDIS}:6379/${DIVISOR}
 
@@ -151,7 +151,7 @@ CELERY_RESULT_BACKEND=redis://${IP_REDIS}:6379/${DIVISOR}
 ```bash
 curl http://localhost:8003/health
 ```
-**Resultado:** ✅ Conectado ao Redis externo (192.168.18.110:6379/3)
+**Resultado:** ✅ Conectado ao Redis externo (192.168.1.110:6379/3)
 
 ### Teste 2: Criar Job e Consultar Status
 ```bash
@@ -189,7 +189,7 @@ cp .env.example .env
 2. **Garantir Redis Externo Disponível:**
 ```bash
 # Verificar conectividade
-redis-cli -h 192.168.18.110 -p 6379 -n 3 ping
+redis-cli -h 192.168.1.110 -p 6379 -n 3 ping
 ```
 
 3. **Subir Serviços:**
@@ -287,7 +287,7 @@ Database IDs por serviço:
 ## ✅ Status Final
 
 **Serviço:** ✅ Operacional  
-**Redis:** ✅ Conectado ao externo (192.168.18.110:6379/3)  
+**Redis:** ✅ Conectado ao externo (192.168.1.110:6379/3)  
 **Celery:** ✅ 1 worker ativo  
 **Endpoint /wait:** ✅ Funcionando  
 **Testes:** ✅ 25/25 aprovados  

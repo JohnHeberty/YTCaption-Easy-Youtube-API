@@ -37,7 +37,7 @@ Retorna imediatamente com um `job_id` para acompanhamento do progresso em tempo 
 ### Pré-requisitos
 
 - Python 3.11+
-- Redis (192.168.18.110:6379)
+- Redis (192.168.1.110:6379)
 - Microserviços rodando:
   - `video-downloader` na porta 8001
   - `audio-normalization` na porta 8002
@@ -215,7 +215,7 @@ APP_PORT=8000
 WORKERS=4
 
 # Redis
-REDIS_URL=redis://192.168.18.110:6379/0
+REDIS_URL=redis://192.168.1.110:6379/0
 
 # Cache
 CACHE_TTL_HOURS=24
@@ -401,7 +401,7 @@ docker-compose logs -f audio-transcriber
 ### Redis desconectado
 ```bash
 # Teste conexão Redis
-redis-cli -h 192.168.18.110 -p 6379 ping
+redis-cli -h 192.168.1.110 -p 6379 ping
 ```
 
 ## 📄 Licença

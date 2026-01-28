@@ -23,7 +23,7 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "workers": int(os.getenv("WORKERS", "1")),
 
         # Redis
-        "redis_url": os.getenv("REDIS_URL", "redis://192.168.18.110:6379/0"),
+        "redis_url": os.getenv("REDIS_URL", "redis://192.168.1.110:6379/0"),
 
         # Cache e TTL
         "cache_ttl_hours": int(os.getenv("CACHE_TTL_HOURS", "24")),
@@ -37,9 +37,9 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "log_dir": os.getenv("LOG_DIR", "./orchestrator/logs"),
 
         # Microserviços URLs - URLs corretas baseadas no log de erro
-        "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.18.132:8000"),
-        "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.18.132:8001"),
-        "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.18.132:8002"),
+        "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.1.132:8000"),
+        "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.1.132:8001"),
+        "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.1.132:8002"),
 
         # Timeouts dos microserviços (segundos) - Otimizados para resiliência
         "video_downloader_timeout": int(os.getenv("VIDEO_DOWNLOADER_TIMEOUT", "900")),   # 15min
