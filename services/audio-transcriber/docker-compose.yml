@@ -2,7 +2,7 @@ services:
   audio-transcriber-service:
     build: .
     container_name: audio-transcriber-api
-    runtime: runc
+    runtime: nvidia
     ports:
       - "${PORT}:${PORT}"
     volumes:
@@ -12,20 +12,13 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
-      # Mapeamento apenas de NVIDIA drivers e binários (não bibliotecas libav)
-      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
-    devices:
-      - /dev/nvidia0:/dev/nvidia0
-      - /dev/nvidiactl:/dev/nvidiactl
-      - /dev/nvidia-uvm:/dev/nvidia-uvm
-      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
     env_file:
       - .env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - WHISPER_DEVICE=${WHISPER_DEVICE}
       - WHISPER_FALLBACK_CPU=${WHISPER_FALLBACK_CPU}
     deploy:
@@ -34,6 +27,10 @@ services:
           memory: 8G
         reservations:
           memory: 4G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health", "-H", "accept: application/json"]
@@ -45,7 +42,7 @@ services:
   celery-worker:
     build: .
     container_name: audio-transcriber-celery
-    runtime: runc
+    runtime: nvidia
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
@@ -54,12 +51,6 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
-      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
-    devices:
-      - /dev/nvidia0:/dev/nvidia0
-      - /dev/nvidiactl:/dev/nvidiactl
-      - /dev/nvidia-uvm:/dev/nvidia-uvm
-      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
     env_file:
       - .env
     environment:
@@ -67,7 +58,7 @@ services:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
       - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - WHISPER_DEVICE=${WHISPER_DEVICE}
       - WHISPER_FALLBACK_CPU=${WHISPER_FALLBACK_CPU}
     deploy:
@@ -76,7 +67,10 @@ services:
           memory: 8G
         reservations:
           memory: 4G
-          # REMOVIDO: drivers nvidia daqui para evitar erro CDI
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c 'from app.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
