@@ -80,7 +80,7 @@ Realizei uma análise completa e correção de todos os problemas identificados 
 
 ### ⚠️ Configuração de Redis Incorreta
 **Arquivo:** `.env`  
-**Problema Atual:** IP_REDIS=192.168.18.110 está inacessível da rede atual (192.168.1.x)  
+**Problema Atual:** IP_REDIS=192.168.1.110 está inacessível da rede atual (192.168.1.x)  
 **Impacto:** Serviço não consegue iniciar sem Redis  
 **Solução Recomendada:**  
 1. Atualizar IP do Redis para o correto  
