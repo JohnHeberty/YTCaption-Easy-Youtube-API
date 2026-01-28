@@ -37,9 +37,13 @@ class MicroservicesClient:
         self.audio_transcriber_url = audio_transcriber_url.rstrip('/')
         self.max_retries = max_retries
         
-        # Cliente HTTP com retry automático
+        # Cliente HTTP com retry automático e SSL desabilitado
         transport = httpx.AsyncHTTPTransport(retries=max_retries)
-        self.client = httpx.AsyncClient(timeout=timeout, transport=transport)
+        self.client = httpx.AsyncClient(
+            timeout=timeout, 
+            transport=transport,
+            verify=False  # Ignorar verificação SSL
+        )
         
         logger.info(f"🌐 Microservices Client initialized:")
         logger.info(f"   ├─ YouTube Search: {self.youtube_search_url}")
@@ -143,8 +147,8 @@ class MicroservicesClient:
         try:
             # Iniciar download
             response = await self.client.post(
-                f"{self.video_downloader_url}/download",
-                params={"url": url, "quality": "best"}
+                f"{self.video_downloader_url}/jobs",
+                json={"url": url, "quality": "best"}
             )
             response.raise_for_status()
             download_job = response.json()
@@ -152,9 +156,9 @@ class MicroservicesClient:
             
             logger.info(f"⬇️ Job de download criado: {job_id}")
             
-            # Aguardar download (polling)
+            # Aguardar download (polling) - timeout reduzido
             poll_interval = 3  # segundos
-            max_polls = 200  # 10 minutos total
+            max_polls = 40  # 2 minutos total (reduzido de 10min)
             
             for attempt in range(max_polls):
                 response = await self.client.get(
@@ -167,7 +171,7 @@ class MicroservicesClient:
                     # Baixar arquivo
                     logger.info(f"💾 Baixando arquivo: {output_path}")
                     video_response = await self.client.get(
-                        f"{self.video_downloader_url}/download/{job_id}"
+                        f"{self.video_downloader_url}/jobs/{job_id}/download"
                     )
                     video_response.raise_for_status()
                     
@@ -177,10 +181,10 @@ class MicroservicesClient:
                         f.write(video_response.content)
                     
                     logger.info(f"✅ Download completo: {video_id}")
-                    return job["result"].get("video_info", {})
+                    return job.get("metadata", {})
                 
-                elif job["status"] == "failed":
-                    error_msg = job.get("error", "Unknown error")
+                elif job["status"] in ["failed", "error"]:
+                    error_msg = job.get("error_message", job.get("error", "Unknown error"))
                     logger.error(f"❌ Download falhou: {error_msg}")
                     raise MicroserviceException(
                         "video-downloader",
@@ -188,12 +192,21 @@ class MicroservicesClient:
                         {"job_id": job_id, "video_id": video_id, "error": error_msg}
                     )
                 
-                # Log de progresso
-                if attempt % 10 == 0 and attempt > 0:
-                    logger.info(f"⏳ Download em progresso... ({attempt * poll_interval}s)")
+                # Log de progresso a cada 20s
+                if attempt % 7 == 0 and attempt > 0:
+                    progress = job.get("progress", 0)
+                    logger.info(f"⏳ Download em progresso... ({attempt * poll_interval}s, {progress}%)")
                 
                 # Aguardar próximo poll
                 await asyncio.sleep(poll_interval)
+            
+            # Timeout - pular este vídeo em vez de falhar tudo
+            logger.warning(f"⚠️ Timeout downloading {video_id} após {max_polls * poll_interval}s - pulando")
+            raise MicroserviceException(
+                "video-downloader",
+                f"Download timeout after {max_polls * poll_interval}s",
+                {"job_id": job_id, "video_id": video_id, "timeout": True}
+            )
             
             # Timeout
             raise MicroserviceException(
@@ -227,17 +240,18 @@ class MicroservicesClient:
         logger.info(f"📡 Chamando audio-transcriber API: language={language}")
         
         try:
-            # Upload e transcrição
+            # Upload e transcrição usando /jobs
             with open(audio_path, "rb") as f:
                 response = await self.client.post(
-                    f"{self.audio_transcriber_url}/transcribe",
-                    files={"audio_file": f},
-                    data={"language": language, "model": "base"}
+                    f"{self.audio_transcriber_url}/jobs",
+                    files={"file": ("audio.ogg", f, "audio/ogg")},
+                    data={"language": language, "operation": "transcribe"}
                 )
             response.raise_for_status()
-            transcribe_job = response.json()
-            job_id = transcribe_job["id"]
+            result = response.json()
             
+            # API retorna job
+            job_id = result.get("id")
             logger.info(f"🎤 Job de transcrição criado: {job_id}")
             
             # Aguardar transcrição (polling)
@@ -251,8 +265,22 @@ class MicroservicesClient:
                 response.raise_for_status()
                 job = response.json()
                 
+                # Log detalhado do status
+                logger.info(f"📊 Poll #{attempt+1}: status={job.get('status')}, progress={job.get('progress', 'N/A')}")
+                
                 if job["status"] == "completed":
-                    segments = job["result"]["segments"]
+                    # Extrair segmentos da transcrição
+                    segments_data = job.get("transcription_segments", [])
+                    
+                    # Formatar segmentos
+                    segments = []
+                    for seg in segments_data:
+                        segments.append({
+                            "start": seg.get("start", 0.0),
+                            "end": seg.get("end", 0.0),
+                            "text": seg.get("text", "")
+                        })
+                    
                     logger.info(f"✅ Transcrição completa: {len(segments)} segmentos")
                     return segments
                 

@@ -32,7 +32,7 @@ class RedisJobStore:
             circuit_breaker_timeout=int(os.getenv('REDIS_CIRCUIT_BREAKER_TIMEOUT', '60'))
         )
         
-        # Keep compatible interface
+        # Keep compatible interface - Redis client síncrono
         self.redis = self.redis_client.redis
         self._cleanup_task: Optional[asyncio.Task] = None
         
@@ -56,7 +56,9 @@ class RedisJobStore:
             True if Redis is connected and responding
         """
         try:
-            return await self.redis_client.health_check()
+            # Redis operations são síncronas no ResilientRedisStore
+            self.redis.ping()
+            return True
         except Exception as e:
             logger.error(f"Redis health check failed: {e}")
             return False
@@ -110,15 +112,15 @@ class RedisJobStore:
         now = datetime.utcnow()
         expired_count = 0
         
-        # Search for all job keys
+        # Search for all job keys (operação síncrona)
         try:
-            async for key in self.redis.scan_iter(match="make_video:job:*"):
+            for key in self.redis.scan_iter(match="make_video:job:*"):
                 try:
-                    data = await self.redis.get(key)
+                    data = self.redis.get(key)
                     if data:
                         job = self._deserialize_job(data)
                         if job.expires_at and job.expires_at < now:
-                            await self.redis.delete(key)
+                            self.redis.delete(key)
                             expired_count += 1
                             logger.info(f"🗑️ Removed expired job: {job.job_id}")
                 except Exception as e:
@@ -145,8 +147,8 @@ class RedisJobStore:
         # Calculate TTL in seconds
         ttl_seconds = self.cache_ttl_hours * 3600
         
-        # Save with TTL
-        await self.redis.setex(key, ttl_seconds, data)
+        # Save with TTL (operação síncrona)
+        self.redis.setex(key, ttl_seconds, data)
         logger.debug(f"💾 Job saved: {job.job_id} (TTL: {self.cache_ttl_hours}h)")
     
     async def get_job(self, job_id: str) -> Optional[Job]:
@@ -160,7 +162,7 @@ class RedisJobStore:
             Job or None if not found
         """
         key = self._job_key(job_id)
-        data = await self.redis.get(key)
+        data = self.redis.get(key)  # Operação síncrona
         
         if data:
             return self._deserialize_job(data)
@@ -177,7 +179,7 @@ class RedisJobStore:
             True if deleted, False if not found
         """
         key = self._job_key(job_id)
-        result = await self.redis.delete(key)
+        result = self.redis.delete(key)  # Operação síncrona
         return result > 0
     
     async def list_jobs(self, status: Optional[str] = None, limit: int = 100) -> List[Job]:
@@ -194,12 +196,13 @@ class RedisJobStore:
         jobs = []
         count = 0
         
-        async for key in self.redis.scan_iter(match="make_video:job:*"):
+        # Operações síncronas
+        for key in self.redis.scan_iter(match="make_video:job:*"):
             if count >= limit:
                 break
             
             try:
-                data = await self.redis.get(key)
+                data = self.redis.get(key)
                 if data:
                     job = self._deserialize_job(data)
                     if status is None or job.status == status:

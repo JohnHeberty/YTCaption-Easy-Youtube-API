@@ -14,19 +14,19 @@ services:
       - ./logs:/app/logs
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://192.168.18.110:6379/0
-      - YOUTUBE_SEARCH_URL=http://youtube-search:8003
-      - VIDEO_DOWNLOADER_URL=http://video-downloader:8002
-      - AUDIO_TRANSCRIBER_URL=http://audio-transcriber:8005
+      - REDIS_URL=redis://192.168.1.110:6379/0
+      - YOUTUBE_SEARCH_URL=http://192.168.1.131:8003
+      - VIDEO_DOWNLOADER_URL=http://192.168.1.131:8000
+      - AUDIO_TRANSCRIBER_URL=http://192.168.1.131:8003
       - CACHE_TTL_HOURS=24
       - MAX_CACHE_SIZE_GB=50
       - LOG_LEVEL=INFO
       - PORT=8004
     extra_hosts:
-      - "redis-server:192.168.18.110"
-      - "youtube-search:192.168.18.110"
-      - "video-downloader:192.168.18.110"
-      - "audio-transcriber:192.168.18.110"
+      - "redis-server:192.168.1.110"
+      - "youtube-search:192.168.1.110"
+      - "video-downloader:192.168.1.110"
+      - "audio-transcriber:192.168.1.110"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
@@ -49,16 +49,16 @@ services:
       - ./logs:/app/logs
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://192.168.18.110:6379/0
-      - YOUTUBE_SEARCH_URL=http://youtube-search:8003
-      - VIDEO_DOWNLOADER_URL=http://video-downloader:8002
-      - AUDIO_TRANSCRIBER_URL=http://audio-transcriber:8005
+      - REDIS_URL=redis://192.168.1.110:6379/0
+      - YOUTUBE_SEARCH_URL=http://192.168.1.131:8003
+      - VIDEO_DOWNLOADER_URL=http://192.168.1.131:8000
+      - AUDIO_TRANSCRIBER_URL=http://192.168.1.131:8003
       - LOG_LEVEL=INFO
     extra_hosts:
-      - "redis-server:192.168.18.110"
-      - "youtube-search:192.168.18.110"
-      - "video-downloader:192.168.18.110"
-      - "audio-transcriber:192.168.18.110"
+      - "redis-server:192.168.1.110"
+      - "youtube-search:192.168.1.110"
+      - "video-downloader:192.168.1.110"
+      - "audio-transcriber:192.168.1.110"
     restart: unless-stopped
     depends_on:
       make-video:
@@ -78,10 +78,10 @@ services:
     command: python -m celery -A app.celery_config beat --loglevel=info
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://192.168.18.110:6379/0
+      - REDIS_URL=redis://192.168.1.110:6379/0
       - LOG_LEVEL=INFO
     extra_hosts:
-      - "redis-server:192.168.18.110"
+      - "redis-server:192.168.1.110"
     restart: unless-stopped
     depends_on:
       - make-video-celery

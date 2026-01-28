@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     max_cache_size_gb: int = int(os.getenv("MAX_CACHE_SIZE_GB", "50"))
     
     # Microservices URLs
-    youtube_search_url: str = os.getenv("YOUTUBE_SEARCH_URL", "http://localhost:8003")
-    video_downloader_url: str = os.getenv("VIDEO_DOWNLOADER_URL", "http://localhost:8002")
-    audio_transcriber_url: str = os.getenv("AUDIO_TRANSCRIBER_URL", "http://localhost:8005")
+    youtube_search_url: str = os.getenv("YOUTUBE_SEARCH_URL", "https://ytsearch.loadstask.com")
+    video_downloader_url: str = os.getenv("VIDEO_DOWNLOADER_URL", "https://ytdownloader.loadstask.com")
+    audio_transcriber_url: str = os.getenv("AUDIO_TRANSCRIBER_URL", "https://yttranscriber.loadstask.com")
     
     # Storage Paths
     audio_upload_dir: str = os.getenv("AUDIO_UPLOAD_DIR", "./storage/audio_uploads")
@@ -50,9 +50,27 @@ class Settings(BaseSettings):
     cleanup_output_after_hours: int = int(os.getenv("CLEANUP_OUTPUT_AFTER_HOURS", "24"))
     cleanup_shorts_cache_after_days: int = int(os.getenv("CLEANUP_SHORTS_CACHE_AFTER_DAYS", "30"))
     
+    # Subtitle Settings
+    subtitle_font_size: int = int(os.getenv("SUBTITLE_FONT_SIZE", "22"))
+    subtitle_font_name: str = os.getenv("SUBTITLE_FONT_NAME", "Arial Black")
+    subtitle_color: str = os.getenv("SUBTITLE_COLOR", "&H00FFFF&")
+    subtitle_outline_color: str = os.getenv("SUBTITLE_OUTLINE_COLOR", "&H000000&")
+    subtitle_outline: int = int(os.getenv("SUBTITLE_OUTLINE", "2"))
+    subtitle_alignment: int = int(os.getenv("SUBTITLE_ALIGNMENT", "10"))
+    subtitle_margin_v: int = int(os.getenv("SUBTITLE_MARGIN_V", "280"))
+    words_per_caption: int = int(os.getenv("WORDS_PER_CAPTION", "2"))
+    
+    # API Timeouts
+    api_timeout: int = int(os.getenv("API_TIMEOUT", "120"))
+    download_poll_interval: int = int(os.getenv("DOWNLOAD_POLL_INTERVAL", "3"))
+    download_max_polls: int = int(os.getenv("DOWNLOAD_MAX_POLLS", "40"))
+    transcribe_poll_interval: int = int(os.getenv("TRANSCRIBE_POLL_INTERVAL", "5"))
+    transcribe_max_polls: int = int(os.getenv("TRANSCRIBE_MAX_POLLS", "240"))
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "allow"
 
 
 # Global settings instance
@@ -81,6 +99,7 @@ def get_settings() -> Dict[str, Any]:
         "temp_dir": _settings.temp_dir,
         "output_dir": _settings.output_dir,
         "log_level": _settings.log_level,
+        "logs_dir": _settings.log_dir,  # Adicionar logs_dir também
         "log_dir": _settings.log_dir,
         "log_format": _settings.log_format,
         "default_aspect_ratio": _settings.default_aspect_ratio,
@@ -89,6 +108,14 @@ def get_settings() -> Dict[str, Any]:
         "cleanup_temp_after_hours": _settings.cleanup_temp_after_hours,
         "cleanup_output_after_hours": _settings.cleanup_output_after_hours,
         "cleanup_shorts_cache_after_days": _settings.cleanup_shorts_cache_after_days,
+        "subtitle_font_size": _settings.subtitle_font_size,
+        "subtitle_font_name": _settings.subtitle_font_name,
+        "subtitle_color": _settings.subtitle_color,
+        "subtitle_outline_color": _settings.subtitle_outline_color,
+        "subtitle_outline": _settings.subtitle_outline,
+        "subtitle_alignment": _settings.subtitle_alignment,
+        "subtitle_margin_v": _settings.subtitle_margin_v,
+        "words_per_caption": _settings.words_per_caption,
     }
 
 

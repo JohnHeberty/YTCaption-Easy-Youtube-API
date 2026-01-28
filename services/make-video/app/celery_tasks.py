@@ -119,14 +119,30 @@ def process_make_video(self, job_id: str):
     logger.info(f"🎬 Starting make-video job: {job_id}")
     
     try:
+        # Criar ou obter event loop
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
         # Executar em event loop assíncrono
-        asyncio.run(_process_make_video_async(job_id))
+        loop.run_until_complete(_process_make_video_async(job_id))
         
     except Exception as e:
         logger.error(f"❌ Job {job_id} failed: {e}", exc_info=True)
         
         # Atualizar job com erro
-        asyncio.run(update_job_status(
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+        loop.run_until_complete(update_job_status(
             job_id,
             JobStatus.FAILED,
             progress=0.0,
@@ -167,6 +183,19 @@ async def _process_make_video_async(job_id: str):
             raise AudioProcessingException(f"Audio file not found: {audio_path}")
         
         audio_duration = await video_builder.get_audio_duration(str(audio_path))
+        
+        # Validar duração do áudio
+        if audio_duration < 5.0:
+            raise AudioProcessingException(
+                f"Audio too short: {audio_duration:.1f}s (minimum 5 seconds)",
+                {"duration": audio_duration, "minimum": 5.0}
+            )
+        if audio_duration > 3600.0:
+            raise AudioProcessingException(
+                f"Audio too long: {audio_duration:.1f}s (maximum 1 hour)",
+                {"duration": audio_duration, "maximum": 3600.0}
+            )
+        
         target_duration = audio_duration + 5.0  # +5s sobra
         
         # Atualizar job com duração do áudio
@@ -279,9 +308,10 @@ async def _process_make_video_async(job_id: str):
         segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
         
         subtitle_path = Path(settings['temp_dir']) / job_id / "subtitles.srt"
-        subtitle_gen.segments_to_srt(segments, str(subtitle_path))
+        words_per_caption = int(settings.get('words_per_caption', 2))
+        subtitle_gen.generate_word_by_word_srt(segments, str(subtitle_path), words_per_caption=words_per_caption)
         
-        logger.info(f"✅ Subtitles generated: {len(segments)} segments")
+        logger.info(f"✅ Word-by-word subtitles generated: {len(segments)} segments, {words_per_caption} words/caption")
         
         # Etapa 7: Composição final
         logger.info(f"🎨 [7/7] Final composition...")
@@ -394,6 +424,18 @@ def cleanup_temp_files():
     
     for job_dir in temp_dir.iterdir():
         if job_dir.is_dir():
+            # Verificar se job ainda está ativo (não deletar arquivos de jobs em execução)
+            try:
+                job_id = job_dir.name
+                store, _, _, _, _ = get_instances()
+                job = asyncio.run(store.get_job(job_id))
+                
+                if job and job.status not in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+                    logger.info(f"⏭️ Skipping active job: {job_id}")
+                    continue
+            except:
+                pass  # Se não encontrar job, continuar com limpeza baseada em timestamp
+            
             mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
             if mtime < cutoff_time:
                 try:

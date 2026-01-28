@@ -220,11 +220,13 @@ class VideoBuilder:
         
         logger.info(f"📝 Burning subtitles (style: {style})")
         
-        # Estilos de legenda
+        # Estilos de legenda - CENTRO DA TELA, TAMANHO PEQUENO PARA EVITAR SAIR DA TELA
+        # Alignment=10 = Topo centro, MarginV=280 empurra para centro
+        # FontSize pequeno para palavras grandes não saírem da tela
         styles = {
-            "static": "FontSize=20,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=1,Alignment=2",
-            "dynamic": "FontSize=24,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Bold=1,Alignment=2",
-            "minimal": "FontSize=18,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=1,Alignment=10"
+            "static": "FontSize=20,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2,Bold=1,Alignment=10,MarginV=280",
+            "dynamic": "FontSize=22,PrimaryColour=&H00FFFF&,OutlineColour=&H000000&,Outline=2,Bold=1,Alignment=10,MarginV=280",
+            "minimal": "FontSize=18,PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=1,Alignment=10,MarginV=280"
         }
         
         subtitle_style = styles.get(style, styles["dynamic"])
