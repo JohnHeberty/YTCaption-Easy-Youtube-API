@@ -43,12 +43,13 @@ docker-compose logs -f
 
 | Método | Endpoint | Descrição |
 |--------|----------|-----------|
-| POST | `/transcribe` | Upload e transcreve áudio |
+| POST | `/jobs` | Cria job de transcrição/tradução |
 | GET | `/jobs/{job_id}` | Consulta status e progresso |
-| GET | `/jobs/{job_id}/download` | Download da transcrição |
+| GET | `/jobs/{job_id}/transcription` | Obtém resultado da transcrição |
+| GET | `/jobs/{job_id}/download` | Download da transcrição em SRT |
 | DELETE | `/jobs/{job_id}` | Cancela job em andamento |
 | GET | `/jobs` | Lista jobs com filtros |
-| GET | `/stats` | Estatísticas de transcrição |
+| GET | `/languages` | Lista idiomas suportados |
 
 ### 🆕 Gerenciamento de Modelo (v2.0+)
 
@@ -65,19 +66,19 @@ docker-compose logs -f
 
 ## 🧪 Testar
 
-### Upload de áudio para normalização
-```powershell
-# PowerShell
-$file = Get-Item "C:\path\to\audio.mp3"
-$form = @{
-    file = $file
-    remove_noise = "true"
-    normalize_volume = "true"
-    convert_to_mono = "true"
-}
+### Upload de áudio para transcrição
+```bash
+# Criar job de transcrição
+curl -X POST http://localhost:8005/jobs \
+  -F "file=@audio.mp3" \
+  -F "language_in=pt" \
+  -F "language_out=en"
 
-$response = Invoke-RestMethod -Method Post -Uri "http://localhost:8002/normalize" -Form $form
-$jobId = $response.id
+# Verificar status (substitua JOB_ID)
+curl http://localhost:8005/jobs/JOB_ID
+
+# Obter transcrição
+curl http://localhost:8005/jobs/JOB_ID/transcription
 
 # Ver progresso
 Invoke-RestMethod -Uri "http://localhost:8002/jobs/$jobId"
