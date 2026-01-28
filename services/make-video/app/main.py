@@ -67,6 +67,10 @@ async def startup_event():
     ]:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
     
+    # Iniciar cleanup task automático
+    await redis_store.start_cleanup_task()
+    logger.info("🧹 Cleanup task started")
+    
     logger.info("✅ Make-Video Service ready!")
     logger.info(f"   ├─ Redis: {settings['redis_url']}")
     logger.info(f"   ├─ YouTube Search: {settings['youtube_search_url']}")
@@ -407,13 +411,31 @@ async def health_check():
         # Verificar Redis
         redis_ok = await redis_store.health_check()
         
-        # TODO: Verificar conectividade com microserviços
+        # Verificar conectividade com microserviços
+        import httpx
+        services_health = {}
+        
+        for service, url in [
+            ("youtube-search", settings['youtube_search_url']),
+            ("video-downloader", settings['video_downloader_url']),
+            ("audio-transcriber", settings['audio_transcriber_url'])
+        ]:
+            try:
+                async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+                    response = await client.get(f"{url}/health")
+                    services_health[service] = "ok" if response.status_code == 200 else "error"
+            except Exception as e:
+                logger.warning(f"Service {service} health check failed: {e}")
+                services_health[service] = "unreachable"
+        
+        all_healthy = redis_ok and all(status == "ok" for status in services_health.values())
         
         return {
-            "status": "healthy" if redis_ok else "unhealthy",
+            "status": "healthy" if all_healthy else "degraded",
             "service": "make-video",
             "version": "1.0.0",
             "redis": "connected" if redis_ok else "disconnected",
+            "services": services_health,
             "timestamp": datetime.utcnow().isoformat()
         }
         

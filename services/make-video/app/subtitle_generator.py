@@ -131,3 +131,85 @@ class SubtitleGenerator:
         
         logger.info(f"✅ Segments optimized: {len(segments)} -> {len(optimized)}")
         return optimized
+    
+    def generate_word_by_word_srt(self, segments: List[Dict], output_path: str,
+                                    words_per_caption: int = 2) -> str:
+        """Gera SRT com legendas palavra por palavra (estilo TikTok/Shorts)
+        
+        Args:
+            segments: Segmentos de transcrição
+            output_path: Caminho do arquivo SRT
+            words_per_caption: Quantas palavras por legenda (1-3 recomendado)
+        
+        Returns:
+            Caminho do arquivo SRT gerado
+        """
+        import re
+        
+        logger.info(f"📝 Generating word-by-word SRT ({words_per_caption} words/caption)")
+        
+        # Criar diretório
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        word_timings = []
+        
+        # Extrair palavras com timestamps
+        for segment in segments:
+            start_time = segment.get("start", 0.0)
+            end_time = segment.get("end", 0.0)
+            text = segment.get("text", "").strip()
+            
+            if not text:
+                continue
+            
+            # Dividir em palavras (mantém pontuação)
+            words = re.findall(r'\S+', text)
+            
+            if not words:
+                continue
+            
+            # Calcular tempo por palavra
+            segment_duration = end_time - start_time
+            time_per_word = segment_duration / len(words)
+            
+            # Atribuir timestamps para cada palavra
+            for i, word in enumerate(words):
+                word_start = start_time + (i * time_per_word)
+                word_end = word_start + time_per_word
+                
+                word_timings.append({
+                    "word": word,
+                    "start": word_start,
+                    "end": word_end
+                })
+        
+        # Gerar SRT agrupando palavras
+        with open(output_path, "w", encoding="utf-8") as f:
+            subtitle_index = 1
+            i = 0
+            
+            while i < len(word_timings):
+                # Pegar grupo de palavras
+                word_group = word_timings[i:i+words_per_caption]
+                
+                if not word_group:
+                    break
+                
+                # Tempo do grupo
+                start_time = word_group[0]["start"]
+                end_time = word_group[-1]["end"]
+                
+                # Texto do grupo
+                text = " ".join([w["word"] for w in word_group])
+                
+                # Escrever entrada SRT
+                f.write(f"{subtitle_index}\n")
+                f.write(f"{self._format_timestamp(start_time)} --> {self._format_timestamp(end_time)}\n")
+                f.write(f"{text}\n")
+                f.write("\n")
+                
+                subtitle_index += 1
+                i += words_per_caption
+        
+        logger.info(f"✅ Word-by-word SRT generated: {output_path} ({subtitle_index-1} captions)")
+        return output_path

@@ -4,6 +4,10 @@ Celery Configuration for Make-Video Service
 
 from celery import Celery
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Get Redis URL from environment
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')

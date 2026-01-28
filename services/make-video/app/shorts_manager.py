@@ -113,6 +113,17 @@ class ShortsCache:
         """
         return video_id in self.metadata
     
+    def get_path(self, video_id: str) -> Path:
+        """Retorna o caminho onde um short será/está armazenado
+        
+        Args:
+            video_id: ID do vídeo
+        
+        Returns:
+            Path do arquivo de vídeo
+        """
+        return self.cache_dir / f"{video_id}.mp4"
+    
     def get_cache_stats(self) -> Dict:
         """Retorna estatísticas do cache"""
         if not self.metadata:
