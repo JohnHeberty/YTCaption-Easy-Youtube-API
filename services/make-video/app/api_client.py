@@ -228,35 +228,36 @@ class MicroservicesClient:
         
         Args:
             audio_path: Caminho do arquivo de áudio
-            language: Código do idioma (pt, en, es, etc)
+            language: Código do idioma (pt, en, es, etc) ou 'auto' para detectar
         
         Returns:
-            Lista de segmentos de transcrição
+            Lista de segmentos de transcrição com start, end, text
         
         Raises:
             MicroserviceException: Se falhar a comunicação com audio-transcriber
         """
         
-        logger.info(f"📡 Chamando audio-transcriber API: language={language}")
+        logger.info(f"📡 Chamando audio-transcriber API: language_in={language}")
         
         try:
-            # Upload e transcrição usando /jobs
+            # 1. Criar job de transcrição (POST /jobs)
+            # OpenAPI params: file, language_in (default "auto"), language_out (opcional)
             with open(audio_path, "rb") as f:
                 response = await self.client.post(
                     f"{self.audio_transcriber_url}/jobs",
                     files={"file": ("audio.ogg", f, "audio/ogg")},
-                    data={"language": language, "operation": "transcribe"}
+                    data={"language_in": language}  # ✅ Corrigido: language_in ao invés de language
+                    # language_out omitido = sem tradução (transcreve no idioma original)
                 )
             response.raise_for_status()
-            result = response.json()
+            job = response.json()
             
-            # API retorna job
-            job_id = result.get("id")
+            job_id = job.get("id")
             logger.info(f"🎤 Job de transcrição criado: {job_id}")
             
-            # Aguardar transcrição (polling)
-            poll_interval = 5  # segundos
-            max_polls = 240  # 20 minutos total
+            # 2. Polling do status (GET /jobs/{job_id})
+            poll_interval = 3  # segundos
+            max_polls = 300  # 15 minutos total
             
             for attempt in range(max_polls):
                 response = await self.client.get(
@@ -265,27 +266,39 @@ class MicroservicesClient:
                 response.raise_for_status()
                 job = response.json()
                 
-                # Log detalhado do status
-                logger.info(f"📊 Poll #{attempt+1}: status={job.get('status')}, progress={job.get('progress', 'N/A')}")
+                status = job.get("status")
+                progress = job.get("progress", 0.0)
                 
-                if job["status"] == "completed":
-                    # Extrair segmentos da transcrição
-                    segments_data = job.get("transcription_segments", [])
+                # Log detalhado a cada 10 polls
+                if attempt % 10 == 0 or status != "processing":
+                    logger.info(f"📊 Poll #{attempt+1}: status={status}, progress={progress:.1%}")
+                
+                if status == "completed":
+                    # 3. Buscar transcrição completa (GET /jobs/{job_id}/transcription)
+                    # ✅ OpenAPI: Retorna TranscriptionResponse com segments[]
+                    response = await self.client.get(
+                        f"{self.audio_transcriber_url}/jobs/{job_id}/transcription"
+                    )
+                    response.raise_for_status()
+                    transcription = response.json()
                     
-                    # Formatar segmentos
-                    segments = []
-                    for seg in segments_data:
-                        segments.append({
-                            "start": seg.get("start", 0.0),
-                            "end": seg.get("end", 0.0),
-                            "text": seg.get("text", "")
-                        })
+                    # Extrair segments (já vem no formato correto)
+                    segments = transcription.get("segments", [])
+                    
+                    # Dados opcionais (podem ser None)
+                    lang_detected = transcription.get('language_detected') or 'N/A'
+                    duration = transcription.get('duration') or 0
+                    proc_time = transcription.get('processing_time') or 0
                     
                     logger.info(f"✅ Transcrição completa: {len(segments)} segmentos")
+                    logger.info(f"   ├─ Idioma detectado: {lang_detected}")
+                    logger.info(f"   ├─ Duração: {duration:.1f}s")
+                    logger.info(f"   └─ Tempo processamento: {proc_time:.1f}s")
+                    
                     return segments
                 
-                elif job["status"] == "failed":
-                    error_msg = job.get("error", "Unknown error")
+                elif status == "failed":
+                    error_msg = job.get("error_message", "Unknown error")
                     logger.error(f"❌ Transcrição falhou: {error_msg}")
                     raise MicroserviceException(
                         "audio-transcriber",
@@ -293,14 +306,10 @@ class MicroservicesClient:
                         {"job_id": job_id, "error": error_msg}
                     )
                 
-                # Log de progresso
-                if attempt % 6 == 0 and attempt > 0:
-                    logger.info(f"⏳ Transcrição em progresso... ({attempt * poll_interval}s)")
-                
                 # Aguardar próximo poll
                 await asyncio.sleep(poll_interval)
             
-            # Timeout
+            # Timeout após 15 minutos
             raise MicroserviceException(
                 "audio-transcriber",
                 "Transcription timeout - job took too long",
