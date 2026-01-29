@@ -215,50 +215,84 @@ async def _process_make_video_async(job_id: str):
         if not shorts_list:
             raise VideoProcessingException(f"No shorts found for query: {job.query}")
         
-        # Etapa 3: Baixar shorts
-        logger.info(f"⬇️ [3/7] Downloading shorts...")
+        # Etapa 3: Verificar cache e baixar shorts necessários
+        logger.info(f"⬇️ [3/7] Checking cache and downloading shorts...")
         await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=25.0)
         
         downloaded_shorts = []
         cache_hits = 0
+        to_download = []
+        failed_downloads = []
         
-        for i, short in enumerate(shorts_list):
+        # Primeiro: verificar quais já estão em cache
+        logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos...")
+        for short in shorts_list:
             video_id = short['video_id']
-            
-            # Verificar cache
             cached = shorts_cache.get(video_id)
             if cached:
                 downloaded_shorts.append(cached)
                 cache_hits += 1
-                logger.info(f"💾 Cache HIT: {video_id} ({i+1}/{len(shorts_list)})")
+                logger.info(f"✅ Cache HIT: {video_id}")
             else:
-                # Baixar via API
-                output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
-                try:
-                    metadata = await api_client.download_video(video_id, str(output_path))
-                    
-                    short_info = {
-                        'video_id': video_id,
-                        'duration_seconds': short.get('duration_seconds', 30),
-                        'file_path': str(output_path),
-                        'resolution': metadata.get('resolution', '1080x1920'),
-                        'title': short.get('title', ''),
-                    }
-                    
-                    shorts_cache.add(video_id, str(output_path), short_info)
-                    downloaded_shorts.append(short_info)
-                    
-                    logger.info(f"✅ Downloaded: {video_id} ({i+1}/{len(shorts_list)})")
-                    
-                except Exception as e:
-                    logger.error(f"❌ Failed to download {video_id}: {e}")
-                    continue
-            
-            # Atualizar progresso
-            progress = 25.0 + (45.0 * (i + 1) / len(shorts_list))
-            await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
+                to_download.append(short)
         
-        logger.info(f"📦 Downloads: {len(downloaded_shorts)} total ({cache_hits} from cache)")
+        logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download")
+        
+        # Se já temos shorts suficientes no cache, pular download
+        if len(downloaded_shorts) >= min(10, job.max_shorts):
+            logger.info(f"⚡ Cache suficiente! Pulando downloads ({len(downloaded_shorts)} vídeos disponíveis)")
+        else:
+            # Baixar os que faltam (com retry e skip em erro)
+            logger.info(f"⬇️ Baixando {len(to_download)} vídeos em paralelo...")
+            
+            async def download_with_retry(short_info, index):
+                video_id = short_info['video_id']
+                output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
+                
+                for attempt in range(3):  # 3 tentativas
+                    try:
+                        metadata = await api_client.download_video(video_id, str(output_path))
+                        
+                        result = {
+                            'video_id': video_id,
+                            'duration_seconds': short_info.get('duration_seconds', 30),
+                            'file_path': str(output_path),
+                            'resolution': metadata.get('resolution', '1080x1920'),
+                            'title': short_info.get('title', ''),
+                        }
+                        
+                        shorts_cache.add(video_id, str(output_path), result)
+                        logger.info(f"✅ Downloaded: {video_id} ({index+1}/{len(to_download)}) - attempt {attempt+1}")
+                        return result
+                        
+                    except Exception as e:
+                        logger.warning(f"⚠️ Erro no download {video_id} (tentativa {attempt+1}/3): {e}")
+                        if attempt == 2:  # Última tentativa
+                            logger.error(f"❌ SKIP: {video_id} - falhou após 3 tentativas")
+                            failed_downloads.append(video_id)
+                            return None
+                        await asyncio.sleep(2 ** attempt)  # Backoff exponencial
+                
+                return None
+            
+            # Download em paralelo (máximo 5 simultâneos)
+            batch_size = 5
+            for i in range(0, len(to_download), batch_size):
+                batch = to_download[i:i+batch_size]
+                tasks = [download_with_retry(short, i+j) for j, short in enumerate(batch)]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for result in results:
+                    if result and not isinstance(result, Exception):
+                        downloaded_shorts.append(result)
+                
+                # Atualizar progresso
+                progress = 25.0 + (45.0 * min(i + batch_size, len(to_download)) / len(to_download))
+                await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
+        
+        logger.info(f"📦 Total: {len(downloaded_shorts)} vídeos disponíveis ({cache_hits} cache, {len(downloaded_shorts)-cache_hits} novos)")
+        if failed_downloads:
+            logger.warning(f"⚠️ Falhas: {len(failed_downloads)} vídeos não baixados: {failed_downloads[:5]}...")
         
         if not downloaded_shorts:
             raise VideoProcessingException("No shorts could be downloaded")

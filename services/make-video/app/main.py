@@ -370,6 +370,41 @@ async def get_cache_stats():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/jobs/cleanup-failed")
+async def cleanup_failed_jobs():
+    """
+    Limpar jobs com erro do Redis
+    
+    **Retorno:**
+    - removed_count: Número de jobs removidos
+    - job_ids: IDs dos jobs removidos
+    """
+    try:
+        # Buscar todos os jobs com status failed
+        all_jobs = await redis_store.list_jobs()
+        failed_jobs = [job for job in all_jobs if job.status == 'failed']
+        
+        removed_ids = []
+        for job in failed_jobs:
+            try:
+                await redis_store.delete_job(job.job_id)
+                removed_ids.append(job.job_id)
+            except Exception as e:
+                logger.warning(f"Failed to delete job {job.job_id}: {e}")
+        
+        logger.info(f"🧹 Cleanup: {len(removed_ids)} failed jobs removed")
+        
+        return {
+            "message": "Failed jobs cleanup completed",
+            "removed_count": len(removed_ids),
+            "job_ids": removed_ids
+        }
+        
+    except Exception as e:
+        logger.error(f"Error cleaning failed jobs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/cache/cleanup")
 async def cleanup_cache(days: int = Query(30, ge=1, le=365)):
     """
