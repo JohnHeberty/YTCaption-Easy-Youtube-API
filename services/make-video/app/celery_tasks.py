@@ -12,8 +12,6 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import List, Dict
 
-from celery import shared_task
-
 from .celery_config import celery_app
 from .config import get_settings
 from .models import Job, JobStatus, ShortInfo, JobResult
@@ -22,6 +20,9 @@ from .api_client import MicroservicesClient
 from .video_builder import VideoBuilder
 from .shorts_manager import ShortsCache
 from .subtitle_generator import SubtitleGenerator
+from .subtitle_postprocessor import process_subtitles_with_vad
+from .video_validator import VideoValidator
+from .shorts_blacklist import ShortsBlacklist
 from .exceptions import (
     MakeVideoException,
     AudioProcessingException,
@@ -37,11 +38,13 @@ api_client = None
 video_builder = None
 shorts_cache = None
 subtitle_gen = None
+video_validator = None
+blacklist = None
 
 
 def get_instances():
     """Inicializa instâncias globais se necessário"""
-    global redis_store, api_client, video_builder, shorts_cache, subtitle_gen
+    global redis_store, api_client, video_builder, shorts_cache, subtitle_gen, video_validator, blacklist
     
     if redis_store is None:
         settings = get_settings()
@@ -63,6 +66,13 @@ def get_instances():
         )
         
         subtitle_gen = SubtitleGenerator()
+        
+        # Inicializar validador e blacklist
+        video_validator = VideoValidator(min_confidence=0.40)
+        blacklist_path = Path(settings['shorts_cache_dir']) / 'blacklist.json'
+        blacklist = ShortsBlacklist(str(blacklist_path), ttl_days=90)
+        
+        logger.info("✅ Video validator and blacklist initialized")
     
     return redis_store, api_client, video_builder, shorts_cache, subtitle_gen
 
@@ -102,7 +112,7 @@ async def update_job_status(job_id: str, status: JobStatus,
     await store.save_job(job)
 
 
-@shared_task(bind=True, name='app.celery_tasks.process_make_video')
+@celery_app.task(bind=True, name='app.celery_tasks.process_make_video')
 def process_make_video(self, job_id: str):
     """
     Task principal: Processa criação de vídeo completa
@@ -228,31 +238,108 @@ async def _process_make_video_async(job_id: str):
         logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos...")
         for short in shorts_list:
             video_id = short['video_id']
+            
+            # 🚫 CHECK: Blacklist PRIMEIRO (antes de cache)
+            if blacklist.is_blacklisted(video_id):
+                logger.warning(f"🚫 BLACKLIST (pré-cache): {video_id} - pulando")
+                failed_downloads.append(video_id)
+                continue
+            
             cached = shorts_cache.get(video_id)
             if cached:
-                downloaded_shorts.append(cached)
-                cache_hits += 1
-                logger.info(f"✅ Cache HIT: {video_id}")
+                # 🔍 VALIDAÇÃO: Videos em cache também precisam validação OCR!
+                video_path = cached.get('file_path')
+                if video_path and Path(video_path).exists():
+                    # Validar OCR em vídeos do cache
+                    try:
+                        has_subs, confidence, reason = video_validator.has_embedded_subtitles(video_path)
+                        
+                        if has_subs:
+                            # 🚫 LEGENDAS DETECTADAS NO CACHE - BLOQUEAR
+                            logger.error(f"🚫 CACHE: Embedded subtitles in {video_id} (conf: {confidence:.2f}) - blacklisting")
+                            blacklist.add(video_id, reason, confidence, metadata={
+                                'title': short.get('title', ''),
+                                'duration': short.get('duration_seconds', 0),
+                                'source': 'cache_validation'
+                            })
+                            
+                            # Remover do cache
+                            shorts_cache.remove(video_id)
+                            if Path(video_path).exists():
+                                Path(video_path).unlink()
+                            
+                            failed_downloads.append(video_id)
+                            continue
+                        
+                        # ✅ CACHE VÁLIDO - usar
+                        downloaded_shorts.append(cached)
+                        cache_hits += 1
+                        logger.info(f"✅ Cache HIT (validado): {video_id}")
+                        
+                    except Exception as e:
+                        logger.warning(f"⚠️ Erro validando cache {video_id}: {e} - removendo")
+                        shorts_cache.remove(video_id)
+                        to_download.append(short)
+                else:
+                    logger.warning(f"⚠️ Cache inválido (arquivo não existe): {video_id}")
+                    shorts_cache.remove(video_id)
+                    to_download.append(short)
             else:
                 to_download.append(short)
         
-        logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download")
+        logger.info(f"💾 Cache: {cache_hits} validados, {len(to_download)} precisam download, {len(failed_downloads)} bloqueados")
         
         # Se já temos shorts suficientes no cache, pular download
         if len(downloaded_shorts) >= min(10, job.max_shorts):
             logger.info(f"⚡ Cache suficiente! Pulando downloads ({len(downloaded_shorts)} vídeos disponíveis)")
         else:
-            # Baixar os que faltam (com retry e skip em erro)
-            logger.info(f"⬇️ Baixando {len(to_download)} vídeos em paralelo...")
+            # Baixar os que faltam (com retry, skip em erro e validação OCR)
+            logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
             
             async def download_with_retry(short_info, index):
                 video_id = short_info['video_id']
                 output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
                 
+                # 🚫 CHECK 1: Verificar blacklist ANTES de baixar
+                if blacklist.is_blacklisted(video_id):
+                    logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
+                    failed_downloads.append(video_id)
+                    return None
+                
                 for attempt in range(3):  # 3 tentativas
                     try:
+                        # Download do vídeo
                         metadata = await api_client.download_video(video_id, str(output_path))
                         
+                        # ✅ CHECK 2: Validar integridade do vídeo (síncrono)
+                        try:
+                            video_validator.validate_video_integrity(str(output_path), timeout=5)
+                        except Exception as e:
+                            logger.error(f"❌ INTEGRITY FAILED: {video_id} - {e}")
+                            if output_path.exists():
+                                output_path.unlink()
+                            failed_downloads.append(video_id)
+                            return None
+                        
+                        # 🔍 CHECK 3: Detectar legendas embutidas (OCR - síncrono)
+                        has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(output_path))
+                        
+                        if has_subs:
+                            # 🚫 LEGENDAS EMBUTIDAS DETECTADAS - BLOQUEAR
+                            logger.error(f"🚫 EMBEDDED SUBTITLES: {video_id} (conf: {confidence:.2f}) - adicionando à blacklist")
+                            blacklist.add(video_id, reason, confidence, metadata={
+                                'title': short_info.get('title', ''),
+                                'duration': short_info.get('duration_seconds', 0)
+                            })
+                            
+                            # Remover arquivo
+                            if output_path.exists():
+                                output_path.unlink()
+                            
+                            failed_downloads.append(video_id)
+                            return None
+                        
+                        # ✅ VÍDEO VÁLIDO - adicionar ao cache
                         result = {
                             'video_id': video_id,
                             'duration_seconds': short_info.get('duration_seconds', 30),
@@ -262,7 +349,7 @@ async def _process_make_video_async(job_id: str):
                         }
                         
                         shorts_cache.add(video_id, str(output_path), result)
-                        logger.info(f"✅ Downloaded: {video_id} ({index+1}/{len(to_download)}) - attempt {attempt+1}")
+                        logger.info(f"✅ Downloaded & Validated: {video_id} ({index+1}/{len(to_download)}) - limpo, sem legendas embutidas")
                         return result
                         
                     except Exception as e:
@@ -286,8 +373,11 @@ async def _process_make_video_async(job_id: str):
                     if result and not isinstance(result, Exception):
                         downloaded_shorts.append(result)
                 
-                # Atualizar progresso
-                progress = 25.0 + (45.0 * min(i + batch_size, len(to_download)) / len(to_download))
+                # Atualizar progresso (protegido contra divisão por zero)
+                if len(to_download) > 0:
+                    progress = 25.0 + (45.0 * min(i + batch_size, len(to_download)) / len(to_download))
+                else:
+                    progress = 70.0  # Pular para fim do download se não há nada para baixar
                 await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
         
         logger.info(f"📦 Total: {len(downloaded_shorts)} vídeos disponíveis ({cache_hits} cache, {len(downloaded_shorts)-cache_hits} novos)")
@@ -341,11 +431,115 @@ async def _process_make_video_async(job_id: str):
         
         segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
         
+        # Converter segmentos para formato dict (cues)
+        raw_cues = []
+        for segment in segments:
+            # Tentar usar word_timestamps se disponível
+            words = segment.get('words', [])
+            
+            if words:
+                # Word-level timestamps disponíveis
+                for word_data in words:
+                    raw_cues.append({
+                        'start': word_data['start'],
+                        'end': word_data['end'],
+                        'text': word_data['word']
+                    })
+            else:
+                # Fallback: dividir texto do segment em palavras
+                text = segment.get('text', '').strip()
+                if text:
+                    import re
+                    words_list = re.findall(r'\S+', text)
+                    seg_start = segment.get('start', 0.0)
+                    seg_end = segment.get('end', seg_start + 1.0)
+                    seg_duration = seg_end - seg_start
+                    
+                    if words_list:
+                        time_per_word = seg_duration / len(words_list)
+                        
+                        for i, word in enumerate(words_list):
+                            word_start = seg_start + (i * time_per_word)
+                            word_end = word_start + time_per_word
+                            
+                            raw_cues.append({
+                                'start': word_start,
+                                'end': word_end,
+                                'text': word
+                            })
+        
+        logger.info(f"📊 Transcription: {len(segments)} segments, {len(raw_cues)} words")
+        
+        # DEBUG: Log first segment
+        if segments:
+            logger.info(f"DEBUG first segment: {segments[0]}")
+        else:
+            logger.error("❌ NO SEGMENTS from transcriber!")
+        
+        if not raw_cues:
+            logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
+        
+        # Aplicar Speech-Gated Subtitles (VAD)
+        logger.info(f"🎙️ [6.5/7] Applying speech gating (VAD)...")
+        await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=82.0)
+        
+        try:
+            gated_cues, vad_ok = process_subtitles_with_vad(str(audio_path), raw_cues)
+            
+            if vad_ok:
+                logger.info(f"✅ Speech gating OK: {len(gated_cues)}/{len(raw_cues)} cues (silero-vad)")
+            else:
+                logger.warning(f"⚠️ Speech gating fallback: {len(gated_cues)}/{len(raw_cues)} cues (webrtcvad/RMS)")
+            
+            # Usar cues com gating
+            final_cues = gated_cues
+            
+        except Exception as e:
+            logger.error(f"⚠️ Speech gating failed: {e}, usando cues originais")
+            # Fallback: usar cues originais sem gating
+            final_cues = raw_cues
+            vad_ok = False
+        
+        # Gerar SRT com cues finais
         subtitle_path = Path(settings['temp_dir']) / job_id / "subtitles.srt"
         words_per_caption = int(settings.get('words_per_caption', 2))
-        subtitle_gen.generate_word_by_word_srt(segments, str(subtitle_path), words_per_caption=words_per_caption)
         
-        logger.info(f"✅ Word-by-word subtitles generated: {len(segments)} segments, {words_per_caption} words/caption")
+        # DEBUG
+        logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
+        if not final_cues:
+            logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
+        
+        # Gerar SRT usando os cues filtrados por VAD
+        from .subtitle_generator import SubtitleGenerator
+        subtitle_gen = SubtitleGenerator()
+        
+        # Agrupar final_cues em segments (cada X palavras = 1 segment)
+        # O generate_word_by_word_srt irá re-dividir em palavras e agrupar por words_per_caption
+        segment_size = 10  # Agrupar 10 palavras por segment
+        segments_for_srt = []
+        
+        for i in range(0, len(final_cues), segment_size):
+            chunk = final_cues[i:i+segment_size]
+            if chunk:
+                segments_for_srt.append({
+                    'start': chunk[0]['start'],
+                    'end': chunk[-1]['end'],
+                    'text': ' '.join(c['text'] for c in chunk)
+                })
+        
+        subtitle_gen.generate_word_by_word_srt(segments_for_srt, str(subtitle_path), words_per_caption=words_per_caption)
+        
+        # DEBUG: Verificar se arquivo foi criado
+        if subtitle_path.exists():
+            srt_size = subtitle_path.stat().st_size
+            logger.info(f"DEBUG: SRT file created, size = {srt_size} bytes")
+            if srt_size == 0:
+                logger.error("❌ CRITICAL: SRT file is EMPTY (0 bytes)!")
+        else:
+            logger.error(f"❌ CRITICAL: SRT file NOT created at {subtitle_path}!")
+        
+        num_captions_expected = len(final_cues) // words_per_caption
+        logger.info(f"✅ Speech-gated subtitles: {len(final_cues)} words → {len(segments_for_srt)} segments → ~{num_captions_expected} captions, {words_per_caption} words/caption, vad_ok={vad_ok}")
         
         # Etapa 7: Composição final
         logger.info(f"🎨 [7/7] Final composition...")
@@ -441,7 +635,7 @@ async def _process_make_video_async(job_id: str):
         raise
 
 
-@shared_task(name='app.celery_tasks.cleanup_temp_files')
+@celery_app.task(name='app.celery_tasks.cleanup_temp_files')
 def cleanup_temp_files():
     """Limpa arquivos temporários antigos"""
     logger.info("🧹 Running temp files cleanup...")
@@ -467,7 +661,8 @@ def cleanup_temp_files():
                 if job and job.status not in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
                     logger.info(f"⏭️ Skipping active job: {job_id}")
                     continue
-            except:
+            except Exception as e:
+                logger.debug(f"Could not check job status for {job_id}: {e}")
                 pass  # Se não encontrar job, continuar com limpeza baseada em timestamp
             
             mtime = datetime.fromtimestamp(job_dir.stat().st_mtime)
@@ -483,7 +678,7 @@ def cleanup_temp_files():
     logger.info(f"✅ Cleanup complete: {removed_count} temp directories removed")
 
 
-@shared_task(name='app.celery_tasks.cleanup_old_shorts')
+@celery_app.task(name='app.celery_tasks.cleanup_old_shorts')
 def cleanup_old_shorts():
     """Limpa shorts não usados há muito tempo"""
     logger.info("🧹 Running shorts cache cleanup...")

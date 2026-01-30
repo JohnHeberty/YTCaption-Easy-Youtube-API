@@ -1,16 +1,25 @@
 FROM python:3.11-slim
 
-# Install system dependencies
+# Install system dependencies (including build tools for webrtcvad + tesseract for OCR)
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     curl \
+    gcc \
+    g++ \
+    make \
+    python3-dev \
+    tesseract-ocr \
+    tesseract-ocr-por \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy requirements
 COPY requirements-docker.txt requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# Install CPU-only torch first from PyTorch index, then other requirements
+RUN pip install --no-cache-dir torch==2.1.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .

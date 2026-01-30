@@ -498,6 +498,7 @@ async def root():
             "GET /download/{job_id}": "Download do vídeo",
             "GET /jobs": "Listar jobs",
             "DELETE /jobs/{job_id}": "Deletar job",
+            "POST /test-speech-gating": "Testar Speech-Gated Subtitles",
             "GET /cache/stats": "Estatísticas do cache",
             "POST /cache/cleanup": "Limpar cache",
             "GET /health": "Health check"
@@ -511,6 +512,62 @@ async def root():
             ]
         }
     }
+
+
+@app.post("/test-speech-gating")
+async def test_speech_gating(
+    audio_file: UploadFile = File(...),
+    subtitles: str = Form(...)
+):
+    """
+    Endpoint de teste para Speech-Gated Subtitles
+    
+    - **audio_file**: Arquivo de áudio (WAV, MP3, OGG)
+    - **subtitles**: JSON array de legendas [{start, end, text}]
+    """
+    import json
+    import tempfile
+    from pathlib import Path
+    from app.subtitle_postprocessor import process_subtitles_with_vad
+    
+    try:
+        # Parse subtitles
+        cues = json.loads(subtitles)
+        
+        # Save audio to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(audio_file.filename).suffix) as tmp:
+            content = await audio_file.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        
+        try:
+            # Process with speech gating
+            gated_cues, vad_ok = process_subtitles_with_vad(
+                audio_path=tmp_path,
+                raw_cues=cues
+            )
+            
+            return {
+                "status": "success",
+                "input": {
+                    "audio_file": audio_file.filename,
+                    "cues_count": len(cues)
+                },
+                "output": {
+                    "gated_cues": gated_cues,
+                    "cues_count": len(gated_cues),
+                    "dropped_count": len(cues) - len(gated_cues),
+                    "vad_status": "primary" if vad_ok else "fallback"
+                }
+            }
+        finally:
+            # Cleanup
+            Path(tmp_path).unlink(missing_ok=True)
+            
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON in subtitles: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Processing error: {e}")
 
 
 if __name__ == "__main__":
