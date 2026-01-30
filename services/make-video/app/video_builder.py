@@ -100,7 +100,7 @@ class VideoBuilder:
         concat_list_path = self.temp_dir / f"concat_list_{Path(output_path).stem}.txt"
         
         try:
-            with open(concat_list_path, "w") as f:
+            with open(concat_list_path, "w", encoding='utf-8') as f:
                 for video_file in video_files:
                     # FFmpeg concat demangle requer path absoluto
                     abs_path = Path(video_file).resolve()
@@ -169,14 +169,19 @@ class VideoBuilder:
         
         logger.info(f"🔊 Adding audio to video")
         
+        # Primeiro: obter duração do áudio
+        audio_duration = await self.get_audio_duration(str(audio_path))
+        logger.info(f"📏 Audio duration: {audio_duration:.2f}s - will truncate video to match")
+        
         cmd = [
             self.ffmpeg_path,
             "-i", str(video_path),
             "-i", str(audio_path),
+            "-t", str(audio_duration),  # TRUNCAR vídeo para duração do áudio (FIX CRÍTICO)
             "-c:v", "copy",  # Não re-encode vídeo
             "-c:a", "aac",
             "-b:a", "192k",
-            "-shortest",  # Corta no menor (áudio ou vídeo)
+            "-shortest",  # Backup: corta no menor (áudio ou vídeo)
             str(output_path)
         ]
         
@@ -238,7 +243,11 @@ class VideoBuilder:
             self.ffmpeg_path,
             "-i", str(video_path),
             "-vf", f"subtitles={subtitle_path_escaped}:force_style='{subtitle_style}'",
+            "-c:v", "libx264",  # Re-encode necessário para burn-in
+            "-preset", "fast",
+            "-crf", "23",
             "-c:a", "copy",  # Não re-encode áudio
+            "-map", "0",  # Mapear todos streams (garante sync)
             str(output_path)
         ]
         
@@ -328,8 +337,11 @@ class VideoBuilder:
         if "r_frame_rate" in video_stream:
             try:
                 fps_parts = video_stream["r_frame_rate"].split('/')
-                result["fps"] = int(fps_parts[0]) / int(fps_parts[1])
-            except:
+                if len(fps_parts) == 2:
+                    result["fps"] = int(fps_parts[0]) / int(fps_parts[1])
+                else:
+                    result["fps"] = float(fps_parts[0]) if fps_parts else 30
+            except (ValueError, ZeroDivisionError):
                 result["fps"] = 30  # Default
         else:
             result["fps"] = 30

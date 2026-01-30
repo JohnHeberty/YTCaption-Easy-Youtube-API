@@ -35,7 +35,7 @@ class ShortsCache:
         """Carrega metadata do cache"""
         if self.metadata_file.exists():
             try:
-                with open(self.metadata_file, 'r') as f:
+                with open(self.metadata_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"Error loading metadata: {e}")
@@ -45,7 +45,7 @@ class ShortsCache:
     def _save_metadata(self):
         """Salva metadata do cache"""
         try:
-            with open(self.metadata_file, 'w') as f:
+            with open(self.metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(self.metadata, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving metadata: {e}")
@@ -101,6 +101,25 @@ class ShortsCache:
         self._save_metadata()
         
         logger.info(f"💾 Short adicionado ao cache: {video_id}")
+    
+    def remove(self, video_id: str) -> bool:
+        """Remove short do cache (usado quando detectado com legendas)
+        
+        Args:
+            video_id: ID do vídeo
+        
+        Returns:
+            True se removido, False se não existia
+        """
+        if video_id in self.metadata:
+            # Remover do metadata
+            del self.metadata[video_id]
+            self._save_metadata()
+            
+            logger.info(f"🗑️ Short removido do cache: {video_id}")
+            return True
+        
+        return False
     
     def exists(self, video_id: str) -> bool:
         """Verifica se short existe no cache
@@ -159,8 +178,8 @@ class ShortsCache:
             "total_shorts": len(self.metadata),
             "total_size_bytes": total_size,
             "total_size_gb": round(total_size / (1024**3), 2),
-            "oldest_short": sorted_by_date[0]["downloaded_at"],
-            "newest_short": sorted_by_date[-1]["downloaded_at"],
+            "oldest_short": sorted_by_date[0]["downloaded_at"] if sorted_by_date else None,
+            "newest_short": sorted_by_date[-1]["downloaded_at"] if sorted_by_date else None,
             "most_used": {
                 "video_id": most_used["video_id"],
                 "usage_count": most_used.get("usage_count", 0)

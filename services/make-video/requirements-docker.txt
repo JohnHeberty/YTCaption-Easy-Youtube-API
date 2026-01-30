@@ -12,3 +12,8 @@ ffmpeg-python==0.2.0
 pydub==0.25.1
 python-dotenv==1.0.0
 shortuuid==1.0.11
+numpy==1.26.2
+webrtcvad==2.0.10
+librosa==0.10.1
+opencv-python-headless==4.8.1.78
+pytesseract==0.3.10

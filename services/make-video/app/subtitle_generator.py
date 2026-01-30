@@ -109,6 +109,12 @@ class SubtitleGenerator:
                 if current_line:
                     lines.append(" ".join(current_line))
                 
+                # Validar que temos linhas antes de dividir duração
+                if not lines:
+                    # Fallback: manter segmento original
+                    optimized.append(segment)
+                    continue
+                
                 # Dividir duração entre linhas
                 line_duration = duration / len(lines)
                 for i, line in enumerate(lines):
