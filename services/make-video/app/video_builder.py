@@ -169,19 +169,14 @@ class VideoBuilder:
         
         logger.info(f"🔊 Adding audio to video")
         
-        # Primeiro: obter duração do áudio
-        audio_duration = await self.get_audio_duration(str(audio_path))
-        logger.info(f"📏 Audio duration: {audio_duration:.2f}s - will truncate video to match")
-        
         cmd = [
             self.ffmpeg_path,
             "-i", str(video_path),
             "-i", str(audio_path),
-            "-t", str(audio_duration),  # TRUNCAR vídeo para duração do áudio (FIX CRÍTICO)
             "-c:v", "copy",  # Não re-encode vídeo
             "-c:a", "aac",
             "-b:a", "192k",
-            "-shortest",  # Backup: corta no menor (áudio ou vídeo)
+            "-shortest",  # Corta no menor (áudio ou vídeo)
             str(output_path)
         ]
         
@@ -243,11 +238,7 @@ class VideoBuilder:
             self.ffmpeg_path,
             "-i", str(video_path),
             "-vf", f"subtitles={subtitle_path_escaped}:force_style='{subtitle_style}'",
-            "-c:v", "libx264",  # Re-encode necessário para burn-in
-            "-preset", "fast",
-            "-crf", "23",
             "-c:a", "copy",  # Não re-encode áudio
-            "-map", "0",  # Mapear todos streams (garante sync)
             str(output_path)
         ]
         

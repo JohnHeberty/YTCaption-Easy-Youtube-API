@@ -238,56 +238,15 @@ async def _process_make_video_async(job_id: str):
         logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos...")
         for short in shorts_list:
             video_id = short['video_id']
-            
-            # 🚫 CHECK: Blacklist PRIMEIRO (antes de cache)
-            if blacklist.is_blacklisted(video_id):
-                logger.warning(f"🚫 BLACKLIST (pré-cache): {video_id} - pulando")
-                failed_downloads.append(video_id)
-                continue
-            
             cached = shorts_cache.get(video_id)
             if cached:
-                # 🔍 VALIDAÇÃO: Videos em cache também precisam validação OCR!
-                video_path = cached.get('file_path')
-                if video_path and Path(video_path).exists():
-                    # Validar OCR em vídeos do cache
-                    try:
-                        has_subs, confidence, reason = video_validator.has_embedded_subtitles(video_path)
-                        
-                        if has_subs:
-                            # 🚫 LEGENDAS DETECTADAS NO CACHE - BLOQUEAR
-                            logger.error(f"🚫 CACHE: Embedded subtitles in {video_id} (conf: {confidence:.2f}) - blacklisting")
-                            blacklist.add(video_id, reason, confidence, metadata={
-                                'title': short.get('title', ''),
-                                'duration': short.get('duration_seconds', 0),
-                                'source': 'cache_validation'
-                            })
-                            
-                            # Remover do cache
-                            shorts_cache.remove(video_id)
-                            if Path(video_path).exists():
-                                Path(video_path).unlink()
-                            
-                            failed_downloads.append(video_id)
-                            continue
-                        
-                        # ✅ CACHE VÁLIDO - usar
-                        downloaded_shorts.append(cached)
-                        cache_hits += 1
-                        logger.info(f"✅ Cache HIT (validado): {video_id}")
-                        
-                    except Exception as e:
-                        logger.warning(f"⚠️ Erro validando cache {video_id}: {e} - removendo")
-                        shorts_cache.remove(video_id)
-                        to_download.append(short)
-                else:
-                    logger.warning(f"⚠️ Cache inválido (arquivo não existe): {video_id}")
-                    shorts_cache.remove(video_id)
-                    to_download.append(short)
+                downloaded_shorts.append(cached)
+                cache_hits += 1
+                logger.info(f"✅ Cache HIT: {video_id}")
             else:
                 to_download.append(short)
         
-        logger.info(f"💾 Cache: {cache_hits} validados, {len(to_download)} precisam download, {len(failed_downloads)} bloqueados")
+        logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download")
         
         # Se já temos shorts suficientes no cache, pular download
         if len(downloaded_shorts) >= min(10, job.max_shorts):
