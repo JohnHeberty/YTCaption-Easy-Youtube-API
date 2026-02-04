@@ -102,25 +102,6 @@ class ShortsCache:
         
         logger.info(f"💾 Short adicionado ao cache: {video_id}")
     
-    def remove(self, video_id: str) -> bool:
-        """Remove short do cache (usado quando detectado com legendas)
-        
-        Args:
-            video_id: ID do vídeo
-        
-        Returns:
-            True se removido, False se não existia
-        """
-        if video_id in self.metadata:
-            # Remover do metadata
-            del self.metadata[video_id]
-            self._save_metadata()
-            
-            logger.info(f"🗑️ Short removido do cache: {video_id}")
-            return True
-        
-        return False
-    
     def exists(self, video_id: str) -> bool:
         """Verifica se short existe no cache
         
