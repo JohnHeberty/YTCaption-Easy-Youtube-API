@@ -22,7 +22,7 @@ from .shorts_manager import ShortsCache
 from .subtitle_generator import SubtitleGenerator
 from .subtitle_postprocessor import process_subtitles_with_vad
 from .video_validator import VideoValidator
-from .shorts_blacklist import ShortsBlacklist
+from .blacklist_factory import get_blacklist
 from .exceptions import (
     MakeVideoException,
     AudioProcessingException,
@@ -58,7 +58,11 @@ def get_instances():
         
         video_builder = VideoBuilder(
             temp_dir=settings['temp_dir'],
-            output_dir=settings['output_dir']
+            output_dir=settings['output_dir'],
+            video_codec=settings['ffmpeg_video_codec'],
+            audio_codec=settings['ffmpeg_audio_codec'],
+            preset=settings['ffmpeg_preset'],
+            crf=settings['ffmpeg_crf']
         )
         
         shorts_cache = ShortsCache(
@@ -67,10 +71,13 @@ def get_instances():
         
         subtitle_gen = SubtitleGenerator()
         
-        # Inicializar validador e blacklist
-        video_validator = VideoValidator(min_confidence=0.40)
-        blacklist_path = Path(settings['shorts_cache_dir']) / 'blacklist.json'
-        blacklist = ShortsBlacklist(str(blacklist_path), ttl_days=90)
+        # Inicializar validador e blacklist (usando factory)
+        video_validator = VideoValidator(
+            min_confidence=settings['ocr_confidence_threshold'],
+            frames_per_second=settings['ocr_frames_per_second'],
+            max_frames=settings['ocr_max_frames']
+        )
+        blacklist = get_blacklist()  # Factory cria instância baseada em config
         
         logger.info("✅ Video validator and blacklist initialized")
     

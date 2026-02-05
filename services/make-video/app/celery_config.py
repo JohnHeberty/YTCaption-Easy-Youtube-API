@@ -12,6 +12,11 @@ load_dotenv()
 # Get Redis URL from environment
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 
+# Get Celery worker settings from environment
+celery_worker_concurrency = int(os.getenv('CELERY_WORKER_CONCURRENCY', '4'))
+celery_worker_prefetch_multiplier = int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', '1'))
+celery_task_time_limit = int(os.getenv('CELERY_TASK_TIME_LIMIT', '3600'))
+
 # Create Celery app
 celery_app = Celery(
     'make-video',
@@ -31,11 +36,12 @@ celery_app.conf.update(
     
     # Task execution
     task_track_started=True,
-    task_time_limit=3600,  # 1 hour hard limit
-    task_soft_time_limit=3300,  # 55 minutes soft limit
+    task_time_limit=celery_task_time_limit,  # Configurável via env
+    task_soft_time_limit=int(celery_task_time_limit * 0.92),  # 92% do hard limit
     
-    # Worker settings
-    worker_prefetch_multiplier=1,  # Process one task at a time
+    # Worker settings (configuráveis via env)
+    worker_concurrency=celery_worker_concurrency,
+    worker_prefetch_multiplier=celery_worker_prefetch_multiplier,
     worker_max_tasks_per_child=10,  # Restart worker after 10 tasks (prevent memory leaks)
     
     # Result backend

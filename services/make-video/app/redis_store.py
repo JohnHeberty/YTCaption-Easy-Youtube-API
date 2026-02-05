@@ -215,3 +215,145 @@ class RedisJobStore:
         jobs.sort(key=lambda j: j.created_at, reverse=True)
         
         return jobs
+    
+    def get_stats(self) -> dict:
+        """
+        Get statistics about jobs in Redis
+        
+        Returns:
+            Dictionary with job counts by status
+        """
+        stats = {
+            "queued": 0,
+            "processing": 0,
+            "completed": 0,
+            "failed": 0,
+            "total": 0
+        }
+        
+        try:
+            for key in self.redis.scan_iter(match="make_video:job:*"):
+                try:
+                    data = self.redis.get(key)
+                    if data:
+                        job = self._deserialize_job(data)
+                        stats["total"] += 1
+                        
+                        # Count by status
+                        if job.status == "queued":
+                            stats["queued"] += 1
+                        elif job.status == "processing":
+                            stats["processing"] += 1
+                        elif job.status == "completed":
+                            stats["completed"] += 1
+                        elif job.status == "failed":
+                            stats["failed"] += 1
+                except Exception as e:
+                    logger.debug(f"Error processing key {key} for stats: {e}")
+        except Exception as e:
+            logger.error(f"Error getting stats: {e}")
+        
+        return stats
+    
+    async def cleanup_all_jobs(self) -> int:
+        """
+        Remove ALL jobs from Redis (DANGEROUS - use with caution)
+        
+        Returns:
+            Number of jobs removed
+        """
+        removed_count = 0
+        
+        try:
+            keys = list(self.redis.scan_iter(match="make_video:job:*"))
+            if keys:
+                removed_count = self.redis.delete(*keys)
+                logger.warning(f"🔥 ALL JOBS REMOVED: {removed_count} jobs deleted")
+        except Exception as e:
+            logger.error(f"Error removing all jobs: {e}")
+        
+        return removed_count
+    
+    async def find_orphaned_jobs(self, max_age_minutes: int = 30) -> List[Job]:
+        """
+        Find jobs that are stuck in processing state for too long
+        
+        Args:
+            max_age_minutes: Maximum time a job can be processing
+        
+        Returns:
+            List of orphaned jobs
+        """
+        orphaned = []
+        now = datetime.utcnow()
+        max_age = timedelta(minutes=max_age_minutes)
+        
+        try:
+            for key in self.redis.scan_iter(match="make_video:job:*"):
+                try:
+                    data = self.redis.get(key)
+                    if data:
+                        job = self._deserialize_job(data)
+                        
+                        # Check if processing for too long
+                        if job.status == "processing":
+                            age = now - job.updated_at
+                            if age > max_age:
+                                orphaned.append(job)
+                                logger.warning(
+                                    f"⚠️ Orphaned job found: {job.job_id} "
+                                    f"(processing for {age.total_seconds()/60:.1f} minutes)"
+                                )
+                except Exception as e:
+                    logger.debug(f"Error processing key {key}: {e}")
+        except Exception as e:
+            logger.error(f"Error finding orphaned jobs: {e}")
+        
+        return orphaned
+    
+    async def get_queue_info(self) -> dict:
+        """
+        Get information about the job queue
+        
+        Returns:
+            Dictionary with queue statistics
+        """
+        queue_info = {
+            "total_jobs": 0,
+            "by_status": {
+                "queued": 0,
+                "processing": 0,
+                "completed": 0,
+                "failed": 0
+            },
+            "oldest_job": None,
+            "newest_job": None
+        }
+        
+        try:
+            jobs = await self.list_jobs(limit=10000)  # Get all jobs
+            queue_info["total_jobs"] = len(jobs)
+            
+            # Count by status
+            for job in jobs:
+                if job.status in queue_info["by_status"]:
+                    queue_info["by_status"][job.status] += 1
+            
+            # Find oldest and newest
+            if jobs:
+                # Jobs are already sorted by created_at descending
+                queue_info["newest_job"] = {
+                    "job_id": jobs[0].job_id,
+                    "created_at": jobs[0].created_at.isoformat(),
+                    "status": jobs[0].status
+                }
+                queue_info["oldest_job"] = {
+                    "job_id": jobs[-1].job_id,
+                    "created_at": jobs[-1].created_at.isoformat(),
+                    "status": jobs[-1].status
+                }
+        
+        except Exception as e:
+            logger.error(f"Error getting queue info: {e}")
+        
+        return queue_info

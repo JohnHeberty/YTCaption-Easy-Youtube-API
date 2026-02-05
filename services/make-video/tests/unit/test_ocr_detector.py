@@ -26,7 +26,7 @@ from app.ocr_detector import OCRDetector, OCRResult
 @pytest.fixture
 def detector():
     """Detector com configuração padrão"""
-    return OCRDetector(subtitle_region_height=0.15)
+    return OCRDetector()
 
 
 @pytest.fixture
@@ -53,25 +53,14 @@ def mock_ocr_data_empty():
     }
 
 
-def test_extract_roi(detector, sample_frame):
-    """Testa extração de ROI"""
-    roi = detector._extract_roi(sample_frame)
-    
-    # ROI deve ter 15% da altura original
-    expected_height = int(1080 * 0.15)
-    assert roi.shape[0] == expected_height
-    assert roi.shape[1] == 1920  # Largura mantida
-
-
 def test_preprocess_for_ocr(detector, sample_frame):
     """Testa pré-processamento para OCR"""
-    roi = sample_frame[:100, :]  # Pegar parte do frame
     
-    with patch('cv2.cvtColor', return_value=np.zeros((100, 1920), dtype=np.uint8)), \
-         patch('cv2.adaptiveThreshold', return_value=np.full((100, 1920), 255, dtype=np.uint8)), \
-         patch('cv2.bitwise_not', return_value=np.zeros((100, 1920), dtype=np.uint8)):
+    with patch('cv2.cvtColor', return_value=np.zeros((1080, 1920), dtype=np.uint8)), \
+         patch('cv2.adaptiveThreshold', return_value=np.full((1080, 1920), 255, dtype=np.uint8)), \
+         patch('cv2.bitwise_not', return_value=np.zeros((1080, 1920), dtype=np.uint8)):
         
-        processed = detector._preprocess_for_ocr(roi)
+        processed = detector._preprocess_for_ocr(sample_frame)
         
         # Deve ser grayscale (2D)
         assert len(processed.shape) == 2
@@ -181,7 +170,8 @@ def test_extract_frame_at_timestamp_failure(mock_cap_class, detector):
 
 
 def test_detector_initialization():
-    """Testa inicialização do detector com parâmetros customizados"""
-    detector = OCRDetector(subtitle_region_height=0.20)
+    """Testa inicialização do detector"""
+    detector = OCRDetector()
     
-    assert detector.subtitle_region_height == 0.20
+    # Detector deve ser inicializado sem erros
+    assert detector is not None
