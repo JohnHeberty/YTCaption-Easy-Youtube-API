@@ -116,13 +116,28 @@ class VideoValidator:
             
             frames_analyzed = 0
             detections = []
+            consecutive_failures = 0
+            max_consecutive_failures = 3
             
             for ts in timestamps:
                 frames_analyzed += 1
                 
                 frame = self._extract_frame(video_path, ts)
                 if frame is None:
+                    consecutive_failures += 1
+                    
+                    # 🚨 EARLY ABORT: Se 3 frames consecutivos falharem, pular vídeo
+                    if consecutive_failures >= max_consecutive_failures:
+                        logger.error(
+                            f"❌ SKIP OCR: {consecutive_failures} consecutive frame extraction failures "
+                            f"(likely AV1 codec issue) - marking as NO subtitles"
+                        )
+                        return False, 0.0, "Frame extraction failed (codec issue)"
+                    
                     continue
+                
+                # Reset counter on success
+                consecutive_failures = 0
                 
                 # Run OCR on full frame
                 text = pytesseract.image_to_string(frame, config=self.tesseract_config)
@@ -210,15 +225,39 @@ class VideoValidator:
         
         return timestamps
     
-    def _extract_frame(self, video_path: str, timestamp: float) -> Optional[any]:
+    def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> Optional[any]:
         """
-        Extrai um frame do vídeo em determinado timestamp
+        Extrai um frame do vídeo em determinado timestamp com timeout
+        
+        🔧 FIX: Previne loop infinito em vídeos AV1 sem suporte de hardware
+        - Timeout de 3 segundos por frame
+        - Fallback para FFmpeg se OpenCV falhar
+        - Early failure detection
         
         Returns:
             numpy array (BGR) ou None se falhar
         """
+        import signal
+        import tempfile
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("Frame extraction timeout")
+        
+        # Try OpenCV first with timeout
         try:
+            # Set timeout alarm (Unix only)
+            if hasattr(signal, 'SIGALRM'):
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(timeout)
+            
             cap = cv2.VideoCapture(video_path)
+            
+            if not cap.isOpened():
+                logger.warning(f"OpenCV failed to open video: {video_path}")
+                if hasattr(signal, 'SIGALRM'):
+                    signal.alarm(0)  # Cancel alarm
+                # Try FFmpeg fallback
+                return self._extract_frame_ffmpeg(video_path, timestamp)
             
             # Seek to timestamp
             cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
@@ -226,14 +265,70 @@ class VideoValidator:
             ret, frame = cap.read()
             cap.release()
             
+            if hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)  # Cancel alarm
+            
             if not ret:
-                logger.warning(f"Failed to extract frame at {timestamp}s")
-                return None
+                logger.warning(f"Failed to extract frame at {timestamp}s - trying FFmpeg")
+                return self._extract_frame_ffmpeg(video_path, timestamp)
             
             return frame
         
+        except TimeoutError:
+            logger.error(f"⏱️ TIMEOUT extracting frame at {timestamp}s with OpenCV - using FFmpeg")
+            if hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)
+            return self._extract_frame_ffmpeg(video_path, timestamp)
+        
         except Exception as e:
             logger.error(f"Frame extraction error at {timestamp}s: {e}")
+            if hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)
+            return None
+    
+    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> Optional[any]:
+        """
+        Fallback: Extrai frame usando FFmpeg diretamente
+        
+        Mais lento mas funciona com qualquer codec (incluindo AV1)
+        """
+        import tempfile
+        import numpy as np
+        
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            cmd = [
+                'ffmpeg',
+                '-ss', str(timestamp),
+                '-i', video_path,
+                '-frames:v', '1',
+                '-f', 'image2',
+                '-y',
+                tmp_path
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=5,
+                check=False
+            )
+            
+            if result.returncode == 0 and Path(tmp_path).exists():
+                frame = cv2.imread(tmp_path)
+                Path(tmp_path).unlink(missing_ok=True)
+                
+                if frame is not None:
+                    logger.debug(f"✅ FFmpeg extracted frame at {timestamp}s")
+                    return frame
+            
+            Path(tmp_path).unlink(missing_ok=True)
+            return None
+        
+        except Exception as e:
+            logger.error(f"FFmpeg frame extraction failed: {e}")
             return None
     
     def _calculate_ocr_confidence(self, text: str) -> float:
