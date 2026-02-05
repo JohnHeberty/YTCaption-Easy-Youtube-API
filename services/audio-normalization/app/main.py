@@ -1169,45 +1169,68 @@ async def cleanup_orphaned_jobs_endpoint(
         
         actions = []
         space_freed = 0
+        errors = []  # Track errors for graceful degradation
         
         for job in orphaned:
             age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
             
-            # Remove associated files
+            # Remove associated files with comprehensive error handling
             files_deleted = []
             
             # Audio file in uploads
             if hasattr(job, 'filename') and job.filename:
-                audio_path = Path(f"./uploads/{job.filename}")
-                if audio_path.exists():
-                    size_mb = audio_path.stat().st_size / (1024 * 1024)
-                    audio_path.unlink()
-                    files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
-                    space_freed += size_mb
+                try:
+                    audio_path = Path(f"./uploads/{job.filename}")
+                    if audio_path.exists() and audio_path.is_file():
+                        size_mb = audio_path.stat().st_size / (1024 * 1024)
+                        audio_path.unlink(missing_ok=True)  # Safe deletion even if removed elsewhere
+                        files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
+                        space_freed += size_mb
+                except Exception as e:
+                    errors.append(f"Failed to delete audio file {job.filename}: {str(e)}")
+                    logger.warning(f"Error deleting audio file for job {job.id}: {e}")
             
             # Processed file
             if hasattr(job, 'output_path') and job.output_path:
-                processed_path = Path(job.output_path)
-                if processed_path.exists():
-                    size_mb = processed_path.stat().st_size / (1024 * 1024)
-                    processed_path.unlink()
-                    files_deleted.append({"file": str(processed_path), "size_mb": round(size_mb, 2)})
-                    space_freed += size_mb
+                try:
+                    processed_path = Path(job.output_path)
+                    if processed_path.exists() and processed_path.is_file():
+                        size_mb = processed_path.stat().st_size / (1024 * 1024)
+                        processed_path.unlink(missing_ok=True)
+                        files_deleted.append({"file": str(processed_path), "size_mb": round(size_mb, 2)})
+                        space_freed += size_mb
+                except Exception as e:
+                    errors.append(f"Failed to delete processed file {job.output_path}: {str(e)}")
+                    logger.warning(f"Error deleting processed file for job {job.id}: {e}")
             
-            # Temp files
-            for temp_file in Path("./temp").glob(f"*{job.id}*"):
-                if temp_file.is_file():
-                    size_mb = temp_file.stat().st_size / (1024 * 1024)
-                    temp_file.unlink()
-                    files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
-                    space_freed += size_mb
+            # Temp files with directory validation
+            try:
+                temp_dir = Path("./temp")
+                if temp_dir.exists() and temp_dir.is_dir():
+                    for temp_file in temp_dir.glob(f"*{job.id}*"):
+                        try:
+                            if temp_file.is_file():
+                                size_mb = temp_file.stat().st_size / (1024 * 1024)
+                                temp_file.unlink(missing_ok=True)
+                                files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
+                                space_freed += size_mb
+                        except Exception as e:
+                            errors.append(f"Failed to delete temp file {temp_file.name}: {str(e)}")
+                            logger.warning(f"Error deleting temp file {temp_file}: {e}")
+            except Exception as e:
+                errors.append(f"Failed to scan temp directory: {str(e)}")
+                logger.warning(f"Error scanning temp directory for job {job.id}: {e}")
             
             if mark_as_failed:
-                # Mark as failed
-                job.status = JobStatus.FAILED
-                job.error_message = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
-                job.updated_at = datetime.utcnow()
-                job_store.update_job(job)
+                # Mark as failed with safe job update
+                try:
+                    job.status = JobStatus.FAILED
+                    job.error_message = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
+                    job.updated_at = datetime.utcnow()
+                    job_store.update_job(job)
+                except Exception as e:
+                    errors.append(f"Failed to mark job {job.id} as failed: {str(e)}")
+                    logger.error(f"Error updating job {job.id}: {e}")
                 
                 actions.append({
                     "job_id": job.id,
@@ -1217,8 +1240,12 @@ async def cleanup_orphaned_jobs_endpoint(
                     "reason": job.error_message
                 })
             else:
-                # Delete completely
-                job_store.delete_job(job.id)
+                # Delete completely with error handling
+                try:
+                    job_store.delete_job(job.id)
+                except Exception as e:
+                    errors.append(f"Failed to delete job {job.id}: {str(e)}")
+                    logger.error(f"Error deleting job {job.id}: {e}")
                 
                 actions.append({
                     "job_id": job.id,
@@ -1233,15 +1260,21 @@ async def cleanup_orphaned_jobs_endpoint(
                 f"space freed: {sum(f['size_mb'] for f in files_deleted):.2f}MB)"
             )
         
-        return {
-            "status": "success",
-            "message": f"Cleaned up {len(orphaned)} orphaned job(s)",
+        response = {
+            "status": "success" if not errors else "partial_success",
+            "message": f"Cleaned up {len(orphaned)} orphaned job(s)" + (f" with {len(errors)} error(s)" if errors else ""),
             "count": len(orphaned),
             "mode": "mark_as_failed" if mark_as_failed else "delete",
             "max_age_minutes": max_age_minutes,
             "space_freed_mb": round(space_freed, 2),
             "actions": actions
         }
+        
+        if errors:
+            response["errors"] = errors
+            logger.warning(f"Cleanup completed with {len(errors)} errors: {errors}")
+        
+        return response
     
     except Exception as e:
         logger.error(f"Error cleaning up orphaned jobs: {e}", exc_info=True)

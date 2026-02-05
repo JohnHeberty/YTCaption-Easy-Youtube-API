@@ -357,3 +357,26 @@ class RedisJobStore:
             logger.error(f"Error getting queue info: {e}")
         
         return queue_info
+    
+    async def delete_job(self, job_id: str) -> bool:
+        """
+        Delete a job from Redis
+        
+        Args:
+            job_id: Job ID to delete
+        
+        Returns:
+            True if deleted, False if not found
+        """
+        try:
+            key = self._job_key(job_id)
+            result = self.redis.delete(key)
+            if result > 0:
+                logger.info(f"Job deleted: {job_id}")
+                return True
+            else:
+                logger.warning(f"Job not found for deletion: {job_id}")
+                return False
+        except Exception as e:
+            logger.error(f"Error deleting job {job_id}: {e}")
+            return False
