@@ -95,6 +95,7 @@ class VideoValidator:
         2. Early exit: para na primeira detecção com confiança > threshold
         3. Limite máximo de frames para evitar OOM (padrão: 240 frames)
         4. Full frame OCR (ROI removido)
+        5. 🚧 Transcoding automático para codecs não suportados (AV1)
         
         Args:
             video_path: Path do vídeo
@@ -103,10 +104,15 @@ class VideoValidator:
             Tuple (has_subtitles, confidence, sample_text)
         """
         start_time = time.time()
+        working_path = video_path
+        cleanup_path = None
         
         try:
-            # Get video info
-            info = self.get_video_info(video_path)
+            # Converter para codec suportado se necessário (ex.: AV1 → H.264)
+            working_path, cleanup_path = self._ensure_supported_codec(video_path)
+            
+            # Get video info já no arquivo convertido (se houver)
+            info = self.get_video_info(working_path)
             duration = info['duration']
             
             # Sample frames at different timestamps
@@ -122,7 +128,7 @@ class VideoValidator:
             for ts in timestamps:
                 frames_analyzed += 1
                 
-                frame = self._extract_frame(video_path, ts)
+                frame = self._extract_frame(working_path, ts)
                 if frame is None:
                     consecutive_failures += 1
                     
@@ -130,7 +136,7 @@ class VideoValidator:
                     if consecutive_failures >= max_consecutive_failures:
                         logger.error(
                             f"❌ SKIP OCR: {consecutive_failures} consecutive frame extraction failures "
-                            f"(likely AV1 codec issue) - marking as NO subtitles"
+                            f"(likely codec issue) - marking as NO subtitles"
                         )
                         return False, 0.0, "Frame extraction failed (codec issue)"
                     
@@ -179,6 +185,14 @@ class VideoValidator:
         except Exception as e:
             logger.error(f"❌ OCR detection error: {e}", exc_info=True)
             return False, 0.0, f"Error: {e}"
+        
+        finally:
+            # Limpar arquivo transcodado temporário, se criado
+            if cleanup_path:
+                try:
+                    Path(cleanup_path).unlink(missing_ok=True)
+                except Exception:
+                    logger.debug(f"Could not remove temp transcoded file: {cleanup_path}")
     
     def _get_sample_timestamps(self, duration: float) -> list:
         """
@@ -330,6 +344,67 @@ class VideoValidator:
         except Exception as e:
             logger.error(f"FFmpeg frame extraction failed: {e}")
             return None
+
+    def _ensure_supported_codec(self, video_path: str) -> Tuple[str, Optional[str]]:
+        """
+        Garante que o vídeo está em codec suportado para OCR (H.264).
+        
+        - Se codec já suportado, retorna (video_path, None)
+        - Se codec não suportado (ex.: AV1), transcodifica para H.264 temporário
+        
+        Returns:
+            (working_path, cleanup_path)
+        """
+        info = self.get_video_info(video_path)
+        codec = info.get('codec', '').lower()
+        unsupported_codecs = {"av1"}
+        
+        if codec not in unsupported_codecs:
+            return video_path, None
+        
+        # Transcodificar para H.264 para evitar travamentos do OpenCV com AV1
+        import tempfile
+        temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+        temp_path = temp_file.name
+        temp_file.close()
+        
+        logger.warning(
+            f"🔄 Transcoding unsupported codec ({codec}) to H.264 for OCR: {video_path} -> {temp_path}"
+        )
+        
+        cmd = [
+            'ffmpeg',
+            '-y',
+            '-i', video_path,
+            '-c:v', 'libx264',
+            '-preset', 'veryfast',
+            '-crf', '23',
+            '-c:a', 'copy',
+            temp_path
+        ]
+        
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=120,
+                check=True
+            )
+            logger.info("✅ Transcoding completed for OCR path")
+            return temp_path, temp_path
+        except subprocess.TimeoutExpired:
+            logger.error("❌ Transcoding timeout for OCR (AV1 → H.264)")
+            Path(temp_path).unlink(missing_ok=True)
+            raise VideoIntegrityError("Transcoding timeout")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"❌ Transcoding failed: {e.stderr}")
+            Path(temp_path).unlink(missing_ok=True)
+            raise VideoIntegrityError(f"Transcoding failed: {e.stderr}")
+        except Exception as e:
+            logger.error(f"❌ Unexpected transcoding error: {e}")
+            Path(temp_path).unlink(missing_ok=True)
+            raise VideoIntegrityError(f"Transcoding error: {e}")
     
     def _calculate_ocr_confidence(self, text: str) -> float:
         """

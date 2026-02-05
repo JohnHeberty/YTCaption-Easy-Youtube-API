@@ -247,9 +247,32 @@ async def _process_make_video_async(job_id: str):
             video_id = short['video_id']
             cached = shorts_cache.get(video_id)
             if cached:
-                downloaded_shorts.append(cached)
-                cache_hits += 1
-                logger.info(f"✅ Cache HIT: {video_id}")
+                try:
+                    file_path = Path(cached["file_path"])
+                    # Revalidar integridade e OCR mesmo em cache
+                    video_validator.validate_video_integrity(str(file_path), timeout=5)
+                    has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(file_path))
+                    
+                    if has_subs:
+                        logger.error(
+                            f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
+                        )
+                        blacklist.add(video_id, reason, confidence, metadata={
+                            'title': short.get('title', ''),
+                            'duration': short.get('duration_seconds', 0)
+                        })
+                        shorts_cache.remove(video_id)
+                        continue  # Não usar nem rebaixar
+                    
+                    # Marca como validado e reutiliza
+                    shorts_cache.mark_validated(video_id, False, confidence)
+                    downloaded_shorts.append(cached)
+                    cache_hits += 1
+                    logger.info(f"✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
+                except Exception as e:
+                    logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
+                    shorts_cache.remove(video_id)
+                    to_download.append(short)
             else:
                 to_download.append(short)
         

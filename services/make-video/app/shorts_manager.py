@@ -101,6 +101,34 @@ class ShortsCache:
         self._save_metadata()
         
         logger.info(f"💾 Short adicionado ao cache: {video_id}")
+
+    def remove(self, video_id: str) -> bool:
+        """Remove short do cache (arquivo + metadata)"""
+        if video_id not in self.metadata:
+            return False
+        file_path = Path(self.metadata[video_id].get("file_path", ""))
+        try:
+            if file_path.exists():
+                file_path.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"Erro ao remover arquivo do cache {video_id}: {e}")
+        del self.metadata[video_id]
+        self._save_metadata()
+        logger.info(f"🗑️ Short removido do cache: {video_id}")
+        return True
+
+    def mark_validated(self, video_id: str, has_subtitles: bool, confidence: float, reason: str = "") -> bool:
+        """Marca um short como validado (OCR/integridade) no metadata"""
+        short = self.metadata.get(video_id)
+        if not short:
+            return False
+        short["validated_at"] = datetime.utcnow().isoformat()
+        short["has_embedded_subtitles"] = has_subtitles
+        short["ocr_confidence"] = confidence
+        if reason:
+            short["ocr_reason"] = reason
+        self._save_metadata()
+        return True
     
     def exists(self, video_id: str) -> bool:
         """Verifica se short existe no cache
