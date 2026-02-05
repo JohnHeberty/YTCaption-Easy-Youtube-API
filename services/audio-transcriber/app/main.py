@@ -1099,56 +1099,99 @@ async def cleanup_orphaned_jobs_endpoint(
             
             # Remove associated files
             files_deleted = []
+            errors = []
             
             # Audio file in uploads
             if hasattr(job, 'filename') and job.filename:
-                audio_path = Path(f"./uploads/{job.job_id}_{job.filename}")
-                if audio_path.exists():
-                    size_mb = audio_path.stat().st_size / (1024 * 1024)
-                    audio_path.unlink()
-                    files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
-                    space_freed += size_mb
+                try:
+                    audio_path = Path(f"./uploads/{job.job_id}_{job.filename}")
+                    if audio_path.exists() and audio_path.is_file():
+                        size_mb = audio_path.stat().st_size / (1024 * 1024)
+                        audio_path.unlink(missing_ok=True)
+                        files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
+                        space_freed += size_mb
+                except Exception as e:
+                    errors.append(f"Failed to delete audio {job.filename}: {str(e)}")
+                    logger.warning(f"Failed to delete audio file: {e}")
             
             # Transcription file
-            transcription_path = Path(f"./transcriptions/{job.job_id}.json")
-            if transcription_path.exists():
-                size_mb = transcription_path.stat().st_size / (1024 * 1024)
-                transcription_path.unlink()
-                files_deleted.append({"file": str(transcription_path), "size_mb": round(size_mb, 2)})
-                space_freed += size_mb
+            try:
+                transcription_path = Path(f"./transcriptions/{job.job_id}.json")
+                if transcription_path.exists() and transcription_path.is_file():
+                    size_mb = transcription_path.stat().st_size / (1024 * 1024)
+                    transcription_path.unlink(missing_ok=True)
+                    files_deleted.append({"file": str(transcription_path), "size_mb": round(size_mb, 2)})
+                    space_freed += size_mb
+            except Exception as e:
+                errors.append(f"Failed to delete transcription: {str(e)}")
+                logger.warning(f"Failed to delete transcription file: {e}")
             
             # Temp files
-            for temp_file in Path("./temp").glob(f"*{job.job_id}*"):
-                if temp_file.is_file():
-                    size_mb = temp_file.stat().st_size / (1024 * 1024)
-                    temp_file.unlink()
-                    files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
-                    space_freed += size_mb
+            try:
+                temp_dir = Path("./temp")
+                if temp_dir.exists() and temp_dir.is_dir():
+                    for temp_file in temp_dir.glob(f"*{job.job_id}*"):
+                        if temp_file.is_file():
+                            try:
+                                size_mb = temp_file.stat().st_size / (1024 * 1024)
+                                temp_file.unlink(missing_ok=True)
+                                files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
+                                space_freed += size_mb
+                            except Exception as e:
+                                errors.append(f"Failed to delete temp {temp_file.name}: {str(e)}")
+                                logger.warning(f"Failed to delete temp file: {e}")
+            except Exception as e:
+                errors.append(f"Failed to scan temp directory: {str(e)}")
+                logger.warning(f"Failed to scan temp directory: {e}")
             
             if mark_as_failed:
                 # Mark as failed
-                job.status = JobStatus.FAILED
-                job.error = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
-                job.updated_at = datetime.utcnow()
-                await job_store.save_job(job)
-                
-                actions.append({
-                    "job_id": job.job_id,
-                    "action": "marked_as_failed",
-                    "age_minutes": round(age_minutes, 2),
-                    "files_deleted": files_deleted,
-                    "reason": job.error
-                })
+                try:
+                    job.status = JobStatus.FAILED
+                    job.error = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
+                    job.updated_at = datetime.utcnow()
+                    await job_store.save_job(job)
+                    
+                    actions.append({
+                        "job_id": job.job_id,
+                        "action": "marked_as_failed",
+                        "age_minutes": round(age_minutes, 2),
+                        "files_deleted": files_deleted,
+                        "reason": job.error,
+                        "errors": errors if errors else None
+                    })
+                except Exception as e:
+                    errors.append(f"Failed to mark job as failed: {str(e)}")
+                    logger.error(f"Failed to mark job {job.job_id} as failed: {e}", exc_info=True)
+                    actions.append({
+                        "job_id": job.job_id,
+                        "action": "failed_to_update",
+                        "age_minutes": round(age_minutes, 2),
+                        "files_deleted": files_deleted,
+                        "errors": errors
+                    })
             else:
                 # Delete completely
-                await job_store.delete_job(job.job_id)
-                
-                actions.append({
-                    "job_id": job.job_id,
-                    "action": "deleted",
-                    "age_minutes": round(age_minutes, 2),
-                    "files_deleted": files_deleted
-                })
+                try:
+                    await job_store.delete_job(job.job_id)
+                    
+                    actions.append({
+                        "job_id": job.job_id,
+                        "action": "deleted",
+                        "age_minutes": round(age_minutes, 2),
+                        "files_deleted": files_deleted,
+                        "errors": errors if errors else None
+                    })
+                except Exception as e:
+                    errors.append(f"Failed to delete job: {str(e)}")
+                    logger.error(f"Failed to delete job {job.job_id}: {e}", exc_info=True)
+                    actions.append({
+                        "job_id": job.job_id,
+                        "action": "failed_to_delete",
+                        "age_minutes": round(age_minutes, 2),
+                        "files_deleted": files_deleted,
+                        "errors": errors
+                    })
             
             logger.info(
                 f"🧹 Orphaned job {'marked as failed' if mark_as_failed else 'deleted'}: "
