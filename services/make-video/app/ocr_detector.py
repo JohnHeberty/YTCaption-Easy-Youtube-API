@@ -31,13 +31,11 @@ class OCRDetector:
     Detecta presença de legendas na região inferior do vídeo
     """
     
-    def __init__(self, subtitle_region_height: float = 0.15):
+    def __init__(self):
         """
-        Args:
-            subtitle_region_height: Porcentagem da altura do frame para ROI (0.0-1.0)
+        Detector de legendas usando OCR na imagem completa
         """
-        self.subtitle_region_height = subtitle_region_height
-        logger.info(f"OCRDetector initialized (ROI height: {subtitle_region_height:.0%})")
+        logger.info("OCRDetector initialized (full frame OCR)")
     
     def detect_subtitle_in_frame(
         self,
@@ -54,11 +52,8 @@ class OCRDetector:
         Returns:
             OCRResult com texto e confiança
         """
-        # Extrair ROI (região inferior)
-        roi = self._extract_roi(frame)
-        
         # Pré-processar para melhorar OCR
-        processed = self._preprocess_for_ocr(roi)
+        processed = self._preprocess_for_ocr(frame)
         
         # Executar OCR
         ocr_data = pytesseract.image_to_data(
@@ -88,40 +83,22 @@ class OCRDetector:
             has_subtitle=has_subtitle
         )
     
-    def _extract_roi(self, frame: np.ndarray) -> np.ndarray:
+    def _preprocess_for_ocr(self, frame: np.ndarray) -> np.ndarray:
         """
-        Extrai região de interesse (ROI) - parte inferior do frame
-        
-        Args:
-            frame: Frame completo
-        
-        Returns:
-            ROI com legendas (parte inferior)
-        """
-        height, width = frame.shape[:2]
-        roi_height = int(height * self.subtitle_region_height)
-        
-        # ROI = parte inferior do frame
-        roi = frame[height - roi_height:, :]
-        
-        return roi
-    
-    def _preprocess_for_ocr(self, roi: np.ndarray) -> np.ndarray:
-        """
-        Pré-processa ROI para melhorar OCR
+        Pré-processa frame para melhorar OCR
         
         - Converte para grayscale
         - Aplica threshold adaptativo
         - Inverte cores (texto branco → preto)
         
         Args:
-            roi: ROI em BGR
+            frame: Frame completo em BGR
         
         Returns:
             Imagem processada para OCR
         """
         # Converter para grayscale
-        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
         # Threshold adaptativo (binarização)
         binary = cv2.adaptiveThreshold(

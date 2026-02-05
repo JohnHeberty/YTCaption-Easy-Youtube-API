@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     cleanup_output_after_hours: int = int(os.getenv("CLEANUP_OUTPUT_AFTER_HOURS", "24"))
     cleanup_shorts_cache_after_days: int = int(os.getenv("CLEANUP_SHORTS_CACHE_AFTER_DAYS", "30"))
     
+    # SQLite Blacklist (permanente)
+    sqlite_db_path: str = os.getenv("SQLITE_DB_PATH", "./storage/shorts_cache/blacklist.db")
+    
     # Subtitle Settings
     subtitle_font_size: int = int(os.getenv("SUBTITLE_FONT_SIZE", "22"))
     subtitle_font_name: str = os.getenv("SUBTITLE_FONT_NAME", "Arial Black")
@@ -59,6 +62,26 @@ class Settings(BaseSettings):
     subtitle_alignment: int = int(os.getenv("SUBTITLE_ALIGNMENT", "10"))
     subtitle_margin_v: int = int(os.getenv("SUBTITLE_MARGIN_V", "280"))
     words_per_caption: int = int(os.getenv("WORDS_PER_CAPTION", "2"))
+    
+    # OCR Detection Settings
+    ocr_confidence_threshold: float = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "0.40"))
+    ocr_frames_per_second: int = int(os.getenv("OCR_FRAMES_PER_SECOND", "3"))  # Frames analisados por segundo
+    ocr_max_frames: int = int(os.getenv("OCR_MAX_FRAMES", "240"))  # Limite máximo para evitar OOM
+    
+    # VAD (Voice Activity Detection) Settings
+    vad_threshold: float = float(os.getenv("VAD_THRESHOLD", "0.5"))
+    vad_model: str = os.getenv("VAD_MODEL", "webrtc")  # webrtc ou silero
+    
+    # FFmpeg Encoding Settings
+    ffmpeg_video_codec: str = os.getenv("FFMPEG_VIDEO_CODEC", "libx264")
+    ffmpeg_audio_codec: str = os.getenv("FFMPEG_AUDIO_CODEC", "aac")
+    ffmpeg_preset: str = os.getenv("FFMPEG_PRESET", "fast")  # ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
+    ffmpeg_crf: int = int(os.getenv("FFMPEG_CRF", "23"))  # 0 (lossless) a 51 (péssima)
+    
+    # Celery Worker Settings
+    celery_worker_concurrency: int = int(os.getenv("CELERY_WORKER_CONCURRENCY", "4"))
+    celery_worker_prefetch_multiplier: int = int(os.getenv("CELERY_WORKER_PREFETCH_MULTIPLIER", "1"))
+    celery_task_time_limit: int = int(os.getenv("CELERY_TASK_TIME_LIMIT", "3600"))  # segundos
     
     # API Timeouts
     api_timeout: int = int(os.getenv("API_TIMEOUT", "120"))
@@ -108,6 +131,7 @@ def get_settings() -> Dict[str, Any]:
         "cleanup_temp_after_hours": _settings.cleanup_temp_after_hours,
         "cleanup_output_after_hours": _settings.cleanup_output_after_hours,
         "cleanup_shorts_cache_after_days": _settings.cleanup_shorts_cache_after_days,
+        "sqlite_db_path": _settings.sqlite_db_path,
         "subtitle_font_size": _settings.subtitle_font_size,
         "subtitle_font_name": _settings.subtitle_font_name,
         "subtitle_color": _settings.subtitle_color,
@@ -116,6 +140,18 @@ def get_settings() -> Dict[str, Any]:
         "subtitle_alignment": _settings.subtitle_alignment,
         "subtitle_margin_v": _settings.subtitle_margin_v,
         "words_per_caption": _settings.words_per_caption,
+        "ocr_confidence_threshold": _settings.ocr_confidence_threshold,
+        "ocr_frames_per_second": _settings.ocr_frames_per_second,
+        "ocr_max_frames": _settings.ocr_max_frames,
+        "vad_threshold": _settings.vad_threshold,
+        "vad_model": _settings.vad_model,
+        "ffmpeg_video_codec": _settings.ffmpeg_video_codec,
+        "ffmpeg_audio_codec": _settings.ffmpeg_audio_codec,
+        "ffmpeg_preset": _settings.ffmpeg_preset,
+        "ffmpeg_crf": _settings.ffmpeg_crf,
+        "celery_worker_concurrency": _settings.celery_worker_concurrency,
+        "celery_worker_prefetch_multiplier": _settings.celery_worker_prefetch_multiplier,
+        "celery_task_time_limit": _settings.celery_task_time_limit,
     }
 
 

@@ -31,19 +31,26 @@ class VideoValidator:
     - Validates video integrity (ffprobe + frame decode)
     - Detects embedded subtitles using OCR
     - Samples multiple frames (start, middle, end)
-    - ROI-based detection (bottom 30% of frame)
+    - Full frame OCR detection
     - Confidence scoring for text detection
     """
     
-    def __init__(self, min_confidence: float = 0.40):
+    def __init__(self, min_confidence: float = 0.40, frames_per_second: int = 6, max_frames: int = 240):
         """
         Args:
             min_confidence: Confiança mínima para detectar texto (0-1)
+            frames_per_second: Frames analisados por segundo (padrão: 6)
+            max_frames: Limite máximo de frames para evitar OOM (padrão: 240)
         """
         self.min_confidence = min_confidence
+        self.frames_per_second = frames_per_second
+        self.max_frames = max_frames
         self.tesseract_config = r'--oem 3 --psm 6 -l por+eng'
         
-        logger.info(f"VideoValidator initialized (min_confidence={min_confidence})")
+        logger.info(
+            f"VideoValidator initialized "
+            f"(min_confidence={min_confidence}, fps={frames_per_second}, max_frames={max_frames})"
+        )
     
     def validate_video_integrity(self, video_path: str, timeout: int = 10) -> bool:
         """
@@ -81,13 +88,13 @@ class VideoValidator:
     
     def has_embedded_subtitles(self, video_path: str) -> Tuple[bool, float, str]:
         """
-        Detecta legendas embutidas no vídeo usando OCR
+        Detecta legendas embutidas no vídeo usando OCR com early exit
         
-        PLAN.md Section 2.3.3: OCR Detection Logic
-        - Sample 6 frames: início (2 frames), meio (2 frames), fim (2 frames)
-        - Extract ROI: Bottom 30% of frame (where subtitles usually are)
-        - OCR: pytesseract with Portuguese + English
-        - Confidence: Weighted score based on text characteristics
+        Estratégia otimizada:
+        1. Analisa N frames por segundo (configurável, padrão: 6fps)
+        2. Early exit: para na primeira detecção com confiança > threshold
+        3. Limite máximo de frames para evitar OOM (padrão: 240 frames)
+        4. Full frame OCR (ROI removido)
         
         Args:
             video_path: Path do vídeo
@@ -105,46 +112,52 @@ class VideoValidator:
             # Sample frames at different timestamps
             timestamps = self._get_sample_timestamps(duration)
             
-            logger.debug(f"OCR: Sampling {len(timestamps)} frames from {duration:.1f}s video")
+            logger.debug(f"OCR: Sampling up to {len(timestamps)} frames from {duration:.1f}s video")
             
+            frames_analyzed = 0
             detections = []
             
             for ts in timestamps:
+                frames_analyzed += 1
+                
                 frame = self._extract_frame(video_path, ts)
                 if frame is None:
                     continue
                 
-                # Extract ROI (bottom 30%)
-                roi = self._extract_subtitle_roi(frame)
-                
-                # Run OCR
-                text = pytesseract.image_to_string(roi, config=self.tesseract_config)
+                # Run OCR on full frame
+                text = pytesseract.image_to_string(frame, config=self.tesseract_config)
                 text = text.strip()
                 
                 if text:
-                    confidence = self._calculate_ocr_confidence(text, frame.shape[0], roi.shape[0])
+                    confidence = self._calculate_ocr_confidence(text)
+                    
+                    # 🚀 EARLY EXIT: Se detectou com confiança suficiente, para!
+                    if confidence >= self.min_confidence:
+                        elapsed_ms = (time.time() - start_time) * 1000
+                        logger.warning(
+                            f"⚠️ EMBEDDED SUBTITLES detected (conf={confidence:.2f}, "
+                            f"ts={ts:.1f}s, analyzed {frames_analyzed}/{len(timestamps)} frames, {elapsed_ms:.0f}ms): {text[:80]}"
+                        )
+                        return True, confidence, text
+                    
+                    # Armazenar para fallback
                     detections.append((text, confidence, ts))
                     logger.debug(f"OCR @ {ts:.1f}s (conf={confidence:.2f}): {text[:50]}")
             
-            # Aggregate results
-            if not detections:
-                elapsed_ms = (time.time() - start_time) * 1000
-                logger.info(f"✅ No embedded subtitles detected ({elapsed_ms:.0f}ms)")
-                return False, 0.0, ""
-            
-            # Use highest confidence detection
-            best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
-            
-            has_subs = best_conf >= self.min_confidence
+            # Nenhuma detecção passou o threshold
             elapsed_ms = (time.time() - start_time) * 1000
             
-            if has_subs:
-                logger.warning(
-                    f"⚠️ EMBEDDED SUBTITLES detected (conf={best_conf:.2f}, "
-                    f"ts={best_ts:.1f}s, {len(detections)} detections, {elapsed_ms:.0f}ms): {best_text[:80]}"
-                )
-            else:
-                logger.info(f"✅ Low confidence OCR (conf={best_conf:.2f} < {self.min_confidence}, {elapsed_ms:.0f}ms)")
+            if not detections:
+                logger.info(f"✅ No embedded subtitles detected (analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)")
+                return False, 0.0, ""
+            
+            # Retornar melhor detecção mesmo que abaixo do threshold
+            best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
+            logger.info(
+                f"✅ Low confidence OCR (conf={best_conf:.2f} < {self.min_confidence}, "
+                f"analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
+            )
+            return False, best_conf, best_text
             
             return has_subs, best_conf, best_text
         
@@ -154,27 +167,48 @@ class VideoValidator:
     
     def _get_sample_timestamps(self, duration: float) -> list:
         """
-        Gera timestamps para sampling
+        Gera timestamps para sampling POR SEGUNDO
         
-        Returns 6 timestamps: início, meio, fim (2 cada)
+        Estratégia:
+        1. Calcular total de frames: duration × frames_per_second
+        2. Se total > max_frames → ajustar FPS proporcionalmente
+        3. Gerar timestamps uniformemente ao longo do vídeo
+        4. Se frames calculados > frames disponíveis → usar todos
+        
+        Args:
+            duration: Duração do vídeo em segundos
+        
+        Returns:
+            Lista de timestamps (em segundos)
         """
-        if duration < 10:
-            # Video curto: apenas 3 frames
-            return [
-                duration * 0.2,
-                duration * 0.5,
-                duration * 0.8,
-            ]
-        else:
-            # Video normal: 6 frames
-            return [
-                duration * 0.1,   # 10%
-                duration * 0.2,   # 20%
-                duration * 0.4,   # 40%
-                duration * 0.6,   # 60%
-                duration * 0.8,   # 80%
-                duration * 0.9,   # 90%
-            ]
+        # Calcular total de frames baseado em FPS
+        total_frames = int(duration * self.frames_per_second)
+        
+        # Aplicar limite máximo de segurança
+        if total_frames > self.max_frames:
+            logger.warning(
+                f"⚠️ Total frames ({total_frames}) exceeds max ({self.max_frames}). "
+                f"Limiting to {self.max_frames} frames"
+            )
+            total_frames = self.max_frames
+        
+        # Calcular FPS efetivo após aplicar limite
+        effective_fps = total_frames / duration if duration > 0 else self.frames_per_second
+        
+        # Gerar timestamps
+        timestamps = []
+        for i in range(total_frames):
+            timestamp = i / effective_fps
+            # Garantir que não excede duração do vídeo
+            if timestamp < duration:
+                timestamps.append(timestamp)
+        
+        logger.info(
+            f"📊 OCR Sampling: {len(timestamps)} frames "
+            f"({effective_fps:.2f} fps) for {duration:.1f}s video"
+        )
+        
+        return timestamps
     
     def _extract_frame(self, video_path: str, timestamp: float) -> Optional[any]:
         """
@@ -202,21 +236,7 @@ class VideoValidator:
             logger.error(f"Frame extraction error at {timestamp}s: {e}")
             return None
     
-    def _extract_subtitle_roi(self, frame: any) -> any:
-        """
-        Extrai ROI (Region of Interest) onde legendas geralmente aparecem
-        
-        Returns bottom 30% of frame
-        """
-        height, width = frame.shape[:2]
-        roi_height = int(height * 0.30)
-        
-        # Bottom 30%
-        roi = frame[-roi_height:, :]
-        
-        return roi
-    
-    def _calculate_ocr_confidence(self, text: str, frame_height: int, roi_height: int) -> float:
+    def _calculate_ocr_confidence(self, text: str) -> float:
         """
         Calcula confiança baseado em características do texto detectado
         
@@ -224,7 +244,6 @@ class VideoValidator:
         - Text length (longer = more confident)
         - Alphanumeric ratio (more alphanum = more confident)
         - Space presence (sentences have spaces)
-        - Position in frame (bottom = subtitle region)
         
         Returns:
             Confidence score 0-1
@@ -242,16 +261,12 @@ class VideoValidator:
         alnum_ratio = alnum_count / max(len(text), 1)
         confidence += alnum_ratio * 0.30
         
-        # Feature 3: Space presence (max 0.20)
+        # Feature 3: Space presence (max 0.40)
+        # Increased weight since we removed position bonus
         has_spaces = ' ' in text
         word_count = len(text.split())
-        space_score = min(word_count / 5.0, 1.0) * 0.20 if has_spaces else 0
+        space_score = min(word_count / 5.0, 1.0) * 0.40 if has_spaces else 0
         confidence += space_score
-        
-        # Feature 4: Position bonus (max 0.20)
-        # ROI is already bottom region, give bonus
-        position_score = 0.20
-        confidence += position_score
         
         return min(confidence, 1.0)
     

@@ -19,11 +19,19 @@ logger = logging.getLogger(__name__)
 class VideoBuilder:
     """Construtor de vídeos usando FFmpeg"""
     
-    def __init__(self, temp_dir: str, output_dir: str):
+    def __init__(self, temp_dir: str, output_dir: str, 
+                 video_codec: str = "libx264",
+                 audio_codec: str = "aac",
+                 preset: str = "fast",
+                 crf: int = 23):
         self.temp_dir = Path(temp_dir)
         self.output_dir = Path(output_dir)
         self.ffmpeg_path = "ffmpeg"
         self.ffprobe_path = "ffprobe"
+        self.video_codec = video_codec
+        self.audio_codec = audio_codec
+        self.preset = preset
+        self.crf = crf
         
         # Criar diretórios se não existirem
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -31,7 +39,11 @@ class VideoBuilder:
         
         logger.info(f"🎬 VideoBuilder initialized")
         logger.info(f"   ├─ Temp dir: {self.temp_dir}")
-        logger.info(f"   └─ Output dir: {self.output_dir}")
+        logger.info(f"   ├─ Output dir: {self.output_dir}")
+        logger.info(f"   ├─ Video codec: {self.video_codec}")
+        logger.info(f"   ├─ Audio codec: {self.audio_codec}")
+        logger.info(f"   ├─ Preset: {self.preset}")
+        logger.info(f"   └─ CRF: {self.crf}")
     
     async def concatenate_videos(self, 
                                  video_files: List[str], 
@@ -113,15 +125,15 @@ class VideoBuilder:
                 "-safe", "0",
                 "-i", str(concat_list_path),
                 "-vf", video_filter,  # Usar o filtro corrigido
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
+                "-c:v", self.video_codec,
+                "-preset", self.preset,
+                "-crf", str(self.crf),
             ]
             
             if remove_audio:
                 cmd.append("-an")  # Remove áudio
             else:
-                cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+                cmd.extend(["-c:a", self.audio_codec, "-b:a", "192k"])
             
             cmd.append(str(output_path))
             
@@ -174,7 +186,7 @@ class VideoBuilder:
             "-i", str(video_path),
             "-i", str(audio_path),
             "-c:v", "copy",  # Não re-encode vídeo
-            "-c:a", "aac",
+            "-c:a", self.audio_codec,
             "-b:a", "192k",
             "-shortest",  # Corta no menor (áudio ou vídeo)
             str(output_path)
