@@ -1,7 +1,7 @@
 import asyncio
 import os
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List
@@ -69,7 +69,9 @@ async def root():
                 "get": "GET /jobs/{job_id}",
                 "list": "GET /jobs",
                 "download": "GET /jobs/{job_id}/download",
-                "delete": "DELETE /jobs/{job_id}"
+                "delete": "DELETE /jobs/{job_id}",
+                "orphaned": "GET /jobs/orphaned",
+                "orphaned_cleanup": "POST /jobs/orphaned/cleanup"
             },
             "admin": {
                 "stats": "GET /admin/stats",
@@ -712,31 +714,192 @@ async def get_stats():
 
 
 @app.get("/admin/queue")
-async def get_queue_stats():
+async def get_queue_info_endpoint():
     """
-    Estatísticas específicas do Celery
-    """
-    from .celery_config import celery_app
+    Get queue information
     
+    Returns queue statistics including:
+    - Total jobs count
+    - Jobs by status (queued, processing, completed, failed)
+    - Oldest and newest job information
+    
+    **Use Cases**:
+    - Monitor queue health and growth
+    - Identify bottlenecks in processing
+    - Track job throughput over time
+    """
     try:
-        inspect = celery_app.control.inspect()
-        
-        # Workers ativos
-        active_workers = inspect.active()
-        registered = inspect.registered()
+        queue_info = await job_store.get_queue_info()
         
         return {
-            "broker": "redis",
-            "active_workers": len(active_workers) if active_workers else 0,
-            "registered_tasks": list(registered.values())[0] if registered else [],
-            "active_tasks": active_workers if active_workers else {},
-            "is_running": active_workers is not None
+            "status": "success",
+            "queue": queue_info
         }
+    
     except Exception as e:
+        logger.error(f"Error getting queue info: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get queue info: {str(e)}")
+
+
+@app.get("/jobs/orphaned")
+async def get_orphaned_jobs(max_age_minutes: int = Query(30, ge=1, description="Maximum age in minutes for processing jobs")):
+    """
+    Get list of orphaned jobs (stuck in processing state)
+    
+    Orphaned jobs are jobs that:
+    - Are in 'processing' status
+    - Haven't been updated for more than max_age_minutes
+    - Likely indicate worker crashes or timeout issues
+    
+    **Parameters**:
+    - max_age_minutes: Threshold for considering a job orphaned (default: 30)
+    
+    **Returns**:
+    - List of orphaned jobs with details (job_id, status, age, etc.)
+    
+    **Use Cases**:
+    - Detect stuck jobs before cleanup
+    - Monitor for worker health issues
+    - Identify patterns in job failures
+    """
+    try:
+        orphaned = await job_store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
+        
+        # Format response with detailed info
+        orphaned_info = []
+        for job in orphaned:
+            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            status_str = job.status.value if hasattr(job.status, 'value') else str(job.status)
+            orphaned_info.append({
+                "job_id": job.job_id,
+                "status": status_str,
+                "created_at": job.created_at.isoformat(),
+                "updated_at": job.updated_at.isoformat(),
+                "age_minutes": round(age_minutes, 2),
+                "url": job.url if hasattr(job, 'url') else None
+            })
+        
         return {
-            "error": str(e),
-            "is_running": False
+            "status": "success",
+            "count": len(orphaned),
+            "max_age_minutes": max_age_minutes,
+            "orphaned_jobs": orphaned_info
         }
+    
+    except Exception as e:
+        logger.error(f"Error getting orphaned jobs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get orphaned jobs: {str(e)}")
+
+
+@app.post("/jobs/orphaned/cleanup")
+async def cleanup_orphaned_jobs_endpoint(
+    max_age_minutes: int = Query(30, ge=1, description="Maximum age in minutes for processing jobs"),
+    mark_as_failed: bool = Query(True, description="Mark orphaned jobs as failed instead of deleting")
+):
+    """
+    Cleanup orphaned jobs by marking them as failed or deleting them
+    
+    **Parameters**:
+    - max_age_minutes: Threshold for considering a job orphaned (default: 30)
+    - mark_as_failed: If True, marks as failed; if False, deletes completely (default: True)
+    
+    **Actions**:
+    1. Find all orphaned jobs (processing > max_age_minutes)
+    2. Either mark as failed with detailed reason, or delete completely
+    3. Remove associated files (video, cache, temp)
+    4. Calculate space freed
+    
+    **Returns**:
+    - Count of jobs processed
+    - List of actions taken per job
+    - Total space freed in MB
+    
+    **Use Cases**:
+    - Automated recovery from worker crashes
+    - Periodic cleanup of stuck jobs
+    - Free up disk space from abandoned tasks
+    """
+    try:
+        orphaned = await job_store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
+        
+        if not orphaned:
+            return {
+                "status": "success",
+                "message": "No orphaned jobs found",
+                "count": 0,
+                "actions": []
+            }
+        
+        actions = []
+        space_freed = 0
+        
+        for job in orphaned:
+            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            
+            # Remove associated files
+            files_deleted = []
+            
+            # Video file in cache
+            if hasattr(job, 'filename') and job.filename:
+                video_path = Path(f"./cache/{job.filename}")
+                if video_path.exists():
+                    size_mb = video_path.stat().st_size / (1024 * 1024)
+                    video_path.unlink()
+                    files_deleted.append({"file": str(video_path), "size_mb": round(size_mb, 2)})
+                    space_freed += size_mb
+            
+            # Temp files
+            for temp_file in Path("./temp").glob(f"*{job.job_id}*"):
+                if temp_file.is_file():
+                    size_mb = temp_file.stat().st_size / (1024 * 1024)
+                    temp_file.unlink()
+                    files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
+                    space_freed += size_mb
+            
+            if mark_as_failed:
+                # Mark as failed
+                job.status = JobStatus.FAILED
+                job.error = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
+                job.updated_at = datetime.utcnow()
+                job_store.save_job(job)
+                
+                actions.append({
+                    "job_id": job.job_id,
+                    "action": "marked_as_failed",
+                    "age_minutes": round(age_minutes, 2),
+                    "files_deleted": files_deleted,
+                    "reason": job.error
+                })
+            else:
+                # Delete completely
+                job_store.delete_job(job.job_id)
+                
+                actions.append({
+                    "job_id": job.job_id,
+                    "action": "deleted",
+                    "age_minutes": round(age_minutes, 2),
+                    "files_deleted": files_deleted
+                })
+            
+            logger.info(
+                f"🧹 Orphaned job {'marked as failed' if mark_as_failed else 'deleted'}: "
+                f"{job.job_id} (age: {age_minutes:.1f}min, files: {len(files_deleted)}, "
+                f"space freed: {sum(f['size_mb'] for f in files_deleted):.2f}MB)"
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Cleaned up {len(orphaned)} orphaned job(s)",
+            "count": len(orphaned),
+            "mode": "mark_as_failed" if mark_as_failed else "delete",
+            "max_age_minutes": max_age_minutes,
+            "space_freed_mb": round(space_freed, 2),
+            "actions": actions
+        }
+    
+    except Exception as e:
+        logger.error(f"Error cleaning up orphaned jobs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup orphaned jobs: {str(e)}")
 
 
 @app.get("/health")
