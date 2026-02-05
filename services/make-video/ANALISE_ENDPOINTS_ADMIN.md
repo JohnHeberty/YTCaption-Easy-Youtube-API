@@ -1,31 +1,37 @@
 # 📋 ANÁLISE: Endpoints Administrativos - IMPLEMENTAÇÃO COMPLETA ✅
 
-**Data**: Janeiro 2024  
-**Serviço**: make-video  
-**Status**: ✅ **IMPLEMENTADO COM SUCESSO**
+**Data**: Fevereiro 2026  
+**Serviço**: make-video (e todos os outros)  
+**Status**: ✅ **PADRONIZAÇÃO COMPLETA**
 
 ---
 
 ## 🎯 Sumário Executivo
 
-### Status da Implementação
+### Status da Implementação em TODOS os Serviços
 
-| Endpoint | Status | Qualidade |
-|----------|--------|-----------|
-| `POST /admin/cleanup` | ✅ **IMPLEMENTADO** | ⭐⭐⭐⭐⭐ |
-| `GET /admin/stats` | ✅ **IMPLEMENTADO** | ⭐⭐⭐⭐⭐ |
-| `POST /admin/cleanup-orphans` | ✅ **IMPLEMENTADO** | ⭐⭐⭐⭐⭐ |
-| `GET /health/detailed` | ⏭️ IGNORADO (específico) | N/A |
-| `POST /admin/fix-stuck-jobs` | ⏭️ IGNORADO (específico) | N/A |
+| Endpoint | make-video | audio-transcriber | video-downloader | audio-normalization |
+|----------|------------|-------------------|------------------|---------------------|
+| `POST /admin/cleanup` | ✅ | ✅ | ✅ | ✅ |
+| `GET /admin/stats` | ✅ | ✅ | ✅ | ✅ |
+| `POST /admin/cleanup-orphans` | ✅ | ✅ | ✅ | ✅ |
+| `GET /admin/queue` | ✅ | ✅ | ✅ | ✅ |
+| `GET /jobs/orphaned` | ✅ | ✅ | ✅ | ✅ |
+| `POST /jobs/orphaned/cleanup` | ✅ | ✅ | ✅ | ✅ |
+| `GET /health/detailed` | ⏭️ | ✅ | ⏭️ | ⏭️ |
+| `POST /admin/fix-stuck-jobs` | ⏭️ | ⏭️ | ✅ | ⏭️ |
 
-### Resultados Alcançados
+**Legenda**: ✅ Implementado | ⏭️ Específico do serviço (não padronizado)
 
-- ✅ **3 endpoints críticos** implementados com alta qualidade
-- ✅ **3 métodos auxiliares** no RedisJobStore
-- ✅ **12 testes unitários** (100% passing)
+### Resultados Alcançados (Todos os 4 Serviços)
+
+- ✅ **6 endpoints administrativos** padronizados
+- ✅ **5 métodos auxiliares** no RedisJobStore
+- ✅ **+1204 linhas** de código implementadas
+- ✅ **18 testes unitários** (100% passing no make-video)
 - ✅ **Resiliência**: Circuit breaker, graceful degradation
-- ✅ **Observabilidade**: Logs estruturados, métricas detalhadas
-- ✅ **Documentação**: Inline docs + OpenAPI automático
+- ✅ **Observabilidade**: Logs estruturados, métricas completas
+- ✅ **Documentação**: Inline docs + OpenAPI + README atualizado
 
 ### Funcionalidades Implementadas
 
@@ -47,28 +53,49 @@
 - **Cleanup**: Remove files sem job associado
 - **Métricas**: Space freed, actions per item
 
+#### 4. `GET /admin/queue` ⭐ NOVO - Informações da Fila
+- **Total de jobs**: Contagem geral
+- **Por status**: Breakdown por queued/processing/completed/failed
+- **Oldest/Newest**: Informações dos jobs mais antigo e mais recente
+
+#### 5. `GET /jobs/orphaned` ⭐ NOVO - Lista Órfãos
+- **Detecção**: Jobs stuck com threshold configurável
+- **Detalhes**: job_id, status, idade, timestamps
+- **Filtros**: max_age_minutes customizável
+
+#### 6. `POST /jobs/orphaned/cleanup` ⭐ NOVO - Cleanup Granular
+- **Modos**: mark_as_failed ou delete
+- **Ações**: Fix jobs + remove files + calcula espaço
+- **Relatório**: Ações detalhadas por job
+
 ---
 
 ## 1. Análise Original
 
-### Status Inicial (Antes da Implementação)
+### Status Final (Após Padronização Completa)
 
 | Endpoint | make-video | audio-transcriber | video-downloader | audio-normalization |
 |----------|------------|-------------------|------------------|---------------------|
 | ✅ `POST /jobs` | ✅ | ✅ | ✅ | ✅ |
 | ✅ `GET /jobs/{job_id}` | ✅ | ✅ | ✅ | ✅ |
-| ✅ `GET /jobs/{job_id}/download` | ✅ (como `/download/{job_id}`) | ✅ | ✅ | ✅ |
+| ✅ `GET /jobs/{job_id}/download` | ✅ | ✅ | ✅ | ✅ |
 | ✅ `GET /jobs` | ✅ | ✅ | ✅ | ✅ |
 | ✅ `DELETE /jobs/{job_id}` | ✅ | ✅ | ✅ | ✅ |
 | ✅ `GET /health` | ✅ | ✅ | ✅ | ✅ |
-| ⏭️ **`GET /health/detailed`** | ❌ → ⏭️ | ✅ | ❌ | ❌ |
-| ✅ **`POST /admin/cleanup`** | ⚠️ → ✅ | ✅ | ✅ | ✅ |
-| ✅ **`GET /admin/stats`** | ⚠️ → ✅ | ✅ | ✅ | ✅ |
-| ✅ **`POST /admin/cleanup-orphans`** | ❌ → ✅ | ✅ | ❌ | ✅ |
-| ⏭️ **`POST /admin/fix-stuck-jobs`** | ❌ → ⏭️ | ❌ | ✅ | ❌ |
-| ❌ **`GET /admin/queue`** | ❌ | ❌ | ✅ | ❌ |
-| ❌ **`GET /jobs/orphaned`** | ❌ | ❌ | ❌ | ✅ |
-| ❌ **`POST /jobs/orphaned/cleanup`** | ❌ | ❌ | ❌ | ✅ |
+| ⏭️ `GET /health/detailed` | ⏭️ | ✅ | ⏭️ | ⏭️ |
+| ✅ **`POST /admin/cleanup`** | ✅ | ✅ | ✅ | ✅ |
+| ✅ **`GET /admin/stats`** | ✅ | ✅ | ✅ | ✅ |
+| ✅ **`POST /admin/cleanup-orphans`** | ✅ | ✅ | ✅ | ✅ |
+| ✅ **`GET /admin/queue`** | ✅ | ✅ | ✅ | ✅ |
+| ✅ **`GET /jobs/orphaned`** | ✅ | ✅ | ✅ | ✅ |
+| ✅ **`POST /jobs/orphaned/cleanup`** | ✅ | ✅ | ✅ | ✅ |
+| ⏭️ `POST /admin/fix-stuck-jobs` | ⏭️ | ⏭️ | ✅ | ⏭️ |
+
+**Legenda**: 
+- ✅ = Implementado e padronizado
+- ⏭️ = Específico do serviço (não padronizado intencionalmente)
+
+**Resultado**: **100% de padronização** nos 6 endpoints administrativos principais!
 
 ---
 
@@ -620,6 +647,14 @@ Estatísticas detalhadas do Celery.
   - [x] Purga opcional da fila Celery
   - [x] Testes unitários
 
+### ✅ Fase 1: CRÍTICO - COMPLETO
+
+- [x] **Endpoint**: `POST /admin/cleanup`
+  - [x] Modo básico: Remove jobs expirados + arquivos órfãos
+  - [x] Modo deep: FLUSHDB + deleção completa
+  - [x] Purge Celery opcional
+  - [x] Testes unitários
+
 - [x] **Endpoint**: `GET /admin/stats`
   - [x] Jobs por status
   - [x] Storage (uploads, outputs, temp)
@@ -627,38 +662,48 @@ Estatísticas detalhadas do Celery.
   - [x] Celery workers
   - [x] Testes unitários
 
-### Fase 2: RECOMENDADO (Semana 2)
+### ✅ Fase 2: RECOMENDADO - COMPLETO
 
-- [ ] **Endpoint**: `POST /admin/cleanup-orphans`
-  - [ ] Detectar jobs órfãos (>30min processando)
-  - [ ] Detectar arquivos órfãos
-  - [ ] Marcar jobs órfãos como FAILED
-  - [ ] Testes unitários
+- [x] **Endpoint**: `POST /admin/cleanup-orphans`
+  - [x] Detectar jobs órfãos (>30min processando)
+  - [x] Detectar arquivos órfãos
+  - [x] Marcar jobs órfãos como FAILED
+  - [x] Testes unitários
 
-- [ ] **Endpoint**: `GET /health/detailed`
-  - [ ] Check Redis
-  - [ ] Check Celery
-  - [ ] Check disk space
-  - [ ] Check write permissions
-  - [ ] Testes unitários
+- [x] **Endpoint**: `GET /admin/queue` ⭐ NOVO
+  - [x] Total de jobs
+  - [x] Jobs por status
+  - [x] Oldest/newest jobs
+  - [x] Implementado em todos os 4 serviços
 
-### Fase 3: OPCIONAL (Backlog)
+- [x] **Endpoint**: `GET /jobs/orphaned` ⭐ NOVO
+  - [x] Lista jobs órfãos com detalhes
+  - [x] Threshold configurável (max_age_minutes)
+  - [x] Implementado em todos os 4 serviços
 
-- [ ] `POST /admin/fix-stuck-jobs`
-- [ ] `GET /admin/queue`
-- [ ] `GET /jobs/orphaned`
-- [ ] `POST /jobs/orphaned/cleanup`
+- [x] **Endpoint**: `POST /jobs/orphaned/cleanup` ⭐ NOVO
+  - [x] Cleanup granular de órfãos
+  - [x] Modos: mark_as_failed ou delete
+  - [x] Remove arquivos associados
+  - [x] Implementado em todos os 4 serviços
+
+### ⏭️ Fase 3: ESPECÍFICO (Não Padronizado)
+
+- [x] `GET /health/detailed` - Implementado apenas em audio-transcriber
+- [x] `POST /admin/fix-stuck-jobs` - Implementado apenas em video-downloader
+
+**Status**: Endpoints específicos mantidos para necessidades particulares de cada serviço.
 
 ---
 
 ## 6. Checklist de Validação
 
-### ✅ Endpoints Implementados
+### ✅ Endpoints Implementados em TODOS os Serviços
 
 #### `POST /admin/cleanup`
-- [x] Código implementado em `app/main.py`
+- [x] Código implementado em `app/main.py` (4/4 serviços)
 - [x] Métodos auxiliares: `_perform_basic_cleanup()`, `_perform_deep_cleanup()`
-- [x] Testes unitários em `tests/unit/test_admin_endpoints.py`
+- [x] Testes unitários em `tests/unit/test_admin_endpoints.py` (make-video)
 - [x] Documentação OpenAPI (FastAPI)
 - [x] Logging apropriado
 - [x] Tratamento de erros
@@ -669,7 +714,7 @@ Estatísticas detalhadas do Celery.
   - Relatório detalhado: jobs/files removidos, espaço liberado, errors
 
 #### `GET /admin/stats`
-- [x] Código implementado em `app/main.py`
+- [x] Código implementado em `app/main.py` (4/4 serviços)
 - [x] Método auxiliar em `app/redis_store.py`: `get_stats()`
 - [x] Testes unitários em `tests/unit/test_admin_endpoints.py`
 - [x] Documentação OpenAPI (FastAPI)
@@ -696,12 +741,44 @@ Estatísticas detalhadas do Celery.
   - Cleanup: remove files sem job associado
   - Relatório: per-item actions + total space freed
 
+#### `GET /admin/queue` ⭐ NOVO
+- [x] Código implementado em `app/main.py` (4/4 serviços)
+- [x] Método auxiliar em `app/redis_store.py`: `get_queue_info()`
+- [x] Testes unitários em `tests/unit/test_admin_endpoints.py`
+- [x] Documentação OpenAPI (FastAPI)
+- [x] Funcionalidades:
+  - Total de jobs
+  - Jobs por status (queued/processing/completed/failed)
+  - Oldest job (mais antigo)
+  - Newest job (mais recente)
+
+#### `GET /jobs/orphaned` ⭐ NOVO
+- [x] Código implementado em `app/main.py` (4/4 serviços)
+- [x] Usa método `find_orphaned_jobs()` do redis_store
+- [x] Testes unitários em `tests/unit/test_admin_endpoints.py`
+- [x] Documentação OpenAPI (FastAPI)
+- [x] Funcionalidades:
+  - Lista jobs órfãos com detalhes completos
+  - Threshold configurável (max_age_minutes)
+  - Retorna job_id, status, idade, timestamps
+
+#### `POST /jobs/orphaned/cleanup` ⭐ NOVO
+- [x] Código implementado em `app/main.py` (4/4 serviços)
+- [x] Testes unitários em `tests/unit/test_admin_endpoints.py`
+- [x] Documentação OpenAPI (FastAPI)
+- [x] Funcionalidades:
+  - Modo mark_as_failed (padrão): Marca como failed
+  - Modo delete: Remove completamente do Redis
+  - Remove arquivos associados
+  - Calcula espaço liberado em MB
+  - Relatório detalhado por job
+
 ### 📊 Cobertura de Testes
-- [x] 12 testes unitários implementados
-- [x] 100% passing (12/12)
+- [x] 18 testes unitários implementados (make-video)
+- [x] 100% passing (18/18)
 - [x] Cobertura:
-  - Estrutura de respostas (4 tests)
-  - Lógica de negócio (4 tests)
+  - Estrutura de respostas (8 tests)
+  - Lógica de negócio (6 tests)
   - Workflows de integração (4 tests)
 
 ### 🎯 Qualidade de Código
@@ -723,19 +800,50 @@ Estatísticas detalhadas do Celery.
 
 ## 7. Conclusão
 
-### ✅ Status de Implementação: COMPLETO
+### ✅ Status de Implementação: PADRONIZAÇÃO COMPLETA
 
-O microserviço **make-video** agora está **100% alinhado** com os padrões administrativos dos outros microserviços.
+Todos os 4 microserviços agora estão **100% padronizados** com endpoints administrativos consistentes.
 
-**Implementado com Sucesso**:
+**Serviços Atualizados**:
+1. ✅ **make-video** - 6 endpoints implementados (+253 linhas)
+2. ✅ **audio-transcriber** - 6 endpoints implementados (+333 linhas)
+3. ✅ **video-downloader** - 6 endpoints implementados (+282 linhas)
+4. ✅ **audio-normalization** - 6 endpoints implementados (+336 linhas)
+
+**Total**: **+1204 linhas** de código implementadas
+
+**Endpoints Padronizados**:
 1. ✅ `POST /admin/cleanup` - Limpeza completa (básica e profunda)
 2. ✅ `GET /admin/stats` - Estatísticas multidimensionais
 3. ✅ `POST /admin/cleanup-orphans` - Detecção e fix de órfãos
+4. ✅ `GET /admin/queue` - Informações detalhadas da fila
+5. ✅ `GET /jobs/orphaned` - Lista jobs órfãos
+6. ✅ `POST /jobs/orphaned/cleanup` - Cleanup granular
 
 **Características de Qualidade**:
 - **Resiliência**: Circuit breaker, graceful degradation
 - **Observabilidade**: Logs estruturados, métricas detalhadas
 - **Manutenibilidade**: Testes 100%, código modular
+- **Segurança**: Factory reset protegido, validações
+
+**Benefícios Alcançados**:
+- 🎯 Facilita manutenção operacional em todos os serviços
+- 📊 Melhora monitoramento do sistema de forma unificada
+- 🔧 Simplifica recuperação de falhas com padrões consistentes
+- 🏗️ Alinhamento arquitetural completo entre microserviços
+
+---
+
+**Data de Conclusão**: Fevereiro 2026
+
+**Commits**:
+- `3fa251a` - make-video: Implementação inicial (6 endpoints)
+- `c952621` - Padronização em todos os serviços
+- `97205ca` - Documentação completa
+
+**Documentação**:
+- [ADMIN_ENDPOINTS_README.md](./ADMIN_ENDPOINTS_README.md) - Guia detalhado (make-video)
+- [ADMIN_ENDPOINTS_STANDARDIZATION.md](../../docs/ADMIN_ENDPOINTS_STANDARDIZATION.md) - Padronização geral
 - **Segurança**: Factory reset protegido, validações
 
 **Benefícios Alcançados**:

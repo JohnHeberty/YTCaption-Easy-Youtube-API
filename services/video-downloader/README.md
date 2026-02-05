@@ -148,6 +148,21 @@ GET /admin/stats
   },
   "cache": {
     "files_count": 30,
+
+### 🔧 Endpoints Administrativos Completos
+
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| POST | `/admin/cleanup` | Limpeza do sistema (básica ou profunda) |
+| GET | `/admin/stats` | Estatísticas completas do sistema |
+| POST | `/admin/cleanup-orphans` | Remove jobs e arquivos órfãos |
+| GET | `/admin/queue` | Informações detalhadas da fila |
+| GET | `/jobs/orphaned` | Lista jobs órfãos (stuck) |
+| POST | `/jobs/orphaned/cleanup` | Cleanup granular de órfãos |
+
+**Ver documentação completa**: [ADMIN_ENDPOINTS_STANDARDIZATION.md](../../docs/ADMIN_ENDPOINTS_STANDARDIZATION.md)
+
+
     "total_size_mb": 1024.5
   }
 }
