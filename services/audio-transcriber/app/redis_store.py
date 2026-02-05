@@ -3,7 +3,7 @@ import asyncio
 import os
 import logging
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Use resilient Redis from common library
 from common.redis_utils import ResilientRedisStore
@@ -103,6 +103,20 @@ class RedisJobStore:
     def update_job(self, job: Job) -> None:
         """Atualiza job existente"""
         self.save_job(job)  # Redis permite sobrescrever
+    
+    async def delete_job(self, job_id: str) -> bool:
+        """
+        Delete job from Redis
+        
+        Args:
+            job_id: Job ID
+        
+        Returns:
+            True if deleted, False if not found
+        """
+        key = self._job_key(job_id)
+        result = self.redis.delete(key)  # Operação síncrona
+        return result > 0
     
     def list_jobs(self, limit: int = 50) -> List[Job]:
         """Lista jobs recentes"""
@@ -204,3 +218,87 @@ class RedisJobStore:
                     removed += 1
         
         return removed
+    
+    async def find_orphaned_jobs(self, max_age_minutes: int = 30) -> List[Job]:
+        """
+        Find jobs that are stuck in processing state for too long
+        
+        Args:
+            max_age_minutes: Maximum time a job can be processing
+        
+        Returns:
+            List of orphaned jobs
+        """
+        orphaned = []
+        now = datetime.utcnow()
+        max_age = timedelta(minutes=max_age_minutes)
+        
+        try:
+            for key in self.redis.scan_iter(match="transcription_job:*"):
+                try:
+                    data = self.redis.get(key)
+                    if data:
+                        job = self._deserialize_job(data)
+                        
+                        # Check if processing for too long
+                        if job.status == "processing":
+                            age = now - job.updated_at
+                            if age > max_age:
+                                orphaned.append(job)
+                                logger.warning(
+                                    f"⚠️ Orphaned job found: {job.job_id} "
+                                    f"(processing for {age.total_seconds()/60:.1f} minutes)"
+                                )
+                except Exception as e:
+                    logger.debug(f"Error processing key {key}: {e}")
+        except Exception as e:
+            logger.error(f"Error finding orphaned jobs: {e}")
+        
+        return orphaned
+    
+    async def get_queue_info(self) -> dict:
+        """
+        Get information about the job queue
+        
+        Returns:
+            Dictionary with queue statistics
+        """
+        queue_info = {
+            "total_jobs": 0,
+            "by_status": {
+                "queued": 0,
+                "processing": 0,
+                "completed": 0,
+                "failed": 0
+            },
+            "oldest_job": None,
+            "newest_job": None
+        }
+        
+        try:
+            jobs = await self.list_jobs(limit=10000)  # Get all jobs
+            queue_info["total_jobs"] = len(jobs)
+            
+            # Count by status
+            for job in jobs:
+                if job.status in queue_info["by_status"]:
+                    queue_info["by_status"][job.status] += 1
+            
+            # Find oldest and newest
+            if jobs:
+                # Jobs are already sorted by created_at descending
+                queue_info["newest_job"] = {
+                    "job_id": jobs[0].job_id,
+                    "created_at": jobs[0].created_at.isoformat(),
+                    "status": jobs[0].status
+                }
+                queue_info["oldest_job"] = {
+                    "job_id": jobs[-1].job_id,
+                    "created_at": jobs[-1].created_at.isoformat(),
+                    "status": jobs[-1].status
+                }
+        
+        except Exception as e:
+            logger.error(f"Error getting queue info: {e}")
+        
+        return queue_info
