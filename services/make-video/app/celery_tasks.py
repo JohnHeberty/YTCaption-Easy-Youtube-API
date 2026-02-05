@@ -237,139 +237,162 @@ async def _process_make_video_async(job_id: str):
         await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=25.0)
         
         downloaded_shorts = []
-        cache_hits = 0
-        to_download = []
         failed_downloads = []
-        
-        # Primeiro: verificar quais já estão em cache
-        logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos...")
-        for short in shorts_list:
-            video_id = short['video_id']
-            cached = shorts_cache.get(video_id)
-            if cached:
-                try:
-                    file_path = Path(cached["file_path"])
-                    # Revalidar integridade e OCR mesmo em cache
-                    video_validator.validate_video_integrity(str(file_path), timeout=5)
-                    has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(file_path))
-                    
-                    if has_subs:
-                        logger.error(
-                            f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
-                        )
-                        blacklist.add(video_id, reason, confidence, metadata={
-                            'title': short.get('title', ''),
-                            'duration': short.get('duration_seconds', 0)
-                        })
-                        shorts_cache.remove(video_id)
-                        continue  # Não usar nem rebaixar
-                    
-                    # Marca como validado e reutiliza
-                    shorts_cache.mark_validated(video_id, False, confidence)
-                    downloaded_shorts.append(cached)
-                    cache_hits += 1
-                    logger.info(f"✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
-                except Exception as e:
-                    logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
-                    shorts_cache.remove(video_id)
-                    to_download.append(short)
-            else:
-                to_download.append(short)
-        
-        logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download")
-        
-        # Se já temos shorts suficientes no cache, pular download
-        if len(downloaded_shorts) >= min(10, job.max_shorts):
-            logger.info(f"⚡ Cache suficiente! Pulando downloads ({len(downloaded_shorts)} vídeos disponíveis)")
-        else:
-            # Baixar os que faltam (com retry, skip em erro e validação OCR)
-            logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
+        processed_ids = set()
+        max_rounds = 3  # R1=1x, R2=2x, R3=3x do max_shorts
+        base_request = max(job.max_shorts, 10)
+
+        async def download_with_retry(short_info, index):
+            video_id = short_info['video_id']
+            output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
             
-            async def download_with_retry(short_info, index):
-                video_id = short_info['video_id']
-                output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
-                
-                # 🚫 CHECK 1: Verificar blacklist ANTES de baixar
-                if blacklist.is_blacklisted(video_id):
-                    logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
-                    failed_downloads.append(video_id)
-                    return None
-                
-                for attempt in range(3):  # 3 tentativas
-                    try:
-                        # Download do vídeo
-                        metadata = await api_client.download_video(video_id, str(output_path))
-                        
-                        # ✅ CHECK 2: Validar integridade do vídeo (síncrono)
-                        try:
-                            video_validator.validate_video_integrity(str(output_path), timeout=5)
-                        except Exception as e:
-                            logger.error(f"❌ INTEGRITY FAILED: {video_id} - {e}")
-                            if output_path.exists():
-                                output_path.unlink()
-                            failed_downloads.append(video_id)
-                            return None
-                        
-                        # 🔍 CHECK 3: Detectar legendas embutidas (OCR - síncrono)
-                        has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(output_path))
-                        
-                        if has_subs:
-                            # 🚫 LEGENDAS EMBUTIDAS DETECTADAS - BLOQUEAR
-                            logger.error(f"🚫 EMBEDDED SUBTITLES: {video_id} (conf: {confidence:.2f}) - adicionando à blacklist")
-                            blacklist.add(video_id, reason, confidence, metadata={
-                                'title': short_info.get('title', ''),
-                                'duration': short_info.get('duration_seconds', 0)
-                            })
-                            
-                            # Remover arquivo
-                            if output_path.exists():
-                                output_path.unlink()
-                            
-                            failed_downloads.append(video_id)
-                            return None
-                        
-                        # ✅ VÍDEO VÁLIDO - adicionar ao cache
-                        result = {
-                            'video_id': video_id,
-                            'duration_seconds': short_info.get('duration_seconds', 30),
-                            'file_path': str(output_path),
-                            'resolution': metadata.get('resolution', '1080x1920'),
-                            'title': short_info.get('title', ''),
-                        }
-                        
-                        shorts_cache.add(video_id, str(output_path), result)
-                        logger.info(f"✅ Downloaded & Validated: {video_id} ({index+1}/{len(to_download)}) - limpo, sem legendas embutidas")
-                        return result
-                        
-                    except Exception as e:
-                        logger.warning(f"⚠️ Erro no download {video_id} (tentativa {attempt+1}/3): {e}")
-                        if attempt == 2:  # Última tentativa
-                            logger.error(f"❌ SKIP: {video_id} - falhou após 3 tentativas")
-                            failed_downloads.append(video_id)
-                            return None
-                        await asyncio.sleep(2 ** attempt)  # Backoff exponencial
-                
+            # 🚫 CHECK 1: Verificar blacklist ANTES de baixar
+            if blacklist.is_blacklisted(video_id):
+                logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
+                failed_downloads.append(video_id)
                 return None
             
-            # Download em paralelo (máximo 5 simultâneos)
-            batch_size = 5
-            for i in range(0, len(to_download), batch_size):
-                batch = to_download[i:i+batch_size]
-                tasks = [download_with_retry(short, i+j) for j, short in enumerate(batch)]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                for result in results:
-                    if result and not isinstance(result, Exception):
-                        downloaded_shorts.append(result)
-                
-                # Atualizar progresso (protegido contra divisão por zero)
-                if len(to_download) > 0:
-                    progress = 25.0 + (45.0 * min(i + batch_size, len(to_download)) / len(to_download))
+            for attempt in range(3):  # 3 tentativas
+                try:
+                    # Download do vídeo
+                    metadata = await api_client.download_video(video_id, str(output_path))
+                    
+                    # ✅ CHECK 2: Validar integridade do vídeo (síncrono)
+                    try:
+                        video_validator.validate_video_integrity(str(output_path), timeout=5)
+                    except Exception as e:
+                        logger.error(f"❌ INTEGRITY FAILED: {video_id} - {e}")
+                        if output_path.exists():
+                            output_path.unlink()
+                        failed_downloads.append(video_id)
+                        return None
+                    
+                    # 🔍 CHECK 3: Detectar legendas embutidas (OCR - síncrono)
+                    has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(output_path))
+                    
+                    if has_subs:
+                        # 🚫 LEGENDAS EMBUTIDAS DETECTADAS - BLOQUEAR
+                        logger.error(f"🚫 EMBEDDED SUBTITLES: {video_id} (conf: {confidence:.2f}) - adicionando à blacklist")
+                        blacklist.add(video_id, reason, confidence, metadata={
+                            'title': short_info.get('title', ''),
+                            'duration': short_info.get('duration_seconds', 0)
+                        })
+                        
+                        # Remover arquivo
+                        if output_path.exists():
+                            output_path.unlink()
+                        
+                        failed_downloads.append(video_id)
+                        return None
+                    
+                    # ✅ VÍDEO VÁLIDO - adicionar ao cache
+                    result = {
+                        'video_id': video_id,
+                        'duration_seconds': short_info.get('duration_seconds', 30),
+                        'file_path': str(output_path),
+                        'resolution': metadata.get('resolution', '1080x1920'),
+                        'title': short_info.get('title', ''),
+                    }
+                    
+                    shorts_cache.add(video_id, str(output_path), result)
+                    logger.info(f"✅ Downloaded & Validated: {video_id} ({index+1}) - limpo, sem legendas embutidas")
+                    return result
+                    
+                except Exception as e:
+                    logger.warning(f"⚠️ Erro no download {video_id} (tentativa {attempt+1}/3): {e}")
+                    if attempt == 2:  # Última tentativa
+                        logger.error(f"❌ SKIP: {video_id} - falhou após 3 tentativas")
+                        failed_downloads.append(video_id)
+                        return None
+                    await asyncio.sleep(2 ** attempt)  # Backoff exponencial
+            
+            return None
+
+        for round_idx in range(1, max_rounds + 1):
+            request_size = base_request * round_idx
+            logger.info(f"🔁 Round {round_idx}/{max_rounds}: buscando até {request_size} shorts (base={base_request})")
+            await update_job_status(
+                job_id,
+                JobStatus.DOWNLOADING_SHORTS,
+                progress=25.0 + (round_idx - 1) * 5.0
+            )
+            
+            shorts_list = await api_client.search_shorts(job.query, request_size)
+            logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos (round {round_idx})...")
+            cache_hits = 0
+            to_download = []
+            
+            for short in shorts_list:
+                video_id = short['video_id']
+                if video_id in processed_ids:
+                    continue
+                processed_ids.add(video_id)
+                cached = shorts_cache.get(video_id)
+                if cached:
+                    try:
+                        file_path = Path(cached["file_path"])
+                        video_validator.validate_video_integrity(str(file_path), timeout=5)
+                        has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(file_path))
+                        if has_subs:
+                            logger.error(
+                                f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
+                            )
+                            blacklist.add(video_id, reason, confidence, metadata={
+                                'title': short.get('title', ''),
+                                'duration': short.get('duration_seconds', 0)
+                            })
+                            shorts_cache.remove(video_id)
+                            continue
+                        shorts_cache.mark_validated(video_id, False, confidence)
+                        downloaded_shorts.append(cached)
+                        cache_hits += 1
+                        logger.info(f"✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
+                        shorts_cache.remove(video_id)
+                        to_download.append(short)
                 else:
-                    progress = 70.0  # Pular para fim do download se não há nada para baixar
-                await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
+                    to_download.append(short)
+            
+            logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download (round {round_idx})")
+
+            if len(downloaded_shorts) < min(10, base_request):
+                logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
+                batch_size = 5
+                for i in range(0, len(to_download), batch_size):
+                    batch = to_download[i:i+batch_size]
+                    tasks = [download_with_retry(short, i+j) for j, short in enumerate(batch)]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    for result in results:
+                        if result and not isinstance(result, Exception):
+                            downloaded_shorts.append(result)
+                    if len(to_download) > 0:
+                        progress = 30.0 + (40.0 * min(i + batch_size, len(to_download)) / len(to_download))
+                    else:
+                        progress = 70.0
+                    await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
+            
+            total_duration = sum(s.get('duration_seconds', 0) for s in downloaded_shorts)
+            logger.info(
+                f"📦 Round {round_idx} done: {len(downloaded_shorts)} vídeos válidos, duração acumulada {total_duration:.1f}s "
+                f"(target {target_duration:.1f}s)"
+            )
+            
+            if total_duration >= target_duration:
+                logger.info("✅ Duração suficiente alcançada, encerrando busca de shorts")
+                break
+            elif round_idx == max_rounds:
+                raise VideoProcessingException(
+                    f"Insufficient shorts after {max_rounds} rounds (got {total_duration:.1f}s, target {target_duration:.1f}s)"
+                )
+            else:
+                logger.warning(
+                    f"⚠️ Duração insuficiente ({total_duration:.1f}/{target_duration:.1f}s). "
+                    f"Nova rodada solicitará {base_request * (round_idx + 1)} vídeos (mult={round_idx+1}x)."
+                )
+                continue
         
-        logger.info(f"📦 Total: {len(downloaded_shorts)} vídeos disponíveis ({cache_hits} cache, {len(downloaded_shorts)-cache_hits} novos)")
+        logger.info(f"📦 Total final: {len(downloaded_shorts)} vídeos válidos")
         if failed_downloads:
             logger.warning(f"⚠️ Falhas: {len(failed_downloads)} vídeos não baixados: {failed_downloads[:5]}...")
         
