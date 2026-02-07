@@ -44,8 +44,8 @@ services:
       - .env
     environment:
       - TZ=${TZ}
-      - PYTHONPATH=/app
-      - C_FORCE_ROOT=true
+      - PYTHONPATH=${PYTHONPATH}
+      - C_FORCE_ROOT=${C_FORCE_ROOT}
     restart: unless-stopped
     depends_on:
       video-downloader-service:

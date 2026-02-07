@@ -39,7 +39,7 @@ services:
       - .env
     environment:
       - TZ=${TZ}
-      - PYTHONPATH=/app
+      - PYTHONPATH=${PYTHONPATH}
     restart: unless-stopped
     labels:
       - "com.example.service=youtube-search-worker"
@@ -58,7 +58,7 @@ services:
     env_file:
       - .env
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=${PYTHONPATH}
     restart: unless-stopped
     labels:
       - "com.example.service=youtube-search-beat"
