@@ -8,9 +8,10 @@ import os
 import asyncio
 import logging
 import random
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from .celery_config import celery_app
 from .config import get_settings
@@ -132,6 +133,7 @@ def process_make_video(self, job_id: str):
     5. Montar vídeo
     6. Gerar legendas
     7. Composição final
+    8. Trimming (ajuste de duração)
     """
     logger.info(f"🎬 Starting make-video job: {job_id}")
     
@@ -213,14 +215,20 @@ async def _process_make_video_async(job_id: str):
                 {"duration": audio_duration, "maximum": 3600.0}
             )
         
-        target_duration = audio_duration + 5.0  # +5s sobra
+        # Calcular target_duration com padding configurável (Sprint-09)
+        padding_ms = int(settings.get('video_trim_padding_ms', 1000))
+        padding_seconds = padding_ms / 1000.0
+        target_duration = audio_duration + padding_seconds
         
         # Atualizar job com duração do áudio
         job.audio_duration = audio_duration
         job.target_video_duration = target_duration
         await store.save_job(job)
         
-        logger.info(f"🎵 Audio: {audio_duration:.1f}s → Target: {target_duration:.1f}s")
+        logger.info(f"🎵 Audio: {audio_duration:.1f}s + {padding_seconds:.2f}s padding → Target: {target_duration:.1f}s")
+        
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "analyzing_audio_completed")
         
         # Etapa 2: Buscar shorts
         logger.info(f"🔍 [2/7] Fetching shorts...")
@@ -232,6 +240,9 @@ async def _process_make_video_async(job_id: str):
         if not shorts_list:
             raise VideoProcessingException(f"No shorts found for query: {job.query}")
         
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "fetching_shorts_completed")
+        
         # Etapa 3: Verificar cache e baixar shorts necessários
         logger.info(f"⬇️ [3/7] Checking cache and downloading shorts...")
         await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=25.0)
@@ -239,7 +250,7 @@ async def _process_make_video_async(job_id: str):
         downloaded_shorts = []
         failed_downloads = []
         processed_ids = set()
-        max_rounds = 3  # R1=1x, R2=2x, R3=3x do max_shorts
+        max_rounds = settings['max_fetch_rounds']  # Configurável via MAX_FETCH_ROUNDS
         base_request = max(job.max_shorts, 10)
 
         async def download_with_retry(short_info, index):
@@ -399,9 +410,17 @@ async def _process_make_video_async(job_id: str):
         if not downloaded_shorts:
             raise VideoProcessingException("No shorts could be downloaded")
         
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "downloading_shorts_completed")
+        
         # Etapa 4: Selecionar shorts aleatoriamente
         logger.info(f"🎲 [4/7] Selecting shorts randomly...")
         await update_job_status(job_id, JobStatus.SELECTING_SHORTS, progress=70.0)
+        
+        # DEBUG: Log antes do shuffle
+        logger.info(f"📊 DEBUG: downloaded_shorts count = {len(downloaded_shorts)}, target_duration = {target_duration:.1f}s")
+        for i, s in enumerate(downloaded_shorts[:10]):  # Mostrar primeiros 10
+            logger.info(f"  [{i}] {s['video_id']}: {s['duration_seconds']:.1f}s")
         
         random.shuffle(downloaded_shorts)
         
@@ -410,14 +429,19 @@ async def _process_make_video_async(job_id: str):
         
         for short in downloaded_shorts:
             if total_duration >= target_duration:
+                logger.info(f"🎯 Breaking loop: total_duration={total_duration:.1f}s >= target_duration={target_duration:.1f}s")
                 break
             selected_shorts.append(short)
             total_duration += short['duration_seconds']
+            logger.info(f"  ✓ Added {short['video_id']}: {short['duration_seconds']:.1f}s (cumulative: {total_duration:.1f}s)")
         
-        logger.info(f"🎯 Selected {len(selected_shorts)} shorts ({total_duration:.1f}s)")
+        logger.info(f"🎯 Selected {len(selected_shorts)} shorts ({total_duration:.1f}s / target {target_duration:.1f}s)")
         
         if not selected_shorts:
             raise VideoProcessingException("No shorts available for video creation")
+        
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "selecting_shorts_completed")
         
         # Etapa 5: Montar vídeo (sem áudio)
         logger.info(f"🎬 [5/7] Assembling video...")
@@ -436,6 +460,9 @@ async def _process_make_video_async(job_id: str):
         )
         
         logger.info(f"✅ Video assembled: {temp_video_path}")
+        
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "assembling_video_completed")
         
         # Etapa 6: Gerar legendas
         logger.info(f"📝 [6/7] Generating subtitles...")
@@ -553,6 +580,9 @@ async def _process_make_video_async(job_id: str):
         num_captions_expected = len(final_cues) // words_per_caption
         logger.info(f"✅ Speech-gated subtitles: {len(final_cues)} words → {len(segments_for_srt)} segments → ~{num_captions_expected} captions, {words_per_caption} words/caption, vad_ok={vad_ok}")
         
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "generating_subtitles_completed")
+        
         # Etapa 7: Composição final
         logger.info(f"🎨 [7/7] Final composition...")
         await update_job_status(job_id, JobStatus.FINAL_COMPOSITION, progress=85.0)
@@ -577,6 +607,71 @@ async def _process_make_video_async(job_id: str):
         )
         
         logger.info(f"✅ Subtitles burned")
+        
+        # Etapa 8: Trimming final (Sprint-09)
+        logger.info(f"✂️ [8/8] Trimming video to target duration...")
+        await update_job_status(job_id, JobStatus.FINAL_COMPOSITION, progress=92.0)
+        
+        # Calcular duração final desejada
+        padding_ms = int(settings.get('video_trim_padding_ms', 1000))
+        padding_seconds = padding_ms / 1000.0
+        final_duration = audio_duration + padding_seconds
+        
+        # Validação obrigatória: video deve ser maior que áudio
+        if final_duration <= audio_duration:
+            raise VideoProcessingException(
+                "Invalid trim configuration: video would be shorter than or equal to audio",
+                {
+                    "audio_duration": audio_duration,
+                    "padding_ms": padding_ms,
+                    "final_duration": final_duration,
+                    "suggestion": "Increase VIDEO_TRIM_PADDING_MS to at least 100ms"
+                }
+            )
+        
+        # Verificar duração atual do vídeo
+        pre_trim_info = await video_builder.get_video_info(str(final_video_path))
+        current_duration = pre_trim_info['duration']
+        
+        logger.info(f"📊 Trim analysis:")
+        logger.info(f"   ├─ Audio duration: {audio_duration:.2f}s")
+        logger.info(f"   ├─ Padding: {padding_ms}ms ({padding_seconds:.2f}s)")
+        logger.info(f"   ├─ Target final: {final_duration:.2f}s")
+        logger.info(f"   └─ Current video: {current_duration:.2f}s")
+        
+        # VALIDAÇÃO CRÍTICA: Vídeo DEVE ser >= audio_duration
+        if current_duration < audio_duration - 0.5:  # -0.5s tolerância para keyframes
+            raise VideoProcessingException(
+                f"ERRO CRÍTICO: Vídeo ({current_duration:.2f}s) é menor que áudio ({audio_duration:.2f}s)!",
+                {
+                    "video_duration": current_duration,
+                    "audio_duration": audio_duration,
+                    "target_duration": final_duration,
+                    "problem": "Vídeo não pode ser menor que áudio"
+                }
+            )
+        
+        # Trim para a duração exata: audio_duration + padding
+        if abs(current_duration - final_duration) > 0.5:  # Apenas se diferença significativa
+            logger.info(f"✂️ Trimming needed: {current_duration:.2f}s → {final_duration:.2f}s")
+            
+            # Criar path temporário para arquivo trimmed
+            trimmed_video_path = Path(settings['temp_dir']) / job_id / f"{job_id}_trimmed.mp4"
+            
+            # Executar trim
+            await video_builder.trim_video(
+                video_path=str(final_video_path),
+                output_path=str(trimmed_video_path),
+                max_duration=final_duration
+            )
+            
+            # Substituir vídeo final pelo trimmed
+            import shutil
+            shutil.move(str(trimmed_video_path), str(final_video_path))
+            
+            logger.info(f"✅ Video trimmed and replaced")
+        else:
+            logger.info(f"⏭️ Trim skipped: video duration ({current_duration:.2f}s) already matches target ({final_duration:.2f}s ± 0.5s)")
         
         # Obter informações do vídeo final
         video_info = await video_builder.get_video_info(str(final_video_path))
@@ -615,6 +710,12 @@ async def _process_make_video_async(job_id: str):
         job.expires_at = job.completed_at + timedelta(hours=24)
         await store.save_job(job)
         
+        # Deletar checkpoint após sucesso (Sprint-01)
+        await _delete_checkpoint(job_id)
+        
+        # Metrics (Sprint-05)
+        _metrics.jobs_completed += 1
+        
         logger.info(f"🎉 Job {job_id} completed successfully!")
         logger.info(f"   ├─ Duration: {result.duration:.1f}s")
         logger.info(f"   ├─ Size: {result.file_size_mb}MB")
@@ -623,6 +724,10 @@ async def _process_make_video_async(job_id: str):
         
     except MakeVideoException as e:
         logger.error(f"❌ MakeVideo error: {e}", exc_info=True)
+        
+        # Metrics (Sprint-05)
+        _metrics.jobs_failed += 1
+        
         await update_job_status(
             job_id,
             JobStatus.FAILED,
@@ -636,6 +741,10 @@ async def _process_make_video_async(job_id: str):
         
     except Exception as e:
         logger.error(f"❌ Unexpected error: {e}", exc_info=True)
+        
+        # Metrics (Sprint-05)
+        _metrics.jobs_failed += 1
+        
         await update_job_status(
             job_id,
             JobStatus.FAILED,
@@ -702,3 +811,565 @@ def cleanup_old_shorts():
     removed_count = shorts_cache.cleanup_old(days=days)
     
     logger.info(f"✅ Cleanup complete: {removed_count} old shorts removed")
+
+
+@celery_app.task(name='app.celery_tasks.recover_orphaned_jobs')
+def recover_orphaned_jobs():
+    """
+    Auto-recovery de jobs órfãos (Sprint-01)
+    
+    Detecta jobs travados em processamento há mais de 5 minutos
+    e força sua re-execução do ponto onde pararam.
+    
+    Execução: A cada 2 minutos (Celery Beat)
+    """
+    logger.info("🔍 [AUTO-RECOVERY] Starting orphaned jobs detection...")
+    
+    settings = get_settings()
+    store, _, _, _, _ = get_instances()
+    
+    # Configurável via env (default: 5 minutos)
+    max_age_minutes = int(settings.get('orphan_detection_threshold_minutes', 5))
+    
+    try:
+        # Detectar jobs órfãos
+        orphaned_jobs = asyncio.run(store.find_orphaned_jobs(max_age_minutes=max_age_minutes))
+        
+        # Metrics (Sprint-05)
+        _metrics.orphans_detected += len(orphaned_jobs)
+        
+        if not orphaned_jobs:
+            logger.debug("✅ [AUTO-RECOVERY] No orphaned jobs found")
+            return {
+                "status": "success",
+                "orphaned_count": 0,
+                "recovered_count": 0,
+                "failed_count": 0
+            }
+        
+        logger.warning(f"⚠️ [AUTO-RECOVERY] Found {len(orphaned_jobs)} orphaned jobs (older than {max_age_minutes}min)")
+        
+        recovered_count = 0
+        failed_count = 0
+        
+        for job in orphaned_jobs:
+            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            
+            logger.info(
+                f"🔧 [AUTO-RECOVERY] Attempting recovery of job {job.job_id} "
+                f"(status={job.status}, age={age_minutes:.1f}min)"
+            )
+            
+            try:
+                # Tentar recuperar job
+                success = asyncio.run(_recover_single_job(job))
+                
+                if success:
+                    recovered_count += 1
+                    _metrics.orphans_recovered += 1  # Metrics (Sprint-05)
+                    logger.info(f"✅ [AUTO-RECOVERY] Job {job.job_id} recovered successfully")
+                else:
+                    failed_count += 1
+                    _metrics.orphans_failed += 1  # Metrics (Sprint-05)
+                    logger.error(f"❌ [AUTO-RECOVERY] Job {job.job_id} recovery failed")
+                    
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"❌ [AUTO-RECOVERY] Error recovering job {job.job_id}: {e}", exc_info=True)
+        
+        result = {
+            "status": "completed",
+            "orphaned_count": len(orphaned_jobs),
+            "recovered_count": recovered_count,
+            "failed_count": failed_count
+        }
+        
+        logger.info(
+            f"📊 [AUTO-RECOVERY] Complete: "
+            f"{recovered_count} recovered, {failed_count} failed out of {len(orphaned_jobs)} orphaned"
+        )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ [AUTO-RECOVERY] Critical error in recovery task: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e)
+        }
+
+
+async def _recover_single_job(job: Job) -> bool:
+    """
+    Recupera um job individual do ponto onde parou
+    
+    Estratégia:
+    1. Identificar última etapa completada via checkpoint
+    2. Validar arquivos/dados dessa etapa
+    3. Re-submeter job para continuar da próxima etapa
+    
+    Args:
+        job: Job órfão a ser recuperado
+    
+    Returns:
+        True se recuperado com sucesso, False caso contrário
+    """
+    store, _, _, _, _ = get_instances()
+    settings = get_settings()
+    
+    try:
+        # Carregar checkpoint (se existir)
+        checkpoint = await _load_checkpoint(job.job_id)
+        
+        if not checkpoint:
+            logger.warning(
+                f"⚠️ [RECOVERY] No checkpoint found for {job.job_id}, "
+                f"will restart from beginning"
+            )
+            checkpoint = {"completed_stages": []}
+        
+        logger.info(
+            f"📍 [RECOVERY] Job {job.job_id} checkpoint: "
+            f"completed stages: {checkpoint.get('completed_stages', [])}"
+        )
+        
+        # Determinar próxima etapa a executar
+        current_stage = job.status.value if job.status else "queued"
+        next_stage = _determine_next_stage(current_stage, checkpoint)
+        
+        if not next_stage:
+            # Job já estava em etapa final, marcar como failed
+            logger.warning(
+                f"⚠️ [RECOVERY] Job {job.job_id} was in final stage, marking as failed"
+            )
+            await update_job_status(
+                job.job_id,
+                JobStatus.FAILED,
+                error={
+                    "message": "Job orphaned in final stage, likely worker crash",
+                    "recovery_attempted": True,
+                    "original_stage": current_stage
+                }
+            )
+            return False
+        
+        logger.info(f"🎯 [RECOVERY] Job {job.job_id} will resume from stage: {next_stage}")
+        
+        # Validar que arquivos/dados necessários existem
+        validation_result = await _validate_job_prerequisites(job, next_stage)
+        
+        if not validation_result["valid"]:
+            logger.error(
+                f"❌ [RECOVERY] Job {job.job_id} prerequisite validation failed: "
+                f"{validation_result['reason']}"
+            )
+            await update_job_status(
+                job.job_id,
+                JobStatus.FAILED,
+                error={
+                    "message": "Recovery failed: missing prerequisites",
+                    "details": validation_result,
+                    "recovery_attempted": True
+                }
+            )
+            return False
+        
+        # Atualizar job para status "queued" para re-processamento
+        job.status = JobStatus.QUEUED
+        job.progress = _stage_to_progress(next_stage)
+        job.updated_at = datetime.utcnow()
+        
+        # Salvar metadata de recuperação
+        if not job.error:
+            job.error = {}
+        job.error["recovery_info"] = {
+            "recovered_at": datetime.utcnow().isoformat(),
+            "original_stage": current_stage,
+            "resume_stage": next_stage.value if hasattr(next_stage, 'value') else str(next_stage),
+            "age_minutes": (datetime.utcnow() - job.updated_at).total_seconds() / 60
+        }
+        
+        await store.save_job(job)
+        
+        # Re-submeter job para Celery
+        process_make_video.apply_async(
+            args=[job.job_id],
+            queue='make_video_queue'
+        )
+        
+        logger.info(f"✅ [RECOVERY] Job {job.job_id} re-submitted successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ [RECOVERY] Error recovering job {job.job_id}: {e}", exc_info=True)
+        return False
+
+
+def _determine_next_stage(current_stage: str, checkpoint: dict) -> Optional[JobStatus]:
+    """
+    Determina próxima etapa a executar baseado em checkpoint
+    
+    Args:
+        current_stage: Etapa atual (onde travou)
+        checkpoint: Checkpoint com etapas completadas
+    
+    Returns:
+        Nome da próxima etapa ou None se já estava no final
+    """
+    completed = set(checkpoint.get('completed_stages', []))
+    
+    # Mapeamento de stages em ordem
+    stage_flow = [
+        JobStatus.QUEUED,
+        JobStatus.ANALYZING_AUDIO,
+        JobStatus.FETCHING_SHORTS,
+        JobStatus.DOWNLOADING_SHORTS,
+        JobStatus.SELECTING_SHORTS,
+        JobStatus.ASSEMBLING_VIDEO,
+        JobStatus.GENERATING_SUBTITLES,
+        JobStatus.FINAL_COMPOSITION,
+    ]
+    
+    # Encontrar índice da stage atual
+    try:
+        if current_stage == "processing":
+            # Status genérico, retornar primeira não completada
+            for stage in stage_flow:
+                if stage.value not in completed:
+                    return stage
+            return None
+        
+        current_idx = next(
+            i for i, stage in enumerate(stage_flow)
+            if stage.value == current_stage
+        )
+        
+        # Retornar próxima stage
+        if current_idx + 1 < len(stage_flow):
+            return stage_flow[current_idx + 1]
+        else:
+            return None  # Já estava na última stage
+            
+    except StopIteration:
+        # Stage desconhecida, começar do início
+        return JobStatus.QUEUED
+
+
+async def _validate_job_prerequisites(job: Job, next_stage: JobStatus) -> dict:
+    """
+    Valida que pré-requisitos para a próxima etapa existem
+    
+    Args:
+        job: Job a ser validado
+        next_stage: Próxima etapa a executar
+    
+    Returns:
+        {"valid": bool, "reason": str}
+    """
+    settings = get_settings()
+    
+    try:
+        # Validar baseado na próxima stage
+        if next_stage == JobStatus.QUEUED:
+            # Início, sem pré-requisitos
+            return {"valid": True}
+        
+        if next_stage == JobStatus.ANALYZING_AUDIO:
+            # Precisa de áudio
+            audio_path = Path(settings['audio_upload_dir']) / job.job_id / "audio"
+            
+            # Procurar por extensões comuns
+            found = False
+            for ext in ['.mp3', '.wav', '.m4a', '.ogg', '']:
+                test_path = audio_path.parent / f"audio{ext}"
+                if test_path.exists():
+                    found = True
+                    break
+            
+            if not found:
+                return {"valid": False, "reason": "Audio file not found"}
+            return {"valid": True}
+        
+        if next_stage == JobStatus.FETCHING_SHORTS:
+            # Precisa de audio_duration preenchido
+            if not job.audio_duration:
+                return {"valid": False, "reason": "Audio duration not analyzed"}
+            return {"valid": True}
+        
+        if next_stage == JobStatus.DOWNLOADING_SHORTS:
+            # Pode continuar, já tem query
+            return {"valid": True}
+        
+        if next_stage == JobStatus.SELECTING_SHORTS:
+            # Verificar se tem shorts baixados
+            shorts_cache_dir = Path(settings['shorts_cache_dir'])
+            if not shorts_cache_dir.exists() or not list(shorts_cache_dir.glob("*.mp4")):
+                return {"valid": False, "reason": "No shorts available in cache"}
+            return {"valid": True}
+        
+        if next_stage == JobStatus.ASSEMBLING_VIDEO:
+            # Precisa de shorts selecionados (verificar em checkpoint futuro)
+            return {"valid": True}
+        
+        if next_stage == JobStatus.GENERATING_SUBTITLES:
+            # Precisa de vídeo intermediário
+            temp_video = Path(settings['temp_dir']) / job.job_id / "video_no_audio.mp4"
+            if not temp_video.exists():
+                return {"valid": False, "reason": "Intermediate video not found"}
+            return {"valid": True}
+        
+        if next_stage == JobStatus.FINAL_COMPOSITION:
+            # Precisa de vídeo com áudio e legendas
+            video_with_audio = Path(settings['temp_dir']) / job.job_id / "video_with_audio.mp4"
+            subtitle_file = Path(settings['temp_dir']) / job.job_id / "subtitles.srt"
+            
+            if not video_with_audio.exists():
+                return {"valid": False, "reason": "Video with audio not found"}
+            if not subtitle_file.exists():
+                return {"valid": False, "reason": "Subtitle file not found"}
+            return {"valid": True}
+        
+        # Default: válido
+        return {"valid": True}
+        
+    except Exception as e:
+        logger.error(f"Error validating prerequisites: {e}")
+        return {"valid": False, "reason": f"Validation error: {str(e)}"}
+
+
+def _stage_to_progress(stage: JobStatus) -> float:
+    """Mapeia stage para porcentagem de progresso"""
+    stage_progress = {
+        JobStatus.QUEUED: 0.0,
+        JobStatus.ANALYZING_AUDIO: 5.0,
+        JobStatus.FETCHING_SHORTS: 15.0,
+        JobStatus.DOWNLOADING_SHORTS: 30.0,
+        JobStatus.SELECTING_SHORTS: 70.0,
+        JobStatus.ASSEMBLING_VIDEO: 75.0,
+        JobStatus.GENERATING_SUBTITLES: 80.0,
+        JobStatus.FINAL_COMPOSITION: 85.0,
+    }
+    return stage_progress.get(stage, 0.0)
+
+
+# Funções auxiliares de checkpoint (Sprint-01)
+
+async def _save_checkpoint(job_id: str, completed_stage: str):
+    """Salva checkpoint de progresso"""
+    store, _, _, _, _ = get_instances()
+    key = f"make_video:checkpoint:{job_id}"
+    
+    try:
+        # Carregar checkpoint existente
+        existing_data = store.redis.get(key)
+        if existing_data:
+            checkpoint = json.loads(existing_data)
+        else:
+            checkpoint = {"completed_stages": []}
+        
+        # Adicionar stage completada
+        if completed_stage not in checkpoint["completed_stages"]:
+            checkpoint["completed_stages"].append(completed_stage)
+        
+        checkpoint["last_updated"] = datetime.utcnow().isoformat()
+        
+        # Salvar com TTL de 48 horas
+        store.redis.setex(key, 172800, json.dumps(checkpoint))
+        
+        logger.debug(f"💾 [CHECKPOINT] Saved for {job_id}: stage={completed_stage}")
+        
+    except Exception as e:
+        logger.error(f"Error saving checkpoint for {job_id}: {e}")
+
+
+async def _load_checkpoint(job_id: str) -> Optional[dict]:
+    """Carrega checkpoint de progresso"""
+    store, _, _, _, _ = get_instances()
+    key = f"make_video:checkpoint:{job_id}"
+    
+    try:
+        data = store.redis.get(key)
+        if data:
+            return json.loads(data)
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error loading checkpoint for {job_id}: {e}")
+        return None
+
+
+async def _delete_checkpoint(job_id: str):
+    """Deleta checkpoint após job completar"""
+    store, _, _, _, _ = get_instances()
+    key = f"make_video:checkpoint:{job_id}"
+    
+    try:
+        store.redis.delete(key)
+        logger.debug(f"🗑️ [CHECKPOINT] Deleted for {job_id}")
+    except Exception as e:
+        logger.error(f"Error deleting checkpoint for {job_id}: {e}")
+
+
+# =============================================================================
+# SPRINT-02: Granular Stage Checkpoints
+# =============================================================================
+
+async def _save_stage_checkpoint(job_id: str, stage: str, data: dict):
+    """Save granular checkpoint within a stage (Sprint-02)"""
+    store, _, _, _, _ = get_instances()
+    key = f"make_video:stage_checkpoint:{job_id}:{stage}"
+    
+    try:
+        checkpoint = {
+            "stage": stage,
+            "data": data,
+            "last_updated": datetime.utcnow().isoformat()
+        }
+        store.redis.setex(key, 172800, json.dumps(checkpoint))
+        logger.debug(f"💾 [STAGE-CP] {stage}: {len(data.get('downloaded_ids', []))} items")
+    except Exception as e:
+        logger.error(f"Error saving stage checkpoint: {e}")
+
+
+async def _load_stage_checkpoint(job_id: str, stage: str) -> Optional[dict]:
+    """Load granular checkpoint within a stage (Sprint-02)"""
+    store, _, _, _, _ = get_instances()
+    key = f"make_video:stage_checkpoint:{job_id}:{stage}"
+    
+    try:
+        data = store.redis.get(key)
+        if data:
+            checkpoint = json.loads(data)
+            return checkpoint.get('data')
+        return None
+    except Exception as e:
+        logger.error(f"Error loading stage checkpoint: {e}")
+        return None
+
+
+async def _delete_stage_checkpoint(job_id: str, stage: str):
+    """Delete stage checkpoint (Sprint-02)"""
+    store, _, _, _, _ = get_instances()
+    key = f"make_video:stage_checkpoint:{job_id}:{stage}"
+    
+    try:
+        store.redis.delete(key)
+        logger.debug(f"🗑️ [STAGE-CP] Deleted {stage}")
+    except Exception as e:
+        logger.error(f"Error deleting stage checkpoint: {e}")
+
+
+# =============================================================================
+# SPRINT-03: Smart Timeout Management
+# =============================================================================
+
+def _calculate_stage_timeout(
+    stage: JobStatus,
+    audio_duration: float = 0.0,
+    max_shorts: int = 10,
+    retry_count: int = 0
+) -> int:
+    """Calculate dynamic timeout for stage (Sprint-03)"""
+    
+    base_timeouts = {
+        JobStatus.QUEUED: 10,
+        JobStatus.ANALYZING_AUDIO: 30,
+        JobStatus.FETCHING_SHORTS: 60,
+        JobStatus.DOWNLOADING_SHORTS: 300,
+        JobStatus.SELECTING_SHORTS: 10,
+        JobStatus.ASSEMBLING_VIDEO: 120,
+        JobStatus.GENERATING_SUBTITLES: 180,
+        JobStatus.FINAL_COMPOSITION: 300,
+    }
+    
+    base = base_timeouts.get(stage, 300)
+    
+    # Dynamic scaling
+    if stage == JobStatus.ANALYZING_AUDIO:
+        timeout = base + int(audio_duration * 2)
+    elif stage == JobStatus.FETCHING_SHORTS:
+        timeout = base + (max_shorts * 5)
+    elif stage == JobStatus.DOWNLOADING_SHORTS:
+        timeout = base + (max_shorts * 10)
+    elif stage == JobStatus.GENERATING_SUBTITLES:
+        timeout = base + int(audio_duration * 30)
+    elif stage == JobStatus.FINAL_COMPOSITION:
+        timeout = base + int(audio_duration * 10)
+    else:
+        timeout = base
+    
+    # Retry escalation
+    timeout = int(timeout * (1.5 ** retry_count))
+    
+    # Cap at 30 minutes
+    return min(timeout, 1800)
+
+
+# =============================================================================
+# SPRINT-04: Circuit Breaker (Simplified)
+# =============================================================================
+
+class SimpleCircuitBreaker:
+    """Simplified circuit breaker for external services (Sprint-04)"""
+    
+    def __init__(self, failure_threshold: int = 5):
+        self.failure_count = 0
+        self.failure_threshold = failure_threshold
+        self.last_failure_time = None
+        self.is_open = False
+    
+    def record_success(self):
+        self.failure_count = 0
+        self.is_open = False
+    
+    def record_failure(self):
+        self.failure_count += 1
+        self.last_failure_time = datetime.utcnow()
+        
+        if self.failure_count >= self.failure_threshold:
+            self.is_open = True
+            logger.error(f"🔌 [CIRCUIT] Opened after {self.failure_count} failures")
+    
+    def should_allow_request(self) -> bool:
+        if not self.is_open:
+            return True
+        
+        # Auto-reset after 60s
+        if self.last_failure_time:
+            elapsed = (datetime.utcnow() - self.last_failure_time).total_seconds()
+            if elapsed > 60:
+                self.is_open = False
+                self.failure_count = 0
+                logger.info("🔌 [CIRCUIT] Attempting reset")
+                return True
+        
+        return False
+
+
+# Global circuit breakers
+_circuit_breakers = {
+    "download": SimpleCircuitBreaker(failure_threshold=10),
+    "transcription": SimpleCircuitBreaker(failure_threshold=3),
+}
+
+
+# =============================================================================
+# SPRINT-05: Metrics (In-memory counters, ready for Prometheus)
+# =============================================================================
+
+class SimpleMetrics:
+    """Simple metrics tracking (Sprint-05)"""
+    
+    def __init__(self):
+        self.jobs_started = 0
+        self.jobs_completed = 0
+        self.jobs_failed = 0
+        self.orphans_detected = 0
+        self.orphans_recovered = 0
+        self.orphans_failed = 0
+    
+    def reset(self):
+        self.__init__()
+
+
+_metrics = SimpleMetrics()

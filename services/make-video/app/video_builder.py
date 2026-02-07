@@ -188,7 +188,8 @@ class VideoBuilder:
             "-c:v", "copy",  # Não re-encode vídeo
             "-c:a", self.audio_codec,
             "-b:a", "192k",
-            "-shortest",  # Corta no menor (áudio ou vídeo)
+            # REMOVIDO -shortest: O vídeo já foi montado com duração correta
+            # e será trimmed no Step 8 para audio_duration + padding
             str(output_path)
         ]
         
@@ -273,6 +274,62 @@ class VideoBuilder:
             )
         
         logger.info(f"✅ Subtitles burned: {output_path}")
+        return output_path
+    
+    async def trim_video(self, video_path: str, output_path: str, 
+                        max_duration: float) -> str:
+        """Trim vídeo para duração máxima especificada
+        
+        Args:
+            video_path: Caminho do vídeo a ser trimmed
+            output_path: Caminho do vídeo de saída
+            max_duration: Duração máxima em segundos (ex: audio_duration + padding)
+        
+        Returns:
+            Caminho do vídeo gerado
+        
+        Raises:
+            VideoProcessingException: Se falhar o trim
+        
+        Note:
+            - Usa -t (duration) ao invés de -to (timestamp)
+            - -c copy (stream copy) é mais rápido mas pode ter imprecisão de keyframes
+            - Se precisar precisão: usar com -c:v libx264 (re-encode)
+        """
+        
+        logger.info(f"✂️ Trimming video to {max_duration:.2f}s")
+        
+        # Stream copy (rápido, mas pode ter imprecisão ~0.5s devido a keyframes)
+        # Recomendado para produção se aceitável
+        cmd = [
+            self.ffmpeg_path,
+            "-i", str(video_path),
+            "-t", str(max_duration),  # Limitar duração
+            "-c", "copy",             # Não re-encoda (rápido)
+            "-avoid_negative_ts", "make_zero",  # Evitar timestamps negativos
+            "-y",  # Sobrescrever sem perguntar
+            str(output_path)
+        ]
+        
+        logger.info(f"▶️ Running FFmpeg trim (stream copy mode)...")
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            error_msg = stderr.decode()
+            logger.error(f"❌ FFmpeg trim error: {error_msg}")
+            raise VideoProcessingException(
+                "FFmpeg video trim failed",
+                {"ffmpeg_error": error_msg, "return_code": process.returncode}
+            )
+        
+        logger.info(f"✅ Video trimmed to {max_duration:.2f}s: {output_path}")
         return output_path
     
     async def get_video_info(self, video_path: str) -> Dict:

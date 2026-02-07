@@ -43,22 +43,8 @@ class SQLiteBlacklist:
     def _init_schema(self):
         """Cria schema se não existir"""
         with self._get_conn() as conn:
-            # Habilitar WAL mode (write-ahead logging)
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            
-            # Tabela principal
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS blacklist (
-                    video_id TEXT PRIMARY KEY,
-                    reason TEXT NOT NULL,
-                    confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
-                    added_at TIMESTAMP DEFAULT (datetime('now')),
-                    metadata JSON
-                )
-            """)
-            
+            self._ensure_schema(conn)
+
             logger.debug("Schema initialized successfully")
     
     @contextmanager
@@ -67,6 +53,8 @@ class SQLiteBlacklist:
         conn = sqlite3.connect(str(self.db_path), timeout=5.0)
         conn.row_factory = sqlite3.Row
         try:
+            # Se o arquivo for recriado durante runtime, garante schema antes de uso
+            self._ensure_schema(conn)
             yield conn
             conn.commit()
         except Exception as e:
@@ -75,6 +63,26 @@ class SQLiteBlacklist:
             raise
         finally:
             conn.close()
+
+    def _ensure_schema(self, conn):
+        """Garante que pragmas e tabela existam (idempotente)"""
+        # Habilitar WAL mode (write-ahead logging)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+
+        # Tabela principal
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS blacklist (
+                video_id TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+                added_at TIMESTAMP DEFAULT (datetime('now')),
+                metadata JSON
+            )
+            """
+        )
     
     def add(self, video_id: str, reason: str, confidence: float, metadata: Optional[Dict] = None):
         """
