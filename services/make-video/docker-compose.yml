@@ -5,49 +5,55 @@ services:
     build: .
     container_name: ytcaption-make-video
     ports:
-      - "8004:8004"
+      - "${PORT}:${PORT}"
     volumes:
       - ./storage/audio_uploads:/app/storage/audio_uploads
       - ./storage/shorts_cache:/app/storage/shorts_cache
       - ./storage/temp:/app/storage/temp
       - ./storage/output_videos:/app/storage/output_videos
       - ./logs:/app/logs
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
-      - PORT=8004
-      - DEBUG=false
-      - REDIS_URL=redis://192.168.1.110:6379/0
-      - CACHE_TTL_HOURS=24
-      - MAX_CACHE_SIZE_GB=50
-      - YOUTUBE_SEARCH_URL=https://ytsearch.loadstask.com/
-      - VIDEO_DOWNLOADER_URL=https://ytdownloader.loadstask.com/
-      - AUDIO_TRANSCRIBER_URL=https://yttranscriber.loadstask.com/
-      - AUDIO_UPLOAD_DIR=/app/storage/audio_uploads
-      - SHORTS_CACHE_DIR=/app/storage/shorts_cache
-      - TEMP_DIR=/app/storage/temp
-      - OUTPUT_DIR=/app/storage/output_videos
-      - LOG_DIR=/app/logs
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
-      - DEFAULT_ASPECT_RATIO=9:16
-      - DEFAULT_CROP_POSITION=center
-      - DEFAULT_VIDEO_QUALITY=fast
-      - CLEANUP_TEMP_AFTER_HOURS=1
-      - CLEANUP_OUTPUT_AFTER_HOURS=24
-      - CLEANUP_SHORTS_CACHE_AFTER_DAYS=30
-      - SUBTITLE_FONT_SIZE=22
-      - SUBTITLE_FONT_NAME=Arial Black
-      - SUBTITLE_COLOR=&H00FFFF&
-      - SUBTITLE_OUTLINE_COLOR=&H000000&
-      - SUBTITLE_OUTLINE=2
-      - SUBTITLE_ALIGNMENT=10
-      - SUBTITLE_MARGIN_V=280
-      - WORDS_PER_CAPTION=2
-      - API_TIMEOUT=120
-      - DOWNLOAD_POLL_INTERVAL=3
-      - DOWNLOAD_MAX_POLLS=40
-      - TRANSCRIBE_POLL_INTERVAL=5
-      - TRANSCRIBE_MAX_POLLS=240
+      - PORT=${PORT}
+      - DEBUG=${DEBUG}
+      - REDIS_URL=${REDIS_URL}
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS}
+      - MAX_CACHE_SIZE_GB=${MAX_CACHE_SIZE_GB}
+      - YOUTUBE_SEARCH_URL=${YOUTUBE_SEARCH_URL}
+      - VIDEO_DOWNLOADER_URL=${VIDEO_DOWNLOADER_URL}
+      - AUDIO_TRANSCRIBER_URL=${AUDIO_TRANSCRIBER_URL}
+      - AUDIO_UPLOAD_DIR=${AUDIO_UPLOAD_DIR}
+      - SHORTS_CACHE_DIR=${SHORTS_CACHE_DIR}
+      - TEMP_DIR=${TEMP_DIR}
+      - OUTPUT_DIR=${OUTPUT_DIR}
+      - LOG_DIR=${LOG_DIR}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - LOG_FORMAT=${LOG_FORMAT}
+      - DEFAULT_ASPECT_RATIO=${DEFAULT_ASPECT_RATIO}
+      - DEFAULT_CROP_POSITION=${DEFAULT_CROP_POSITION}
+      - DEFAULT_VIDEO_QUALITY=${DEFAULT_VIDEO_QUALITY}
+      - CLEANUP_TEMP_AFTER_HOURS=${CLEANUP_TEMP_AFTER_HOURS}
+      - CLEANUP_OUTPUT_AFTER_HOURS=${CLEANUP_OUTPUT_AFTER_HOURS}
+      - CLEANUP_SHORTS_CACHE_AFTER_DAYS=${CLEANUP_SHORTS_CACHE_AFTER_DAYS}
+      - SUBTITLE_FONT_SIZE=${SUBTITLE_FONT_SIZE}
+      - SUBTITLE_FONT_NAME=${SUBTITLE_FONT_NAME}
+      - SUBTITLE_COLOR=${SUBTITLE_COLOR}
+      - SUBTITLE_OUTLINE_COLOR=${SUBTITLE_OUTLINE_COLOR}
+      - SUBTITLE_OUTLINE=${SUBTITLE_OUTLINE}
+      - SUBTITLE_ALIGNMENT=${SUBTITLE_ALIGNMENT}
+      - SUBTITLE_MARGIN_V=${SUBTITLE_MARGIN_V}
+      - WORDS_PER_CAPTION=${WORDS_PER_CAPTION}
+      - OCR_CONFIDENCE_THRESHOLD=${OCR_CONFIDENCE_THRESHOLD}
+      - API_TIMEOUT=${API_TIMEOUT}
+      - DOWNLOAD_POLL_INTERVAL=${DOWNLOAD_POLL_INTERVAL}
+      - DOWNLOAD_MAX_POLLS=${DOWNLOAD_MAX_POLLS}
+      - TRANSCRIBE_POLL_INTERVAL=${TRANSCRIBE_POLL_INTERVAL}
+      - TRSD_ENABLED=${TRSD_ENABLED}
+      - TRANSCRIBE_MAX_POLLS=${TRANSCRIBE_MAX_POLLS}
+      - MAX_FETCH_ROUNDS=${MAX_FETCH_ROUNDS}
+      - VIDEO_TRIM_PADDING_MS=${VIDEO_TRIM_PADDING_MS}
     extra_hosts:
       - "redis-server:192.168.1.110"
       - "youtube-search:192.168.1.110"
@@ -73,28 +79,33 @@ services:
       - ./storage/temp:/app/storage/temp
       - ./storage/output_videos:/app/storage/output_videos
       - ./logs:/app/logs
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
-      - PORT=8004
-      - DEBUG=false
-      - REDIS_URL=redis://192.168.1.110:6379/0
-      - CACHE_TTL_HOURS=24
-      - MAX_CACHE_SIZE_GB=50
-      - YOUTUBE_SEARCH_URL=https://ytsearch.loadstask.com/
-      - VIDEO_DOWNLOADER_URL=https://ytdownloader.loadstask.com/
-      - AUDIO_TRANSCRIBER_URL=https://yttranscriber.loadstask.com/
-      - AUDIO_UPLOAD_DIR=/app/storage/audio_uploads
-      - SHORTS_CACHE_DIR=/app/storage/shorts_cache
-      - TEMP_DIR=/app/storage/temp
-      - OUTPUT_DIR=/app/storage/output_videos
-      - LOG_DIR=/app/logs
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=json
-      - SUBTITLE_FONT_SIZE=22
-      - SUBTITLE_OUTLINE=2
-      - WORDS_PER_CAPTION=2
-      - API_TIMEOUT=120
-      - TRANSCRIBE_MAX_POLLS=240
+      - PORT=${PORT}
+      - DEBUG=${DEBUG}
+      - REDIS_URL=${REDIS_URL}
+      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS}
+      - MAX_CACHE_SIZE_GB=${MAX_CACHE_SIZE_GB}
+      - YOUTUBE_SEARCH_URL=${YOUTUBE_SEARCH_URL}
+      - VIDEO_DOWNLOADER_URL=${VIDEO_DOWNLOADER_URL}
+      - AUDIO_TRANSCRIBER_URL=${AUDIO_TRANSCRIBER_URL}
+      - AUDIO_UPLOAD_DIR=${AUDIO_UPLOAD_DIR}
+      - SHORTS_CACHE_DIR=${SHORTS_CACHE_DIR}
+      - TEMP_DIR=${TEMP_DIR}
+      - OUTPUT_DIR=${OUTPUT_DIR}
+      - LOG_DIR=${LOG_DIR}
+      - LOG_LEVEL=${LOG_LEVEL}
+      - LOG_FORMAT=${LOG_FORMAT}
+      - SUBTITLE_FONT_SIZE=${SUBTITLE_FONT_SIZE}
+      - SUBTITLE_OUTLINE=${SUBTITLE_OUTLINE}
+      - WORDS_PER_CAPTION=${WORDS_PER_CAPTION}
+      - OCR_CONFIDENCE_THRESHOLD=${OCR_CONFIDENCE_THRESHOLD}
+      - API_TIMEOUT=${API_TIMEOUT}
+      - TRANSCRIBE_MAX_POLLS=${TRANSCRIBE_MAX_POLLS}
+      - MAX_FETCH_ROUNDS=${MAX_FETCH_ROUNDS}
+      - VIDEO_TRIM_PADDING_MS=${VIDEO_TRIM_PADDING_MS}
     extra_hosts:
       - "redis-server:192.168.1.110"
       - "youtube-search:192.168.1.110"
@@ -117,10 +128,12 @@ services:
     build: .
     container_name: ytcaption-make-video-celery-beat
     command: python -m celery -A app.celery_config beat --loglevel=info
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=redis://192.168.1.110:6379/0
-      - LOG_LEVEL=INFO
+      - REDIS_URL=${REDIS_URL}
+      - LOG_LEVEL=${LOG_LEVEL}
     extra_hosts:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
