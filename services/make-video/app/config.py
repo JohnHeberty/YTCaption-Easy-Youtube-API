@@ -64,9 +64,33 @@ class Settings(BaseSettings):
     words_per_caption: int = int(os.getenv("WORDS_PER_CAPTION", "2"))
     
     # OCR Detection Settings
-    ocr_confidence_threshold: float = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "0.40"))
+    ocr_confidence_threshold: float = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "0.50"))  # Equilibrado + densidade
     ocr_frames_per_second: int = int(os.getenv("OCR_FRAMES_PER_SECOND", "3"))  # Frames analisados por segundo
     ocr_max_frames: int = int(os.getenv("OCR_MAX_FRAMES", "240"))  # Limite máximo para evitar OOM
+    
+    # TRSD (Temporal Region Subtitle Detector) Settings - Sprint 01
+    trsd_enabled: bool = os.getenv("TRSD_ENABLED", "false").lower() == "true"
+    trsd_downscale_width: int = int(os.getenv("TRSD_DOWNSCALE_WIDTH", "640"))
+    trsd_min_text_length: int = int(os.getenv("TRSD_MIN_TEXT_LENGTH", "2"))
+    trsd_min_confidence: float = float(os.getenv("TRSD_MIN_CONFIDENCE", "0.50"))
+    trsd_min_alpha_ratio: float = float(os.getenv("TRSD_MIN_ALPHA_RATIO", "0.60"))
+    trsd_line_y_tolerance: int = int(os.getenv("TRSD_LINE_Y_TOLERANCE", "10"))
+    trsd_line_x_gap: int = int(os.getenv("TRSD_LINE_X_GAP", "50"))
+    
+    # TRSD Tracking Settings - Sprint 02
+    trsd_track_iou_threshold: float = float(os.getenv("TRSD_TRACK_IOU_THRESHOLD", "0.30"))
+    trsd_track_max_distance: int = int(os.getenv("TRSD_TRACK_MAX_DISTANCE", "50"))
+    
+    # TRSD Classification Settings - Sprint 03
+    trsd_ignore_static_text: bool = os.getenv("TRSD_IGNORE_STATIC_TEXT", "true").lower() == "true"
+    trsd_static_min_presence: float = float(os.getenv("TRSD_STATIC_MIN_PRESENCE", "0.85"))
+    trsd_static_max_change: float = float(os.getenv("TRSD_STATIC_MAX_CHANGE", "0.10"))
+    trsd_subtitle_min_change_rate: float = float(os.getenv("TRSD_SUBTITLE_MIN_CHANGE_RATE", "0.25"))
+    trsd_screencast_min_detections: int = int(os.getenv("TRSD_SCREENCAST_MIN_DETECTIONS", "10"))
+    
+    # TRSD Telemetry Settings - Sprint 07
+    trsd_save_detection_events: bool = os.getenv("TRSD_SAVE_DETECTION_EVENTS", "false").lower() == "true"
+    trsd_save_debug_artifacts: bool = os.getenv("TRSD_SAVE_DEBUG_ARTIFACTS", "false").lower() == "true"
     
     # VAD (Voice Activity Detection) Settings
     vad_threshold: float = float(os.getenv("VAD_THRESHOLD", "0.5"))
@@ -77,6 +101,9 @@ class Settings(BaseSettings):
     ffmpeg_audio_codec: str = os.getenv("FFMPEG_AUDIO_CODEC", "aac")
     ffmpeg_preset: str = os.getenv("FFMPEG_PRESET", "fast")  # ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
     ffmpeg_crf: int = int(os.getenv("FFMPEG_CRF", "23"))  # 0 (lossless) a 51 (péssima)
+    
+    # Video Trimming Settings - Sprint 09
+    video_trim_padding_ms: int = int(os.getenv("VIDEO_TRIM_PADDING_MS", "1000"))  # Padding após áudio (milissegundos)
     
     # Celery Worker Settings
     celery_worker_concurrency: int = int(os.getenv("CELERY_WORKER_CONCURRENCY", "4"))
@@ -89,6 +116,9 @@ class Settings(BaseSettings):
     download_max_polls: int = int(os.getenv("DOWNLOAD_MAX_POLLS", "40"))
     transcribe_poll_interval: int = int(os.getenv("TRANSCRIBE_POLL_INTERVAL", "5"))
     transcribe_max_polls: int = int(os.getenv("TRANSCRIBE_MAX_POLLS", "240"))
+    
+    # Video Fetch Settings
+    max_fetch_rounds: int = int(os.getenv("MAX_FETCH_ROUNDS", "10"))  # Rodadas de busca de shorts (R1=1x, R2=2x, ..., R10=10x)
     
     class Config:
         env_file = ".env"
@@ -152,6 +182,8 @@ def get_settings() -> Dict[str, Any]:
         "celery_worker_concurrency": _settings.celery_worker_concurrency,
         "celery_worker_prefetch_multiplier": _settings.celery_worker_prefetch_multiplier,
         "celery_task_time_limit": _settings.celery_task_time_limit,
+        "max_fetch_rounds": _settings.max_fetch_rounds,
+        "video_trim_padding_ms": _settings.video_trim_padding_ms,
     }
 
 

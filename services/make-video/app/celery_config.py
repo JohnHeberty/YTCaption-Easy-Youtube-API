@@ -70,6 +70,14 @@ celery_app.conf.beat_schedule = {
         'task': 'app.celery_tasks.cleanup_old_shorts',
         'schedule': 86400.0,  # Every day
     },
+    # ✨ Sprint-01: Auto-recovery de jobs órfãos
+    'recover-orphaned-jobs': {
+        'task': 'app.celery_tasks.recover_orphaned_jobs',
+        'schedule': 120.0,  # A cada 2 minutos
+        'options': {
+            'expires': 60,  # Expirar se não executar em 1 min
+        },
+    },
 }
 
 if __name__ == '__main__':

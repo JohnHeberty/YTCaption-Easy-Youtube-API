@@ -1,7 +1,7 @@
 """
-Video Validator com OCR
+Video Validator com OCR e TRSD
 
-Valida integridade de vídeo e detecta legendas embutidas usando OCR
+Valida integridade de vídeo e detecta legendas embutidas usando OCR + TRSD
 """
 
 import subprocess
@@ -12,8 +12,16 @@ import cv2
 import pytesseract
 import os
 import re
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Dict
 from pathlib import Path
+
+# TRSD imports (Sprint 04)
+from app.subtitle_detector import TextRegionExtractor
+from app.temporal_tracker import TemporalTracker
+from app.subtitle_classifier_v2 import SubtitleClassifierV2  # Sprint 08 - Reescrito para 90%+ precisão
+from app.frame_extractor import FFmpegFrameExtractor  # Sprint 05
+from app.telemetry import TRSDTelemetry, DebugArtifactSaver, PerformanceMetrics  # Sprint 07
+from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,23 @@ class VideoValidator:
         self.frames_per_second = frames_per_second
         self.max_frames = max_frames
         self.tesseract_config = r'--oem 3 --psm 6 -l por+eng'
+        
+        # TRSD Components (Sprint 04)
+        self.config = Settings()
+        self.trsd_enabled = self.config.trsd_enabled
+        
+        if self.trsd_enabled:
+            self.text_extractor = TextRegionExtractor(self.config)
+            self.classifier = SubtitleClassifierV2(self.config, fps=frames_per_second)  # Sprint 08 - V2
+            self.frame_extractor = FFmpegFrameExtractor(self.config.trsd_downscale_width)  # Sprint 05
+            self.telemetry = TRSDTelemetry(enabled=True)  # Sprint 07
+            self.debug_saver = DebugArtifactSaver(  # Sprint 07
+                enabled=self.config.trsd_save_debug_artifacts,
+                base_dir='storage/debug_artifacts'
+            )
+            logger.info("TRSD enabled - using intelligent temporal detection")
+        else:
+            logger.info("TRSD disabled - using legacy OCR detection")
         
         logger.info(
             f"VideoValidator initialized "
@@ -86,22 +111,250 @@ class VideoValidator:
             logger.error(f"❌ Video integrity check failed: {video_path} - {e}")
             raise VideoIntegrityError(f"Video validation failed: {e}")
     
-    def has_embedded_subtitles(self, video_path: str) -> Tuple[bool, float, str]:
+    def _detect_with_trsd(self, video_path: str, timeout: int = 60) -> Tuple[bool, float, str, Dict]:
         """
-        Detecta legendas embutidas no vídeo usando OCR com early exit
+        Detecção inteligente com TRSD (Sprint 04)
         
-        Estratégia otimizada:
+        Pipeline:
+        1. Extrai frames com OpenCV
+        2. Para cada frame:
+           - TextRegionExtractor detecta texto por ROI
+        3. TemporalTracker rastreia texto entre frames
+        4. SubtitleClassifier decide se é legenda ou texto estático
+        
+        Args:
+            video_path: Path do vídeo
+            timeout: Timeout em segundos
+        
+        Returns:
+            Tuple (has_subtitles, confidence, reason, debug_info)
+        """
+        start_time = time.time()
+        
+        try:
+            # Sprint 07: Start timing
+            self.telemetry.start_timer('total')
+            
+            # Obter duração do vídeo
+            info = self.get_video_info(video_path)
+            duration = info['duration']
+            
+            # Determinar frames a analisar
+            timestamps = self._get_sample_timestamps(duration)
+            
+            logger.info(f"TRSD: Analyzing {len(timestamps)} frames from {duration:.1f}s video")
+            
+            # Sprint 05: Extração otimizada de frames
+            self.telemetry.start_timer('frame_extraction')
+            extraction_result = self.frame_extractor.extract_frames(
+                video_path, timestamps, timeout
+            )
+            frame_extraction_ms = self.telemetry.stop_timer('frame_extraction')
+            
+            logger.info(
+                f"Frame extraction: {extraction_result.method}, "
+                f"{extraction_result.extraction_time_ms:.0f}ms, "
+                f"{len(extraction_result.frames)} frames"
+            )
+            
+            # Criar tracker temporal
+            tracker = TemporalTracker(self.config)
+            
+            # Sprint 07: Track OCR time
+            self.telemetry.start_timer('ocr')
+            
+            frames_analyzed = 0
+            total_lines_detected = 0
+            
+            for frame_idx, (frame, ts) in enumerate(extraction_result.frames):
+                frames_analyzed += 1
+                
+                # Detectar texto com TextRegionExtractor
+                text_lines = self.text_extractor.extract_from_frame(frame, ts, frame_idx)
+                total_lines_detected += len(text_lines)
+                
+                # Atualizar tracker
+                tracker.update(text_lines, frame_idx)
+                
+                # Early exit: se já temos evidência clara de legenda dinâmica
+                if frames_analyzed >= 10 and frame_idx % 5 == 0:
+                    # Calcular métricas parciais
+                    partial_tracks = tracker.active_tracks
+                    for track in partial_tracks:
+                        track.compute_metrics(frames_analyzed)
+                    
+                    # Classificar parcialmente
+                    self.telemetry.start_timer('classification')
+                    result = self.classifier.decide(partial_tracks)
+                    classification_ms = self.telemetry.stop_timer('classification')
+                    
+                    # Se detectou legenda com alta confiança, early exit
+                    if result.has_subtitles and result.confidence >= 0.85:
+                        ocr_time_ms = self.telemetry.stop_timer('ocr')
+                        total_ms = self.telemetry.stop_timer('total')
+                        elapsed_ms = (time.time() - start_time) * 1000
+                        
+                        # Sprint 07: Record telemetry
+                        video_id = Path(video_path).stem
+                        metrics = PerformanceMetrics(
+                            total_time_ms=total_ms,
+                            frame_extraction_ms=frame_extraction_ms,
+                            ocr_time_ms=ocr_time_ms,
+                            tracking_time_ms=0.0,
+                            classification_time_ms=classification_ms,
+                            frames_analyzed=frames_analyzed,
+                            tracks_created=len(partial_tracks),
+                            lines_detected=total_lines_detected
+                        )
+                        
+                        self.telemetry.record_decision(
+                            video_id=video_id,
+                            decision='block',
+                            confidence=result.confidence,
+                            reason=result.reason,
+                            method='TRSD',
+                            metrics=metrics,
+                            tracks_by_category=result.tracks_by_category,
+                            decision_logic=result.decision_logic,
+                            early_exit=True,
+                            debug_info={'extraction_method': extraction_result.method}
+                        )
+                        
+                        # Save debug artifacts
+                        self.debug_saver.save_detection_artifacts(
+                            video_id, extraction_result.frames, partial_tracks, result, metrics
+                        )
+                        
+                        logger.warning(
+                            f"⚠️ TRSD EARLY EXIT: Detected subtitles @ frame {frame_idx} "
+                            f"(conf={result.confidence:.2f}, {elapsed_ms:.0f}ms)"
+                        )
+                        
+                        return (
+                            result.has_subtitles,
+                            result.confidence,
+                            result.reason,
+                            {
+                                'method': 'TRSD',
+                                'early_exit': True,
+                                'frames_analyzed': frames_analyzed,
+                                'tracks': len(result.subtitle_tracks)
+                            }
+                        )
+            
+            # Note: No VideoCapture to release - using frame extractor
+            ocr_time_ms = self.telemetry.stop_timer('ocr')
+            final_tracks = tracker.finalize()
+            
+            # Classificar resultado final
+            self.telemetry.start_timer('classification')
+            result = self.classifier.decide(final_tracks)
+            classification_ms = self.telemetry.stop_timer('classification')
+            
+            total_ms = self.telemetry.stop_timer('total')
+            elapsed_ms = (time.time() - start_time) * 1000
+            
+            # Sprint 07: Record telemetry
+            video_id = Path(video_path).stem
+            metrics = PerformanceMetrics(
+                total_time_ms=total_ms,
+                frame_extraction_ms=frame_extraction_ms,
+                ocr_time_ms=ocr_time_ms,
+                tracking_time_ms=0.0,
+                classification_time_ms=classification_ms,
+                frames_analyzed=frames_analyzed,
+                tracks_created=len(final_tracks),
+                lines_detected=total_lines_detected
+            )
+            
+            self.telemetry.record_decision(
+                video_id=video_id,
+                decision='block' if result.has_subtitles else 'approve',
+                confidence=result.confidence,
+                reason=result.reason,
+                method='TRSD',
+                metrics=metrics,
+                tracks_by_category=result.tracks_by_category,
+                decision_logic=result.decision_logic,
+                early_exit=False,
+                debug_info={'extraction_method': extraction_result.method}
+            )
+            
+            # Save debug artifacts
+            self.debug_saver.save_detection_artifacts(
+                video_id, extraction_result.frames, final_tracks, result, metrics
+            )
+            
+            logger.info(
+                f"{'⚠️' if result.has_subtitles else '✅'} TRSD: {result.reason} "
+                f"(conf={result.confidence:.2f}, {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
+            )
+            
+            return (
+                result.has_subtitles,
+                result.confidence,
+                result.reason,
+                {
+                    'method': 'TRSD',
+                    'early_exit': False,
+                    'frames_analyzed': frames_analyzed,
+                    'tracks_by_category': result.tracks_by_category
+                }
+            )
+        
+        except Exception as e:
+            logger.error(f"TRSD detection failed: {e}", exc_info=True)
+            # Reraise para fallback
+            raise
+    
+    def has_embedded_subtitles(self, video_path: str, timeout: int = 60) -> Tuple[bool, float, str]:
+        """
+        Detecta legendas embutidas no vídeo usando TRSD (se habilitado) ou OCR legado
+        
+        Sprint 04: Integração TRSD com fallback
+        - Se TRSD_ENABLED=true: usa detector inteligente
+        - Se falhar ou desabil itado: fallback para OCR legado
+        
+        Estratégia TRSD:
+        1. TextRegionExtractor: detecta texto por ROI
+        2. TemporalTracker: rastreia texto entre frames
+        3. SubtitleClassifier: classifica como legenda ou estático
+        4. Early exit em 10-15 frames se detectar legenda clara
+        
+        Estratégia OCR Legado:
         1. Analisa N frames por segundo (configurável, padrão: 6fps)
         2. Early exit: para na primeira detecção com confiança > threshold
         3. Limite máximo de frames para evitar OOM (padrão: 240 frames)
         4. Full frame OCR (ROI removido)
-        5. 🚧 Transcoding automático para codecs não suportados (AV1)
+        5. Transcoding automático para codecs não suportados (AV1)
         
         Args:
             video_path: Path do vídeo
+            timeout: Timeout em segundos
         
         Returns:
             Tuple (has_subtitles, confidence, sample_text)
+        """
+        # Sprint 04: Tentar TRSD primeiro (se habilitado)
+        if self.trsd_enabled:
+            try:
+                logger.info(f"🔍 Attempting TRSD detection: {video_path}")
+                has_subs, conf, reason, debug_info = self._detect_with_trsd(video_path, timeout)
+                logger.info(f"✅ TRSD detection completed: {reason}")
+                return (has_subs, conf, reason)
+            
+            except Exception as e:
+                logger.warning(f"⚠️ TRSD detection failed, falling back to legacy: {e}")
+                # Continue para método legado
+        
+        # Método legado (ou fallback)
+        return self._detect_with_legacy_ocr(video_path, timeout)
+    
+    def _detect_with_legacy_ocr(self, video_path: str, timeout: int = 60) -> Tuple[bool, float, str]:
+        """
+        Detecção legada com OCR (método original)
+        
+        Sprint 04: Refatorado para ser fallback do TRSD
         """
         start_time = time.time()
         working_path = video_path
@@ -161,22 +414,71 @@ class VideoValidator:
                         )
                         return True, confidence, text
                     
-                    # Armazenar para fallback
+                    # Armazenar TODAS as detecções (não só as de alta confiança)
                     detections.append((text, confidence, ts))
                     logger.debug(f"OCR @ {ts:.1f}s (conf={confidence:.2f}): {text[:50]}")
             
-            # Nenhuma detecção passou o threshold
+            # 📊 NOVA ESTRATÉGIA: Densidade de detecção
+            # Se detectou texto em muitos frames, provavelmente é legenda
+            detection_density = len(detections) / max(frames_analyzed, 1)
+            
             elapsed_ms = (time.time() - start_time) * 1000
             
             if not detections:
                 logger.info(f"✅ No embedded subtitles detected (analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)")
                 return False, 0.0, ""
             
+            # Calcular confiança média das detecções
+            avg_confidence = sum(conf for _, conf, _ in detections) / len(detections)
+            
+            # 🖥️ DETECTOR DE SCREENCAST/CÓDIGO
+            # Detecta vídeos de IDE/terminal/código que têm texto técnico em todos os frames
+            if detection_density > 0.80 and len(detections) >= 10:
+                # Contar palavras técnicas típicas de código/IDE
+                all_text = " ".join(text for text, _, _ in detections)
+                tech_patterns = [
+                    r'\bexplorer\b', r'\bmanager\b', r'\beditor\b', r'\bstorage\b',
+                    r'\bmain\b', r'\bsrc\b', r'\bpath\b', r'\bproject\b',
+                    r'\.ts\b', r'\.js\b', r'\.py\b', r'U\s*\|', r'>\s*>', 
+                    r'\bselection\b', r'\bview\b', r'\bedit\b'
+                ]
+                
+                tech_matches = sum(len(re.findall(pattern, all_text, re.IGNORECASE)) for pattern in tech_patterns)
+                tech_score = tech_matches / len(detections)  # Matches por detection
+                
+                if tech_score > 0.5:  # Se >50% das detecções têm padrões técnicos
+                    best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
+                    logger.warning(
+                        f"⚠️ SCREENCAST/CODE detected (density={detection_density:.1%}, "
+                        f"{len(detections)} detections, tech_score={tech_score:.2f})\n"
+                        f"Sample text: {all_text[:80]}"
+                    )
+                    return True, 0.50, f"Screencast/Code (tech_score={tech_score:.2f})"
+            
+            # 🎯 CRITÉRIOS COMBINADOS para detecção por densidade:
+            # 1. Densidade > 30% (texto em pelo menos 30% dos frames)
+            # 2. Pelo menos 5 detecções (evita ruído pontual)
+            # 3. Confiança média >= 0.30 (pelo menos algumas detecções razoáveis)
+            should_block_by_density = (
+                detection_density > 0.30 and
+                len(detections) >= 5 and
+                avg_confidence >= 0.30
+            )
+            
+            if should_block_by_density:
+                best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
+                logger.warning(
+                    f"⚠️ EMBEDDED SUBTITLES detected by DENSITY (density={detection_density:.1%}, "
+                    f"{len(detections)} detections, avg_conf={avg_confidence:.2f}, best_conf={best_conf:.2f})\n"
+                    f"Sample text: {best_text[:80]}"
+                )
+                return True, best_conf, best_text
+            
             # Retornar melhor detecção mesmo que abaixo do threshold
             best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
             logger.info(
                 f"✅ Low confidence OCR (conf={best_conf:.2f} < {self.min_confidence}, "
-                f"analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
+                f"density={detection_density:.1%}, analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
             )
             return False, best_conf, best_text
             
@@ -410,33 +712,63 @@ class VideoValidator:
         """
         Calcula confiança baseado em características do texto detectado
         
+        IMPROVED: Filtra ruídos visuais detectando apenas legendas legíveis reais
+        
         Features:
-        - Text length (longer = more confident)
-        - Alphanumeric ratio (more alphanum = more confident)
-        - Space presence (sentences have spaces)
+        - Valid words (3+ alphanum chars)
+        - Low special character density
+        - No excessive special char sequences
+        - Reasonable text length
+        - Portuguese/English letters present
         
         Returns:
             Confidence score 0-1
         """
-        # Base confidence
+        if not text or len(text) < 3:
+            return 0.0
+        
+        # 🚫 FILTER 1: Excesso de caracteres especiais (>60% = ruído visual)
+        special_chars = sum(not c.isalnum() and not c.isspace() for c in text)
+        special_ratio = special_chars / len(text)
+        if special_ratio > 0.6:
+            return 0.0
+        
+        # 🚫 FILTER 2: Sequências longas de caracteres especiais (ruído visual típico)
+        # Ex: "=—|" "===" "---" são ruídos, não legendas
+        import re
+        special_sequences = re.findall(r'[^a-zA-Z0-9\s]{3,}', text)
+        if len(special_sequences) > 2:
+            return 0.0
+        
+        # 🚫 FILTER 3: Verificar se há pelo menos 2 palavras legíveis (4+ letras consecutivas)
+        # Ex: "este texto" = válido, "oi la" = inválido
+        words = text.split()
+        valid_words = [w for w in words if re.search(r'[a-zA-Z]{4,}', w)]
+        if len(valid_words) < 2:
+            return 0.0
+        
+        # ✅ SCORING: Texto passou pelos filtros, calcular confiança
         confidence = 0.0
         
-        # Feature 1: Text length (max 0.30)
-        text_len = len(text)
-        len_score = min(text_len / 50.0, 1.0) * 0.30
-        confidence += len_score
+        # Feature 1: Palavras válidas (max 0.40)
+        valid_word_ratio = len(valid_words) / max(len(words), 1)
+        confidence += valid_word_ratio * 0.40
         
-        # Feature 2: Alphanumeric ratio (max 0.30)
-        alnum_count = sum(c.isalnum() for c in text)
-        alnum_ratio = alnum_count / max(len(text), 1)
-        confidence += alnum_ratio * 0.30
+        # Feature 2: Baixa densidade de caracteres especiais (max 0.30)
+        # Inverso: menos especiais = mais confiança
+        clean_ratio = 1.0 - special_ratio
+        confidence += clean_ratio * 0.30
         
-        # Feature 3: Space presence (max 0.40)
-        # Increased weight since we removed position bonus
-        has_spaces = ' ' in text
-        word_count = len(text.split())
-        space_score = min(word_count / 5.0, 1.0) * 0.40 if has_spaces else 0
-        confidence += space_score
+        # Feature 3: Comprimento razoável (max 0.30)
+        # Legendas típicas: 10-100 caracteres
+        len_score = 0.0
+        if 10 <= len(text) <= 100:
+            len_score = 1.0
+        elif len(text) < 10:
+            len_score = len(text) / 10.0
+        else:  # > 100
+            len_score = max(0.3, 1.0 - (len(text) - 100) / 200.0)
+        confidence += len_score * 0.30
         
         return min(confidence, 1.0)
     

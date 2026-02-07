@@ -47,9 +47,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ============================================================================
+# SPRINT-08: Rate Limiting
+# ============================================================================
+from collections import deque
+from time import time
+
+class SimpleRateLimiter:
+    """
+    Simple in-memory rate limiter (Sprint-08)
+    
+    Limita número de requisições em janela de tempo deslizante.
+    Implementação básica (in-memory, não distribuída).
+    """
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = deque()  # Timestamps das requisições
+    
+    def is_allowed(self, client_id: str = "global") -> bool:
+        """
+        Verifica se requisição é permitida
+        
+        Args:
+            client_id: Identificador do cliente (não usado nesta implementação simples)
+        
+        Returns:
+            True se permitido, False se excedeu limite
+        """
+        now = time()
+        
+        # Remove requisições fora da janela
+        while self.requests and self.requests[0] < now - self.window_seconds:
+            self.requests.popleft()
+        
+        # Verifica se pode adicionar nova requisição
+        if len(self.requests) < self.max_requests:
+            self.requests.append(now)
+            return True
+        
+        return False
+
+
 # Global instances
 redis_store = RedisJobStore(redis_url=settings['redis_url'])
 shorts_cache = ShortsCache(cache_dir=settings['shorts_cache_dir'])
+_rate_limiter = SimpleRateLimiter(max_requests=30, window_seconds=60)
 
 
 @app.on_event("startup")
@@ -91,6 +135,8 @@ async def create_video(
     """
     Criar novo vídeo
     
+    **Sprint-08: Rate limited to 30 jobs/minute**
+    
     **Entrada:**
     - audio_file: Arquivo de áudio (mp3, wav, m4a, ogg) - Máx 100MB
     - query: Query de busca para shorts (3-200 caracteres)
@@ -105,6 +151,17 @@ async def create_video(
     - status: Status inicial (QUEUED)
     """
     try:
+        # Rate limiting (Sprint-08)
+        if not _rate_limiter.is_allowed():
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "Too many requests",
+                    "message": "Rate limit exceeded. Max 30 jobs per minute.",
+                    "retry_after": 60
+                }
+            )
+        
         # Validações
         MAX_AUDIO_SIZE = 100 * 1024 * 1024  # 100MB
         
@@ -988,6 +1045,82 @@ async def health_check():
                 "error": str(e)
             }
         )
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """
+    Prometheus metrics endpoint (Sprint-05)
+    
+    Expõe métricas para monitoramento:
+    - Jobs started/completed/failed
+    - Orphans detected/recovered
+    - Circuit breaker status
+    - Disk usage
+    """
+    try:
+        from app.celery_tasks import _metrics, _circuit_breakers
+        import shutil
+        
+        # Disk metrics
+        try:
+            temp_stat = shutil.disk_usage(settings['temp_dir'])
+            disk_free_gb = temp_stat.free / (1024**3)
+            disk_used_pct = (temp_stat.used / temp_stat.total) * 100
+        except:
+            disk_free_gb = 0
+            disk_used_pct = 100
+        
+        # Circuit breaker metrics
+        cb_metrics = []
+        for name, cb in _circuit_breakers.items():
+            state = 1 if cb.is_open else 0
+            cb_metrics.append(f'makevideo_circuit_breaker_state{{service="{name}"}} {state}')
+        
+        metrics_output = f"""# HELP makevideo_jobs_started_total Total jobs started
+# TYPE makevideo_jobs_started_total counter
+makevideo_jobs_started_total {_metrics.jobs_started}
+
+# HELP makevideo_jobs_completed_total Total jobs completed
+# TYPE makevideo_jobs_completed_total counter
+makevideo_jobs_completed_total {_metrics.jobs_completed}
+
+# HELP makevideo_jobs_failed_total Total jobs failed
+# TYPE makevideo_jobs_failed_total counter
+makevideo_jobs_failed_total {_metrics.jobs_failed}
+
+# HELP makevideo_orphans_detected_total Orphaned jobs detected
+# TYPE makevideo_orphans_detected_total counter
+makevideo_orphans_detected_total {_metrics.orphans_detected}
+
+# HELP makevideo_orphans_recovered_total Orphaned jobs recovered
+# TYPE makevideo_orphans_recovered_total counter
+makevideo_orphans_recovered_total {_metrics.orphans_recovered}
+
+# HELP makevideo_orphans_failed_total Failed recovery attempts
+# TYPE makevideo_orphans_failed_total counter
+makevideo_orphans_failed_total {_metrics.orphans_failed}
+
+# HELP makevideo_disk_free_gb Free disk space in GB
+# TYPE makevideo_disk_free_gb gauge
+makevideo_disk_free_gb {{path="{settings['temp_dir']}"}} {disk_free_gb:.2f}
+
+# HELP makevideo_disk_used_percent Disk usage percentage
+# TYPE makevideo_disk_used_percent gauge
+makevideo_disk_used_percent {{path="{settings['temp_dir']}"}} {disk_used_pct:.2f}
+
+# HELP makevideo_circuit_breaker_state Circuit breaker state (0=closed, 1=open)
+# TYPE makevideo_circuit_breaker_state gauge
+{chr(10).join(cb_metrics)}
+"""
+        
+        from fastapi.responses import Response
+        return Response(content=metrics_output, media_type="text/plain")
+        
+    except Exception as e:
+        logger.error(f"❌ Metrics error: {e}", exc_info=True)
+        from fastapi.responses import Response
+        return Response(content=f"# Error generating metrics: {e}", media_type="text/plain")
 
 
 @app.get("/")
