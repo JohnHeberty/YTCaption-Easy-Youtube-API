@@ -9,7 +9,7 @@ import json
 import logging
 import time
 import cv2
-import pytesseract
+import easyocr
 import os
 import re
 from typing import Tuple, Optional, Dict
@@ -53,7 +53,9 @@ class VideoValidator:
         self.min_confidence = min_confidence
         self.frames_per_second = frames_per_second
         self.max_frames = max_frames
-        self.tesseract_config = r'--oem 3 --psm 6 -l por+eng'
+        
+        # Inicializar EasyOCR reader para detecção legada (quando TRSD está desabilitado)
+        self.ocr_reader = easyocr.Reader(['pt', 'en'], gpu=False, verbose=False)
         
         # TRSD Components (Sprint 04)
         self.config = Settings()
@@ -398,9 +400,9 @@ class VideoValidator:
                 # Reset counter on success
                 consecutive_failures = 0
                 
-                # Run OCR on full frame
-                text = pytesseract.image_to_string(frame, config=self.tesseract_config)
-                text = text.strip()
+                # Run OCR on full frame with EasyOCR
+                results = self.ocr_reader.readtext(frame, detail=0)  # detail=0 retorna apenas texto
+                text = ' '.join(results).strip()
                 
                 if text:
                     confidence = self._calculate_ocr_confidence(text)

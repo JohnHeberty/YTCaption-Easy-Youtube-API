@@ -11,14 +11,16 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-por \
     tesseract-ocr-eng \
+    libsndfile1 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy requirements
 COPY requirements-docker.txt requirements.txt
-# Install CPU-only torch first from PyTorch index, then other requirements
-RUN pip install --no-cache-dir torch==2.1.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cpu && \
+# Install PyTorch CPU + EasyOCR and other requirements
+RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

@@ -6,6 +6,9 @@ services:
     container_name: ytcaption-make-video
     ports:
       - "${PORT}:${PORT}"
+    mem_limit: 6g
+    memswap_limit: 6g
+    shm_size: '2gb'
     volumes:
       - ./storage/audio_uploads:/app/storage/audio_uploads
       - ./storage/shorts_cache:/app/storage/shorts_cache

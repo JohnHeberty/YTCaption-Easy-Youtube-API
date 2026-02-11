@@ -52,3 +52,6 @@ storage/output_videos/*
 # Environment
 .env
 .env.local
+
+# Trash folder (deprecated files)
+trash/

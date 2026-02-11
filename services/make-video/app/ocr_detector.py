@@ -1,14 +1,15 @@
 """
 OCR Detection Module
 
-Detecta presença de legendas em frames usando Tesseract OCR
+Detecta presença de legendas em frames usando EasyOCR com otimizações avançadas
 """
 
 import cv2
 import numpy as np
-import pytesseract
+import easyocr
+import re
 import logging
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Set
 from dataclasses import dataclass
 from app.metrics import ocr_confidence_distribution
 
@@ -22,20 +23,57 @@ class OCRResult:
     confidence: float
     word_count: int
     has_subtitle: bool
+    readable_words: List[str]  # Palavras legíveis detectadas
 
 
 class OCRDetector:
     """
-    Detector de legendas usando OCR
+    Detector de legendas usando EasyOCR com validação de palavras legíveis
     
-    Detecta presença de legendas na região inferior do vídeo
+    Pipeline de processamento:
+    1. EasyOCR extrai texto
+    2. Regex limpa texto (apenas letras e números)
+    3. Remove letras/números isolados
+    4. Filtra palavras com >2 caracteres
+    5. Valida se há palavras legíveis em PT/EN
     """
+    
+    # Palavras comuns em português e inglês para validação
+    COMMON_WORDS_PT = {
+        'que', 'não', 'uma', 'para', 'com', 'por', 'isso', 'mais', 'este', 'esta',
+        'seu', 'sua', 'foi', 'ser', 'tem', 'pode', 'mas', 'como', 'muito', 'quando',
+        'sem', 'sim', 'bem', 'também', 'só', 'até', 'depois', 'antes', 'entre', 'sobre',
+        'então', 'agora', 'sempre', 'nunca', 'outro', 'nova', 'novo', 'grande', 'mesmo',
+        'ainda', 'onde', 'ano', 'dia', 'vez', 'porque', 'aqui', 'lá', 'ali', 'hoje',
+        'ontem', 'amanhã', 'noite', 'manhã', 'tarde', 'hora', 'minuto', 'segundo',
+        'casa', 'pai', 'mãe', 'filho', 'filha', 'irmão', 'irmã', 'homem', 'mulher',
+        'vida', 'morte', 'amor', 'olhar', 'ver', 'fazer', 'dar', 'ter', 'vir', 'ir',
+        'dizer', 'falar', 'pensar', 'querer', 'saber', 'poder', 'dever', 'achar'
+    }
+    
+    COMMON_WORDS_EN = {
+        'the', 'and', 'for', 'you', 'are', 'not', 'this', 'that', 'with', 'from',
+        'have', 'was', 'were', 'been', 'will', 'can', 'but', 'what', 'all', 'when',
+        'time', 'year', 'day', 'way', 'its', 'may', 'any', 'only', 'now', 'new',
+        'make', 'work', 'know', 'take', 'see', 'come', 'get', 'use', 'find', 'give',
+        'tell', 'ask', 'try', 'call', 'hand', 'part', 'about', 'after', 'back',
+        'just', 'good', 'another', 'where', 'every', 'much', 'before', 'right',
+        'mean', 'old', 'great', 'same', 'because', 'turn', 'here', 'show', 'why',
+        'help', 'put', 'different', 'away', 'again', 'off', 'went', 'number'
+    }
     
     def __init__(self):
         """
-        Detector de legendas usando OCR na imagem completa
+        Inicializa detector com EasyOCR configurado para PT e EN
         """
-        logger.info("OCRDetector initialized (full frame OCR)")
+        logger.info("🚀 Initializing EasyOCR detector (pt+en)...")
+        try:
+            # Inicializar EasyOCR com português e inglês
+            self.reader = easyocr.Reader(['pt', 'en'], gpu=False, verbose=False)
+            logger.info("✅ EasyOCR detector initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize EasyOCR: {e}")
+            raise
     
     def detect_subtitle_in_frame(
         self,
@@ -43,44 +81,60 @@ class OCRDetector:
         min_confidence: float = 60.0
     ) -> OCRResult:
         """
-        Detecta legenda em um frame
+        Detecta legenda em um frame usando EasyOCR com validação de palavras legíveis
+        
+        Pipeline:
+        1. Pré-processamento da imagem
+        2. EasyOCR extrai texto
+        3. Limpeza com regex (apenas letras/números)
+        4. Remoção de caracteres isolados
+        5. Filtragem de palavras >2 caracteres
+        6. Validação de palavras legíveis (PT/EN)
         
         Args:
             frame: Frame BGR do cv2
-            min_confidence: Confiança mínima para considerar legenda
+            min_confidence: Confiança mínima (0-100) para aceitar detecção
         
         Returns:
-            OCRResult com texto e confiança
+            OCRResult com texto processado e lista de palavras legíveis
         """
         # Pré-processar para melhorar OCR
         processed = self._preprocess_for_ocr(frame)
         
-        # Executar OCR
-        ocr_data = pytesseract.image_to_data(
-            processed,
-            lang='eng+por',
-            output_type=pytesseract.Output.DICT
-        )
+        # Executar EasyOCR
+        try:
+            ocr_results = self.reader.readtext(processed, detail=1)
+        except Exception as e:
+            logger.warning(f"EasyOCR failed: {e}")
+            return OCRResult(
+                text="",
+                confidence=0.0,
+                word_count=0,
+                has_subtitle=False,
+                readable_words=[]
+            )
         
-        # Analisar resultado
-        text, confidence, word_count = self._parse_ocr_result(ocr_data)
+        # Processar resultados do EasyOCR aplicando threshold
+        raw_text, confidence, readable_words = self._process_easyocr_results(ocr_results, min_confidence)
         
-        # Decidir se tem legenda
-        has_subtitle = confidence >= min_confidence and word_count >= 2
+        # Critério de validação: presença de palavras legíveis
+        has_subtitle = len(readable_words) > 0
+        word_count = len(readable_words)
         
         # Registrar métrica
         ocr_confidence_distribution.observe(confidence)
         
         logger.debug(
-            f"OCR result: confidence={confidence:.1f}, "
-            f"words={word_count}, has_subtitle={has_subtitle}"
+            f"📝 OCR: conf={confidence:.1f}%, words={word_count}, "
+            f"readable={readable_words}, has_subtitle={has_subtitle}"
         )
         
         return OCRResult(
-            text=text,
+            text=raw_text,
             confidence=confidence,
             word_count=word_count,
-            has_subtitle=has_subtitle
+            has_subtitle=has_subtitle,
+            readable_words=readable_words
         )
     
     def _preprocess_for_ocr(self, frame: np.ndarray) -> np.ndarray:
@@ -118,39 +172,69 @@ class OCRDetector:
         
         return binary
     
-    def _parse_ocr_result(self, ocr_data: dict) -> Tuple[str, float, int]:
+    def _process_easyocr_results(self, ocr_results: List, min_confidence: float = 60.0) -> Tuple[str, float, List[str]]:
         """
-        Parseia resultado do Tesseract
+        Processa resultados do EasyOCR aplicando pipeline de limpeza
+        
+        Pipeline:
+        1. Extrai texto bruto e confiança (filtrando por threshold)
+        2. Aplica regex: mantém apenas letras e números
+        3. Remove caracteres isolados (letras/números sozinhos)
+        4. Filtra palavras >2 caracteres
+        5. Valida palavras legíveis em PT/EN
         
         Args:
-            ocr_data: Dict retornado por image_to_data
+            ocr_results: Lista de tuplas (bbox, text, confidence) do EasyOCR
+            min_confidence: Confiança mínima (0-100) para aceitar detecção
         
         Returns:
-            (texto, confiança_média, contagem_palavras)
+            (texto_bruto, confiança_média, lista_palavras_legíveis)
         """
-        # Filtrar palavras com confiança válida (> -1)
-        valid_words = [
-            (text, conf)
-            for text, conf in zip(ocr_data['text'], ocr_data['conf'])
-            if conf > 0 and text.strip()
-        ]
+        if not ocr_results:
+            return "", 0.0, []
         
-        if not valid_words:
-            return "", 0.0, 0
+        # Extrair textos e confianças (filtrar por threshold)
+        all_texts = []
+        confidences = []
         
-        # Extrair texto e confiança
-        texts, confidences = zip(*valid_words)
+        for bbox, text, conf in ocr_results:
+            conf_percent = conf * 100  # Converter para percentual
+            # Aplicar threshold de confiança
+            if text.strip() and conf_percent >= min_confidence:
+                all_texts.append(text)
+                confidences.append(conf_percent)
         
-        # Texto completo
-        full_text = " ".join(texts)
+        if not all_texts:
+            return "", 0.0, []
+        
+        # Texto bruto concatenado
+        raw_text = " ".join(all_texts)
         
         # Confiança média
         avg_confidence = sum(confidences) / len(confidences)
         
-        # Contagem de palavras
-        word_count = len(valid_words)
+        # STEP 1: Regex - manter apenas letras e números
+        cleaned_text = re.sub(r'[^a-zA-Z0-9\s]', '', raw_text)
         
-        return full_text, avg_confidence, word_count
+        # STEP 2: Dividir em palavras
+        words = cleaned_text.split()
+        
+        # STEP 3: Remover caracteres isolados (letras/números sozinhos)
+        # STEP 4: Filtrar palavras com >2 caracteres
+        filtered_words = [w.lower() for w in words if len(w) > 2]
+        
+        # STEP 5: Validar palavras legíveis (presentes em dicionários PT/EN)
+        readable_words = [
+            w for w in filtered_words
+            if w in self.COMMON_WORDS_PT or w in self.COMMON_WORDS_EN
+        ]
+        
+        logger.debug(
+            f"📊 Pipeline: raw='{raw_text}' → cleaned='{cleaned_text}' → "
+            f"filtered={filtered_words} → readable={readable_words}"
+        )
+        
+        return raw_text, avg_confidence, readable_words
     
     def extract_frame_at_timestamp(
         self,

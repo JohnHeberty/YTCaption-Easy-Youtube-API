@@ -24,6 +24,7 @@ from .subtitle_generator import SubtitleGenerator
 from .subtitle_postprocessor import process_subtitles_with_vad
 from .video_validator import VideoValidator
 from .blacklist_factory import get_blacklist
+from .file_logger import FileLogger
 from .exceptions import (
     MakeVideoException,
     AudioProcessingException,
@@ -32,6 +33,9 @@ from .exceptions import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Inicializar sistema de logging em arquivo
+FileLogger.setup()
 
 # Global instances (will be initialized per worker)
 redis_store = None
@@ -176,13 +180,24 @@ def process_make_video(self, job_id: str):
 async def _process_make_video_async(job_id: str):
     """Processamento assíncrono do vídeo"""
     
+    # Criar logger específico para este job
+    job_logger = FileLogger.get_job_logger(job_id)
+    job_logger.info("="*80)
+    job_logger.info(f"🎬 STARTING MAKE-VIDEO JOB: {job_id}")
+    job_logger.info("="*80)
+    
     store, api_client, video_builder, shorts_cache, subtitle_gen = get_instances()
     settings = get_settings()
+    
+    job_logger.debug(f"Settings loaded: {list(settings.keys())}")
     
     # Carregar job
     job = await store.get_job(job_id)
     if not job:
+        job_logger.error(f"❌ Job {job_id} not found in Redis")
         raise MakeVideoException(f"Job {job_id} not found")
+    
+    job_logger.info(f"Job loaded: query='{job.query}', max_shorts={job.max_shorts}")
     
     try:
         # Etapa 1: Analisar áudio
@@ -244,29 +259,61 @@ async def _process_make_video_async(job_id: str):
         await _save_checkpoint(job_id, "fetching_shorts_completed")
         
         # Etapa 3: Verificar cache e baixar shorts necessários
+        job_logger.info("="*60)
+        job_logger.info(f"⬇️ [3/7] CHECKING CACHE AND DOWNLOADING SHORTS")
+        job_logger.info("="*60)
         logger.info(f"⬇️ [3/7] Checking cache and downloading shorts...")
         await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=25.0)
+        
+        job_logger.info(f"shorts_cache_dir: {settings['shorts_cache_dir']}")
+        job_logger.info(f"max_fetch_rounds: {settings['max_fetch_rounds']}")
+        job_logger.info(f"Initial shorts_list length: {len(shorts_list)}")
         
         downloaded_shorts = []
         failed_downloads = []
         processed_ids = set()
         max_rounds = settings['max_fetch_rounds']  # Configurável via MAX_FETCH_ROUNDS
         base_request = max(job.max_shorts, 10)
+        
+        job_logger.info(f"max_rounds={max_rounds}, base_request={base_request}")
 
         async def download_with_retry(short_info, index):
             video_id = short_info['video_id']
             output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
             
+            job_logger.debug(f"📥 [Download] Starting: {video_id} (#{index+1})")
+            job_logger.debug(f"   Output path: {output_path}")
+            
             # 🚫 CHECK 1: Verificar blacklist ANTES de baixar
             if blacklist.is_blacklisted(video_id):
+                job_logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
                 logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
                 failed_downloads.append(video_id)
                 return None
             
+            job_logger.debug(f"   ✅ Not in blacklist")
+            
             for attempt in range(3):  # 3 tentativas
                 try:
-                    # Download do vídeo
-                    metadata = await api_client.download_video(video_id, str(output_path))
+                    job_logger.debug(f"   🔄 Download attempt {attempt+1}/3 for {video_id}")
+                    
+                    #Download do vídeo com timeout
+                    job_logger.debug(f"   📡 Calling video-downloader API: {video_id}")
+                    job_logger.debug(f"   ⏱️  Timeout: 180s (3 minutos)")
+                    
+                    try:
+                        metadata = await asyncio.wait_for(
+                            api_client.download_video(video_id, str(output_path)),
+                            timeout=180.0  # 3 minutos timeout absoluto
+                        )
+                        job_logger.debug(f"   ✅ Download completed: {video_id}, metadata: {metadata}")
+                    except asyncio.TimeoutError:
+                        job_logger.error(f"   ⏱️❌ TIMEOUT 180s for {video_id}")
+                        raise MicroserviceException(
+                            "video-downloader",
+                            f"Download timeout after 180s",
+                            {"video_id": video_id, "timeout": True}
+                        )
                     
                     # ✅ CHECK 2: Validar integridade do vídeo (síncrono)
                     try:
@@ -321,6 +368,7 @@ async def _process_make_video_async(job_id: str):
 
         for round_idx in range(1, max_rounds + 1):
             request_size = base_request * round_idx
+            job_logger.info(f"🔁 ROUND {round_idx}/{max_rounds}: buscando até {request_size} shorts (base={base_request})")
             logger.info(f"🔁 Round {round_idx}/{max_rounds}: buscando até {request_size} shorts (base={base_request})")
             await update_job_status(
                 job_id,
@@ -328,7 +376,9 @@ async def _process_make_video_async(job_id: str):
                 progress=25.0 + (round_idx - 1) * 5.0
             )
             
+            job_logger.debug(f"Calling api_client.search_shorts(query='{job.query}', max_shorts={request_size})")
             shorts_list = await api_client.search_shorts(job.query, request_size)
+            job_logger.info(f"🔍 Received {len(shorts_list)} shorts from search API")
             logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos (round {round_idx})...")
             cache_hits = 0
             to_download = []
@@ -336,15 +386,21 @@ async def _process_make_video_async(job_id: str):
             for short in shorts_list:
                 video_id = short['video_id']
                 if video_id in processed_ids:
+                    job_logger.debug(f"   ⏭️  {video_id}: already processed, skipping")
                     continue
                 processed_ids.add(video_id)
+                job_logger.debug(f"   🔍 Checking cache for: {video_id}")
                 cached = shorts_cache.get(video_id)
                 if cached:
                     try:
                         file_path = Path(cached["file_path"])
+                        job_logger.debug(f"   ✅ Cache hit: {video_id}, validating integrity...")
                         video_validator.validate_video_integrity(str(file_path), timeout=5)
                         has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(file_path))
                         if has_subs:
+                            job_logger.warning(
+                                f"   🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
+                            )
                             logger.error(
                                 f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
                             )
@@ -357,23 +413,32 @@ async def _process_make_video_async(job_id: str):
                         shorts_cache.mark_validated(video_id, False, confidence)
                         downloaded_shorts.append(cached)
                         cache_hits += 1
+                        job_logger.info(f"   ✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
                         logger.info(f"✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
                     except Exception as e:
+                        job_logger.warning(f"   ⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
                         logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
                         shorts_cache.remove(video_id)
                         to_download.append(short)
                 else:
+                    job_logger.debug(f"   ⬇️  Cache miss: {video_id}, adding to download queue")
                     to_download.append(short)
             
+            job_logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download (round {round_idx})")
             logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download (round {round_idx})")
 
             if len(downloaded_shorts) < min(10, base_request):
+                job_logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
                 logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
                 batch_size = 5
                 for i in range(0, len(to_download), batch_size):
                     batch = to_download[i:i+batch_size]
+                    job_logger.debug(f"   Batch {i//batch_size + 1}: processing {len(batch)} videos")
+                    job_logger.debug(f"   Video IDs in batch: {[s['video_id'] for s in batch]}")
                     tasks = [download_with_retry(short, i+j) for j, short in enumerate(batch)]
+                    job_logger.debug(f"   Awaiting asyncio.gather for {len(tasks)} tasks...")
                     results = await asyncio.gather(*tasks, return_exceptions=True)
+                    job_logger.debug(f"   Results received: {len([r for r in results if r and not isinstance(r, Exception)])} successful")
                     for result in results:
                         if result and not isinstance(result, Exception):
                             downloaded_shorts.append(result)
@@ -676,6 +741,56 @@ async def _process_make_video_async(job_id: str):
         # Obter informações do vídeo final
         video_info = await video_builder.get_video_info(str(final_video_path))
         file_size = final_video_path.stat().st_size
+        
+        # ============================================================================
+        # VALIDAÇÃO FINAL OBRIGATÓRIA (BUG FIX: detectar vídeo com duração incorreta)
+        # ============================================================================
+        final_video_duration = video_info['duration']
+        
+        logger.info(f"🎯 FINAL VALIDATION:")
+        logger.info(f"   ├─ Audio duration: {audio_duration:.2f}s")
+        logger.info(f"   ├─ Target (audio + padding): {final_duration:.2f}s")
+        logger.info(f"   └─ Final video: {final_video_duration:.2f}s")
+        
+        # Tolerância: ±2 segundos do target
+        tolerance = 2.0
+        duration_diff = abs(final_video_duration - final_duration)
+        
+        if duration_diff > tolerance:
+            logger.error(
+                f"❌ FINAL VALIDATION FAILED! "
+                f"Video duration ({final_video_duration:.2f}s) differs from target "
+                f"({final_duration:.2f}s) by {duration_diff:.2f}s (tolerance: {tolerance}s)"
+            )
+            
+            raise VideoProcessingException(
+                "Final video duration validation failed",
+                {
+                    "audio_duration": audio_duration,
+                    "target_duration": final_duration,
+                    "actual_duration": final_video_duration,
+                    "difference": duration_diff,
+                    "tolerance": tolerance,
+                    "conclusion": "Video processing completed but duration is incorrect. "
+                                 "Check concatenation and trim steps in logs."
+                }
+            )
+        
+        # Validação de áudio: vídeo deve ser >= áudio
+        if final_video_duration < audio_duration - 0.5:
+            logger.error(
+                f"❌ CRITICAL: Video ({final_video_duration:.2f}s) is shorter than audio ({audio_duration:.2f}s)!"
+            )
+            raise VideoProcessingException(
+                "Video is shorter than audio",
+                {
+                    "video_duration": final_video_duration,
+                    "audio_duration": audio_duration,
+                    "problem": "Video cannot be shorter than audio"
+                }
+            )
+        
+        logger.info(f"✅ FINAL VALIDATION PASSED: Duration OK ({final_video_duration:.2f}s ≈ {final_duration:.2f}s)")
         
         # Criar resultado
         result = JobResult(
