@@ -10,7 +10,7 @@ Sprint 01: Arquitetura base e extração de regiões
 """
 
 import cv2
-import pytesseract
+import easyocr
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -46,7 +46,10 @@ class TextRegionExtractor:
         self.line_y_tolerance = self.config.trsd_line_y_tolerance
         self.line_x_gap = self.config.trsd_line_x_gap
         
-        logger.info(f"TextRegionExtractor initialized: downscale={self.target_width}px")
+        # Inicializar EasyOCR reader
+        self.reader = easyocr.Reader(['pt', 'en'], gpu=False, verbose=False)
+        
+        logger.info(f"TextRegionExtractor initialized: downscale={self.target_width}px, engine=EasyOCR")
     
     def extract_from_frame(
         self,
@@ -179,36 +182,37 @@ class TextRegionExtractor:
     
     def _detect_words(self, roi_prep: np.ndarray) -> List[dict]:
         """
-        Detecta palavras com Tesseract
+        Detecta palavras com EasyOCR
         
         Returns:
             Lista de dicts com {text, bbox, conf}
         """
         try:
-            # Tesseract data
-            data = pytesseract.image_to_data(
-                roi_prep,
-                output_type=pytesseract.Output.DICT,
-                config='--psm 6'  # Assume uniform block of text
-            )
+            # EasyOCR retorna lista de (bbox, text, confidence)
+            results = self.reader.readtext(roi_prep, detail=1)
             
             # Converter para lista de palavras
             words = []
-            n_boxes = len(data['text'])
             
-            for i in range(n_boxes):
-                text = data['text'][i].strip()
-                conf = float(data['conf'][i])
+            for bbox, text, conf in results:
+                text = text.strip()
                 
-                if not text or conf < 0:
+                if not text:
                     continue
                 
-                x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                # Bbox format: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                # Converter para (x, y, w, h)
+                x_coords = [pt[0] for pt in bbox]
+                y_coords = [pt[1] for pt in bbox]
+                x = int(min(x_coords))
+                y = int(min(y_coords))
+                w = int(max(x_coords) - x)
+                h = int(max(y_coords) - y)
                 
                 words.append({
                     'text': text,
                     'bbox': (x, y, w, h),
-                    'conf': conf / 100.0  # Normalizar [0-1]
+                    'conf': conf  # EasyOCR já retorna [0-1]
                 })
             
             return words

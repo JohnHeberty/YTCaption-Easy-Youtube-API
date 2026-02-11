@@ -45,6 +45,10 @@ storage/audio_uploads/
 storage/shorts_cache/
 storage/temp/
 storage/output_videos/
+# CRITICAL: Exclude calibration videos (300MB+) from Docker context
+storage/OK/
+storage/NOT_OK/
+storage/calibration/
 
 # Git
 .git/

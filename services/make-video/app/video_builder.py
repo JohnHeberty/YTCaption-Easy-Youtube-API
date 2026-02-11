@@ -112,11 +112,26 @@ class VideoBuilder:
         concat_list_path = self.temp_dir / f"concat_list_{Path(output_path).stem}.txt"
         
         try:
+            # Calcular duração esperada antes da concatenação
+            expected_duration = 0.0
+            logger.info(f"📊 Input videos for concatenation:")
+            
             with open(concat_list_path, "w", encoding='utf-8') as f:
-                for video_file in video_files:
+                for i, video_file in enumerate(video_files):
                     # FFmpeg concat demangle requer path absoluto
                     abs_path = Path(video_file).resolve()
                     f.write(f"file '{abs_path}'\n")
+                    
+                    # Log duração de cada input (para debug)
+                    try:
+                        input_info = await self.get_video_info(str(video_file))
+                        input_duration = input_info['duration']
+                        expected_duration += input_duration
+                        logger.info(f"  [{i+1}] {Path(video_file).name}: {input_duration:.2f}s")
+                    except Exception as e:
+                        logger.warning(f"  [{i+1}] {Path(video_file).name}: Could not get duration - {e}")
+            
+            logger.info(f"📊 Expected output duration: {expected_duration:.2f}s (sum of {len(video_files)} videos)")
             
             # FFmpeg command
             cmd = [
@@ -156,7 +171,35 @@ class VideoBuilder:
                     {"ffmpeg_error": error_msg, "return_code": process.returncode}
                 )
             
-            logger.info(f"✅ Videos concatenated: {output_path}")
+            # VALIDAÇÃO PÓS-CONCATENAÇÃO (BUG FIX: detectar duplicação)
+            output_info = await self.get_video_info(str(output_path))
+            actual_duration = output_info['duration']
+            
+            logger.info(f"📊 Concatenation result:")
+            logger.info(f"  ├─ Expected: {expected_duration:.2f}s")
+            logger.info(f"  ├─ Actual: {actual_duration:.2f}s")
+            logger.info(f"  └─ Difference: {abs(actual_duration - expected_duration):.2f}s")
+            
+            # Tolerância de 2 segundos (devido a keyframes e arredondamentos)
+            tolerance = 2.0
+            if abs(actual_duration - expected_duration) > tolerance:
+                logger.error(
+                    f"❌ CONCATENATION BUG DETECTED! "
+                    f"Actual duration ({actual_duration:.2f}s) differs from expected "
+                    f"({expected_duration:.2f}s) by {abs(actual_duration - expected_duration):.2f}s"
+                )
+                raise VideoProcessingException(
+                    "Concatenation resulted in incorrect duration",
+                    {
+                        "expected_duration": expected_duration,
+                        "actual_duration": actual_duration,
+                        "difference": actual_duration - expected_duration,
+                        "tolerance": tolerance,
+                        "input_count": len(video_files)
+                    }
+                )
+            
+            logger.info(f"✅ Video concatenated successfully: {output_path}")
             return output_path
         
         finally:
@@ -233,6 +276,11 @@ class VideoBuilder:
         
         logger.info(f"📝 Burning subtitles (style: {style})")
         
+        # Verificar duração do vídeo de entrada
+        input_info = await self.get_video_info(str(video_path))
+        input_duration = input_info['duration']
+        logger.info(f"📊 Input video duration: {input_duration:.2f}s")
+        
         # Estilos de legenda - CENTRO DA TELA, TAMANHO PEQUENO PARA EVITAR SAIR DA TELA
         # Alignment=10 = Topo centro, MarginV=280 empurra para centro
         # FontSize pequeno para palavras grandes não saírem da tela
@@ -252,6 +300,9 @@ class VideoBuilder:
             "-i", str(video_path),
             "-vf", f"subtitles={subtitle_path_escaped}:force_style='{subtitle_style}'",
             "-c:a", "copy",  # Não re-encode áudio
+            "-map", "0:v:0",  # BUG FIX: Mapear APENAS primeiro stream de vídeo
+            "-map", "0:a:0",  # BUG FIX: Mapear APENAS primeiro stream de áudio
+            "-y",
             str(output_path)
         ]
         
@@ -273,6 +324,22 @@ class VideoBuilder:
                 {"ffmpeg_error": error_msg, "return_code": process.returncode}
             )
         
+        # VALIDAÇÃO PÓS-BURN (verificar se duração se manteve)
+        output_info = await self.get_video_info(str(output_path))
+        output_duration = output_info['duration']
+        
+        logger.info(f"📊 Subtitle burn result:")
+        logger.info(f"  ├─ Input: {input_duration:.2f}s")
+        logger.info(f"  └─ Output: {output_duration:.2f}s")
+        
+        # Tolerância de 1 segundo
+        if abs(output_duration - input_duration) > 1.0:
+            logger.warning(
+                f"⚠️ Duration changed after subtitle burn: "
+                f"{input_duration:.2f}s → {output_duration:.2f}s "
+                f"(diff: {abs(output_duration - input_duration):.2f}s)"
+            )
+        
         logger.info(f"✅ Subtitles burned: {output_path}")
         return output_path
     
@@ -292,26 +359,31 @@ class VideoBuilder:
             VideoProcessingException: Se falhar o trim
         
         Note:
-            - Usa -t (duration) ao invés de -to (timestamp)
-            - -c copy (stream copy) é mais rápido mas pode ter imprecisão de keyframes
-            - Se precisar precisão: usar com -c:v libx264 (re-encode)
+            - Usa re-encode (libx264) para precisão frame-accurate
+            - Stream copy (-c copy) não funciona bem para trim preciso (apenas keyframes)
+            - Trade-off: mais lento (~2-5s) mas preciso ao milissegundo
         """
         
-        logger.info(f"✂️ Trimming video to {max_duration:.2f}s")
+        logger.info(f"✂️ Trimming video to {max_duration:.2f}s (re-encode mode for precision)")
         
-        # Stream copy (rápido, mas pode ter imprecisão ~0.5s devido a keyframes)
-        # Recomendado para produção se aceitável
+        # RE-ENCODE para precisão (BUG FIX: stream copy causava imprecisão +20s)
+        # Usar -t para limitar duração de saída
         cmd = [
             self.ffmpeg_path,
             "-i", str(video_path),
-            "-t", str(max_duration),  # Limitar duração
-            "-c", "copy",             # Não re-encoda (rápido)
-            "-avoid_negative_ts", "make_zero",  # Evitar timestamps negativos
-            "-y",  # Sobrescrever sem perguntar
+            "-t", str(max_duration),  # Duração máxima de saída
+            "-c:v", "libx264",        # Re-encode vídeo (preciso)
+            "-c:a", "aac",            # Re-encode áudio
+            "-preset", "fast",        # Balanço velocidade/qualidade
+            "-crf", "23",             # Qualidade boa (18=melhor, 28=menor)
+            "-map", "0:v:0",          # Mapear APENAS primeiro stream de vídeo
+            "-map", "0:a:0",          # Mapear APENAS primeiro stream de áudio
+            "-avoid_negative_ts", "make_zero",
+            "-y",
             str(output_path)
         ]
         
-        logger.info(f"▶️ Running FFmpeg trim (stream copy mode)...")
+        logger.info(f"▶️ Running FFmpeg trim (re-encode for precision)...")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,

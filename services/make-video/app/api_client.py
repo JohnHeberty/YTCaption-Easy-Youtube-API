@@ -141,15 +141,18 @@ class MicroservicesClient:
         """
         
         logger.info(f"📡 Chamando video-downloader API: video_id={video_id}")
+        logger.debug(f"   Downloader URL: {self.video_downloader_url}")
         
         url = f"https://youtube.com/watch?v={video_id}"
         
         try:
             # Iniciar download
+            logger.debug(f"   POST /jobs: url={url}, quality=best")
             response = await self.client.post(
                 f"{self.video_downloader_url}/jobs",
                 json={"url": url, "quality": "best"}
             )
+            logger.debug(f"   Response status: {response.status_code}")
             response.raise_for_status()
             download_job = response.json()
             job_id = download_job["id"]
@@ -161,11 +164,14 @@ class MicroservicesClient:
             max_polls = 40  # 2 minutos total (reduzido de 10min)
             
             for attempt in range(max_polls):
+                logger.debug(f"   Polling attempt {attempt+1}/{max_polls} for job {job_id}")
                 response = await self.client.get(
                     f"{self.video_downloader_url}/jobs/{job_id}"
                 )
+                logger.debug(f"   Poll response status: {response.status_code}")
                 response.raise_for_status()
                 job = response.json()
+                logger.debug(f"   Job status: {job.get('status')}, progress: {job.get('progress', 0)}%")
                 
                 if job["status"] == "completed":
                     # Baixar arquivo
@@ -207,16 +213,10 @@ class MicroservicesClient:
                 f"Download timeout after {max_polls * poll_interval}s",
                 {"job_id": job_id, "video_id": video_id, "timeout": True}
             )
-            
-            # Timeout
-            raise MicroserviceException(
-                "video-downloader",
-                "Download timeout - job took too long",
-                {"job_id": job_id, "video_id": video_id, "max_wait": max_polls * poll_interval}
-            )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling video-downloader: {e}")
+            logger.debug(f"   Exception type: {type(e).__name__}, details: {str(e)}")
             raise MicroserviceException(
                 "video-downloader",
                 f"HTTP error: {str(e)}",
