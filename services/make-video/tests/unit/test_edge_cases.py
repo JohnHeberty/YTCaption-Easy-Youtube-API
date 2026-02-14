@@ -31,7 +31,7 @@ def test_video_processor_zero_duration(mock_redis):
         mock_extract.return_value = Mock()
         
         with patch.object(processor.ocr, 'detect_subtitle_in_frame') as mock_detect:
-            from app.ocr_detector import OCRResult
+            from app.video_processing.ocr_detector import OCRResult
             mock_detect.return_value = OCRResult(
                 text="Test", confidence=80.0, word_count=1, has_subtitle=True
             )
@@ -54,7 +54,7 @@ def test_video_processor_negative_duration(mock_redis):
         mock_extract.return_value = Mock()
         
         with patch.object(processor.ocr, 'detect_subtitle_in_frame') as mock_detect:
-            from app.ocr_detector import OCRResult
+            from app.video_processing.ocr_detector import OCRResult
             mock_detect.return_value = OCRResult(
                 text="Test", confidence=80.0, word_count=1, has_subtitle=True
             )
@@ -121,7 +121,7 @@ def test_ocr_detector_empty_text():
     if 'pytesseract' not in sys.modules:
         sys.modules['pytesseract'] = MagicMock()
     
-    from app.ocr_detector import OCRDetector
+    from app.video_processing.ocr_detector import OCRDetector
     
     detector = OCRDetector()
     
@@ -147,7 +147,7 @@ def test_ocr_detector_mixed_confidence():
     if 'pytesseract' not in sys.modules:
         sys.modules['pytesseract'] = MagicMock()
     
-    from app.ocr_detector import OCRDetector
+    from app.video_processing.ocr_detector import OCRDetector
     
     detector = OCRDetector()
     

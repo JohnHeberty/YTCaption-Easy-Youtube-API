@@ -23,6 +23,9 @@ from .shorts_manager import ShortsCache
 from .celery_tasks import process_make_video
 from .logging_config import setup_logging
 from .exceptions import MakeVideoException
+from .constants import ProcessingLimits, AspectRatios, FileExtensions, HttpStatusCodes
+from .validation import CreateVideoRequestValidated, AudioFileValidator, QueryValidator
+from .events import EventPublisher, EventType, Event
 
 # Setup logging
 setup_logging()
@@ -60,6 +63,8 @@ class SimpleRateLimiter:
     
     Limita número de requisições em janela de tempo deslizante.
     Implementação básica (in-memory, não distribuída).
+    
+    TODO: Migrar para DistributedRateLimiter (Redis-based) do UPPER.md Fase 2.
     """
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
@@ -162,7 +167,7 @@ async def create_video(
                 }
             )
         
-        # Validações
+        # Validações usando constants
         MAX_AUDIO_SIZE = 100 * 1024 * 1024  # 100MB
         
         # Ler conteúdo do áudio (com limite)
@@ -170,33 +175,61 @@ async def create_video(
         
         if len(content) > MAX_AUDIO_SIZE:
             raise HTTPException(
-                status_code=413, 
+                status_code=HttpStatusCodes.PAYLOAD_TOO_LARGE, 
                 detail=f"Audio file too large. Max size: 100MB, received: {len(content) / (1024*1024):.1f}MB"
             )
         
         if len(content) == 0:
-            raise HTTPException(status_code=400, detail="Audio file is empty")
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail="Audio file is empty"
+            )
         
-        if max_shorts < 10 or max_shorts > 500:
-            raise HTTPException(status_code=400, detail="max_shorts deve estar entre 10 e 500")
+        # Validar max_shorts usando constantes
+        if max_shorts < ProcessingLimits.MIN_SHORTS_COUNT or max_shorts > ProcessingLimits.MAX_SHORTS_COUNT:
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail=f"max_shorts deve estar entre {ProcessingLimits.MIN_SHORTS_COUNT} e {ProcessingLimits.MAX_SHORTS_COUNT}"
+            )
         
-        if aspect_ratio not in ["9:16", "16:9", "1:1", "4:5"]:
-            raise HTTPException(status_code=400, detail="aspect_ratio inválido")
+        # Validar aspect_ratio
+        valid_ratios = [ar.value for ar in AspectRatios]
+        if aspect_ratio not in valid_ratios:
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail=f"aspect_ratio inválido. Use: {', '.join(valid_ratios)}"
+            )
         
         if crop_position not in ["center", "top", "bottom"]:
-            raise HTTPException(status_code=400, detail="crop_position inválido")
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail="crop_position inválido"
+            )
         
         if subtitle_style not in ["static", "dynamic", "minimal"]:
-            raise HTTPException(status_code=400, detail="subtitle_style inválido")
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail="subtitle_style inválido"
+            )
         
-        # Verificar extensão do arquivo
-        allowed_extensions = ['.mp3', '.wav', '.m4a', '.ogg', '.aac']
+        # Verificar extensão usando FileExtensions
+        allowed_extensions = FileExtensions.AUDIO_FORMATS
         file_ext = Path(audio_file.filename).suffix.lower()
         if file_ext not in allowed_extensions:
             raise HTTPException(
-                status_code=400, 
+                status_code=HttpStatusCodes.BAD_REQUEST, 
                 detail=f"Formato de áudio não suportado. Use: {', '.join(allowed_extensions)}"
             )
+        
+        # Sanitizar query para prevenir injection/XSS
+        sanitized_query = QueryValidator.sanitize(query)
+        if not sanitized_query or len(sanitized_query) < 3:
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST,
+                detail="Query inválida após sanitização (mínimo 3 caracteres)"
+            )
+        
+        logger.info(f"🔍 Query sanitizada: '{query}' -> '{sanitized_query}'")
         
         # Criar job ID
         job_id = shortuuid.uuid()
@@ -216,7 +249,7 @@ async def create_video(
         job = Job(
             job_id=job_id,
             status=JobStatus.QUEUED,
-            query=query,
+            query=sanitized_query,  # Usar query sanitizada
             max_shorts=max_shorts,
             subtitle_language=subtitle_language,
             subtitle_style=subtitle_style,
@@ -997,44 +1030,54 @@ async def _perform_deep_cleanup(purge_celery: bool) -> dict:
 @app.get("/health")
 async def health_check():
     """
-    Health check endpoint
+    Comprehensive Health Check Endpoint (Sprint-07)
+    
+    Verifica:
+    - Redis (conexão + latência)
+    - Microserviços externos
+    - Espaço em disco
+    - Celery workers (opcional)
     
     **Retorno:**
     - status: healthy/unhealthy
-    - redis: Estado da conexão Redis
-    - services: Estado dos microserviços
+    - checks: Estado de cada componente
+    - timestamp: Timestamp da verificação
     """
+    from .infrastructure.health_checker import get_health_checker
+    
     try:
-        # Verificar Redis
-        redis_ok = await redis_store.health_check()
+        # Obter health checker
+        health_checker = get_health_checker()
         
-        # Verificar conectividade com microserviços
-        import httpx
-        services_health = {}
+        # Configurar dependências se ainda não configuradas
+        if health_checker.redis_store is None:
+            health_checker.set_dependencies(redis_store, api_client, settings)
         
-        for service, url in [
-            ("youtube-search", settings['youtube_search_url']),
-            ("video-downloader", settings['video_downloader_url']),
-            ("audio-transcriber", settings['audio_transcriber_url'])
-        ]:
-            try:
-                async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
-                    response = await client.get(f"{url}/health")
-                    services_health[service] = "ok" if response.status_code == 200 else "error"
-            except Exception as e:
-                logger.warning(f"Service {service} health check failed: {e}")
-                services_health[service] = "unreachable"
+        # Executar todos os checks (sem celery para não adicionar overhead)
+        results = await health_checker.check_all(include_celery=False)
         
-        all_healthy = redis_ok and all(status == "ok" for status in services_health.values())
+        # Determinar se sistema está saudável
+        all_healthy = health_checker.is_healthy(results)
         
-        return {
-            "status": "healthy" if all_healthy else "degraded",
-            "service": "make-video",
-            "version": "1.0.0",
-            "redis": "connected" if redis_ok else "disconnected",
-            "services": services_health,
-            "timestamp": datetime.utcnow().isoformat()
+        # Converter resultados para dict
+        checks_dict = {
+            name: result.to_dict()
+            for name, result in results.items()
         }
+        
+        # Status code
+        status_code = 200 if all_healthy else 503
+        
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "healthy" if all_healthy else "unhealthy",
+                "service": "make-video",
+                "version": "1.0.0",
+                "checks": checks_dict,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
         
     except Exception as e:
         logger.error(f"Health check failed: {e}", exc_info=True)
@@ -1042,7 +1085,8 @@ async def health_check():
             status_code=503,
             content={
                 "status": "unhealthy",
-                "error": str(e)
+                "error": str(e),
+                "timestamp": datetime.utcnow().isoformat()
             }
         )
 

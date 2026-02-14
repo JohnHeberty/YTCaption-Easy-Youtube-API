@@ -26,7 +26,7 @@ from app.video_processor import (
     ProcessingDecision,
     ProcessingResult
 )
-from app.ocr_detector import OCRResult
+from app.video_processing.ocr_detector import OCRResult
 
 
 @pytest.fixture

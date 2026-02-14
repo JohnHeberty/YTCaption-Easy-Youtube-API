@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Import detector
 sys.path.insert(0, str(Path(__file__).parent))
-from app.ocr_detector import OCRDetector
+from app.video_processing.ocr_detector import OCRDetector
 
 
 def test_video_with_threshold(video_path: str, detector: OCRDetector, min_confidence: float):
@@ -157,8 +157,8 @@ def main():
     BASE_DIR = Path(__file__).parent / "storage"
     
     # Usar quick_test (apenas H.264, sem AV1 problemáticos)
-    OK_DIR = BASE_DIR / "calibration" / "quick_test" / "OK"
-    NOT_OK_DIR = BASE_DIR / "calibration" / "quick_test" / "NOT_OK"
+    OK_DIR = BASE_DIR / "validation" / "quick_test" / "OK"
+    NOT_OK_DIR = BASE_DIR / "validation" / "quick_test" / "NOT_OK"
     
     CALIBRATION_DIR = BASE_DIR / "calibration"
     CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)

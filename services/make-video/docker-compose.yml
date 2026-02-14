@@ -14,6 +14,8 @@ services:
       - ./storage/shorts_cache:/app/storage/shorts_cache
       - ./storage/temp:/app/storage/temp
       - ./storage/output_videos:/app/storage/output_videos
+      - ./storage/OK:/app/storage/OK
+      - ./storage/NOT_OK:/app/storage/NOT_OK
       - ./logs:/app/logs
     env_file:
       - .env
@@ -81,6 +83,8 @@ services:
       - ./storage/shorts_cache:/app/storage/shorts_cache
       - ./storage/temp:/app/storage/temp
       - ./storage/output_videos:/app/storage/output_videos
+      - ./storage/OK:/app/storage/OK
+      - ./storage/NOT_OK:/app/storage/NOT_OK
       - ./logs:/app/logs
     env_file:
       - .env

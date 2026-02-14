@@ -10,6 +10,7 @@ Serviço de orquestração para criação automatizada de vídeos a partir de á
 
 ## 📋 Índice
 
+- [⚡ Início Rápido (Makefile)](#-início-rápido-makefile)
 - [Stack Tecnológico](#-stack-tecnológico)
 - [Funcionalidades](#-funcionalidades)
 - [Arquitetura do Sistema](#-arquitetura-do-sistema)
@@ -23,6 +24,39 @@ Serviço de orquestração para criação automatizada de vídeos a partir de á
 - [Desenvolvimento](#-desenvolvimento)
 - [Testes](#-testes)
 - [Monitoramento](#-monitoramento)
+
+---
+
+## ⚡ Início Rápido (Makefile)
+
+Este serviço possui um **Makefile completo** para padronizar todos os comandos.
+
+```bash
+# Ver todos os comandos disponíveis
+make help
+
+# Setup inicial
+make dev-setup              # Instala deps + valida estrutura
+make build                  # Build Docker
+make up                     # Iniciar serviços
+
+# Desenvolvimento
+make dev                    # Modo desenvolvimento
+make test-quick             # Testes rápidos
+make logs                   # Ver logs
+
+# Calibração OCR
+make calibrate-quick        # Calibração rápida (3-4h)
+make calibrate              # Calibração completa (60-80h)
+make calibrate-status       # Status da calibração
+
+# Manutenção
+make restart                # Reiniciar serviços
+make validate               # Validar configuração
+make health                 # Health check
+```
+
+📖 **Guia completo:** [MAKEFILE_GUIDE.md](MAKEFILE_GUIDE.md)
 
 ---
 
@@ -121,7 +155,23 @@ Serviço de orquestração para criação automatizada de vídeos a partir de á
 - **Cleanup Automático**: Limpeza periódica de arquivos temporários
 - **Limite de Tamanho**: Controle de uso de disco
 
-### 6. Observabilidade
+### 6. Otimizações Implementadas ✅ (11/02/2026)
+
+**Performance e Estabilidade:**
+- **P0 - Frame Limit Reduction**: 240→30 frames (87.5% ↓ memória)
+- **P1 - Singleton OCRDetector**: Thread-safe (~450MB economia/worker)
+- **P1 - Garbage Collection**: Agressivo em finally blocks
+- **P1 - AV1→H.264 Conversion**: 20x mais rápido (40min→2min)
+- **P2 - Cache Validation**: Redis com TTL 7 dias
+
+**Impacto Total:**
+- 💾 Redução de memória: ~90% por worker
+- ⚡ Performance: 3-8x melhoria geral
+- 🎯 AV1/VP9: 20x mais rápido após conversão
+
+**Documentação:** Ver [UNION_OPTIMIZE.md](UNION_OPTIMIZE.md) para detalhes completos.
+
+### 7. Observabilidade
 - **Health Check**: Endpoint para validação de dependências
 - **Métricas Prometheus**: Exposição de métricas de performance
 - **Logging Estruturado**: JSON logs para análise
