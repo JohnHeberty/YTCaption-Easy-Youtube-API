@@ -26,15 +26,22 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
 # Copy application code
 COPY . .
 
-# Create storage directories
-RUN mkdir -p /app/storage/audio_uploads \
-             /app/storage/shorts_cache \
-             /app/storage/temp \
-             /app/storage/output_videos \
+# Create data directories (bind mount irá sobrescrever, mas cria estrutura base)
+RUN mkdir -p /app/data/raw/audio \
+             /app/data/raw/shorts \
+             /app/data/raw/cache \
+             /app/data/transform/videos \
+             /app/data/transform/temp \
+             /app/data/validate/in_progress \
+             /app/data/validate/test_datasets \
+             /app/data/approved/videos \
+             /app/data/approved/output \
+             /app/data/logs/app \
+             /app/data/logs/debug \
              /app/logs
 
 # Set permissions
-RUN chmod -R 755 /app/storage /app/logs
+RUN chmod -R 755 /app/data /app/logs
 
 # Expose port
 EXPOSE 8004
