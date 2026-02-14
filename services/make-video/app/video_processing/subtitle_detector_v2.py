@@ -212,7 +212,7 @@ if __name__ == "__main__":
     # Teste rápido
     detector = SubtitleDetectorV2(max_frames=30)
     
-    test_video = "validate/test_datasets/sample_OK/5Bc-aOe4pC4.mp4"
+    test_video = "data/validate/test_datasets/sample_OK/5Bc-aOe4pC4.mp4"
     if Path(test_video).exists():
         print(f"\n📹 Testando: {test_video}")
         has_text, conf, text, meta = detector.detect(test_video)
