@@ -1,8 +1,22 @@
 # Make-Video Service 🎬
 
-**Versão:** 1.0.0  
+**Versão:** 2.0.0 (Força Bruta)  
 **Status:** ✅ Produção  
 **Arquitetura:** Microserviço Orquestrador
+
+> ## 🚀 **NOVA ARQUITETURA IMPLEMENTADA** (Fevereiro 2026)
+> 
+> **Detecção de Legendas: 97.73% de Acurácia** ✅
+> 
+> Substituímos todas as abordagens antigas (Sprints 00-07) por **FORÇA BRUTA**:
+> - ✅ Processa TODOS os frames (sem sampling)
+> - ✅ Frame COMPLETO (sem ROI)
+> - ✅ Sem otimizações complexas
+> - ✅ Resultado: 97.73% acurácia (vs 24.44% anterior)
+> 
+> **Documentação**:
+> - [Nova Arquitetura (Força Bruta)](docs/NEW_ARCHITECTURE_BRUTE_FORCE.md)
+> - [Sprints Antigas (Descontinuadas)](docs/SPRINTS_DEPRECATED.md)
 
 Serviço de orquestração para criação automatizada de vídeos a partir de áudio fornecido pelo usuário, shorts do YouTube e legendas sincronizadas com detecção de fala (Voice Activity Detection).
 
