@@ -20,7 +20,7 @@ from datetime import datetime
 
 from app.core.config import get_settings
 from app.video_processing.subtitle_detector_v2 import SubtitleDetectorV2
-from app.services.blacklist_manager import BlacklistManager
+from app.services.blacklist_factory import get_blacklist
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -42,7 +42,7 @@ class VideoPipeline:
     
     def __init__(self):
         self.detector = SubtitleDetectorV2(show_log=True)
-        self.blacklist = BlacklistManager()
+        self.blacklist = get_blacklist()  # SQLite blacklist (oficial)
         self.settings = settings
         
         # Criar diretórios
@@ -99,7 +99,7 @@ class VideoPipeline:
                 video_id = short.get('video_id')
                 
                 # Verificar blacklist ANTES de baixar
-                if await self.blacklist.is_blacklisted(video_id):
+                if self.blacklist.is_blacklisted(video_id):  # Sync call
                     logger.info(f"   ⚫ [{i}/{len(shorts)}] {video_id}: BLACKLISTED (skip)")
                     continue
                 
@@ -276,8 +276,14 @@ class VideoPipeline:
         
         try:
             # Adicionar ao blacklist
-            reason = f"Legendas detectadas (conf: {metadata.get('confidence', 0):.2f})"
-            await self.blacklist.add(video_id, reason=reason, metadata=metadata)
+            confidence = metadata.get('confidence', 0.0)
+            reason = f"Legendas detectadas (conf: {confidence:.2f})"
+            self.blacklist.add(  # Sync call
+                video_id=video_id,
+                reason=reason,
+                confidence=confidence,
+                metadata=metadata
+            )
             
             logger.info(f"   ⚫ Blacklisted: {video_id}")
             
