@@ -1,7 +1,12 @@
 import cv2
-import easyocr
 import re
 from pathlib import Path
+import sys
+
+# Add app to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+from app.video_processing.ocr_detector_advanced import get_ocr_detector
 
 PT_WORDS = {
     "que", "nao", "uma", "para", "com", "por", "isso", "mais", "seu", "sua", 
@@ -21,8 +26,8 @@ EN_WORDS = {
     "show", "why", "help", "different"
 }
 
-def test_video(video_path, reader):
-    """Test a single video and return detection result."""
+def test_video(video_path, ocr_detector):
+    """Test a single video and return detection result using Multi-Engine OCR."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return False, []
@@ -41,9 +46,12 @@ def test_video(video_path, reader):
             break
         
         frames_tested += 1
-        results = reader.readtext(frame, detail=0)
         
-        for text in results:
+        # Multi-Engine OCR returns List[OCRResult]
+        ocr_results = ocr_detector.detect_text(frame)
+        
+        for result in ocr_results:
+            text = result.text
             cleaned = re.sub(r"[^a-zA-Z0-9\s]", "", text)
             words = [w.lower() for w in cleaned.split() if len(w) > 2]
             readable = [w for w in words if w in PT_WORDS or w in EN_WORDS]
@@ -54,9 +62,9 @@ def test_video(video_path, reader):
     return has_subtitle, all_readable_words
 
 def main():
-    print("Inicializando EasyOCR...")
-    reader = easyocr.Reader(["pt", "en"], gpu=False, verbose=False)
-    print("EasyOCR pronto\n")
+    print("Inicializando PaddleOCR...")
+    ocr_detector = get_ocr_detector()
+    print("PaddleOCR pronto\n")
 
     BASE_DIR = Path("/app/storage")
     OK_DIR = BASE_DIR / "OK"
@@ -74,7 +82,7 @@ def main():
     print("=" * 60)
     for video in ok_videos:
         print(f"\n{video.name}")
-        has_sub, words = test_video(str(video), reader)
+        has_sub, words = test_video(str(video), ocr_detector)
         correct = (has_sub == False)
         results.append(correct)
         print(f"   Detectou legendas: {has_sub}")
@@ -88,7 +96,7 @@ def main():
     print("=" * 60)
     for video in not_ok_videos:
         print(f"\n{video.name}")
-        has_sub, words = test_video(str(video), reader)
+        has_sub, words = test_video(str(video), ocr_detector)
         correct = (has_sub == True)
         results.append(correct)
         print(f"   Detectou legendas: {has_sub}")

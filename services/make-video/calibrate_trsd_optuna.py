@@ -2,14 +2,18 @@
 """
 TRSD Calibration with Optuna - Hyperparameter Optimization
 
-Otimiza TODOS os parâmetros do TRSD usando Optuna para encontrar
-a melhor configuração que maximize a acurácia na detecção de legendas.
+Otimiza parâmetros do sistema de detecção de legendas usando Optuna 
+para encontrar a melhor configuração que maximize a acurácia.
 
 Parâmetros otimizados:
-- OCR: min_confidence, max_words_per_region, min_region_area
-- Temporal: min_consecutive_detections, stability_window, cooldown_frames
-- Spatial: proximity_threshold, max_text_regions
-- Classificador: area_weight, aspect_ratio_weight, position_weight, etc.
+- OCR: min_confidence (0.30-0.90) - confiança mínima para aceitar texto
+- Sampling: frame_threshold (0.20-0.50) - % de frames com texto para classificar como "tem legenda"
+- Sampling: max_samples (8-15) - número de frames a processar por vídeo
+- Sampling: sample_interval_secs (1.5-3.0) - intervalo em segundos entre frames
+- PaddleOCR: det_db_thresh (0.2-0.5) - threshold de detecção de texto
+- PaddleOCR: det_db_box_thresh (0.4-0.7) - threshold de confiança das bounding boxes
+
+Nota: Começamos com min_confidence=0.30 e vamos subindo gradualmente!
 """
 
 import os
@@ -34,19 +38,40 @@ logger = logging.getLogger(__name__)
 
 # Import TRSD components
 sys.path.insert(0, str(Path(__file__).parent))
-from app.ocr_detector import OCRDetector
+from app.video_processing.ocr_detector import OCRDetector
 import cv2
 
 # Global detector instance (reutilizado em todos os trials para eficiência)
 _global_detector = None
+_global_detector_config = {}
 
-def get_detector():
-    """Retorna instância global do detector (singleton pattern)"""
-    global _global_detector
-    if _global_detector is None:
-        logger.info("🚀 Initializing EasyOCR detector (pt+en)...")
-        _global_detector = OCRDetector()
-        logger.info("✅ EasyOCR detector initialized successfully")
+def get_detector(det_db_thresh: float = 0.3, det_db_box_thresh: float = 0.5):
+    """
+    Retorna instância do detector (singleton pattern com configuração)
+    Se os parâmetros mudarem, reinicializa o detector
+    """
+    global _global_detector, _global_detector_config
+    
+    new_config = {
+        "det_db_thresh": det_db_thresh,
+        "det_db_box_thresh": det_db_box_thresh
+    }
+    
+    # Reinicializar se configuração mudou
+    if _global_detector is None or _global_detector_config != new_config:
+        logger.info(f"🔄 Initializing PaddleOCR with: det_db_thresh={det_db_thresh:.2f}, det_db_box_thresh={det_db_box_thresh:.2f}")
+        
+        # Import aqui para evitar importar antes do tempo
+        from app.video_processing.ocr_detector_advanced import PaddleOCRDetector
+        
+        _global_detector = PaddleOCRDetector(use_gpu=False)
+        # Atualizar configuração do PaddleOCR interno
+        _global_detector.paddle_ocr.det_db_thresh = det_db_thresh
+        _global_detector.paddle_ocr.det_db_box_thresh = det_db_box_thresh
+        _global_detector_config = new_config
+        
+        logger.info("✅ PaddleOCR detector configured")
+    
     return _global_detector
 
 
@@ -143,29 +168,39 @@ def ensure_h264_videos(video_paths: List[Path], temp_dir: Path) -> List[Path]:
 def detect_subtitles_wrapper(video_path: str, config: dict) -> Tuple[bool, float, dict]:
     """
     Wrapper function to detect subtitles in a video using OCRDetector
-    OTIMIZADO: Limita frames processados e libera memória explicitamente
+    OTIMIZADO: Usa parâmetros configuráveis do Optuna
     
     Args:
         video_path: Path to video file
-        config: TRSD configuration (not used yet, for future expansion)
+        config: TRSD configuration com parâmetros do Optuna
     
     Returns:
         (has_subtitles, confidence, debug_info)
     """
-    detector = get_detector()  # Reutilizar detector global
+    # Parâmetros do config (com defaults)
+    min_conf = config.get("min_confidence", 0.60)  # 0-1 scale
+    frame_threshold = config.get("frame_threshold", 0.30)  # % de frames com texto
+    max_samples = config.get("max_samples", 10)  # máximo de frames
+    sample_interval_secs = config.get("sample_interval_secs", 2.0)  # intervalo em segundos
+    det_db_thresh = config.get("det_db_thresh", 0.3)  # threshold de detecção PaddleOCR
+    det_db_box_thresh = config.get("det_db_box_thresh", 0.5)  # threshold de box PaddleOCR
+    
+    # Obter detector com parâmetros configurados
+    detector = get_detector(det_db_thresh=det_db_thresh, det_db_box_thresh=det_db_box_thresh)
+    
     cap = cv2.VideoCapture(video_path)
     
     if not cap.isOpened():
         return False, 0.0, {"error": "Failed to open video"}
     
-    # Sample frames (LIMITE: máximo 10 frames por vídeo para economizar memória)
+    # Sample frames
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
     duration = total_frames / fps if fps > 0 else 0
     
-    # Sample every 2 seconds, MAX 10 frames
-    sample_interval = max(1, int(fps * 2))
-    max_samples = min(10, total_frames // sample_interval)  # Limite de 10 frames
+    # Calcular intervalo de amostragem baseado em segundos
+    sample_interval = max(1, int(fps * sample_interval_secs))
+    max_samples = min(max_samples, total_frames // sample_interval)
     
     positive_frames = 0
     total_samples = 0
@@ -180,9 +215,8 @@ def detect_subtitles_wrapper(video_path: str, config: dict) -> Tuple[bool, float
         if not ret:
             break
         
-        # Use min_confidence from config if available
-        min_conf = config.get("ocr_params", {}).get("min_confidence", 60.0) * 100  # Convert to 0-100 scale
-        result = detector.detect_subtitle_in_frame(frame, min_confidence=min_conf)
+        # Converter confidence de 0-1 para 0-100 para o detector
+        result = detector.detect_subtitle_in_frame(frame, min_confidence=min_conf * 100)
         
         total_samples += 1
         if result.has_subtitle:
@@ -197,8 +231,8 @@ def detect_subtitles_wrapper(video_path: str, config: dict) -> Tuple[bool, float
     # Garbage collection forçado após processamento
     gc.collect()
     
-    # Consider video has subtitles if >30% of frames have text
-    has_subtitles = (positive_frames / total_samples) > 0.3 if total_samples > 0 else False
+    # Usar frame_threshold configurável ao invés de valor fixo
+    has_subtitles = (positive_frames / total_samples) > frame_threshold if total_samples > 0 else False
     avg_confidence = max_confidence
     
     debug_info = {
@@ -218,6 +252,18 @@ class TRSDOptimizer:
         self.ok_dir = Path(ok_dir)
         self.not_ok_dir = Path(not_ok_dir)
         
+        print(f"\n🔍 DEBUG - Verificando diretórios:")
+        print(f"   ├─ OK: {self.ok_dir}")
+        print(f"   │  └─ exists: {self.ok_dir.exists()}, is_dir: {self.ok_dir.is_dir()}")
+        print(f"   └─ NOT_OK: {self.not_ok_dir}")
+        print(f"      └─ exists: {self.not_ok_dir.exists()}, is_dir: {self.not_ok_dir.is_dir()}")
+        
+        logger.info(f"\n🔍 Verificando diretórios:")
+        logger.info(f"   ├─ OK: {self.ok_dir}")
+        logger.info(f"   │  └─ exists: {self.ok_dir.exists()}")
+        logger.info(f"   └─ NOT_OK: {self.not_ok_dir}")
+        logger.info(f"      └─ exists: {self.not_ok_dir.exists()}")
+        
         # Validar diretórios
         if not self.ok_dir.exists() or not self.not_ok_dir.exists():
             raise ValueError("Directories OK and NOT_OK must exist")
@@ -226,7 +272,11 @@ class TRSDOptimizer:
         ok_videos_raw = list(self.ok_dir.glob("*.mp4"))
         not_ok_videos_raw = list(self.not_ok_dir.glob("*.mp4"))
         
-        logger.info(f"📊 Dataset carregado:")
+        print(f"\n📊 DEBUG - Dataset globbed:")
+        print(f"   ├─ OK videos: {len(ok_videos_raw)}")
+        print(f"   └─ NOT_OK videos: {len(not_ok_videos_raw)}")
+        
+        logger.info(f"\n📊 Dataset carregado:")
         logger.info(f"   ├─ OK (no subtitles): {len(ok_videos_raw)} videos")
         logger.info(f"   └─ NOT_OK (has subtitles): {len(not_ok_videos_raw)} videos")
         
@@ -236,7 +286,7 @@ class TRSDOptimizer:
         # OPÇÃO A: Converter vídeos AV1 para H.264
         if convert_to_h264:
             logger.info("\n🔧 Executando OPÇÃO A: Conversão AV1 → H.264")
-            temp_dir = Path(__file__).parent / "storage" / "calibration" / "h264_converted"
+            temp_dir = Path(__file__).parent / "storage" / "validation" / "h264_converted"
             
             self.ok_videos = ensure_h264_videos(ok_videos_raw, temp_dir / "OK")
             self.not_ok_videos = ensure_h264_videos(not_ok_videos_raw, temp_dir / "NOT_OK")
@@ -253,24 +303,48 @@ class TRSDOptimizer:
     def objective(self, trial: optuna.Trial) -> float:
         """
         Função objetivo para Optuna
-        OTIMIZADO: Menos parâmetros para reduzir espaço de busca
+        OTIMIZADO: Múltiplos parâmetros de detecção
         
         Retorna accuracy (0-1) para ser MAXIMIZADA
         """
         
         # =========================================================================
-        # DEFINIR HIPERPARÂMETROS ESSENCIAIS (SIMPLIFICADO)
+        # DEFINIR HIPERPARÂMETROS ESSENCIAIS (EXPANDIDO)
         # =========================================================================
         
-        # 1. OCR Parameters (principal parâmetro para EasyOCR)
+        # 1. OCR Parameters - Confidence thresholds
         ocr_params = {
-            "min_confidence": trial.suggest_float("min_confidence", 0.4, 0.8, step=0.05),
+            "min_confidence": trial.suggest_float("min_confidence", 0.15, 0.50, step=0.05),
+        }
+        
+        # 2. Frame sampling parameters - controla quantos frames processar
+        sampling_params = {
+            "frame_threshold": trial.suggest_float("frame_threshold", 0.15, 0.35, step=0.05),  # % de frames com texto
+            "max_samples": trial.suggest_int("max_samples", 10, 20, step=2),  # número de frames por vídeo
+            "sample_interval_secs": trial.suggest_float("sample_interval_secs", 1.0, 2.5, step=0.5),  # intervalo entre frames
+        }
+        
+        # 3. PaddleOCR detection thresholds (para o detector)
+        detector_params = {
+            "det_db_thresh": trial.suggest_float("det_db_thresh", 0.15, 0.40, step=0.05),  # threshold de detecção
+            "det_db_box_thresh": trial.suggest_float("det_db_box_thresh", 0.30, 0.60, step=0.05),  # threshold de box
         }
         
         # Combinar parâmetros
         config = {
             **ocr_params,
+            **sampling_params,
+            **detector_params,
         }
+        
+        # Log dos parâmetros sendo testados
+        logger.info(f"\n🧪 Trial {trial.number} - Testando configuração:")
+        logger.info(f"   📊 min_confidence: {config['min_confidence']:.2f}")
+        logger.info(f"   📊 frame_threshold: {config['frame_threshold']:.2f}")
+        logger.info(f"   📊 max_samples: {config['max_samples']}")
+        logger.info(f"   📊 sample_interval: {config['sample_interval_secs']:.1f}s")
+        logger.info(f"   📊 det_db_thresh: {config['det_db_thresh']:.2f}")
+        logger.info(f"   📊 det_db_box_thresh: {config['det_db_box_thresh']:.2f}")
         
         # =========================================================================
         # AVALIAR COM DATASET (PROCESSAMENTO EM LOTES)
@@ -452,13 +526,17 @@ def main():
     
     # Diretórios (corrigidos para estrutura real)
     BASE_DIR = Path(__file__).parent / "storage"
-    OK_DIR = BASE_DIR / "OK"
-    NOT_OK_DIR = BASE_DIR / "NOT_OK"
+    OK_DIR = BASE_DIR / "validation" / "sample_OK"
+    NOT_OK_DIR = BASE_DIR / "validation" / "sample_NOT_OK"
     CALIBRATION_DIR = BASE_DIR / "calibration"  # Onde salvar resultados
     
     logger.info("="*80)
     logger.info("TRSD HYPERPARAMETER OPTIMIZATION WITH OPTUNA")
     logger.info("="*80)
+    logger.info(f"\n📂 Diretórios:")
+    logger.info(f"   ├─ BASE: {BASE_DIR}")
+    logger.info(f"   ├─ OK: {OK_DIR} (exists: {OK_DIR.exists()})")
+    logger.info(f"   └─ NOT_OK: {NOT_OK_DIR} (exists: {NOT_OK_DIR.exists()})")
     
     # Criar diretório de calibração
     CALIBRATION_DIR.mkdir(parents=True, exist_ok=True)
@@ -537,18 +615,6 @@ def main():
         }, f, indent=2)
     
     logger.info(f"\n💾 Results saved to: {output_file}")
-    
-    # Também salvar em storage/ para backward compatibility
-    legacy_file = BASE_DIR / "calibration_optuna_results.json"
-    shutil.copy(output_file, legacy_file)
-    logger.info(f"💾 Legacy copy saved to: {legacy_file}")
-    
-    # Imprimir best params
-    logger.info("\n" + "="*80)
-    logger.info("BEST PARAMETERS (copy to config):")
-    logger.info("="*80)
-    for key, value in sorted(results["best_params"].items()):
-        logger.info(f"{key:30s} = {value}")
     
     # Criar report markdown
     report_file = CALIBRATION_DIR / "trsd_optuna_report.md"

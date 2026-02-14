@@ -1,10 +1,10 @@
 # TRSD Optuna Optimization Report
 
-**Date**: 2026-02-11 05:11:09
+**Date**: 2026-02-12 13:52:10
 
 **Best Accuracy**: 0.1944
 
-**Trials**: 1
+**Trials**: 25
 
 ## Best Parameters
 

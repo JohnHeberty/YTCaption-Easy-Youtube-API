@@ -20,7 +20,7 @@ pytesseract_mock.Output.DICT = 'dict'
 sys.modules['pytesseract'] = pytesseract_mock
 
 import numpy as np
-from app.ocr_detector import OCRDetector, OCRResult
+from app.video_processing.ocr_detector import OCRDetector, OCRResult
 
 
 @pytest.fixture
