@@ -10,12 +10,8 @@ services:
     memswap_limit: 6g
     shm_size: '2gb'
     volumes:
-      - ./storage/audio_uploads:/app/storage/audio_uploads
-      - ./storage/shorts_cache:/app/storage/shorts_cache
-      - ./storage/temp:/app/storage/temp
-      - ./storage/output_videos:/app/storage/output_videos
-      - ./storage/OK:/app/storage/OK
-      - ./storage/NOT_OK:/app/storage/NOT_OK
+      # Bind mount da estrutura data/ completa
+      - ./data:/app/data
       - ./logs:/app/logs
     env_file:
       - .env
@@ -79,12 +75,8 @@ services:
     container_name: ytcaption-make-video-celery
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
     volumes:
-      - ./storage/audio_uploads:/app/storage/audio_uploads
-      - ./storage/shorts_cache:/app/storage/shorts_cache
-      - ./storage/temp:/app/storage/temp
-      - ./storage/output_videos:/app/storage/output_videos
-      - ./storage/OK:/app/storage/OK
-      - ./storage/NOT_OK:/app/storage/NOT_OK
+      # Bind mount da estrutura data/ completa
+      - ./data:/app/data
       - ./logs:/app/logs
     env_file:
       - .env
