@@ -133,7 +133,7 @@ class TRSDTelemetry:
     
     def _save_event(self, event: DetectionEvent):
         """Salva evento em arquivo JSON"""
-        events_dir = Path('logs/debug/detection_events')
+        events_dir = Path('data/logs/debug/detection_events')
         events_dir.mkdir(parents=True, exist_ok=True)
         
         filename = f"{event.video_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -155,7 +155,7 @@ class DebugArtifactSaver:
     - metrics.json com métricas
     """
     
-    def __init__(self, enabled: bool = False, base_dir: str = 'logs/debug/artifacts'):
+    def __init__(self, enabled: bool = False, base_dir: str = 'data/logs/debug/artifacts'):
         self.enabled = enabled
         self.base_dir = Path(base_dir)
         if self.enabled:

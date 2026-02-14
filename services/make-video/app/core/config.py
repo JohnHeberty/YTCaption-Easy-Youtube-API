@@ -29,11 +29,11 @@ class Settings(BaseSettings):
     video_downloader_url: str = os.getenv("VIDEO_DOWNLOADER_URL", "https://ytdownloader.loadstask.com")
     audio_transcriber_url: str = os.getenv("AUDIO_TRANSCRIBER_URL", "https://yttranscriber.loadstask.com")
     
-    # Storage Paths - Nova Estrutura (raw → transform → validate → approved)
-    audio_upload_dir: str = os.getenv("AUDIO_UPLOAD_DIR", "./raw/audio")
-    shorts_cache_dir: str = os.getenv("SHORTS_CACHE_DIR", "./raw/shorts")
-    temp_dir: str = os.getenv("TEMP_DIR", "./transform/temp")
-    output_dir: str = os.getenv("OUTPUT_DIR", "./approved/output")
+    # Storage Paths - Nova Estrutura (data/raw → data/transform → data/validate → data/approved)
+    audio_upload_dir: str = os.getenv("AUDIO_UPLOAD_DIR", "./data/raw/audio")
+    shorts_cache_dir: str = os.getenv("SHORTS_CACHE_DIR", "./data/raw/shorts")
+    temp_dir: str = os.getenv("TEMP_DIR", "./data/transform/temp")
+    output_dir: str = os.getenv("OUTPUT_DIR", "./data/approved/output")
     
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     cleanup_shorts_cache_after_days: int = int(os.getenv("CLEANUP_SHORTS_CACHE_AFTER_DAYS", "30"))
     
     # SQLite Blacklist (permanente)
-    sqlite_db_path: str = os.getenv("SQLITE_DB_PATH", "./raw/shorts/blacklist.db")
+    sqlite_db_path: str = os.getenv("SQLITE_DB_PATH", "./data/raw/shorts/blacklist.db")
     
     # Subtitle Settings
     subtitle_font_size: int = int(os.getenv("SUBTITLE_FONT_SIZE", "22"))

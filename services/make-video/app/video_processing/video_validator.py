@@ -119,7 +119,7 @@ class VideoValidator:
             self.telemetry = TRSDTelemetry(enabled=True)  # Sprint 07
             self.debug_saver = DebugArtifactSaver(  # Sprint 07
                 enabled=self.config.trsd_save_debug_artifacts,
-                base_dir='logs/debug/artifacts'
+                base_dir='data/logs/debug/artifacts'
             )
             logger.info("TRSD enabled - using intelligent temporal detection")
         else:
