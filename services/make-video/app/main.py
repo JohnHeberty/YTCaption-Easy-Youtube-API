@@ -101,6 +101,14 @@ redis_store = RedisJobStore(redis_url=settings['redis_url'])
 shorts_cache = ShortsCache(cache_dir=settings['shorts_cache_dir'])
 _rate_limiter = SimpleRateLimiter(max_requests=30, window_seconds=60)
 
+# API client para microserviços
+from .api.api_client import MicroservicesClient
+api_client = MicroservicesClient(
+    youtube_search_url=settings['youtube_search_url'],
+    video_downloader_url=settings['video_downloader_url'],
+    audio_transcriber_url=settings['audio_transcriber_url']
+)
+
 
 @app.on_event("startup")
 async def startup_event():
