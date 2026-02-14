@@ -17,7 +17,7 @@ class FileLogger:
     """Gerenciador de logging em arquivo"""
     
     # Diretório de logs
-    LOGS_DIR = Path("/app/storage/logs")
+    LOGS_DIR = Path("/app/logs/app")
     
     # Manter logs dos últimos 7 dias
     MAX_BYTES = 50 * 1024 * 1024  # 50MB por arquivo

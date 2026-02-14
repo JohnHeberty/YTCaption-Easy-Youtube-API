@@ -33,7 +33,7 @@ def test_accuracy_official():
     detector = SubtitleDetectorV2(show_log=False, max_frames=50)
     
     # Carregar ground truth
-    base_path = Path('storage/validation')
+    base_path = Path('validate/test_datasets')
     
     with open(base_path / 'sample_OK' / 'ground_truth.json') as f:
         data_ok = json.load(f)

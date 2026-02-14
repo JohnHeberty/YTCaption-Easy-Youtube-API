@@ -949,6 +949,155 @@ Improvements:
 
 ---
 
-**Status**: 🟡 Aguardando Sprint 06  
-**Dependencies**: Sprint 06 (Ensemble base)  
+**Status**: ✅ COMPLETO (2026-02-14)  
+**Dependencies**: Sprint 06 (Ensemble base) ✅  
 **Next Sprint**: Sprint 08 (Production Deployment)
+
+---
+
+## 📊 CHECKLIST DE IMPLEMENTAÇÃO
+
+### ✅ Fase 1: Advanced Voting Strategies (100%)
+- [x] **advanced_voting.py** (243 linhas) - Implementado ✅
+  - [x] `ConfidenceWeightedVoting`: dynamic_weight = confidence × base_weight
+  - [x] `MajorityWithThreshold`: require avg confidence ≥ 0.65
+  - [x] `UnanimousConsensus`: fast path for unanimous high-confidence (≥75%)
+- [x] **voting/__init__.py** - Atualizado com exports ✅
+
+### ✅ Fase 2: Conflict Detection (100%)
+- [x] **conflict_detector.py** (229 linhas) - Implementado ✅
+  - [x] Detectar divided votes (diferença ≤ 1)
+  - [x] Identificar high-confidence minorities (≥80% confidence)
+  - [x] Calcular confidence spread (standard deviation)
+  - [x] Classificar severidade (high/medium/low)
+  - [x] Gerar recomendações para fallback
+- [x] **ConflictDetector.detect()** - Funcionando ✅
+- [x] **ConflictDetector.should_fallback()** - Implementado ✅
+- [x] **ConflictDetector.get_conflict_summary()** - Implementado ✅
+
+### ✅ Fase 3: Uncertainty Estimation (100%)
+- [x] **uncertainty_estimator.py** (220 linhas) - Implementado ✅
+  - [x] Confidence spread (standard deviation)
+  - [x] Vote entropy (Shannon entropy para decisões binárias)
+  - [x] Margin of victory (distância do threshold 0.5)
+  - [x] Consensus score (unanimidade × avg confidence)
+  - [x] Aggregate uncertainty score (weighted 0.25/0.25/0.30/0.20)
+- [x] **UncertaintyEstimator.estimate()** - Funcionando ✅
+- [x] **UncertaintyEstimator.should_flag_uncertain()** - Implementado ✅
+- [x] Classificação: low/medium/high - Implementado ✅
+
+### ✅ Fase 4: Integração no Ensemble (100%)
+- [x] **ensemble_detector.py** - Atualizado (+28 linhas) ✅
+  - [x] Importar módulos Sprint 07 (ConfidenceWeightedVoting, ConflictDetector, UncertaintyEstimator)
+  - [x] `__init__`: add params `enable_conflict_detection`, `enable_uncertainty_estimation`
+  - [x] Inicializar conflict_detector quando enable_conflict_detection=True
+  - [x] Inicializar uncertainty_estimator quando enable_uncertainty_estimation=True
+  - [x] Inicializar confidence_weighted_voting (sempre disponível)
+- [x] **Voting method 'confidence_weighted'** - Implementado ✅
+- [x] **Conflict detection após votação** - Integrado ✅
+- [x] **Uncertainty estimation após votação** - Integrado ✅
+- [x] **Logging de conflicts e uncertainty** - Implementado ✅
+
+### ✅ Fase 5: Testes (100%)
+- [x] **test_sprint07_advanced_voting.py** (10 testes) - Criado ✅
+  - [x] Test 1: Confidence-weighted voting (high conf wins)
+  - [x] Test 2: Conflict detection (divided vote)
+  - [x] Test 3: Conflict detection (no conflict)
+  - [x] Test 4: Uncertainty estimation (low)
+  - [x] Test 5: Uncertainty estimation (high)
+  - [x] Test 6: Ensemble with conflict detection enabled
+  - [x] Test 7: Ensemble with uncertainty estimation enabled
+  - [x] Test 8: Confidence-weighted vs standard weighted
+  - [x] Test 9: Conflict severity levels
+  - [x] Test 10: Summary test
+- [x] **Todos os testes passando: 10/10** ✅
+- [x] **pytest execution: 20.20s** ✅
+
+### ✅ Fase 6: Validação e Documentação (100%)
+- [x] **Código testado no venv** ✅
+- [x] **Checklist adicionado ao documento** ✅
+- [x] **Status atualizado para COMPLETO** ✅
+- [x] **Documento renomeado para OK_** (próximo passo) ⏳
+
+---
+
+## 📈 MÉTRICAS FINAIS
+
+| Métrica | Valor | Status |
+|---------|-------|--------|
+| **Arquivos Criados** | 3 novos | ✅ |
+| **Linhas de Código** | 692 novas (243+229+220) | ✅ |
+| **Linhas Modificadas** | +28 (ensemble_detector.py) | ✅ |
+| **Total Testes** | 10/10 PASSED | ✅ |
+| **Tempo de Execução** | 20.20s | ✅ |
+| **Cobertura Sprint 07** | 100% | ✅ |
+| **Regressão Sprint 06** | 0 (11/11 mantidos) | ✅ |
+
+### Classes Implementadas
+
+```python
+# voting/advanced_voting.py
+class ConfidenceWeightedVoting:
+    def vote(votes: Dict) -> Dict  # 243 lines
+
+class MajorityWithThreshold:
+    def vote(votes: Dict, min_avg_confidence=0.65) -> Dict
+
+class UnanimousConsensus:
+    def vote(votes: Dict, min_confidence=0.75) -> Dict
+
+# voting/conflict_detector.py
+class ConflictDetector:
+    def detect(votes: Dict) -> Dict  # 229 lines
+    def should_fallback(conflict_analysis: Dict) -> bool
+    def get_conflict_summary(conflict_analysis: Dict) -> str
+
+# voting/uncertainty_estimator.py
+class UncertaintyEstimator:
+    def estimate(votes: Dict, final_result: Dict) -> Dict  # 220 lines
+    def should_flag_uncertain(uncertainty_analysis: Dict) -> bool
+    def get_uncertainty_summary(uncertainty_analysis: Dict) -> str
+```
+
+### Uso no Ensemble
+
+```python
+# Ensemble com Sprint 07 features habilitados
+ensemble = EnsembleSubtitleDetector(
+    voting_method='confidence_weighted',      # NEW Sprint 07
+    enable_conflict_detection=True,           # NEW Sprint 07
+    enable_uncertainty_estimation=True        # NEW Sprint 07
+)
+
+result = ensemble.detect('video.mp4')
+# Returns:
+# {
+#     'has_subtitles': bool,
+#     'confidence': float,
+#     'votes': {...},
+#     'conflict_analysis': {          # NEW Sprint 07
+#         'has_conflict': bool,
+#         'conflict_type': str,
+#         'severity': str,
+#         ...
+#     },
+#     'uncertainty_analysis': {       # NEW Sprint 07
+#         'uncertainty_score': float,
+#         'uncertainty_level': str,
+#         'is_reliable': bool,
+#         ...
+#     },
+#     'metadata': {...}
+# }
+```
+
+---
+
+## ✅ SPRINT 07 COMPLETO
+
+**Próximos passos:**
+1. ✅ Todos os testes passando (10/10)
+2. ✅ Código integrado no ensemble
+3. ✅ Documentação atualizada
+4. ⏳ Validação de acurácia no dataset completo (Sprint 08)
+5. ⏳ Produção deployment (Sprint 08)

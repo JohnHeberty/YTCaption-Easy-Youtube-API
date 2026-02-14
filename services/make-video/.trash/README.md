@@ -1,151 +1,171 @@
-# 🗑️ Arquivos Arquivados - Make-Video Service
+# 🗑️ .trash - Arquivos Removidos
 
-**Propósito**: Documentos e scripts obsoletos que foram concluídos, consolidados ou substituídos.  
-**Data de Consolidação**: 2026-02-12  
-**Total de Arquivos**: 29
-
----
-
-## 📋 Inventário Completo
-
-### 📄 Documentação Antiga de OCR (8 arquivos)
-| Arquivo | Motivo do Arquivamento | Substituído Por |
-|---------|------------------------|-----------------|
-| `NEW_OCR.md` | Análise inicial de problemas OCR | [OCR_ACCURACY.md](../OCR_ACCURACY.md) |
-| `UNION_OPTIMIZE.md` | Proposta de otimizações | [RESILIENCE_IMPLEMENTED.md](../RESILIENCE_IMPLEMENTED.md) |
-| `UNION_OPTIMIZE_docs.md` | Duplicata em docs/ | Removida |
-| `OPTIMIZE.md` | Otimizações antigas | Consolidado em RESILIENCE |
-| `FIXES_SUMMARY.md` | Resumo de fixes aplicados | [FIXES_APPLIED.md](../FIXES_APPLIED.md) |
-| `INVESTIGATION.md` | Investigação de bugs | Problema resolvido |
-| `INVESTIGATION_CONCLUSION.md` | Conclusão da investigação | Problema resolvido |
-| `INVESTIGATION_old.md` | Versão antiga | Obsoleta |
-
-### 🧪 Scripts de Teste Temporários (7 arquivos)
-| Arquivo | Motivo do Arquivamento | Status |
-|---------|------------------------|--------|
-| `test_easyocr_simple.py` | Teste simples de EasyOCR | ✅ Validado e removido |
-| `test_manual_detection.py` | Teste manual de detecção | ✅ Validado e removido |
-| `test_simple.py` | Teste básico do sistema | ✅ Validado e removido |
-| `validate_fixes.py` | Validação de fixes | ✅ Todos os fixes aplicados |
-| `fire_test.py` | Teste de fire library | ✅ Não mais necessário |
-| `fix_dataset_codec.sh` | Script de conversão AV1→H.264 | ✅ 11 vídeos convertidos |
-| `start_calibration.sh` | Script de calibração antigo | Substituído por Makefile |
-
-### 📊 Logs de Calibração (5 arquivos)
-| Arquivo | Conteúdo | Data |
-|---------|----------|------|
-| `calibration.log` | Logs de calibração inicial | 2026-02-10 |
-| `calibration_output.log` | Output completo de calibração | 2026-02-10 |
-| `manual_test_full.log` | Testes manuais completos | 2026-02-11 |
-| `manual_test_output.log` | Output de testes manuais | 2026-02-11 |
-| `test_results.log` | Resultados de testes | 2026-02-11 |
-
-### 📚 Documentação de Sprints (4 arquivos)
-| Arquivo | Motivo do Arquivamento | Substituído Por |
-|---------|------------------------|-----------------|
-| `RESILIENCE.md` | Plano inicial de resiliência | [RESILIENCE_SPRINTS.md](../RESILIENCE_SPRINTS.md) |
-| `RESILIENCE-IMPLEMENTATION.md` | Guia de implementação antigo | [RESILIENCE_IMPLEMENTED.md](../RESILIENCE_IMPLEMENTED.md) |
-| `TEST-SPRINT-01.md` | Testes da Sprint-01 | Testes integrados em tests/ |
-| `ACTION_PLAN.md` | Plano de ação antigo | ✅ Concluído |
-
-### 📋 Outros (5 arquivos)
-| Arquivo | Motivo do Arquivamento | Notas |
-|---------|------------------------|-------|
-| `BUG.md` | Relatório de bug | ✅ Bug corrigido |
-| `CALIBRATION_GUIDE.md` | Guia de calibração antigo | Consolidado em OPTUNA_OPTIMIZATION.md |
-| `EXECUTIVE_SUMMARY.md` | Resumo executivo | Obsoleto |
-| `TEST.ogg` | Arquivo de teste de áudio | Teste concluído |
-| `README.md` (este arquivo) | Inventário | Atualizado |
+**Data**: 14/02/2026  
+**Motivo**: Limpeza e organização do projeto
 
 ---
 
-## 🎯 Resumo do Progresso
+## 📋 O que está aqui?
 
-### Problemas Resolvidos
-1. ✅ **OCR Accuracy**: 19.4% → 75-80% (thresholds ajustados)
-2. ✅ **Codec Issues**: 11 vídeos AV1 convertidos para H.264
-3. ✅ **Resiliência**: 4 sprints implementadas (Sprint-02, 03, 04, 07)
-4. ✅ **Testes**: 13/13 testes passando (100%)
-5. ✅ **Documentação**: Consolidada e organizada
+Arquivos que foram **removidos da raiz** do projeto por não serem necessários para **operação da aplicação**.
 
-### Sprints Implementadas
-- ✅ Sprint-01: Auto-Recovery System (já existia)
-- ✅ Sprint-02: Granular Checkpoints (checkpoint_manager.py)
-- ✅ Sprint-03: Smart Timeout (timeout_manager.py)
-- ✅ Sprint-04: Circuit Breaker (circuit_breaker.py)
-- ✅ Sprint-07: Health Checks (health_checker.py)
+## 📂 Estrutura
 
-### Documentação Nova
-- [INDEX.md](../INDEX.md) - Índice centralizado
-- [RESILIENCE_IMPLEMENTED.md](../RESILIENCE_IMPLEMENTED.md) - Guia de uso
-- [RESILIENCE_SPRINTS.md](../RESILIENCE_SPRINTS.md) - Referência técnica
-- [FUTURE_SPRINTS.md](../FUTURE_SPRINTS.md) - Roadmap futuro
-
----
-
-## 🔍 Quando Recuperar Arquivos Deste Diretório
-
-**Casos de uso para recuperação:**
-1. 📖 **Histórico**: Entender evolução de decisões técnicas
-2. 🐛 **Debugging**: Referência de bugs passados
-3. 📊 **Comparação**: Ver estado anterior do sistema
-4. 🎓 **Aprendizado**: Estudar abordagens que não funcionaram
-
-**Como recuperar:**
-```bash
-# Ver conteúdo de um arquivo
-cat .trash/NEW_OCR.md
-
-# Copiar de volta
-cp .trash/INVESTIGATION.md ./INVESTIGATION_recovered.md
+```
+.trash/
+├── docs/                  # Documentação obsoleta
+│   ├── AUDIO_LEGEND_SYNC.md
+│   ├── CLEANUP_COMPLETE.md
+│   ├── FIX_OCR.md
+│   ├── IMPLEMENTATION_COMPLETE.md
+│   ├── MAKEFILE_COMANDOS.md
+│   ├── OCR_DETECTION.md
+│   └── PROJECT_STRUCTURE.md
+│
+├── logs/                  # Logs antigos de testes
+│   ├── baseline_paddleocr.log
+│   ├── baseline_paddleocr_v2.log
+│   └── pytest_output.log
+│
+├── old_calibration/       # Scripts de calibração antiga
+│   ├── calibrate_trsd_optuna.py
+│   ├── demo_calibration.sh
+│   ├── monitor_calibration.sh
+│   └── baseline_results_synthetic.json
+│
+├── tests/                 # Testes avulsos da raiz
+│   ├── test_accuracy.py
+│   ├── test_manual_thresholds.py
+│   ├── test_paddleocr_simple.py
+│   ├── test_sprint01_baseline.py
+│   └── reevaluate_blacklist.py
+│
+└── scripts_datasets/      # Scripts de geração de datasets
+    ├── generate_synthetic_dataset.py
+    ├── generate_edge_case_dataset.py
+    ├── generate_multi_resolution_dataset.py
+    ├── generate_low_quality_dataset.py
+    ├── fix_video_codecs.py
+    ├── measure_baseline.py
+    ├── measure_baseline_simple.py
+    ├── download_missing_videos.sh
+    └── monitor_baseline.sh
 ```
 
 ---
 
-## 🧹 Política de Limpeza
+## 🎯 Critério de Movimentação
 
-### O que vai para .trash/?
-- ✅ Documentos consolidados em versões novas
-- ✅ Scripts de teste após validação completa
-- ✅ Logs de calibração/testes após conclusão
-- ✅ Arquivos temporários de debugging
+Arquivos movidos para `.trash/` se:
+- ✅ Não são usados pela aplicação em **produção**
+- ✅ São de **desenvolvimento/teste**
+- ✅ São **documentação obsoleta**
+- ✅ São **logs antigos**
+- ✅ São **scripts de calibração/teste**
 
-### O que NÃO vai para .trash/?
-- ❌ Código de produção em uso
-- ❌ Documentação ativa (README, guides)
-- ❌ Testes unitários permanentes
-- ❌ Configurações do sistema
-
-### Quando deletar definitivamente?
-- ⏰ Após 6 meses sem acesso
-- ⏰ Após validação de que nenhum documento referencia
-- ⏰ Após backup externo (se necessário)
+Arquivos **MANTIDOS** na raiz:
+- ✅ Código da aplicação (`app/`)
+- ✅ Testes ativos (`tests/`)
+- ✅ Configuração (`requirements.txt`, `Dockerfile`, etc)
+- ✅ Documentação principal (`README.md`)
+- ✅ Biblioteca compartilhada (`common/`)
+- ✅ Nova estrutura de dados (`raw/`, `transform/`, `validate/`, `approved/`)
 
 ---
 
-## 📊 Estatísticas
+## 📝 Arquivos Removidos por Categoria
 
-| Métrica | Valor |
-|---------|-------|
-| **Total de Arquivos** | 29 |
-| **Documentos** | 12 |
-| **Scripts** | 7 |
-| **Logs** | 5 |
-| **Outros** | 5 |
-| **Tamanho Total** | ~500KB |
-| **Data de Criação** | 2026-02-10 a 2026-02-12 |
+### 📄 Documentação Obsoleta (7 arquivos)
+- `AUDIO_LEGEND_SYNC.md` - Doc sobre sincronização
+- `CLEANUP_COMPLETE.md` - Doc de limpeza anterior
+- `FIX_OCR.md` - Doc sobre fix de OCR
+- `IMPLEMENTATION_COMPLETE.md` - Doc de implementação
+- `MAKEFILE_COMANDOS.md` - Comandos do Makefile
+- `OCR_DETECTION.md` - Doc de detecção OCR
+- `PROJECT_STRUCTURE.md` - Estrutura antiga
+
+### 📊 Logs Antigos (3 arquivos)
+- `baseline_paddleocr.log` - Log de baseline (~770KB)
+- `baseline_paddleocr_v2.log` - Log v2
+- `pytest_output.log` - Output de pytest
+
+### 🔧 Calibração Antiga (4 arquivos)
+- `calibrate_trsd_optuna.py` - Script Optuna
+- `demo_calibration.sh` - Demo de calibração
+- `monitor_calibration.sh` - Monitor
+- `baseline_results_synthetic.json` - Resultados
+
+### 🧪 Testes Avulsos (5 arquivos)
+- `test_accuracy.py` - Teste de acurácia
+- `test_manual_thresholds.py` - Thresholds manuais
+- `test_paddleocr_simple.py` - Teste simples PaddleOCR
+- `test_sprint01_baseline.py` - Baseline Sprint 01
+- `reevaluate_blacklist.py` - Reavaliar blacklist
+
+### 📦 Scripts de Datasets (9 arquivos)
+- `generate_synthetic_dataset.py`
+- `generate_edge_case_dataset.py`
+- `generate_multi_resolution_dataset.py`
+- `generate_low_quality_dataset.py`
+- `fix_video_codecs.py`
+- `measure_baseline.py`
+- `measure_baseline_simple.py`
+- `download_missing_videos.sh`
+- `monitor_baseline.sh`
+
+**Total removido**: 28 arquivos
 
 ---
 
-## 🔗 Links Úteis
+## ⚠️ Posso Deletar .trash/?
 
-- [Voltar ao Índice Principal](../INDEX.md)
-- [Documentação de Resiliência](../RESILIENCE_IMPLEMENTED.md)
-- [Guia de Calibração OCR](../OPTUNA_OPTIMIZATION.md)
-- [README do Serviço](../README.md)
+**Sim**, pode deletar esta pasta inteira se quiser:
+
+```bash
+rm -rf .trash/
+```
+
+Todos os arquivos aqui são:
+- Não necessários para operação
+- Documentação obsoleta
+- Logs antigos
+- Testes de desenvolvimento
 
 ---
 
-**Última Atualização**: 2026-02-12  
-**Status**: 🗑️ Arquivado mas preservado para referência histórica  
-**Próxima Revisão**: 2026-08-12 (6 meses)
+## 🔄 Estrutura Nova do Projeto
+
+Após limpeza, a estrutura ficou:
+
+```
+services/make-video/
+├── app/              # Código da aplicação ✅
+├── tests/            # Testes ativos ✅
+├── common/           # Biblioteca compartilhada ✅
+├── docs/             # Documentação atual ✅
+├── sprints/          # Sprints (com OBSOLETE/) ✅
+├── logs/             # Logs da aplicação ✅
+│   ├── app/          # Logs operacionais
+│   └── debug/        # Debug artifacts
+├── raw/              # 📥 Dados brutos (downloads) ✅
+├── transform/        # 🔄 Transformação (conversão) ✅
+├── validate/         # ✅ Validação (detecção) ✅
+├── approved/         # ✅ Aprovados (finais) ✅
+├── .trash/           # 🗑️ Arquivos removidos
+└── [configs]         # Dockerfile, requirements, etc ✅
+```
+
+---
+
+## 📚 Referências
+
+- **Nova estrutura**: `raw/` → `transform/` → `validate/` → `approved/`
+- **Pipeline**: Download → Conversão → Validação → Aprovação
+- **Detector**: SubtitleDetectorV2 (97.73% acurácia)
+- **Arquitetura**: docs/NEW_ARCHITECTURE_BRUTE_FORCE.md
+
+---
+
+**Movido em**: 14/02/2026  
+**Total**: 28 arquivos  
+**Pode deletar**: Sim, sem problemas

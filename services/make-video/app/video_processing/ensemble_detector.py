@@ -1,7 +1,9 @@
-"""
+"""  
 Ensemble detector that combines multiple subtitle detectors.
 
 Sprint 06 - Ensemble Setup
+Sprint 07 - Advanced Voting & Conflict Detection
+
 Combines PaddleOCR, CLIP, and EasyOCR with weighted voting for robust detection.
 """
 
@@ -12,6 +14,13 @@ from .detectors.base_detector import BaseSubtitleDetector
 from .detectors.paddle_detector import PaddleDetector
 from .detectors.clip_classifier import CLIPClassifier
 from .detectors.easyocr_detector import EasyOCRDetector
+
+# Sprint 07: Advanced voting strategies
+from .voting import (
+    ConfidenceWeightedVoting,
+    ConflictDetector,
+    UncertaintyEstimator
+)
 
 
 class EnsembleSubtitleDetector:
@@ -38,15 +47,19 @@ class EnsembleSubtitleDetector:
         self,
         detectors: Optional[List[BaseSubtitleDetector]] = None,
         voting_method: str = 'weighted',
-        custom_weights: Optional[Dict[str, float]] = None
+        custom_weights: Optional[Dict[str, float]] = None,
+        enable_conflict_detection: bool = False,
+        enable_uncertainty_estimation: bool = False
     ):
         """
         Initialize ensemble detector.
         
         Args:
             detectors: List of detector instances (optional, creates defaults)
-            voting_method: Voting method ('weighted', 'majority', 'unanimous')
+            voting_method: Voting method ('weighted', 'majority', 'unanimous', 'confidence_weighted')
             custom_weights: Custom weights dict (e.g., {'paddle': 0.4, 'clip': 0.35, ...})
+            enable_conflict_detection: Enable conflict detection (Sprint 07)
+            enable_uncertainty_estimation: Enable uncertainty estimation (Sprint 07)
         """
         if detectors is None:
             # Create default detectors
@@ -70,6 +83,21 @@ class EnsembleSubtitleDetector:
         
         self.voting_method = voting_method
         self.custom_weights = custom_weights
+        
+        # Sprint 07: Advanced voting features
+        self.enable_conflict_detection = enable_conflict_detection
+        self.enable_uncertainty_estimation = enable_uncertainty_estimation
+        
+        if enable_conflict_detection:
+            self.conflict_detector = ConflictDetector()
+            print("[Ensemble] Conflict detection enabled")
+        
+        if enable_uncertainty_estimation:
+            self.uncertainty_estimator = UncertaintyEstimator()
+            print("[Ensemble] Uncertainty estimation enabled")
+        
+        # Confidence-weighted voting (Sprint 07)
+        self.confidence_weighted_voting = ConfidenceWeightedVoting()
     
     def detect(self, video_path: str) -> Dict:
         """
@@ -119,12 +147,34 @@ class EnsembleSubtitleDetector:
         # Aggregate votes
         if self.voting_method == 'weighted':
             final_result = self._weighted_voting(votes)
+        elif self.voting_method == 'confidence_weighted':  # Sprint 07
+            final_result = self.confidence_weighted_voting.vote(votes)
         elif self.voting_method == 'majority':
             final_result = self._majority_voting(votes)
         elif self.voting_method == 'unanimous':
             final_result = self._unanimous_voting(votes)
         else:
             raise ValueError(f"Unknown voting method: {self.voting_method}")
+        
+        # Sprint 07: Conflict detection
+        if self.enable_conflict_detection:
+            conflict_analysis = self.conflict_detector.detect(votes)
+            final_result['conflict_analysis'] = conflict_analysis
+            
+            if conflict_analysis['has_conflict']:
+                print(f"[Ensemble] ⚠️  Conflict detected: {conflict_analysis['conflict_type']} (severity: {conflict_analysis['severity']})")
+                for rec in conflict_analysis['recommendations']:
+                    print(f"[Ensemble]   → {rec}")
+        
+        # Sprint 07: Uncertainty estimation
+        if self.enable_uncertainty_estimation:
+            uncertainty_analysis = self.uncertainty_estimator.estimate(votes, final_result)
+            final_result['uncertainty_analysis'] = uncertainty_analysis
+            
+            print(f"[Ensemble] Uncertainty: {uncertainty_analysis['uncertainty_level']} (score: {uncertainty_analysis['uncertainty_score']:.3f})")
+            
+            if uncertainty_analysis['uncertainty_level'] == 'high':
+                print(f"[Ensemble] ⚠️  High uncertainty - decision may be unreliable")
         
         total_time = time.time() - start_time
         
