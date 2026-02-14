@@ -16,16 +16,16 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import get_settings
-from .models import Job, JobStatus, CreateVideoRequest
-from .redis_store import RedisJobStore
-from .shorts_manager import ShortsCache
-from .celery_tasks import process_make_video
-from .logging_config import setup_logging
-from .exceptions import MakeVideoException
-from .constants import ProcessingLimits, AspectRatios, FileExtensions, HttpStatusCodes
-from .validation import CreateVideoRequestValidated, AudioFileValidator, QueryValidator
-from .events import EventPublisher, EventType, Event
+from .core.config import get_settings
+from .core.models import Job, JobStatus, CreateVideoRequest
+from .infrastructure.redis_store import RedisJobStore
+from .services.shorts_manager import ShortsCache
+from .infrastructure.celery_tasks import process_make_video
+from .infrastructure.logging_config import setup_logging
+from .shared.exceptions import MakeVideoException
+from .core.constants import ProcessingLimits, AspectRatios, FileExtensions, HttpStatusCodes
+from .shared.validation import CreateVideoRequestValidated, AudioFileValidator, QueryValidator
+from .shared.events import EventPublisher, EventType, Event
 from .pipeline import VideoPipeline
 
 # Setup logging

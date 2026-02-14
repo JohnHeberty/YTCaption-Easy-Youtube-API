@@ -18,23 +18,23 @@ from .celery_config import celery_app
 from ..core.config import get_settings
 from ..core.models import Job, JobStatus, ShortInfo, JobResult
 from .redis_store import RedisJobStore
-from .api_client import MicroservicesClient
-from .video_builder import VideoBuilder
-from .shorts_manager import ShortsCache
-from .subtitle_generator import SubtitleGenerator
-from .subtitle_postprocessor import process_subtitles_with_vad
-from .video_validator import VideoValidator
-from .blacklist_factory import get_blacklist
+from ..api.api_client import MicroservicesClient
+from ..services.video_builder import VideoBuilder
+from ..services.shorts_manager import ShortsCache
+from ..services.subtitle_generator import SubtitleGenerator
+from ..services.subtitle_postprocessor import process_subtitles_with_vad
+from ..video_processing.video_validator import VideoValidator
+from ..services.blacklist_factory import get_blacklist
 from .file_logger import FileLogger
-from .exceptions import (
+from ..shared.exceptions import (
     MakeVideoException,
     AudioProcessingException,
     VideoProcessingException,
     MicroserviceException
 )
 from ..core.constants import ProcessingLimits, TimeoutConstants, ValidationThresholds
-from .events import EventPublisher, EventType, Event
-from .domain_integration import process_job_with_domain
+from ..shared.events import EventPublisher, EventType, Event
+from ..shared.domain_integration import process_job_with_domain
 import shortuuid
 
 logger = logging.getLogger(__name__)
