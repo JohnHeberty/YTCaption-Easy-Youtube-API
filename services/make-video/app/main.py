@@ -26,6 +26,7 @@ from .exceptions import MakeVideoException
 from .constants import ProcessingLimits, AspectRatios, FileExtensions, HttpStatusCodes
 from .validation import CreateVideoRequestValidated, AudioFileValidator, QueryValidator
 from .events import EventPublisher, EventType, Event
+from .pipeline import VideoPipeline
 
 # Setup logging
 setup_logging()
@@ -127,6 +128,88 @@ async def startup_event():
     logger.info(f"   └─ Audio Transcriber: {settings['audio_transcriber_url']}")
 
 
+# ============================================================================
+# NOVO ENDPOINT: /download - Pipeline Completo
+# ============================================================================
+
+@app.post("/download", status_code=202)
+async def download_and_validate_shorts(
+    query: str = Form(..., min_length=3, max_length=200, description="Query de busca para shorts"),
+    max_shorts: int = Form(50, ge=10, le=500, description="Máximo de shorts para processar")
+):
+    """
+    🆕 Pipeline completo de download e validação de shorts
+    
+    **Fluxo:**
+    1. 📥 Download → data/raw/shorts/ (via youtube-search + video-downloader)
+    2. 🔄 Transform → data/transform/videos/ (conversão H264)
+    3. ✅ Validate → Detecção de legendas (SubtitleDetectorV2 - 97.73% acurácia)
+    4. Aprovação:
+       - ✅ SEM legendas → data/approved/videos/ (pronto para /make-video)
+       - ❌ COM legendas → Blacklist + remove tudo
+    5. 🧹 Cleanup → Remove de pastas anteriores
+    
+    **Entrada:**
+    - query: Query de busca (ex: "Videos Satisfatorio")
+    - max_shorts: Máximo de shorts para processar (10-500)
+    
+    **Retorno:**
+    - Estatísticas do pipeline (downloaded, approved, rejected, errors)
+    
+    **Uso:**
+    ```bash
+    curl -X POST "http://localhost:8004/download" \\
+      -F "query=Videos Satisfatorio" \\
+      -F "max_shorts=50"
+    ```
+    
+    **Nota:** Vídeos aprovados ficam em `data/approved/videos/` prontos para `/make-video`
+    """
+    try:
+        # Rate limiting
+        if not _rate_limiter.is_allowed():
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "Too many requests",
+                    "message": "Rate limit exceeded. Max 30 requests per minute.",
+                    "retry_after": 60
+                }
+            )
+        
+        # Sanitizar query
+        sanitized_query = QueryValidator.sanitize(query)
+        if not sanitized_query or len(sanitized_query) < 3:
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST,
+                detail="Query inválida após sanitização (mínimo 3 caracteres)"
+            )
+        
+        logger.info(f"🚀 DOWNLOAD PIPELINE: '{sanitized_query}' (max: {max_shorts})")
+        
+        # Executar pipeline
+        pipeline = VideoPipeline()
+        stats = await pipeline.process_pipeline(sanitized_query, max_shorts)
+        
+        return {
+            "status": "completed",
+            "message": "Pipeline executado com sucesso",
+            "query": sanitized_query,
+            "stats": stats,
+            "approved_videos_available": stats['approved'],
+            "ready_for_make_video": stats['approved'] > 0
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erro no pipeline de download: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha no pipeline: {str(e)}"
+        )
+
+
 @app.post("/make-video", status_code=202)
 async def create_video(
     audio_file: UploadFile = File(..., description="Audio file (max 100MB)"),
@@ -138,14 +221,35 @@ async def create_video(
     crop_position: str = Form("center")
 ):
     """
-    Criar novo vídeo
+    🎬 Criar vídeo com áudio + shorts APROVADOS
+    
+    **⚠️ IMPORTANTE: Este endpoint agora usa apenas vídeos de `data/approved/videos/`**
+    
+    **Para baixar e validar novos vídeos, use `/download` primeiro:**
+    ```bash
+    # 1. Baixar e validar shorts
+    curl -X POST "http://localhost:8004/download" \\
+      -F "query=Videos Satisfatorio" \\
+      -F "max_shorts=50"
+    
+    # 2. Criar vídeo com shorts aprovados
+    curl -X POST "http://localhost:8004/make-video" \\
+      -F "audio_file=@audio.mp3" \\
+      -F "query=Videos Satisfatorio" \\
+      -F "max_shorts=10"
+    ```
+    
+    **Fluxo:**
+    1. Recebe áudio
+    2. Busca shorts em `data/approved/videos/` (já validados pelo `/download`)
+    3. Monta vídeo final
     
     **Sprint-08: Rate limited to 30 jobs/minute**
     
     **Entrada:**
     - audio_file: Arquivo de áudio (mp3, wav, m4a, ogg) - Máx 100MB
-    - query: Query de busca para shorts (3-200 caracteres)
-    - max_shorts: Máximo de shorts para buscar (10-500)
+    - query: Query para filtrar shorts aprovados (3-200 caracteres)
+    - max_shorts: Máximo de shorts para usar (10-500)
     - subtitle_language: Idioma das legendas (pt, en, es)
     - subtitle_style: Estilo das legendas (static, dynamic, minimal)
     - aspect_ratio: Proporção do vídeo (9:16, 16:9, 1:1, 4:5)
