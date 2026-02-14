@@ -26,7 +26,7 @@ class BlacklistFactory:
             RuntimeError: Se falhar ao criar instância
         """
         config = get_settings()
-        db_path = config.get("sqlite_db_path", "./storage/shorts_cache/blacklist.db")
+        db_path = config.get(\"sqlite_db_path\", \"./raw/shorts/blacklist.db\")
         
         logger.info(f"🏭 Creating SQLite blacklist: {db_path}")
         
