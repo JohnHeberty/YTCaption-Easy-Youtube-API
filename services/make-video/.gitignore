@@ -55,3 +55,4 @@ storage/output_videos/*
 
 # Trash folder (deprecated files)
 trash/
+data/raw/shorts/blacklist.db

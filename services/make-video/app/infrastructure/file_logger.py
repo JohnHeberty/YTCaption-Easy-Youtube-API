@@ -1,7 +1,7 @@
 """
 File Logger - Sistema de logging em arquivo para debug detalhado
 
-Salva logs em /app/storage/logs com rotação automática.
+Salva logs em /app/data/logs com rotação automática.
 Cada job tem seu próprio arquivo de log para facilitar debug.
 """
 
