@@ -10,9 +10,8 @@ services:
     memswap_limit: 6g
     shm_size: '2gb'
     volumes:
-      # Bind mount da estrutura data/ completa
+      # Bind mount da estrutura data/ completa (inclui data/logs/)
       - ./data:/app/data
-      - ./logs:/app/logs
     env_file:
       - .env
     environment:
@@ -75,9 +74,8 @@ services:
     container_name: ytcaption-make-video-celery
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
     volumes:
-      # Bind mount da estrutura data/ completa
+      # Bind mount da estrutura data/ completa (inclui data/logs/)
       - ./data:/app/data
-      - ./logs:/app/logs
     env_file:
       - .env
     environment:
