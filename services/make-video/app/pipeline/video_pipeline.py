@@ -134,6 +134,12 @@ class VideoPipeline:
             
             for i, short in enumerate(unique_shorts, 1):
                 video_id = short.get('video_id')
+
+                # Pular vídeos já aprovados em execuções anteriores
+                approved_video_path = Path(f"data/approved/videos/{video_id}.mp4")
+                if approved_video_path.exists():
+                    logger.info(f"   🟢 [{i}/{len(unique_shorts)}] {video_id}: JÁ APROVADO (skip)")
+                    continue
                 
                 # Verificar blacklist ANTES de baixar
                 if self.blacklist.is_blacklisted(video_id):  # Sync call
@@ -406,7 +412,6 @@ class VideoPipeline:
         - data/raw/shorts/
         - data/transform/videos/
         - data/validate/in_progress/
-        - data/approved/videos/ (se existir)
         """
         logger.info(f"🧹 CLEANUP COMPLETO: Removendo {video_id} de todas as pastas")
         
@@ -414,7 +419,6 @@ class VideoPipeline:
             Path("data/raw/shorts"),
             Path("data/transform/videos"),
             Path("data/validate/in_progress"),
-            Path("data/approved/videos"),
         ]
 
         for stage_dir in stage_dirs:
