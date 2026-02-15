@@ -81,14 +81,14 @@ class VideoPipeline:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     f"{youtube_search_url}/search/shorts",
-                    json={
+                    params={
                         "query": query,
-                        "max_results": max_count,
-                        "filter_no_text": False  # Baixa todos, valida depois
+                        "max_results": max_count
                     }
                 )
                 response.raise_for_status()
-                shorts = response.json().get('shorts', [])
+                data = response.json()
+                shorts = data.get('result', {}).get('results', [])
             
             logger.info(f"   ✅ {len(shorts)} shorts encontrados")
             
