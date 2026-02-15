@@ -124,7 +124,7 @@ class VideoPipeline:
                             f"{video_downloader_url}/jobs",
                             json={
                                 "url": f"https://www.youtube.com/watch?v={video_id}",
-                                "quality": "audio"
+                                "quality": "best"
                             }
                         )
                         response.raise_for_status()
@@ -160,8 +160,14 @@ class VideoPipeline:
                         )
                         download_response.raise_for_status()
                     
-                    # 2.4. Salvar em data/raw/shorts/
-                    video_path = Path(f"data/raw/shorts/{video_id}.webm")
+                    # 2.4. Salvar em data/raw/shorts/ com extensão real
+                    file_ext = ".mp4"
+                    if file_path:
+                        parsed_ext = Path(file_path).suffix
+                        if parsed_ext:
+                            file_ext = parsed_ext
+
+                    video_path = Path(f"data/raw/shorts/{video_id}{file_ext}")
                     video_path.parent.mkdir(parents=True, exist_ok=True)
                     
                     with open(video_path, 'wb') as f:
@@ -354,13 +360,18 @@ class VideoPipeline:
         """
         logger.info(f"🧹 CLEANUP: Removendo {video_id} de pastas anteriores")
         
-        paths = [
-            Path(f"data/raw/shorts/{video_id}.mp4"),
-            Path(f"data/transform/videos/{video_id}.mp4"),
-        ]
-        
-        for path in paths:
-            if path.exists():
+        raw_dir = Path("data/raw/shorts")
+        transform_dir = Path("data/transform/videos")
+
+        # Remove todas as variantes de extensão no raw (ex: .mp4, .webm, .mkv)
+        for path in raw_dir.glob(f"{video_id}.*"):
+            if path.is_file():
+                path.unlink()
+                logger.info(f"   🗑️  Removido: {path}")
+
+        # Remove transformado (normalmente .mp4)
+        for path in transform_dir.glob(f"{video_id}.*"):
+            if path.is_file():
                 path.unlink()
                 logger.info(f"   🗑️  Removido: {path}")
     
@@ -376,17 +387,18 @@ class VideoPipeline:
         """
         logger.info(f"🧹 CLEANUP COMPLETO: Removendo {video_id} de todas as pastas")
         
-        paths = [
-            Path(f"data/raw/shorts/{video_id}.mp4"),
-            Path(f"data/transform/videos/{video_id}.mp4"),
-            Path(f"data/validate/in_progress/{video_id}.mp4"),
-            Path(f"data/approved/videos/{video_id}.mp4"),
+        stage_dirs = [
+            Path("data/raw/shorts"),
+            Path("data/transform/videos"),
+            Path("data/validate/in_progress"),
+            Path("data/approved/videos"),
         ]
-        
-        for path in paths:
-            if path.exists():
-                path.unlink()
-                logger.info(f"   🗑️  Removido: {path}")
+
+        for stage_dir in stage_dirs:
+            for path in stage_dir.glob(f"{video_id}.*"):
+                if path.is_file():
+                    path.unlink()
+                    logger.info(f"   🗑️  Removido: {path}")
     
     async def process_pipeline(self, query: str, max_shorts: int = 50) -> Dict:
         """
@@ -430,6 +442,7 @@ class VideoPipeline:
                 transform_path = self.transform_video(video_id, raw_path)
                 if not transform_path:
                     stats['errors'] += 1
+                    await self._cleanup_all_stages(video_id)
                     continue
                 stats['transformed'] += 1
                 
@@ -447,6 +460,7 @@ class VideoPipeline:
             except Exception as e:
                 logger.error(f"❌ Erro processando {video_id}: {e}", exc_info=True)
                 stats['errors'] += 1
+                await self._cleanup_all_stages(video_id)
                 continue
         
         stats['end_time'] = datetime.utcnow().isoformat()
