@@ -106,7 +106,7 @@ class VideoPipeline:
             
             logger.info(f"   ✅ {len(shorts)} shorts encontrados")
             
-            # 2. Baixar cada short via video-downloader
+            # 2. Baixar cada short via video-downloader (assíncrono)
             video_downloader_url = self.settings.get('video_downloader_url')
             
             for i, short in enumerate(shorts, 1):
@@ -119,18 +119,55 @@ class VideoPipeline:
                 
                 try:
                     async with httpx.AsyncClient(timeout=120.0) as client:
+                        # 2.1. Criar job de download
                         response = await client.post(
-                            f"{video_downloader_url}/download",
-                            json={"video_id": video_id}
+                            f"{video_downloader_url}/jobs",
+                            json={
+                                "url": f"https://www.youtube.com/watch?v={video_id}",
+                                "quality": "audio"
+                            }
                         )
                         response.raise_for_status()
-                        result = response.json()
+                        job = response.json()
+                        job_id = job.get('id')
+                        
+                        logger.info(f"   📦 [{i}/{len(shorts)}] {video_id}: Job {job_id} criado")
+                        
+                        # 2.2. Aguardar job completar (polling)
+                        max_retries = 30  # 30 tentativas × 2s = 60s timeout 
+                        for retry in range(max_retries):
+                            await asyncio.sleep(2)
+                            status_response = await client.get(
+                                f"{video_downloader_url}/jobs/{job_id}"
+                            )
+                            status_response.raise_for_status()
+                            job_status = status_response.json()
+                            
+                            if job_status.get('status') == 'completed':
+                                file_path = job_status.get('file_path')
+                                logger.info(f"   ✅ [{i}/{len(shorts)}] {video_id}: Download concluído ({file_path})")
+                                break
+                            elif job_status.get('status') == 'failed':
+                                error_msg = job_status.get('error_message', 'Unknown error')
+                                raise Exception(f"Download failed: {error_msg}")
+                        else:
+                            raise Exception("Download timeout (60s)")
+                        
+                        # 2.3. Baixar arquivo via GET /jobs/{job_id}/download
+                        download_response = await client.get(
+                            f"{video_downloader_url}/jobs/{job_id}/download",
+                            timeout=60.0
+                        )
+                        download_response.raise_for_status()
                     
-                    # Salvar em data/raw/shorts/
-                    video_path = Path(f"data/raw/shorts/{video_id}.mp4")
+                    # 2.4. Salvar em data/raw/shorts/
+                    video_path = Path(f"data/raw/shorts/{video_id}.webm")
+                    video_path.parent.mkdir(parents=True, exist_ok=True)
                     
-                    # Aqui deveria receber o vídeo do downloader
-                    # Por enquanto, assumir que foi baixado
+                    with open(video_path, 'wb') as f:
+                        f.write(download_response.content)
+                    
+                    logger.info(f"   💾 [{i}/{len(shorts)}] {video_id}: Salvo em {video_path}")
                     
                     downloaded.append({
                         'video_id': video_id,
