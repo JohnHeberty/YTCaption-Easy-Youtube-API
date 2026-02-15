@@ -76,9 +76,10 @@ class VideoPipeline:
         downloaded = []
         
         try:
-            # 1. Buscar shorts via youtube-search
+            # 1. Buscar shorts via youtube-search (assíncrono)
             youtube_search_url = self.settings.get('youtube_search_url')
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                # 1.1. Criar job de busca
                 response = await client.post(
                     f"{youtube_search_url}/search/shorts",
                     params={
@@ -87,8 +88,21 @@ class VideoPipeline:
                     }
                 )
                 response.raise_for_status()
-                data = response.json()
-                shorts = data.get('result', {}).get('results', [])
+                job_data = response.json()
+                job_id = job_data.get('id')
+                
+                logger.info(f"   📋 Job criado: {job_id} (aguardando...)")
+                
+                # 1.2. Aguardar job completar
+                wait_response = await client.get(
+                    f"{youtube_search_url}/jobs/{job_id}/wait",
+                    timeout=90.0
+                )
+                wait_response.raise_for_status()
+                completed_job = wait_response.json()
+                
+                # 1.3. Extrair resultados
+                shorts = completed_job.get('result', {}).get('results', [])
             
             logger.info(f"   ✅ {len(shorts)} shorts encontrados")
             
