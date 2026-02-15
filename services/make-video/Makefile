@@ -17,9 +17,23 @@
 DOCKER_COMPOSE := docker compose
 DOCKER_SERVICE := make-video
 PYTHON := python3
-STORAGE_DIR := ./storage
-CALIBRATION_DIR := $(STORAGE_DIR)/calibration
+DATA_DIR := ./data
+RAW_DIR := $(DATA_DIR)/raw
+TRANSFORM_DIR := $(DATA_DIR)/transform
+VALIDATE_DIR := $(DATA_DIR)/validate
+APPROVED_DIR := $(DATA_DIR)/approved
+CALIBRATION_DIR := $(DATA_DIR)/calibration
 LOG_DIR := /tmp
+API_BASE_URL := http://localhost:8004
+API_QUERY ?= Videos Satisfatorios
+API_MAX_SHORTS ?= 20
+API_LIMIT ?= 50
+API_STATUS ?=
+DAYS ?= 30
+DEEP ?= false
+PURGE_CELERY_QUEUE ?= false
+MAX_AGE_MINUTES ?= 30
+MARK_AS_FAILED ?= true
 
 # Configurações de calibração
 OPTUNA_TRIALS := 100
@@ -42,6 +56,7 @@ help: ## Mostrar esta mensagem de ajuda
 	@echo "📚 Categorias:"
 	@echo "  • Desenvolvimento: install, dev, logs, shell"
 	@echo "  • Testes: test, test-quick, test-imports"
+	@echo "  • API Controle: api-health, api-download, api-jobs, api-admin-stats"
 	@echo "  • Calibração: calibrate-start, calibrate-status, calibrate-watch, calibrate-logs"
 	@echo "  • Deployment: build, up, down, restart"
 	@echo "  • Manutenção: clean, clean-all, validate"
@@ -114,7 +129,7 @@ calibrate-start: ## Iniciar calibração em background
 	@echo ""
 	@echo "🚀 Iniciando..."
 	@$(DOCKER_COMPOSE) run -d --rm --name calibrate_trsd_optuna \
-		-v "$$(pwd)/storage:/app/storage:rw" \
+		-v "$$(pwd)/data:/app/data:rw" \
 		$(DOCKER_SERVICE) python calibrate_trsd_optuna.py
 	@sleep 3
 	@CONTAINER=$$(docker ps --filter "name=calibrate" --format "{{.ID}}" | head -1); \
@@ -140,7 +155,7 @@ calibrate-quick: ## Executar calibração rápida (5 trials, ~3-4h)
 	@echo "⚠️  Duração estimada: 3-4 horas"
 	$(DOCKER_COMPOSE) run --rm \
 		-v "$$(pwd):/app:ro" \
-		-v "$$(pwd)/storage:/app/storage:rw" \
+		-v "$$(pwd)/data:/app/data:rw" \
 		-e OPTUNA_TRIALS=5 \
 		-e OPTUNA_TIMEOUT=600 \
 		$(DOCKER_SERVICE) python calibrate_trsd_optuna.py
@@ -249,7 +264,7 @@ calibrate-clean: ## Limpar logs e PIDs de calibração
 	@rm -f $(LOG_DIR)/calibration_start.txt
 	@rm -f $(LOG_DIR)/optuna_full.log
 	@echo "✅ Limpeza concluída"
-	@echo "⚠️  Resultados em storage/calibration/ foram preservados"
+	@echo "⚠️  Resultados em data/calibration/ foram preservados"
 
 calibrate-apply: ## Aplicar melhor threshold encontrado ao .env
 	@if [ -f $(CALIBRATION_DIR)/trsd_optuna_best_params.json ]; then \
@@ -351,40 +366,35 @@ clean: ## Limpar arquivos temporários e cache
 	@echo "✅ Limpeza concluída"
 
 clean-storage: ## Limpar storage (⚠️ CUIDADO: remove vídeos)
-	@echo "⚠️  ATENÇÃO: Isso removerá arquivos temporários do storage!"
-	@echo "✅ PRESERVADO: OK/, NOT_OK/, shorts_cache/, output_videos/"
+	@echo "⚠️  ATENÇÃO: Isso removerá arquivos temporários do pipeline data/!"
+	@echo "✅ PRESERVADO: data/approved/videos/ e data/raw/shorts/blacklist.db"
 	@read -p "Continuar? [y/N] " -n 1 -r; \
 	echo; \
 	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
-		echo "🧹 Limpando audio_uploads/..."; \
-		rm -rf $(STORAGE_DIR)/audio_uploads/* 2>/dev/null || true; \
-		echo "🧹 Limpando temp/..."; \
-		rm -rf $(STORAGE_DIR)/temp/* 2>/dev/null || true; \
-		echo "🧹 Limpando validation/h264_converted/..."; \
-		rm -rf $(STORAGE_DIR)/validation/h264_converted/OK/* 2>/dev/null || true; \
-		rm -rf $(STORAGE_DIR)/validation/h264_converted/NOT_OK/* 2>/dev/null || true; \
-		echo "🧹 Limpando caches..."; \
-		rm -rf $(STORAGE_DIR)/audio_cache/* 2>/dev/null || true; \
-		rm -rf $(STORAGE_DIR)/video_cache/* 2>/dev/null || true; \
-		echo "✅ Storage limpo (OK/, NOT_OK/, shorts_cache/, output_videos/ preservados)"; \
+		echo "🧹 Limpando data/raw/audio/..."; \
+		rm -rf $(RAW_DIR)/audio/* 2>/dev/null || true; \
+		echo "🧹 Limpando data/transform/..."; \
+		rm -rf $(TRANSFORM_DIR)/videos/* 2>/dev/null || true; \
+		rm -rf $(TRANSFORM_DIR)/temp/* 2>/dev/null || true; \
+		echo "🧹 Limpando data/validate/..."; \
+		rm -rf $(VALIDATE_DIR)/in_progress/* 2>/dev/null || true; \
+		rm -rf $(VALIDATE_DIR)/test_datasets/* 2>/dev/null || true; \
+		echo "✅ data/ limpo (approved/videos e blacklist.db preservados)"; \
 	fi
 
 storage-info: ## Mostrar informações sobre o storage
-	@echo "📊 Storage Information"
+	@echo "📊 Data Pipeline Information"
 	@echo "═══════════════════════════════════════════════════════════"
 	@echo "📂 Estrutura:"
-	@find $(STORAGE_DIR) -maxdepth 2 -type d | sort
+	@find $(DATA_DIR) -maxdepth 2 -type d | sort
 	@echo ""
 	@echo "💾 Tamanho por pasta:"
-	@du -sh $(STORAGE_DIR)/* 2>/dev/null | sort -h
+	@du -sh $(DATA_DIR)/* 2>/dev/null | sort -h
 	@echo ""
 	@echo "📹 Contagem de arquivos:"
-	@echo "  OK/: $$(find $(STORAGE_DIR)/OK -name "*.mp4" 2>/dev/null | wc -l) vídeos"
-	@echo "  NOT_OK/: $$(find $(STORAGE_DIR)/NOT_OK -name "*.mp4" 2>/dev/null | wc -l) vídeos"
-	@echo "  shorts_cache/: $$(find $(STORAGE_DIR)/shorts_cache -name "*.mp4" 2>/dev/null | wc -l) vídeos"
-	@echo "  output_videos/: $$(find $(STORAGE_DIR)/output_videos -name "*.mp4" 2>/dev/null | wc -l) vídeos"
-	@echo "  validation/sample_OK/: $$(find $(STORAGE_DIR)/validation/sample_OK -name "*.mp4" 2>/dev/null | wc -l) vídeos"
-	@echo "  validation/sample_NOT_OK/: $$(find $(STORAGE_DIR)/validation/sample_NOT_OK -name "*.mp4" 2>/dev/null | wc -l) vídeos"
+	@echo "  raw/shorts: $$(find $(RAW_DIR)/shorts -name "*.mp4" -o -name "*.webm" 2>/dev/null | wc -l) arquivos"
+	@echo "  transform/videos: $$(find $(TRANSFORM_DIR)/videos -name "*.mp4" 2>/dev/null | wc -l) vídeos"
+	@echo "  approved/videos: $$(find $(APPROVED_DIR)/videos -name "*.mp4" 2>/dev/null | wc -l) vídeos"
 	@echo "═══════════════════════════════════════════════════════════"
 
 clean-all: clean ## Limpeza total (cache + containers + volumes)
@@ -397,10 +407,12 @@ validate: ## Validar configuração e estrutura
 	@echo "🔍 Validando configuração..."
 	@echo ""
 	@echo "📂 Estrutura de diretórios:"
-	@test -d $(STORAGE_DIR) && echo "  ✅ storage/" || echo "  ❌ storage/ (criando...)" && mkdir -p $(STORAGE_DIR)
-	@test -d $(STORAGE_DIR)/OK && echo "  ✅ storage/OK/" || echo "  ❌ storage/OK/ (criando...)" && mkdir -p $(STORAGE_DIR)/OK
-	@test -d $(STORAGE_DIR)/NOT_OK && echo "  ✅ storage/NOT_OK/" || echo "  ❌ storage/NOT_OK/ (criando...)" && mkdir -p $(STORAGE_DIR)/NOT_OK
-	@test -d $(CALIBRATION_DIR) && echo "  ✅ storage/calibration/" || echo "  ❌ storage/calibration/ (criando...)" && mkdir -p $(CALIBRATION_DIR)
+	@test -d $(DATA_DIR) && echo "  ✅ data/" || echo "  ❌ data/ (criando...)" && mkdir -p $(DATA_DIR)
+	@test -d $(RAW_DIR)/shorts && echo "  ✅ data/raw/shorts/" || echo "  ❌ data/raw/shorts/ (criando...)" && mkdir -p $(RAW_DIR)/shorts
+	@test -d $(TRANSFORM_DIR)/videos && echo "  ✅ data/transform/videos/" || echo "  ❌ data/transform/videos/ (criando...)" && mkdir -p $(TRANSFORM_DIR)/videos
+	@test -d $(VALIDATE_DIR)/in_progress && echo "  ✅ data/validate/in_progress/" || echo "  ❌ data/validate/in_progress/ (criando...)" && mkdir -p $(VALIDATE_DIR)/in_progress
+	@test -d $(APPROVED_DIR)/videos && echo "  ✅ data/approved/videos/" || echo "  ❌ data/approved/videos/ (criando...)" && mkdir -p $(APPROVED_DIR)/videos
+	@test -d $(CALIBRATION_DIR) && echo "  ✅ data/calibration/" || echo "  ❌ data/calibration/ (criando...)" && mkdir -p $(CALIBRATION_DIR)
 	@echo ""
 	@echo "📄 Arquivos de configuração:"
 	@test -f .env && echo "  ✅ .env" || echo "  ⚠️  .env não encontrado"
@@ -420,18 +432,100 @@ validate: ## Validar configuração e estrutura
 health: ## Verificar health do serviço
 	@echo "🏥 Health Check"
 	@echo "═══════════════════════════════════════════════════════════"
-	@curl -s http://localhost:8005/health 2>/dev/null | jq . || echo "❌ Serviço não responde (porta 8005)"
+	@curl -s $(API_BASE_URL)/health 2>/dev/null | jq . || echo "❌ Serviço não responde ($(API_BASE_URL))"
 	@echo "═══════════════════════════════════════════════════════════"
 
 metrics: ## Mostrar métricas do sistema
 	@echo "📊 Métricas do Sistema"
 	@echo "═══════════════════════════════════════════════════════════"
-	@echo "💾 Uso de Disco (storage/):"
-	@du -sh $(STORAGE_DIR)/* 2>/dev/null | sort -h || echo "  (vazio)"
+	@echo "💾 Uso de Disco (data/):"
+	@du -sh $(DATA_DIR)/* 2>/dev/null | sort -h || echo "  (vazio)"
 	@echo ""
 	@echo "🐳 Recursos Docker:"
 	@docker stats --no-stream --format "table {{.Container}}\t{{.CPUPerc}}\t{{.MemUsage}}" | grep make-video || echo "  Serviço não está rodando"
 	@echo "═══════════════════════════════════════════════════════════"
+
+# ============================================================================
+# API CONTROLE
+# ============================================================================
+
+api-root: ## GET / (informações do serviço)
+	@curl -s $(API_BASE_URL)/ | jq .
+
+api-openapi: ## GET /openapi.json (contrato completo da API)
+	@curl -s $(API_BASE_URL)/openapi.json | jq '.info, .paths | keys'
+
+api-health: ## GET /health
+	@curl -s $(API_BASE_URL)/health | jq .
+
+api-metrics: ## GET /metrics
+	@curl -s $(API_BASE_URL)/metrics | head -40
+
+api-download: ## POST /download (query=$(API_QUERY), max_shorts=$(API_MAX_SHORTS))
+	@curl -s -X POST "$(API_BASE_URL)/download" \
+		-F "query=$(API_QUERY)" \
+		-F "max_shorts=$(API_MAX_SHORTS)" | jq .
+
+api-make-video: ## POST /make-video (requer AUDIO_FILE=/caminho/audio.mp3)
+	@if [ -z "$(AUDIO_FILE)" ]; then echo "❌ Use: make api-make-video AUDIO_FILE=/path/audio.mp3"; exit 1; fi
+	@curl -s -X POST "$(API_BASE_URL)/make-video" \
+		-F "audio_file=@$(AUDIO_FILE)" \
+		-F "query=$(API_QUERY)" \
+		-F "max_shorts=$(API_MAX_SHORTS)" | jq .
+
+api-jobs: ## GET /jobs (limit=$(API_LIMIT), status=$(API_STATUS))
+	@if [ -n "$(API_STATUS)" ]; then \
+		curl -s "$(API_BASE_URL)/jobs?limit=$(API_LIMIT)&status=$(API_STATUS)" | jq .; \
+	else \
+		curl -s "$(API_BASE_URL)/jobs?limit=$(API_LIMIT)" | jq .; \
+	fi
+
+api-job: ## GET /jobs/{job_id} (requer JOB_ID=...)
+	@if [ -z "$(JOB_ID)" ]; then echo "❌ Use: make api-job JOB_ID=<job_id>"; exit 1; fi
+	@curl -s "$(API_BASE_URL)/jobs/$(JOB_ID)" | jq .
+
+api-job-delete: ## DELETE /jobs/{job_id} (requer JOB_ID=...)
+	@if [ -z "$(JOB_ID)" ]; then echo "❌ Use: make api-job-delete JOB_ID=<job_id>"; exit 1; fi
+	@curl -s -X DELETE "$(API_BASE_URL)/jobs/$(JOB_ID)" | jq .
+
+api-download-file: ## GET /download/{job_id} (requer JOB_ID=...)
+	@if [ -z "$(JOB_ID)" ]; then echo "❌ Use: make api-download-file JOB_ID=<job_id>"; exit 1; fi
+	@mkdir -p /tmp/make-video-downloads
+	@curl -s -L "$(API_BASE_URL)/download/$(JOB_ID)" -o "/tmp/make-video-downloads/video_$(JOB_ID).mp4" && \
+		echo "✅ Salvo em /tmp/make-video-downloads/video_$(JOB_ID).mp4"
+
+api-cache-stats: ## GET /cache/stats
+	@curl -s "$(API_BASE_URL)/cache/stats" | jq .
+
+api-cache-cleanup: ## POST /cache/cleanup?days=$(DAYS)
+	@curl -s -X POST "$(API_BASE_URL)/cache/cleanup?days=$(DAYS)" | jq .
+
+api-admin-stats: ## GET /admin/stats
+	@curl -s "$(API_BASE_URL)/admin/stats" | jq .
+
+api-admin-queue: ## GET /admin/queue
+	@curl -s "$(API_BASE_URL)/admin/queue" | jq .
+
+api-admin-cleanup: ## POST /admin/cleanup (deep=$(DEEP), purge=$(PURGE_CELERY_QUEUE))
+	@curl -s -X POST "$(API_BASE_URL)/admin/cleanup?deep=$(DEEP)&purge_celery_queue=$(PURGE_CELERY_QUEUE)" | jq .
+
+api-cleanup-failed: ## POST /jobs/cleanup-failed
+	@curl -s -X POST "$(API_BASE_URL)/jobs/cleanup-failed" | jq .
+
+api-orphans: ## GET /jobs/orphaned?max_age_minutes=$(MAX_AGE_MINUTES)
+	@curl -s "$(API_BASE_URL)/jobs/orphaned?max_age_minutes=$(MAX_AGE_MINUTES)" | jq .
+
+api-orphans-cleanup: ## POST /jobs/orphaned/cleanup
+	@curl -s -X POST "$(API_BASE_URL)/jobs/orphaned/cleanup?max_age_minutes=$(MAX_AGE_MINUTES)&mark_as_failed=$(MARK_AS_FAILED)" | jq .
+
+api-admin-cleanup-orphans: ## POST /admin/cleanup-orphans?max_age_minutes=$(MAX_AGE_MINUTES)
+	@curl -s -X POST "$(API_BASE_URL)/admin/cleanup-orphans?max_age_minutes=$(MAX_AGE_MINUTES)" | jq .
+
+api-smoke: ## Executa verificação rápida de endpoints de controle
+	@echo "🔎 API Smoke ($(API_BASE_URL))"
+	@curl -s $(API_BASE_URL)/health | jq -r '.status'
+	@curl -s $(API_BASE_URL)/admin/stats | jq -r '.jobs.total'
+	@curl -s $(API_BASE_URL)/cache/stats | jq . >/dev/null && echo "cache: ok"
 
 # ============================================================================
 # UTILITÁRIOS
@@ -447,7 +541,8 @@ config: ## Mostrar configuração atual
 	@echo "⚙️  Configuração Atual"
 	@echo "═══════════════════════════════════════════════════════════"
 	@echo "Serviço: $(DOCKER_SERVICE)"
-	@echo "Storage: $(STORAGE_DIR)"
+	@echo "Data: $(DATA_DIR)"
+	@echo "API: $(API_BASE_URL)"
 	@echo "Calibração: $(CALIBRATION_DIR)"
 	@echo "Trials (calibração): $(OPTUNA_TRIALS)"
 	@echo "Timeout (calibração): $(OPTUNA_TIMEOUT)s"

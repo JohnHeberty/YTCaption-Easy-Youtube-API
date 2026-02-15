@@ -105,16 +105,39 @@ class VideoPipeline:
                 shorts = completed_job.get('result', {}).get('results', [])
             
             logger.info(f"   ✅ {len(shorts)} shorts encontrados")
+
+            # 1.4. Deduplicar por video_id para evitar contagem inflada e sobrescrita
+            unique_shorts = []
+            seen_video_ids = set()
+            duplicated_count = 0
+
+            for short in shorts:
+                video_id = short.get('video_id')
+                if not video_id:
+                    continue
+
+                if video_id in seen_video_ids:
+                    duplicated_count += 1
+                    continue
+
+                seen_video_ids.add(video_id)
+                unique_shorts.append(short)
+
+            if duplicated_count > 0:
+                logger.info(
+                    f"   🔁 Duplicados removidos: {duplicated_count} "
+                    f"(únicos: {len(unique_shorts)})"
+                )
             
             # 2. Baixar cada short via video-downloader (assíncrono)
             video_downloader_url = self.settings.get('video_downloader_url')
             
-            for i, short in enumerate(shorts, 1):
+            for i, short in enumerate(unique_shorts, 1):
                 video_id = short.get('video_id')
                 
                 # Verificar blacklist ANTES de baixar
                 if self.blacklist.is_blacklisted(video_id):  # Sync call
-                    logger.info(f"   ⚫ [{i}/{len(shorts)}] {video_id}: BLACKLISTED (skip)")
+                    logger.info(f"   ⚫ [{i}/{len(unique_shorts)}] {video_id}: BLACKLISTED (skip)")
                     continue
                 
                 try:
@@ -131,7 +154,7 @@ class VideoPipeline:
                         job = response.json()
                         job_id = job.get('id')
                         
-                        logger.info(f"   📦 [{i}/{len(shorts)}] {video_id}: Job {job_id} criado")
+                        logger.info(f"   📦 [{i}/{len(unique_shorts)}] {video_id}: Job {job_id} criado")
                         
                         # 2.2. Aguardar job completar (polling)
                         max_retries = 30  # 30 tentativas × 2s = 60s timeout 
@@ -145,7 +168,7 @@ class VideoPipeline:
                             
                             if job_status.get('status') == 'completed':
                                 file_path = job_status.get('file_path')
-                                logger.info(f"   ✅ [{i}/{len(shorts)}] {video_id}: Download concluído ({file_path})")
+                                logger.info(f"   ✅ [{i}/{len(unique_shorts)}] {video_id}: Download concluído ({file_path})")
                                 break
                             elif job_status.get('status') == 'failed':
                                 error_msg = job_status.get('error_message', 'Unknown error')
@@ -173,7 +196,7 @@ class VideoPipeline:
                     with open(video_path, 'wb') as f:
                         f.write(download_response.content)
                     
-                    logger.info(f"   💾 [{i}/{len(shorts)}] {video_id}: Salvo em {video_path}")
+                    logger.info(f"   💾 [{i}/{len(unique_shorts)}] {video_id}: Salvo em {video_path}")
                     
                     downloaded.append({
                         'video_id': video_id,
@@ -182,13 +205,13 @@ class VideoPipeline:
                         'downloaded_at': datetime.utcnow().isoformat()
                     })
                     
-                    logger.info(f"   ✅ [{i}/{len(shorts)}] {video_id}: Downloaded")
+                    logger.info(f"   ✅ [{i}/{len(unique_shorts)}] {video_id}: Downloaded")
                     
                 except Exception as e:
-                    logger.error(f"   ❌ [{i}/{len(shorts)}] {video_id}: Download failed - {e}")
+                    logger.error(f"   ❌ [{i}/{len(unique_shorts)}] {video_id}: Download failed - {e}")
                     continue
-            
-            logger.info(f"📥 DOWNLOAD COMPLETO: {len(downloaded)}/{len(shorts)} baixados")
+
+                logger.info(f"📥 DOWNLOAD COMPLETO: {len(downloaded)}/{len(unique_shorts)} baixados")
             return downloaded
             
         except Exception as e:
@@ -433,9 +456,17 @@ class VideoPipeline:
             return stats
         
         # 2. TRANSFORM + 3. VALIDATE + 4. APPROVE/REJECT
+        processed_video_ids = set()
+
         for short in shorts:
             video_id = short['video_id']
             raw_path = short['raw_path']
+
+            if video_id in processed_video_ids:
+                logger.info(f"   🔁 DUPLICADO no pipeline final (skip): {video_id}")
+                continue
+
+            processed_video_ids.add(video_id)
             
             try:
                 # 2. Transform
