@@ -584,7 +584,10 @@ async def cleanup_failed_jobs():
     try:
         # Buscar todos os jobs com status failed
         all_jobs = await redis_store.list_jobs()
-        failed_jobs = [job for job in all_jobs if job.status == 'failed']
+        failed_jobs = [
+            job for job in all_jobs
+            if str(job.status).lower() == JobStatus.FAILED.value
+        ]
         
         removed_ids = []
         for job in failed_jobs:
@@ -869,7 +872,7 @@ async def cleanup_orphans(
         for job in orphaned_jobs:
             try:
                 # Mark as failed
-                job.status = "failed"
+                job.status = JobStatus.FAILED
                 job.error = f"Job órfão detectado após {max_age_minutes}min em PROCESSING"
                 job.updated_at = datetime.utcnow()
                 
@@ -1316,7 +1319,7 @@ async def root():
             "pattern": "Orchestrator",
             "microservices": [
                 "youtube-search:8003",
-                "video-downloader:8002",
+                "video-downloader:8001",
                 "audio-transcriber:8005"
             ]
         }
