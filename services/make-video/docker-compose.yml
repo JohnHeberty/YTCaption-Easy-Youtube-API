@@ -4,8 +4,7 @@ services:
   make-video:
     build: .
     container_name: ytcaption-make-video
-    ports:
-      - "${PORT}:${PORT}"
+    network_mode: "host"
     mem_limit: 6g
     memswap_limit: 6g
     shm_size: '2gb'
@@ -54,11 +53,6 @@ services:
       - TRANSCRIBE_MAX_POLLS=${TRANSCRIBE_MAX_POLLS}
       - MAX_FETCH_ROUNDS=${MAX_FETCH_ROUNDS}
       - VIDEO_TRIM_PADDING_MS=${VIDEO_TRIM_PADDING_MS}
-    extra_hosts:
-      - "redis-server:192.168.1.110"
-      - "youtube-search:192.168.1.110"
-      - "video-downloader:192.168.1.110"
-      - "audio-transcriber:192.168.1.110"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
@@ -66,8 +60,6 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    networks:
-      - ytcaption-network
 
   make-video-celery:
     build: .
