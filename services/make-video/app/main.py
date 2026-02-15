@@ -8,8 +8,9 @@ Serviço para criar vídeos automaticamente a partir de:
 """
 
 import logging
+import asyncio
 import shortuuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
@@ -17,7 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .core.config import get_settings
-from .core.models import Job, JobStatus, CreateVideoRequest
+from .core.models import Job, JobStatus, CreateVideoRequest, StageInfo
 from .infrastructure.redis_store import RedisJobStore
 from .services.shorts_manager import ShortsCache
 from .infrastructure.celery_tasks import process_make_video
@@ -162,7 +163,7 @@ async def download_and_validate_shorts(
     - max_shorts: Máximo de shorts para processar (10-500)
     
     **Retorno:**
-    - Estatísticas do pipeline (downloaded, approved, rejected, errors)
+    - job_id para monitorar progresso em `/jobs/{job_id}`
     
     **Uso:**
     ```bash
@@ -193,19 +194,44 @@ async def download_and_validate_shorts(
                 detail="Query inválida após sanitização (mínimo 3 caracteres)"
             )
         
-        logger.info(f"🚀 DOWNLOAD PIPELINE: '{sanitized_query}' (max: {max_shorts})")
-        
-        # Executar pipeline
-        pipeline = VideoPipeline()
-        stats = await pipeline.process_pipeline(sanitized_query, max_shorts)
-        
+        logger.info(f"🚀 DOWNLOAD PIPELINE REQUEST: '{sanitized_query}' (max: {max_shorts})")
+
+        # Criar job para monitoramento assíncrono
+        job_id = shortuuid.uuid()
+        job = Job(
+            job_id=job_id,
+            status=JobStatus.QUEUED,
+            progress=0.0,
+            query=sanitized_query,
+            max_shorts=max_shorts,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            stages={
+                "download_pipeline": StageInfo(
+                    status="pending",
+                    progress=0.0,
+                    metadata={
+                        "query": sanitized_query,
+                        "max_shorts": max_shorts,
+                    }
+                )
+            }
+        )
+
+        await redis_store.save_job(job)
+
+        # Disparar processamento em background
+        asyncio.create_task(_run_download_pipeline_job(job_id, sanitized_query, max_shorts))
+
+        logger.info(f"📥 Download job {job_id} queued")
+
         return {
-            "status": "completed",
-            "message": "Pipeline executado com sucesso",
+            "job_id": job_id,
+            "status": JobStatus.QUEUED.value,
+            "message": "Download pipeline job queued successfully",
             "query": sanitized_query,
-            "stats": stats,
-            "approved_videos_available": stats['approved'],
-            "ready_for_make_video": stats['approved'] > 0
+            "max_shorts": max_shorts,
+            "monitor_url": f"/jobs/{job_id}"
         }
         
     except HTTPException:
@@ -215,6 +241,100 @@ async def download_and_validate_shorts(
         raise HTTPException(
             status_code=500,
             detail=f"Falha no pipeline: {str(e)}"
+        )
+
+
+async def _update_download_job(
+    job_id: str,
+    *,
+    status: JobStatus,
+    progress: float,
+    stage_status: str,
+    metadata: Optional[dict] = None,
+    error: Optional[dict] = None,
+):
+    """Atualiza status/progresso do job de /download no Redis."""
+    job = await redis_store.get_job(job_id)
+    if not job:
+        logger.error(f"Download job {job_id} não encontrado para atualização")
+        return
+
+    now = datetime.utcnow()
+    job.status = status
+    job.progress = progress
+    job.updated_at = now
+
+    stage = job.stages.get("download_pipeline")
+    if stage is None:
+        stage = StageInfo(status=stage_status, progress=progress, metadata=metadata or {})
+    else:
+        stage.status = stage_status
+        stage.progress = progress
+        if metadata:
+            stage.metadata.update(metadata)
+
+    job.stages["download_pipeline"] = stage
+
+    if status == JobStatus.COMPLETED:
+        job.completed_at = now
+        job.expires_at = now + timedelta(hours=24)
+    elif status == JobStatus.FAILED:
+        job.error = error or {"message": "Download pipeline failed"}
+
+    await redis_store.save_job(job)
+
+
+async def _run_download_pipeline_job(job_id: str, query: str, max_shorts: int):
+    """Executa o pipeline de /download em background."""
+    try:
+        await _update_download_job(
+            job_id,
+            status=JobStatus.FETCHING_SHORTS,
+            progress=10.0,
+            stage_status="in_progress",
+            metadata={"step": "initializing_pipeline"},
+        )
+
+        pipeline = VideoPipeline()
+
+        await _update_download_job(
+            job_id,
+            status=JobStatus.DOWNLOADING_SHORTS,
+            progress=30.0,
+            stage_status="in_progress",
+            metadata={"step": "processing_videos"},
+        )
+
+        stats = await pipeline.process_pipeline(query, max_shorts)
+
+        await _update_download_job(
+            job_id,
+            status=JobStatus.COMPLETED,
+            progress=100.0,
+            stage_status="completed",
+            metadata={
+                "step": "completed",
+                "stats": stats,
+                "approved_videos_available": stats.get("approved", 0),
+                "ready_for_make_video": stats.get("approved", 0) > 0,
+            },
+        )
+
+        logger.info(f"✅ Download job {job_id} completed")
+
+    except Exception as e:
+        logger.error(f"❌ Download job {job_id} failed: {e}", exc_info=True)
+        await _update_download_job(
+            job_id,
+            status=JobStatus.FAILED,
+            progress=100.0,
+            stage_status="failed",
+            error={
+                "message": "Download pipeline failed",
+                "details": str(e),
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            metadata={"step": "failed"},
         )
 
 
