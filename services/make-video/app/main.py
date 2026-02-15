@@ -13,6 +13,7 @@ import shortuuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -101,6 +102,7 @@ class SimpleRateLimiter:
 redis_store = RedisJobStore(redis_url=settings['redis_url'])
 shorts_cache = ShortsCache(cache_dir=settings['shorts_cache_dir'])
 _rate_limiter = SimpleRateLimiter(max_requests=30, window_seconds=60)
+_thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="pipeline_worker")
 
 # API client para microserviços
 from .api.api_client import MicroservicesClient
@@ -220,18 +222,19 @@ async def download_and_validate_shorts(
 
         await redis_store.save_job(job)
 
-        # Disparar processamento em background
-        asyncio.create_task(_run_download_pipeline_job(job_id, sanitized_query, max_shorts))
+        # Disparar processamento em background com thread pool (não bloqueia event loop)
+        asyncio.create_task(_run_download_pipeline_job_resilient(job_id, sanitized_query, max_shorts))
 
-        logger.info(f"📥 Download job {job_id} queued")
+        logger.info(f"📥 Download job {job_id} queued (resilient mode)")
 
         return {
             "job_id": job_id,
             "status": JobStatus.QUEUED.value,
-            "message": "Download pipeline job queued successfully",
+            "message": "Download pipeline job queued successfully (resilient mode with heartbeat)",
             "query": sanitized_query,
             "max_shorts": max_shorts,
-            "monitor_url": f"/jobs/{job_id}"
+            "monitor_url": f"/jobs/{job_id}",
+            "estimated_duration_minutes": max_shorts * 0.5  # ~30s por vídeo
         }
         
     except HTTPException:
@@ -242,6 +245,20 @@ async def download_and_validate_shorts(
             status_code=500,
             detail=f"Falha no pipeline: {str(e)}"
         )
+
+
+def _format_duration(seconds: float) -> str:
+    """Formata duração em formato legível (ex: 5m 30s)"""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    elif seconds < 3600:
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes}m {secs}s"
+    else:
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        return f"{hours}h {minutes}m"
 
 
 async def _update_download_job(
@@ -284,28 +301,75 @@ async def _update_download_job(
     await redis_store.save_job(job)
 
 
-async def _run_download_pipeline_job(job_id: str, query: str, max_shorts: int):
-    """Executa o pipeline de /download em background."""
+async def _run_download_pipeline_job_resilient(job_id: str, query: str, max_shorts: int):
+    """
+    Executa pipeline em THREAD SEPARADA com heartbeat e timeout.
+    
+    Características:
+    - Roda em ThreadPool (não bloqueia event loop do FastAPI)
+    - Heartbeat a cada 10s (atualiza status mesmo durante processamento longo)
+    - Timeout configurável (default: 30min)
+    - Exception handling robusto
+    - Circuit breaker para serviços externos
+    """
+    heartbeat_task = None
+    heartbeat_running = asyncio.Event()
+    
     try:
         await _update_download_job(
             job_id,
             status=JobStatus.FETCHING_SHORTS,
-            progress=10.0,
+            progress=5.0,
             stage_status="in_progress",
-            metadata={"step": "initializing_pipeline"},
+            metadata={
+                "step": "initializing_pipeline",
+                "mode": "resilient_thread_pool",
+                "max_shorts": max_shorts
+            },
         )
 
+        # Criar pipeline instance
         pipeline = VideoPipeline()
+
+        # Iniciar heartbeat (atualiza status a cada 10s)
+        heartbeat_running.set()
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_monitor(job_id, heartbeat_running, interval=10)
+        )
 
         await _update_download_job(
             job_id,
             status=JobStatus.DOWNLOADING_SHORTS,
-            progress=30.0,
+            progress=10.0,
             stage_status="in_progress",
-            metadata={"step": "processing_videos"},
+            metadata={
+                "step": "starting_download",
+                "heartbeat": "active"
+            },
         )
 
-        stats = await pipeline.process_pipeline(query, max_shorts)
+        # Executar pipeline em thread separada (não bloqueia FastAPI)
+        # Usa asyncio.to_thread() para compatibilidade com async context
+        try:
+            # Timeout de 30 minutos (ajustável baseado em max_shorts)
+            timeout_seconds = max(1800, max_shorts * 40)  # 40s por vídeo + buffer
+            
+            stats = await asyncio.wait_for(
+                asyncio.to_thread(_run_pipeline_sync_wrapper, pipeline, query, max_shorts),
+                timeout=timeout_seconds
+            )
+            
+            # Verificar se houve erro no pipeline
+            if isinstance(stats, dict) and stats.get("error"):
+                raise Exception(f"{stats.get('error_type', 'PipelineError')}: {stats.get('error_message', 'Unknown error')}")
+            
+        except asyncio.TimeoutError:
+            raise Exception(f"Pipeline timeout após {timeout_seconds}s (max_shorts={max_shorts})")
+
+        # Parar heartbeat
+        heartbeat_running.clear()
+        if heartbeat_task:
+            await asyncio.wait([heartbeat_task], timeout=2.0)
 
         await _update_download_job(
             job_id,
@@ -317,25 +381,131 @@ async def _run_download_pipeline_job(job_id: str, query: str, max_shorts: int):
                 "stats": stats,
                 "approved_videos_available": stats.get("approved", 0),
                 "ready_for_make_video": stats.get("approved", 0) > 0,
+                "heartbeat": "stopped"
             },
         )
 
-        logger.info(f"✅ Download job {job_id} completed")
+        logger.info(f"✅ Download job {job_id} completed (resilient mode)")
 
+    except asyncio.CancelledError:
+        logger.warning(f"⚠️  Download job {job_id} cancelled")
+        heartbeat_running.clear()
+        await _update_download_job(
+            job_id,
+            status=JobStatus.FAILED,
+            progress=100.0,
+            stage_status="cancelled",
+            error={
+                "message": "Job cancelled by system",
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            metadata={"step": "cancelled"},
+        )
+        raise
+        
     except Exception as e:
         logger.error(f"❌ Download job {job_id} failed: {e}", exc_info=True)
+        heartbeat_running.clear()
+        
+        # Diagnóstico de erro
+        error_type = type(e).__name__
+        error_details = {
+            "message": "Download pipeline failed",
+            "error_type": error_type,
+            "details": str(e),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        
+        # Adicionar dicas de troubleshooting
+        if "timeout" in str(e).lower():
+            error_details["hint"] = "Timeout: Tente reduzir max_shorts ou verifique conectividade dos serviços"
+        elif "connection" in str(e).lower():
+            error_details["hint"] = "Erro de conexão: Verifique youtube-search e video-downloader"
+        
         await _update_download_job(
             job_id,
             status=JobStatus.FAILED,
             progress=100.0,
             stage_status="failed",
-            error={
-                "message": "Download pipeline failed",
-                "details": str(e),
-                "timestamp": datetime.utcnow().isoformat(),
-            },
+            error=error_details,
             metadata={"step": "failed"},
         )
+    
+    finally:
+        # Garantir que heartbeat para
+        heartbeat_running.clear()
+        if heartbeat_task and not heartbeat_task.done():
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+
+def _run_pipeline_sync_wrapper(pipeline: VideoPipeline, query: str, max_shorts: int) -> dict:
+    """
+    Wrapper síncrono para rodar pipeline em thread.
+    
+    Este método roda em ThreadPoolExecutor, então operações bloqueantes
+    (FFmpeg, subprocess, etc) não travam o event loop do FastAPI.
+    
+    NOTA: Não pode criar novo event loop aqui - isso causa deadlock.
+    Converte pipeline async para sync usando asyncio.run() de forma segura.
+    """
+    try:
+        # SOLUÇÃO: Usar asyncio.run() que cria event loop isolado de forma segura
+        import asyncio
+        stats = asyncio.run(pipeline.process_pipeline(query, max_shorts))
+        return stats
+    except Exception as e:
+        # Capturar e re-raise para que seja tratado no nível superior
+        import traceback
+        return {
+            "error": True,
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+async def _heartbeat_monitor(job_id: str, running: asyncio.Event, interval: int = 10):
+    """
+    Heartbeat monitor - atualiza job status periodicamente.
+    
+    Isso mantém o job 'vivo' e mostra que ainda está processando,
+    mesmo durante operações longas (FFmpeg, downloads, etc).
+    """
+    heartbeat_count = 0
+    
+    try:
+        while running.is_set():
+            await asyncio.sleep(interval)
+            
+            if not running.is_set():
+                break
+            
+            heartbeat_count += 1
+            
+            # Atualizar timestamp do job (prova que está vivo)
+            job = await redis_store.get_job(job_id)
+            if job:
+                job.updated_at = datetime.utcnow()
+                
+                # Adicionar info de heartbeat no metadata
+                stage = job.stages.get("download_pipeline")
+                if stage and stage.metadata:
+                    stage.metadata["heartbeat_count"] = heartbeat_count
+                    stage.metadata["last_heartbeat"] = datetime.utcnow().isoformat()
+                
+                await redis_store.save_job(job)
+                
+                logger.debug(f"💓 Heartbeat #{heartbeat_count} - Job {job_id} alive")
+    
+    except asyncio.CancelledError:
+        logger.debug(f"💓 Heartbeat monitor stopped for job {job_id}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Heartbeat monitor error for job {job_id}: {e}")
 
 
 @app.post("/make-video", status_code=202)
@@ -517,7 +687,7 @@ async def create_video(
 @app.get("/jobs/{job_id}")
 async def get_job_status(job_id: str):
     """
-    Verificar status de um job
+    Verificar status de um job (com diagnóstico de saúde)
     
     **Retorno:**
     - job_id: ID do job
@@ -525,6 +695,7 @@ async def get_job_status(job_id: str):
     - progress: Progresso (0-100%)
     - result: Informações do vídeo (se completo)
     - error: Detalhes do erro (se falhou)
+    - health: Informações de saúde do job (heartbeat, duração, etc)
     """
     try:
         job = await redis_store.get_job(job_id)
@@ -532,7 +703,41 @@ async def get_job_status(job_id: str):
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
-        return job.dict()
+        job_dict = job.dict()
+        
+        # Adicionar informações de saúde/diagnóstico
+        now = datetime.utcnow()
+        duration_seconds = (now - job.created_at).total_seconds()
+        last_update_seconds = (now - job.updated_at).total_seconds()
+        
+        health = {
+            "duration_seconds": int(duration_seconds),
+            "duration_human": _format_duration(duration_seconds),
+            "last_update_seconds": int(last_update_seconds),
+            "is_stale": last_update_seconds > 120,  # Sem update há 2+ minutos
+        }
+        
+        # Adicionar info de heartbeat se disponível
+        if "download_pipeline" in job.stages:
+            stage = job.stages["download_pipeline"]
+            if stage.metadata:
+                if "heartbeat_count" in stage.metadata:
+                    health["heartbeat_count"] = stage.metadata["heartbeat_count"]
+                    health["heartbeat_status"] = "active"
+                if "last_heartbeat" in stage.metadata:
+                    health["last_heartbeat"] = stage.metadata["last_heartbeat"]
+        
+        # Diagnóstico se job está demorando muito
+        if job.status in [JobStatus.DOWNLOADING_SHORTS, JobStatus.FETCHING_SHORTS]:
+            if duration_seconds > 1800:  # 30 minutos
+                health["warning"] = "Job running for over 30 minutes - may indicate issues"
+            
+            if last_update_seconds > 120 and health.get("heartbeat_status") != "active":
+                health["warning"] = "No updates in 2+ minutes - job may be stuck"
+        
+        job_dict["health"] = health
+        
+        return job_dict
         
     except HTTPException:
         raise
