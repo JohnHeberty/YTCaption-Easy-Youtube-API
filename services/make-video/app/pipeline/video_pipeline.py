@@ -20,7 +20,7 @@ from datetime import datetime
 
 from app.core.config import get_settings
 from app.video_processing.subtitle_detector_v2 import SubtitleDetectorV2
-from app.services.blacklist_factory import get_blacklist
+from app.services.video_status_factory import get_video_status_store
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -42,7 +42,7 @@ class VideoPipeline:
     
     def __init__(self):
         self.detector = SubtitleDetectorV2(show_log=True)
-        self.blacklist = get_blacklist()  # SQLite blacklist (oficial)
+        self.status_store = get_video_status_store()  # Approved + Rejected tracking
         self.settings = settings
         
         # Criar diretórios
@@ -141,9 +141,9 @@ class VideoPipeline:
                     logger.info(f"   🟢 [{i}/{len(unique_shorts)}] {video_id}: JÁ APROVADO (skip)")
                     continue
                 
-                # Verificar blacklist ANTES de baixar
-                if self.blacklist.is_blacklisted(video_id):  # Sync call
-                    logger.info(f"   ⚫ [{i}/{len(unique_shorts)}] {video_id}: BLACKLISTED (skip)")
+                # Verificar status ANTES de baixar (blacklist = rejected)
+                if self.status_store.is_rejected(video_id):  # Sync call
+                    logger.info(f"   ⚫ [{i}/{len(unique_shorts)}] {video_id}: REJECTED (skip)")
                     continue
                 
                 try:
@@ -326,7 +326,7 @@ class VideoPipeline:
     
     async def approve_video(self, video_id: str, transform_path: str, metadata: Dict):
         """
-        4a. APPROVE: Mover vídeo aprovado para data/approved/
+        4a. APPROVE: Mover vídeo aprovado para data/approved/ e registrar no banco
         
         Args:
             video_id: ID do vídeo
@@ -344,6 +344,15 @@ class VideoPipeline:
                 transform_video.rename(approved_path)
                 logger.info(f"   ✅ Movido: {approved_path}")
             
+            # Registrar no banco de APROVADOS
+            self.status_store.add_approved(
+                video_id=video_id,
+                title=metadata.get('title'),
+                url=f"https://www.youtube.com/watch?v={video_id}",
+                file_path=str(approved_path),
+                metadata=metadata
+            )
+            
             # Limpar pastas anteriores
             await self._cleanup_previous_stages(video_id)
             
@@ -352,26 +361,28 @@ class VideoPipeline:
     
     async def reject_video(self, video_id: str, metadata: Dict):
         """
-        4b. REJECT: Adicionar ao blacklist e limpar
+        4b. REJECT: Adicionar aos reprovados e limpar
         
         Args:
             video_id: ID do vídeo
             metadata: Metadados da validação (motivo da rejeição)
         """
-        logger.info(f"❌ REJECT: Adicionando {video_id} ao blacklist")
+        logger.info(f"❌ REJECT: Adicionando {video_id} aos reprovados")
         
         try:
-            # Adicionar ao blacklist
+            # Adicionar à lista de REPROVADOS
             confidence = metadata.get('confidence', 0.0)
-            reason = f"Legendas detectadas (conf: {confidence:.2f})"
-            self.blacklist.add(  # Sync call
+            reason = "embedded_subtitles"
+            self.status_store.add_rejected(  # Sync call
                 video_id=video_id,
                 reason=reason,
                 confidence=confidence,
+                title=metadata.get('title'),
+                url=f"https://www.youtube.com/watch?v={video_id}",
                 metadata=metadata
             )
             
-            logger.info(f"   ⚫ Blacklisted: {video_id}")
+            logger.info(f"   ⚫ Rejected: {video_id} ({reason}, conf: {confidence:.2f})")
             
             # Limpar todas as pastas
             await self._cleanup_all_stages(video_id)

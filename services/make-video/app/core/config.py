@@ -50,8 +50,11 @@ class Settings(BaseSettings):
     cleanup_output_after_hours: int = int(os.getenv("CLEANUP_OUTPUT_AFTER_HOURS", "24"))
     cleanup_shorts_cache_after_days: int = int(os.getenv("CLEANUP_SHORTS_CACHE_AFTER_DAYS", "30"))
     
-    # SQLite Blacklist (permanente)
+    # SQLite Blacklist (permanente) - DEPRECATED
     sqlite_db_path: str = os.getenv("SQLITE_DB_PATH", "./data/raw/shorts/blacklist.db")
+    
+    # Video Status Store (novo sistema: approved + rejected)
+    video_status_db_path: str = os.getenv("VIDEO_STATUS_DB_PATH", "./data/database/video_status.db")
     
     # Subtitle Settings
     subtitle_font_size: int = int(os.getenv("SUBTITLE_FONT_SIZE", "22"))
@@ -161,7 +164,8 @@ def get_settings() -> Dict[str, Any]:
         "cleanup_temp_after_hours": _settings.cleanup_temp_after_hours,
         "cleanup_output_after_hours": _settings.cleanup_output_after_hours,
         "cleanup_shorts_cache_after_days": _settings.cleanup_shorts_cache_after_days,
-        "sqlite_db_path": _settings.sqlite_db_path,
+        "sqlite_db_path": _settings.sqlite_db_path,  # DEPRECATED
+        "video_status_db_path": _settings.video_status_db_path,  # NEW
         "subtitle_font_size": _settings.subtitle_font_size,
         "subtitle_font_name": _settings.subtitle_font_name,
         "subtitle_color": _settings.subtitle_color,

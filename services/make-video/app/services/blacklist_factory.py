@@ -1,59 +1,23 @@
 """
-Blacklist Factory
-Cria instância de blacklist SQLite permanente
+Blacklist Factory (LEGACY)
+DEPRECATED: Use video_status_factory.py instead
+
+Mantido para compatibilidade com código legado.
+Redireciona para VideoStatusStore.
 """
 
 import logging
-
-from app.core.config import get_settings
-from .sqlite_blacklist import SQLiteBlacklist
+from .video_status_factory import get_video_status_store
 
 logger = logging.getLogger(__name__)
 
 
-class BlacklistFactory:
-    """Factory simplificada para criar instância de blacklist SQLite"""
-    
-    @staticmethod
-    def create() -> SQLiteBlacklist:
-        """
-        Cria instância de SQLiteBlacklist permanente
-        
-        Returns:
-            Instância de SQLiteBlacklist
-            
-        Raises:
-            RuntimeError: Se falhar ao criar instância
-        """
-        config = get_settings()
-        db_path = config.get("sqlite_db_path", "./data/raw/shorts/blacklist.db")
-        
-        logger.info(f"🏭 Creating SQLite blacklist: {db_path}")
-        
-        try:
-            blacklist = SQLiteBlacklist(db_path=db_path)
-            logger.info(f"✅ SQLiteBlacklist created successfully")
-            return blacklist
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to create SQLiteBlacklist: {e}")
-            raise RuntimeError(f"Failed to initialize blacklist: {e}")
-
-
-# Singleton global para reutilização
-_blacklist_instance = None
-
-
-def get_blacklist() -> SQLiteBlacklist:
+def get_blacklist():
     """
-    Retorna instância singleton de blacklist
+    LEGACY: Retorna VideoStatusStore (compatível com blacklist antiga)
     
     Returns:
-        Instância de SQLiteBlacklist
+        VideoStatusStore com interface compatível
     """
-    global _blacklist_instance
-    
-    if _blacklist_instance is None:
-        _blacklist_instance = BlacklistFactory.create()
-    
-    return _blacklist_instance
+    logger.warning("⚠️  get_blacklist() is deprecated. Use get_video_status_store() instead.")
+    return get_video_status_store()
