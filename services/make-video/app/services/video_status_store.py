@@ -112,9 +112,30 @@ class VideoStatusStore:
             """
         )
         
+        # Tabela de vídeos com ERRO (não baixar novamente)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS error_videos (
+                video_id TEXT PRIMARY KEY,
+                title TEXT,
+                url TEXT,
+                error_type TEXT NOT NULL,
+                error_message TEXT,
+                error_traceback TEXT,
+                attempted_at TIMESTAMP DEFAULT (datetime('now')),
+                retry_count INTEGER DEFAULT 0,
+                file_path TEXT,
+                stage TEXT,
+                metadata JSON
+            )
+            """
+        )
+        
         # Índices para performance
         conn.execute("CREATE INDEX IF NOT EXISTS idx_approved_date ON approved_videos(approved_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_rejected_date ON rejected_videos(rejected_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_error_date ON error_videos(attempted_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_error_type ON error_videos(error_type)")
     
     # ============================================================================
     # APPROVED VIDEOS
@@ -298,6 +319,138 @@ class VideoStatusStore:
             return row["count"] if row else 0
     
     # ============================================================================
+    # ERROR VIDEOS (evitar retry de vídeos com erro)
+    # ============================================================================
+    
+    def add_error(self, video_id: str, error_type: str, error_message: str = None,
+                  error_traceback: str = None, title: str = None, url: str = None,
+                  file_path: str = None, stage: str = None, retry_count: int = 0,
+                  metadata: Optional[Dict] = None):
+        """
+        Adiciona vídeo à lista de erros (não tentar baixar novamente)
+        
+        Args:
+            video_id: ID do vídeo
+            error_type: Tipo do erro (ex: 'download_failed', 'transform_failed', 'api_error')
+            error_message: Mensagem do erro
+            error_traceback: Stack trace completo (para debugging)
+            title: Título do vídeo (se disponível)
+            url: URL do vídeo (se disponível)
+            file_path: Caminho do arquivo órfão (se existir)
+            stage: Stage onde ocorreu o erro (download, transform, approval)
+            retry_count: Número de tentativas antes do erro
+            metadata: Dados adicionais (query, timestamp, etc)
+        """
+        metadata_json = json.dumps(metadata or {})
+        
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO error_videos 
+                (video_id, error_type, error_message, error_traceback, 
+                 attempted_at, retry_count, title, url, file_path, stage, metadata)
+                VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)
+                """,
+                (video_id, error_type, error_message, error_traceback, 
+                 retry_count, title, url, file_path, stage, metadata_json)
+            )
+        
+        logger.error(f"❌ ERROR: {video_id} ({error_type}) at {stage}: {error_message}")
+    
+    def is_error(self, video_id: str) -> bool:
+        """Verifica se vídeo já deu erro anteriormente (não tentar novamente)"""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                "SELECT 1 FROM error_videos WHERE video_id = ? LIMIT 1",
+                (video_id,)
+            )
+            return cursor.fetchone() is not None
+    
+    def get_error(self, video_id: str) -> Optional[Dict]:
+        """Retorna informações do erro de um vídeo"""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT video_id, error_type, error_message, error_traceback,
+                       attempted_at, retry_count, title, url, file_path, stage, metadata
+                FROM error_videos WHERE video_id = ?
+                """,
+                (video_id,)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            
+            return {
+                "video_id": row["video_id"],
+                "error_type": row["error_type"],
+                "error_message": row["error_message"],
+                "error_traceback": row["error_traceback"],
+                "attempted_at": row["attempted_at"],
+                "retry_count": row["retry_count"],
+                "title": row["title"],
+                "url": row["url"],
+                "file_path": row["file_path"],
+                "stage": row["stage"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
+            }
+    
+    def list_errors(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+        """Lista vídeos com erro paginado"""
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """
+                SELECT video_id, error_type, error_message, attempted_at, 
+                       retry_count, title, url, stage
+                FROM error_videos 
+                ORDER BY attempted_at DESC 
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset)
+            )
+            
+            return [
+                {
+                    "video_id": row["video_id"],
+                    "error_type": row["error_type"],
+                    "error_message": row["error_message"],
+                    "attempted_at": row["attempted_at"],
+                    "retry_count": row["retry_count"],
+                    "title": row["title"],
+                    "url": row["url"],
+                    "stage": row["stage"]
+                }
+                for row in cursor.fetchall()
+            ]
+    
+    def count_errors(self) -> int:
+        """Conta total de vídeos com erro"""
+        with self._get_conn() as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM error_videos")
+            return cursor.fetchone()[0]
+    
+    def clear_errors(self, older_than_days: int = None):
+        """
+        Remove erros do banco
+        
+        Args:
+            older_than_days: Remove apenas erros mais antigos que N dias (None = todos)
+        """
+        with self._get_conn() as conn:
+            if older_than_days is not None:
+                conn.execute(
+                    """
+                    DELETE FROM error_videos 
+                    WHERE attempted_at < datetime('now', ? || ' days')
+                    """,
+                    (f'-{older_than_days}',)
+                )
+                logger.info(f"🧹 Cleared errors older than {older_than_days} days")
+            else:
+                conn.execute("DELETE FROM error_videos")
+                logger.info("🧹 Cleared all errors")
+    
+    # ============================================================================
     # COMPATIBILIDADE COM BLACKLIST (LEGACY)
     # ============================================================================
     
@@ -321,11 +474,18 @@ class VideoStatusStore:
     
     def get_stats(self) -> Dict:
         """Retorna estatísticas gerais do banco"""
+        approved = self.count_approved()
+        rejected = self.count_rejected()
+        errors = self.count_errors()
+        total_processed = approved + rejected + errors
+        
         return {
-            "approved_count": self.count_approved(),
-            "rejected_count": self.count_rejected(),
-            "total_processed": self.count_approved() + self.count_rejected(),
-            "approval_rate": self.count_approved() / max(1, self.count_approved() + self.count_rejected())
+            "approved_count": approved,
+            "rejected_count": rejected,
+            "error_count": errors,
+            "total_processed": total_processed,
+            "approval_rate": approved / max(1, approved + rejected),
+            "error_rate": errors / max(1, total_processed)
         }
     
     def clear_approved(self):
