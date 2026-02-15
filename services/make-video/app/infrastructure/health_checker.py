@@ -70,9 +70,12 @@ class HealthChecker:
         start = datetime.now()
         
         try:
+            # Redis síncrono - rodar em executor para não bloquear
+            loop = asyncio.get_event_loop()
+            
             # Ping básico
             await asyncio.wait_for(
-                self.redis_store.redis.ping(),
+                loop.run_in_executor(None, self.redis_store.redis.ping),
                 timeout=2.0
             )
             
@@ -81,16 +84,19 @@ class HealthChecker:
             test_value = str(datetime.now().timestamp())
             
             await asyncio.wait_for(
-                self.redis_store.redis.set(test_key, test_value, ex=5),
+                loop.run_in_executor(
+                    None, 
+                    lambda: self.redis_store.redis.set(test_key, test_value, ex=5)
+                ),
                 timeout=1.0
             )
             
             retrieved = await asyncio.wait_for(
-                self.redis_store.redis.get(test_key),
+                loop.run_in_executor(None, lambda: self.redis_store.redis.get(test_key)),
                 timeout=1.0
             )
             
-            if retrieved != test_value:
+            if retrieved.decode() != test_value:
                 return HealthCheckResult(False, "Set/Get mismatch")
             
             # Calcular latência
