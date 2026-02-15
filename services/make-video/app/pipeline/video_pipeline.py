@@ -80,7 +80,7 @@ class VideoPipeline:
             youtube_search_url = self.settings.get('youtube_search_url')
             async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
-                    f"{youtube_search_url}/shorts/search",
+                    f"{youtube_search_url}/search/shorts",
                     json={
                         "query": query,
                         "max_results": max_count,
