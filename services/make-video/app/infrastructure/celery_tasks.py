@@ -130,7 +130,7 @@ async def update_job_status(job_id: str, status: JobStatus,
     await store.save_job(job)
 
 
-@celery_app.task(bind=True, name='app.celery_tasks.process_make_video')
+@celery_app.task(bind=True, name='app.infrastructure.celery_tasks.process_make_video')
 def process_make_video(self, job_id: str):
     """
     Task principal: Processa criação de vídeo completa
@@ -974,7 +974,7 @@ async def _process_make_video_async(job_id: str):
         logger.debug(f"🗑️ GC liberou {collected} objetos")
 
 
-@celery_app.task(name='app.celery_tasks.cleanup_temp_files')
+@celery_app.task(name='app.infrastructure.celery_tasks.cleanup_temp_files')
 def cleanup_temp_files():
     """Limpa arquivos temporários antigos"""
     logger.info("🧹 Running temp files cleanup...")
@@ -1017,7 +1017,7 @@ def cleanup_temp_files():
     logger.info(f"✅ Cleanup complete: {removed_count} temp directories removed")
 
 
-@celery_app.task(name='app.celery_tasks.cleanup_old_shorts')
+@celery_app.task(name='app.infrastructure.celery_tasks.cleanup_old_shorts')
 def cleanup_old_shorts():
     """Limpa shorts não usados há muito tempo"""
     logger.info("🧹 Running shorts cache cleanup...")
@@ -1031,7 +1031,7 @@ def cleanup_old_shorts():
     logger.info(f"✅ Cleanup complete: {removed_count} old shorts removed")
 
 
-@celery_app.task(name='app.celery_tasks.recover_orphaned_jobs')
+@celery_app.task(name='app.infrastructure.celery_tasks.recover_orphaned_jobs')
 def recover_orphaned_jobs():
     """
     Auto-recovery de jobs órfãos (Sprint-01)

@@ -22,7 +22,7 @@ celery_app = Celery(
     'make-video',
     broker=redis_url,
     backend=redis_url,
-    include=['app.celery_tasks']  # Import tasks module
+    include=['app.infrastructure.celery_tasks']  # Import tasks module
 )
 
 # Celery configuration

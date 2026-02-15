@@ -65,7 +65,7 @@ services:
   make-video-celery:
     build: .
     container_name: ytcaption-make-video-celery
-    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
     volumes:
       # Bind mount da estrutura data/ completa (inclui data/logs/)
       - ./data:/app/data
@@ -106,7 +106,7 @@ services:
       make-video:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -117,7 +117,7 @@ services:
   make-video-celery-beat:
     build: .
     container_name: ytcaption-make-video-celery-beat
-    command: python -m celery -A app.celery_config beat --loglevel=info
+    command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
     env_file:
       - .env
     environment:
