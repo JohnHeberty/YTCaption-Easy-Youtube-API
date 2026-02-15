@@ -1404,34 +1404,49 @@ makevideo_disk_used_percent {{path="{settings['temp_dir']}"}} {disk_used_pct:.2f
 
 @app.get("/")
 async def root():
-    """Informações do serviço"""
+    """Informações do serviço - Endpoints organizados por ordem de uso"""
     return {
         "service": "make-video",
         "version": "1.0.0",
         "description": "Orquestra criação de vídeos a partir de áudio + shorts + legendas",
+        "usage_flow": [
+            "1. GET / - Ver documentação",
+            "2. POST /download - Baixar e validar shorts do YouTube (retorna job_id)",
+            "3. GET /jobs/{job_id} - Monitorar progresso do download",
+            "4. POST /make-video - Criar vídeo com áudio + shorts aprovados (retorna job_id)",
+            "5. GET /jobs/{job_id} - Monitorar progresso da criação",
+            "6. GET /download/{job_id} - Baixar vídeo final"
+        ],
         "endpoints": {
-            "jobs": {
-                "POST /make-video": "Criar novo vídeo",
-                "GET /jobs/{job_id}": "Status do job",
-                "GET /download/{job_id}": "Download do vídeo",
-                "GET /jobs": "Listar jobs",
-                "DELETE /jobs/{job_id}": "Deletar job",
-                "POST /jobs/cleanup-failed": "Limpar jobs falhados",
-                "GET /jobs/orphaned": "Listar jobs órfãos",
-                "POST /jobs/orphaned/cleanup": "Limpar jobs órfãos"
-            },
-            "admin": {
-                "POST /admin/cleanup": "Limpeza do sistema (básica ou profunda)",
-                "GET /admin/stats": "Estatísticas completas do sistema",
-                "POST /admin/cleanup-orphans": "Limpar jobs e arquivos órfãos",
-                "GET /admin/queue": "Informações da fila de jobs"
-            },
-            "cache": {
-                "GET /cache/stats": "Estatísticas do cache de shorts",
-                "POST /cache/cleanup": "Limpar cache de shorts antigos"
-            },
-            "health": {
+            "1_system_info": {
+                "GET /": "Documentação da API",
                 "GET /health": "Health check",
+                "GET /metrics": "Métricas Prometheus"
+            },
+            "2_workflow_principal": {
+                "POST /download": "🔥 Baixar e validar shorts (job assíncrono)",
+                "POST /make-video": "🎬 Criar vídeo com shorts + áudio + legendas (job assíncrono)"
+            },
+            "3_job_monitoring": {
+                "GET /jobs/{job_id}": "Status/progresso de um job",
+                "GET /download/{job_id}": "Download do vídeo gerado",
+                "GET /jobs": "Listar todos os jobs",
+                "DELETE /jobs/{job_id}": "Deletar job específico",
+                "GET /jobs/orphaned": "Listar jobs órfãos (stuck)",
+                "POST /jobs/orphaned/cleanup": "Limpar jobs órfãos",
+                "POST /jobs/cleanup-failed": "Limpar jobs falhados"
+            },
+            "4_cache_management": {
+                "GET /cache/stats": "Estatísticas do cache de shorts",
+                "POST /cache/cleanup": "Limpar cache antigo"
+            },
+            "5_admin_system": {
+                "GET /admin/stats": "Estatísticas completas do sistema",
+                "GET /admin/queue": "Informações da fila de jobs",
+                "POST /admin/cleanup": "Limpeza do sistema (básica/profunda)",
+                "POST /admin/cleanup-orphans": "Limpar jobs e arquivos órfãos"
+            },
+            "6_testing_debug": {
                 "POST /test-speech-gating": "Testar Speech-Gated Subtitles"
             }
         },
@@ -1441,6 +1456,20 @@ async def root():
                 "youtube-search:8003",
                 "video-downloader:8001",
                 "audio-transcriber:8005"
+            ]
+        },
+        "data_flow": {
+            "download_pipeline": [
+                "1. data/raw/shorts/ - Downloads iniciais",
+                "2. data/transform/videos/ - Conversão H264",
+                "3. data/approved/videos/ - Vídeos sem legendas (✅ validados)",
+                "4. blacklist.db - Rejeitados por legendas (❌)"
+            ],
+            "make_video_pipeline": [
+                "1. upload_audios/ - Áudio do usuário",
+                "2. shorts_cache/ - Shorts aprovados",
+                "3. temp/ - Processamento intermediário",
+                "4. output_videos/ - Vídeos finais gerados"
             ]
         }
     }
