@@ -22,7 +22,6 @@ celery_app = Celery(
     'make-video',
     broker=redis_url,
     backend=redis_url,
-    include=['app.infrastructure.celery_tasks']  # Import tasks module
 )
 
 # Celery configuration
@@ -33,6 +32,11 @@ celery_app.conf.update(
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
+    
+    # Producer settings (CRITICAL: Force serializer for producer)
+    # Without this, producer.serializer stays None and messages don't reach Redis
+    producer_serializer='json',
+    event_serializer='json',
     
     # Task execution
     task_track_started=True,
@@ -69,7 +73,11 @@ celery_app.conf.update(
     
     # Queue routing
     task_routes={
-        'app.infrastructure.celery_tasks.*': {'queue': 'make_video_queue'},
+        'app.infrastructure.celery_tasks.*': {
+            'queue': 'make_video_queue',
+            'exchange': 'make_video_queue',
+            'routing_key': 'make_video_queue',
+        },
     },
 )
 
@@ -92,6 +100,9 @@ celery_app.conf.beat_schedule = {
         },
     },
 }
+
+# Import tasks to register them (must be after celery_app configuration)
+from app.infrastructure import celery_tasks  # noqa: F401, E402
 
 if __name__ == '__main__':
     celery_app.start()

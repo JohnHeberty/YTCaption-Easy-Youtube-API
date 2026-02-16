@@ -30,7 +30,8 @@ from ..shared.exceptions import (
     MakeVideoException,
     AudioProcessingException,
     VideoProcessingException,
-    MicroserviceException
+    MicroserviceException,
+    ErrorCode
 )
 from ..core.constants import ProcessingLimits, TimeoutConstants, ValidationThresholds
 from ..shared.events import EventPublisher, EventType, Event
@@ -311,7 +312,10 @@ async def _process_make_video_async(job_id: str):
         logger.info(f"✅ Found {len(shorts_list)} shorts")
         
         if not shorts_list:
-            raise VideoProcessingException(f"No shorts found for query: {job.query}")
+            raise VideoProcessingException(
+                f"No shorts found for query: {job.query}",
+                ErrorCode.NO_SHORTS_FOUND
+            )
         
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "fetching_shorts_completed")
@@ -337,7 +341,10 @@ async def _process_make_video_async(job_id: str):
 
         async def download_with_retry(short_info, index):
             video_id = short_info['video_id']
-            output_path = Path(settings['shorts_cache_dir']) / f"{video_id}.mp4"
+            # FIXED: Organizar shorts por job_id para evitar arquivos soltos
+            job_shorts_dir = Path(settings['shorts_cache_dir']) / job_id
+            job_shorts_dir.mkdir(parents=True, exist_ok=True)
+            output_path = job_shorts_dir / f"{video_id}.mp4"
             
             job_logger.debug(f"📥 [Download] Starting: {video_id} (#{index+1})")
             job_logger.debug(f"   Output path: {output_path}")
@@ -1319,10 +1326,11 @@ async def _validate_job_prerequisites(job: Job, next_stage: JobStatus) -> dict:
             return {"valid": True}
         
         if next_stage == JobStatus.SELECTING_SHORTS:
-            # Verificar se tem shorts baixados
+            # Verificar se tem shorts baixados para este job_id
             shorts_cache_dir = Path(settings['shorts_cache_dir'])
-            if not shorts_cache_dir.exists() or not list(shorts_cache_dir.glob("*.mp4")):
-                return {"valid": False, "reason": "No shorts available in cache"}
+            job_shorts_dir = shorts_cache_dir / job.job_id
+            if not job_shorts_dir.exists() or not list(job_shorts_dir.glob("*.mp4")):
+                return {"valid": False, "reason": f"No shorts available for job {job.job_id}"}
             return {"valid": True}
         
         if next_stage == JobStatus.ASSEMBLING_VIDEO:

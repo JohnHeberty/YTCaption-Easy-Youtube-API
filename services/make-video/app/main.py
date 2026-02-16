@@ -23,6 +23,7 @@ from .core.models import Job, JobStatus, CreateVideoRequest, StageInfo
 from .infrastructure.redis_store import RedisJobStore
 from .services.shorts_manager import ShortsCache
 from .infrastructure.celery_tasks import process_make_video
+from .infrastructure.celery_workaround import send_make_video_task_workaround
 from .infrastructure.logging_config import setup_logging
 from .shared.exceptions import MakeVideoException
 from .core.constants import ProcessingLimits, AspectRatios, FileExtensions, HttpStatusCodes
@@ -663,10 +664,10 @@ async def create_video(
         # Salvar no Redis
         await redis_store.save_job(job)
         
-        # Disparar task assíncrona
-        logger.info(f"📤 Sending task to Celery: {process_make_video.name} with job_id={job_id}")
-        task_result = process_make_video.delay(job_id)
-        logger.info(f"✅ Task sent: task_id={task_result.id}")
+        # Disparar task assíncrona usando workaround (fix para bug Celery 5.3.4 + Kombu 5.6.2)
+        logger.info(f"📤 Sending task to Celery via Kombu workaround: {process_make_video.name} with job_id={job_id}")
+        task_id = send_make_video_task_workaround(job_id, settings['redis_url'])
+        logger.info(f"✅ Task sent via workaround: task_id={task_id}")
         
         logger.info(f"🎬 Job {job_id} created and queued")
         
