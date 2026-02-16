@@ -54,25 +54,38 @@ celery_app.conf.update(
     task_default_retry_delay=60,  # Retry after 60 seconds
     task_max_retries=3,
     
+    # Broker transport options (Redis)
+    broker_transport_options={
+        'visibility_timeout': 3600,  # 1 hour
+        'fanout_prefix': True,
+        'fanout_patterns': True,
+    },
+    
+    # Queue configuration
+    task_create_missing_queues=True,  # Auto-create queues
+    task_default_queue='make_video_queue',
+    task_default_exchange='make_video_queue',
+    task_default_routing_key='make_video_queue',
+    
     # Queue routing
     task_routes={
-        'app.celery_tasks.*': {'queue': 'make_video_queue'},
+        'app.infrastructure.celery_tasks.*': {'queue': 'make_video_queue'},
     },
 )
 
 # Periodic tasks (Celery Beat)
 celery_app.conf.beat_schedule = {
     'cleanup-temp-files': {
-        'task': 'app.celery_tasks.cleanup_temp_files',
+        'task': 'app.infrastructure.celery_tasks.cleanup_temp_files',
         'schedule': 3600.0,  # Every hour
     },
     'cleanup-old-shorts': {
-        'task': 'app.celery_tasks.cleanup_old_shorts',
+        'task': 'app.infrastructure.celery_tasks.cleanup_old_shorts',
         'schedule': 86400.0,  # Every day
     },
     # ✨ Sprint-01: Auto-recovery de jobs órfãos
     'recover-orphaned-jobs': {
-        'task': 'app.celery_tasks.recover_orphaned_jobs',
+        'task': 'app.infrastructure.celery_tasks.recover_orphaned_jobs',
         'schedule': 120.0,  # A cada 2 minutos
         'options': {
             'expires': 60,  # Expirar se não executar em 1 min
