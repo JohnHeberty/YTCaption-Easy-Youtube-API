@@ -664,7 +664,9 @@ async def create_video(
         await redis_store.save_job(job)
         
         # Disparar task assíncrona
-        process_make_video.delay(job_id)
+        logger.info(f"📤 Sending task to Celery: {process_make_video.name} with job_id={job_id}")
+        task_result = process_make_video.delay(job_id)
+        logger.info(f"✅ Task sent: task_id={task_result.id}")
         
         logger.info(f"🎬 Job {job_id} created and queued")
         
