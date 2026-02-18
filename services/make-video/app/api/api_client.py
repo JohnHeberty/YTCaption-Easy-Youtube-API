@@ -14,7 +14,16 @@ import logging
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from ..shared.exceptions import MicroserviceException, ErrorCode
+from ..shared.exceptions_v2 import (
+    YouTubeSearchUnavailableException,
+    VideoDownloaderUnavailableException,
+    TranscriberUnavailableException,
+    TranscriptionTimeoutException,
+    VideoDownloadException,
+    VideoCorruptedException,
+    ValidationException,
+    APIRateLimitException
+)
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +111,8 @@ class MicroservicesClient:
                 elif job["status"] == "failed":
                     error_msg = job.get("error", "Unknown error")
                     logger.error(f"❌ Busca falhou: {error_msg}")
-                    raise MicroserviceException(
-                        f"Search failed: {error_msg}",
-                        ErrorCode.API_INVALID_RESPONSE,
-                        "youtube-search",
+                    raise YouTubeSearchUnavailableException(
+                        reason=f"Search job failed: {error_msg}",
                         details={"job_id": job_id, "error": error_msg}
                     )
                 
@@ -113,20 +120,17 @@ class MicroservicesClient:
                 await asyncio.sleep(poll_interval)
             
             # Timeout
-            raise MicroserviceException(
-                "Search timeout - job took too long",
-                ErrorCode.YOUTUBE_SEARCH_UNAVAILABLE,
-                "youtube-search",
-                details={"job_id": job_id, "max_wait": max_polls * poll_interval}
+            raise YouTubeSearchUnavailableException(
+                reason="Search timeout - job took too long",
+                details={"job_id": job_id, "max_wait_seconds": max_polls * poll_interval, "timeout": True}
             )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling youtube-search: {e}")
-            raise MicroserviceException(
-                f"HTTP error: {str(e)}",
-                ErrorCode.YOUTUBE_SEARCH_UNAVAILABLE,
-                "youtube-search",
-                details={"error_type": type(e).__name__}
+            raise YouTubeSearchUnavailableException(
+                reason=f"HTTP error: {str(e)}",
+                details={"error_type": type(e).__name__},
+                cause=e
             )
     
     async def download_video(self, video_id: str, output_path: str) -> Dict:
@@ -189,17 +193,89 @@ class MicroservicesClient:
                     with open(output_path, "wb") as f:
                         f.write(video_response.content)
                     
+                    file_size = len(video_response.content)
+                    logger.info(f"💾 File saved: {output_path} ({file_size} bytes)")
+                    
+                    # ✅ VALIDAÇÃO DE INTEGRIDADE (R-008: Download Integrity Check)
+                    # Detecta vídeos corrompidos/incompletos antes de processar
+                    logger.info(f"🔍 Validating video integrity with ffprobe...")
+                    
+                    from ..shared.exceptions_v2 import ValidationException
+                    
+                    try:
+                        # Usar ffprobe para validar arquivo
+                        # VideoBuilder.get_video_info() já faz validação robusta
+                        from ..services.video_builder import VideoBuilder
+                        
+                        validator = VideoBuilder(output_dir="/tmp")
+                        video_info = await validator.get_video_info(output_path)
+                        
+                        # Validações básicas
+                        duration = video_info.get('duration', 0)
+                        codec = video_info.get('codec', 'unknown')
+                        
+                        if duration <= 0:
+                            raise ValidationException(
+                                reason=f"Invalid video duration: {duration}s",
+                                details={"video_id": video_id, "duration": duration}
+                            )
+                        
+                        if codec == 'unknown':
+                            raise ValidationException(
+                                reason="Unknown or unsupported video codec",
+                                details={"video_id": video_id}
+                            )
+                        
+                        logger.info(
+                            f"✅ Integrity validation passed: {video_id}",
+                            extra={
+                                "duration": duration,
+                                "codec": codec,
+                                "video_info": video_info
+                            }
+                        )
+                    
+                    except Exception as integrity_error:
+                        logger.error(
+                            f"❌ Downloaded video failed integrity check: {video_id}",
+                            extra={
+                                "error": str(integrity_error),
+                                "file_path": output_path,
+                                "file_size": file_size
+                            },
+                            exc_info=True
+                        )
+                        
+                        # Remover arquivo corrompido
+                        try:
+                            import os
+                            os.unlink(output_path)
+                            logger.info(f"🗑️  Removed corrupted file: {output_path}")
+                        except Exception as rm_error:
+                            logger.warning(f"Failed to remove corrupted file: {rm_error}")
+                        
+                        # Raise exception com contexto detalhado
+                        raise VideoCorruptedException(
+                            video_path=output_path,
+                            reason=f"Downloaded video failed integrity validation: {str(integrity_error)}",
+                            details={
+                                "video_id": video_id,
+                                "file_size": file_size,
+                                "validation_error": str(integrity_error)
+                            },
+                            cause=integrity_error
+                        )
+                    
                     logger.info(f"✅ Download completo: {video_id}")
                     return job.get("metadata", {})
                 
                 elif job["status"] in ["failed", "error"]:
                     error_msg = job.get("error_message", job.get("error", "Unknown error"))
                     logger.error(f"❌ Download falhou: {error_msg}")
-                    raise MicroserviceException(
-                        f"Download failed: {error_msg}",
-                        ErrorCode.API_INVALID_RESPONSE,
-                        "video-downloader",
-                        details={"job_id": job_id, "video_id": video_id, "error": error_msg}
+                    raise VideoDownloadException(
+                        video_id=video_id,
+                        reason=error_msg,
+                        details={"job_id": job_id}
                     )
                 
                 # Log de progresso a cada 20s
@@ -212,21 +288,18 @@ class MicroservicesClient:
             
             # Timeout - pular este vídeo em vez de falhar tudo
             logger.warning(f"⚠️ Timeout downloading {video_id} após {max_polls * poll_interval}s - pulando")
-            raise MicroserviceException(
-                f"Download timeout after {max_polls * poll_interval}s",
-                ErrorCode.VIDEO_DOWNLOADER_UNAVAILABLE,
-                "video-downloader",
+            raise VideoDownloaderUnavailableException(
+                reason=f"Download timeout after {max_polls * poll_interval}s",
                 details={"job_id": job_id, "video_id": video_id, "timeout": True}
             )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling video-downloader: {e}")
             logger.debug(f"   Exception type: {type(e).__name__}, details: {str(e)}")
-            raise MicroserviceException(
-                f"HTTP error: {str(e)}",
-                ErrorCode.VIDEO_DOWNLOADER_UNAVAILABLE,
-                "video-downloader",
-                details={"error_type": type(e).__name__, "video_id": video_id}
+            raise VideoDownloaderUnavailableException(
+                reason=f"HTTP error: {str(e)}",
+                details={"error_type": type(e).__name__, "video_id": video_id},
+                cause=e
             )
     
     async def transcribe_audio(self, audio_path: str, language: str = "pt") -> List[Dict]:
@@ -293,84 +366,102 @@ class MicroservicesClient:
                     await asyncio.sleep(backoff_seconds)
 
             if not job_id:
-                raise MicroserviceException(
-                    "Failed to create transcription job",
-                    ErrorCode.AUDIO_TRANSCRIBER_UNAVAILABLE,
-                    "audio-transcriber",
-                    details={"reason": "empty_job_id"}
+                raise TranscriberUnavailableException(
+                    reason="Failed to create transcription job - empty job_id",
+                    details={"create_attempts": max_create_attempts}
                 )
             
-            # 2. Polling do status (GET /jobs/{job_id}) - INFINITO até completar
+            # 2. Polling do status (GET /jobs/{job_id}) - LIMITE DE 10 TENTATIVAS
+            # 🔧 FIX R-002: Prevent infinite retry loop
             poll_interval = 3  # segundos
-            max_polls = 999999  # Praticamente infinito - continua até completar
+            max_polls = 10  # Máximo de 10 tentativas (30 segundos total)
             
             attempt = 0
-            while True:
+            while attempt < max_polls:
                 attempt += 1
                 
-                response = await self.client.get(
-                    f"{self.audio_transcriber_url}/jobs/{job_id}"
-                )
-                response.raise_for_status()
-                job = response.json()
-                
-                status = job.get("status")
-                progress = job.get("progress", 0.0)
-                
-                # Log detalhado a cada 20 polls ou mudança de status
-                if attempt % 20 == 0 or status not in ["processing", "queued"] or attempt <= 3:
-                    logger.info(f"📊 Poll #{attempt}: status={status}, progress={progress:.1%}")
-                
-                if status == "completed":
-                    # 3. Buscar transcrição completa (GET /jobs/{job_id}/transcription)
-                    # ✅ OpenAPI: Retorna TranscriptionResponse com segments[]
+                try:
                     response = await self.client.get(
-                        f"{self.audio_transcriber_url}/jobs/{job_id}/transcription"
+                        f"{self.audio_transcriber_url}/jobs/{job_id}"
                     )
                     response.raise_for_status()
-                    transcription = response.json()
+                    job = response.json()
                     
-                    # Extrair segments (já vem no formato correto)
-                    segments = transcription.get("segments", [])
+                    status = job.get("status")
+                    progress = job.get("progress", 0.0)
                     
-                    # Dados opcionais (podem ser None)
-                    lang_detected = transcription.get('language_detected') or 'N/A'
-                    duration = transcription.get('duration') or 0
-                    proc_time = transcription.get('processing_time') or 0
-                    
-                    logger.info(f"✅ Transcrição completa: {len(segments)} segmentos")
-                    logger.info(f"   ├─ Idioma detectado: {lang_detected}")
-                    logger.info(f"   ├─ Duração: {duration:.1f}s")
-                    logger.info(f"   └─ Tempo processamento: {proc_time:.1f}s")
-                    
-                    return segments
-                
-                elif status == "failed":
-                    error_msg = job.get("error_message", "Unknown error")
-                    logger.error(f"❌ Transcrição falhou: {error_msg}")
-                    raise MicroserviceException(
-                        f"Transcription failed: {error_msg}",
-                        ErrorCode.API_INVALID_RESPONSE,
-                        "audio-transcriber",
-                        details={"job_id": job_id, "error": error_msg}
+                    # Log detalhado a cada poll ou mudança de status
+                    logger.info(
+                        f"📊 Poll #{attempt}/{max_polls}: status={status}, progress={progress:.1%}"
                     )
+                    
+                    if status == "completed":
+                        # 3. Buscar transcrição completa (GET /jobs/{job_id}/transcription)
+                        # ✅ OpenAPI: Retorna TranscriptionResponse com segments[]
+                        response = await self.client.get(
+                            f"{self.audio_transcriber_url}/jobs/{job_id}/transcription"
+                        )
+                        response.raise_for_status()
+                        transcription = response.json()
+                        
+                        # Extrair segments (já vem no formato correto)
+                        segments = transcription.get("segments", [])
+                        
+                        # Dados opcionais (podem ser None)
+                        lang_detected = transcription.get('language_detected') or 'N/A'
+                        duration = transcription.get('duration') or 0
+                        proc_time = transcription.get('processing_time') or 0
+                        
+                        logger.info(f"✅ Transcrição completa: {len(segments)} segmentos")
+                        logger.info(f"   ├─ Idioma detectado: {lang_detected}")
+                        logger.info(f"   ├─ Duração: {duration:.1f}s")
+                        logger.info(f"   └─ Tempo processamento: {proc_time:.1f}s")
+                        
+                        return segments
+                    
+                    elif status == "failed":
+                        error_msg = job.get("error_message", "Unknown error")
+                        logger.error(f"❌ Transcrição falhou: {error_msg}")
+                        raise TranscriberUnavailableException(
+                            reason=f"Transcription job failed: {error_msg}",
+                            details={"job_id": job_id, "error": error_msg}
+                        )
+                    
+                except httpx.HTTPError as e:
+                    # Log retry error but continue retry loop
+                    logger.warning(
+                        f"⚠️ Polling error (attempt {attempt}/{max_polls}): {e}"
+                    )
+                    if attempt >= max_polls:
+                        raise
                 
-                # Aguardar próximo poll (continua infinitamente até completar ou falhar)
-                await asyncio.sleep(poll_interval)
+                # Aguardar próximo poll
+                if attempt < max_polls:
+                    await asyncio.sleep(poll_interval)
+            
+            # If we exit the loop without completing, transcription timed out
+            logger.error(
+                f"❌ Transcription timeout after {max_polls} polling attempts "
+                f"({max_polls * poll_interval}s total)"
+            )
+            raise TranscriptionTimeoutException(
+                timeout_seconds=max_polls * poll_interval,
+                details={
+                    "job_id": job_id,
+                    "max_polls": max_polls
+                }
+            )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling audio-transcriber: {e}")
             status_code = None
             if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
                 status_code = e.response.status_code
-            raise MicroserviceException(
-                f"HTTP error: {str(e)}",
-                ErrorCode.AUDIO_TRANSCRIBER_UNAVAILABLE,
-                "audio-transcriber",
-                status_code=status_code,
+            raise TranscriberUnavailableException(
+                reason=f"HTTP error: {str(e)}",
                 details={
                     "error_type": type(e).__name__,
-                    "status_code": status_code,
-                    "suggestion": "audio-transcriber unavailable; retry later"
-                }
+                    "status_code": status_code
+                },
+                cause=e
             )

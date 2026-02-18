@@ -5,15 +5,20 @@ NOVA ABORDAGEM: Processamento completo sem otimizações
 Resultado comprovado: 97.73% de acurácia!
 
 Método:
-- Processa TODOS os frames do vídeo
+- Processa TODOS os frames do vídeo (limitado a 300 frames para evitar OOM)
 - Frame COMPLETO (sem ROI, sem cropping)
 - Sem sampling (não pula frames)
 - Sem heurísticas ou otimizações
 - PaddleOCR 2.7.3 em GPU
 
+🔧 FIX R-005: Limite de 300 frames para evitar OOM em vídeos longos
+Para vídeo de 60s @ 30fps = 1800 frames, processar todos causa OOM.
+Limite de 300 frames = 10 segundos @ 30fps (suficiente para detectar legendas).
+
 Histórico:
 - Sprint 00-07: Tentativas com ROI, multi-ROI, sampling (24-33% acurácia) ❌
 - Fev 2026: Mudança para força bruta → 97.73% acurácia ✅
+- Fev 2026: Adicionado limite de 300 frames para evitar OOM ✅
 
 TODAS as Sprints antigas (00-07) foram descontinuadas.
 Esta é a ÚNICA abordagem mantida.
@@ -23,6 +28,10 @@ from paddleocr import PaddleOCR
 from pathlib import Path
 from typing import Tuple, Dict
 import os
+
+# 🔧 CONSTANTS: OCR Frame Limits (R-005)
+MAX_OCR_FRAMES_DEFAULT = 300  # Máximo de frames para processar (evita OOM)
+# Para 30fps, 300 frames = 10 segundos (suficiente para detectar legendas)
 
 
 class SubtitleDetectorV2:
@@ -47,14 +56,15 @@ class SubtitleDetectorV2:
     - ❌ Heurísticas de otimização
     """
     
-    def __init__(self, show_log: bool = False, max_frames: int = None):
+    def __init__(self, show_log: bool = False, max_frames: int = MAX_OCR_FRAMES_DEFAULT):
         """
         Inicializa PaddleOCR em modo força bruta
         
         Args:
             show_log: Mostrar logs do PaddleOCR (padrão: False)
-            max_frames: Limite máximo de frames a processar (None = TODOS os frames)
-                       Use para testes rápidos, None para produção
+            max_frames: Limite máximo de frames a processar (padrão: 300)
+                       Use None para processar TODOS os frames (pode causar OOM)
+                       300 frames @ 30fps = 10 segundos (suficiente para detecção)
         """
         self.ocr = PaddleOCR(
             use_angle_cls=True,
@@ -63,6 +73,13 @@ class SubtitleDetectorV2:
             use_gpu=True
         )
         self.max_frames = max_frames
+        
+        if max_frames is not None:
+            import logging
+            logging.getLogger(__name__).info(
+                f"🔧 OCR frame limit: {max_frames} frames "
+                f"(~{max_frames / 30:.1f}s @ 30fps) to prevent OOM"
+            )
     
     def detect(self, video_path: str) -> Tuple[bool, float, str, Dict]:
         """
