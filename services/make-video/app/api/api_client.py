@@ -300,11 +300,14 @@ class MicroservicesClient:
                     details={"reason": "empty_job_id"}
                 )
             
-            # 2. Polling do status (GET /jobs/{job_id})
+            # 2. Polling do status (GET /jobs/{job_id}) - INFINITO até completar
             poll_interval = 3  # segundos
-            max_polls = 60  # 3 minutos total (reduzido de 15min para evitar travamentos)
+            max_polls = 999999  # Praticamente infinito - continua até completar
             
-            for attempt in range(max_polls):
+            attempt = 0
+            while True:
+                attempt += 1
+                
                 response = await self.client.get(
                     f"{self.audio_transcriber_url}/jobs/{job_id}"
                 )
@@ -314,9 +317,9 @@ class MicroservicesClient:
                 status = job.get("status")
                 progress = job.get("progress", 0.0)
                 
-                # Log detalhado a cada 10 polls
-                if attempt % 10 == 0 or status != "processing":
-                    logger.info(f"📊 Poll #{attempt+1}: status={status}, progress={progress:.1%}")
+                # Log detalhado a cada 20 polls ou mudança de status
+                if attempt % 20 == 0 or status not in ["processing", "queued"] or attempt <= 3:
+                    logger.info(f"📊 Poll #{attempt}: status={status}, progress={progress:.1%}")
                 
                 if status == "completed":
                     # 3. Buscar transcrição completa (GET /jobs/{job_id}/transcription)
@@ -352,16 +355,8 @@ class MicroservicesClient:
                         details={"job_id": job_id, "error": error_msg}
                     )
                 
-                # Aguardar próximo poll
+                # Aguardar próximo poll (continua infinitamente até completar ou falhar)
                 await asyncio.sleep(poll_interval)
-            
-            # Timeout após 15 minutos
-            raise MicroserviceException(
-                "Transcription timeout - job took too long",
-                ErrorCode.TRANSCRIBER_TIMEOUT,
-                "audio-transcriber",
-                details={"job_id": job_id, "max_wait": max_polls * poll_interval}
-            )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling audio-transcriber: {e}")

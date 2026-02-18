@@ -116,9 +116,18 @@ async def update_job_status(job_id: str, status: JobStatus,
     if stage_updates:
         for stage_name, stage_info in stage_updates.items():
             if stage_name not in job.stages:
-                job.stages[stage_name] = stage_info
+                # Criar novo StageInfo
+                from app.core.models import StageInfo
+                job.stages[stage_name] = StageInfo(**stage_info)
             else:
-                job.stages[stage_name].update(stage_info)
+                # Atualizar campos do StageInfo existente
+                existing_stage = job.stages[stage_name]
+                for key, value in stage_info.items():
+                    if key == 'metadata' and hasattr(existing_stage, 'metadata'):
+                        # Merge metadata ao invés de substituir
+                        existing_stage.metadata.update(value)
+                    else:
+                        setattr(existing_stage, key, value)
     
     if error:
         job.error = error
@@ -685,77 +694,138 @@ async def _process_make_video_async(job_id: str):
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "assembling_video_completed")
         
-        # Etapa 6: Gerar legendas (OPCIONAL - com fallback)
+        # Etapa 6: Gerar legendas (RETRY INFINITO até conseguir)
         logger.info(f"📝 [6/7] Generating subtitles...")
         await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=80.0)
         
-        segments = []  # Variável para armazenar segmentos
-        subtitle_generation_failed = False
-        subtitle_path = None  # Será None se não gerar legendas
+        segments = []
+        retry_attempt = 0
+        max_backoff = 300  # 5 minutos máximo entre tentativas
         
-        try:
-            segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
-            logger.info(f"✅ Subtitles generated: {len(segments)} segments")
-        except MicroserviceException as e:
-            subtitle_generation_failed = True
-            logger.warning(
-                f"⚠️ audio-transcriber unavailable during subtitle generation: {e}",
-                exc_info=False
-            )
-            logger.warning(
-                "⚠️ Continuing WITHOUT subtitles (fallback mode). "
-                "Video will be generated without captions."
-            )
-            # Não falhar o job - continuar sem legendas
-        except Exception as e:
-            subtitle_generation_failed = True
-            logger.warning(
-                f"⚠️ Unexpected error during subtitle generation: {e}",
-                exc_info=True
-            )
-            logger.warning(
-                "⚠️ Continuing WITHOUT subtitles (fallback mode). "
-                "Video will be generated without captions."
-            )
-            # Não falhar o job - continuar sem legendas
-        
-        # Converter segmentos para formato dict (cues) - APENAS SE TRANSCRIPTION OK
-        if not subtitle_generation_failed:
-            raw_cues = []
-            for segment in segments:
-                # Tentar usar word_timestamps se disponível
-                words = segment.get('words', [])
+        while not segments:
+            retry_attempt += 1
+            
+            try:
+                if retry_attempt > 1:
+                    logger.info(f"🔄 Subtitle generation retry #{retry_attempt}")
+                    await update_job_status(
+                        job_id, 
+                        JobStatus.GENERATING_SUBTITLES, 
+                        progress=80.0,
+                        stage_updates={
+                            "generating_subtitles": {
+                                "status": "retrying",
+                                "metadata": {
+                                    "retry_attempt": retry_attempt,
+                                    "reason": "Previous attempt failed or timed out"
+                                }
+                            }
+                        }
+                    )
                 
-                if words:
-                    # Word-level timestamps disponíveis
-                    for word_data in words:
-                        raw_cues.append({
-                            'start': word_data['start'],
-                            'end': word_data['end'],
-                            'text': word_data['word']
-                        })
-                else:
-                    # Fallback: dividir texto do segment em palavras
-                    text = segment.get('text', '').strip()
-                    if text:
-                        import re
-                        words_list = re.findall(r'\S+', text)
-                        seg_start = segment.get('start', 0.0)
-                        seg_end = segment.get('end', seg_start + 1.0)
-                        seg_duration = seg_end - seg_start
+                segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
+                logger.info(f"✅ Subtitles generated: {len(segments)} segments (attempt #{retry_attempt})")
+                
+            except MicroserviceException as e:
+                # Calcular backoff exponencial
+                backoff_seconds = min(5 * (2 ** (retry_attempt - 1)), max_backoff)
+                
+                logger.warning(
+                    f"⚠️ Subtitle generation failed (attempt #{retry_attempt}): {e}",
+                    exc_info=False
+                )
+                logger.info(f"🔄 Retrying in {backoff_seconds}s...")
+                
+                # Atualizar status com informações detalhadas
+                await update_job_status(
+                    job_id,
+                    JobStatus.GENERATING_SUBTITLES,
+                    progress=80.0,
+                    stage_updates={
+                        "generating_subtitles": {
+                            "status": "waiting_retry",
+                            "metadata": {
+                                "retry_attempt": retry_attempt,
+                                "error_type": type(e).__name__,
+                                "error_message": str(e),
+                                "retry_in_seconds": backoff_seconds,
+                                "next_retry_at": (datetime.utcnow() + timedelta(seconds=backoff_seconds)).isoformat()
+                            }
+                        }
+                    }
+                )
+                
+                # Aguardar antes de tentar novamente
+                await asyncio.sleep(backoff_seconds)
+                
+            except Exception as e:
+                # Calcular backoff exponencial
+                backoff_seconds = min(5 * (2 ** (retry_attempt - 1)), max_backoff)
+                
+                logger.warning(
+                    f"⚠️ Unexpected error during subtitle generation (attempt #{retry_attempt}): {e}",
+                    exc_info=True
+                )
+                logger.info(f"🔄 Retrying in {backoff_seconds}s...")
+                
+                # Atualizar status com informações detalhadas
+                await update_job_status(
+                    job_id,
+                    JobStatus.GENERATING_SUBTITLES,
+                    progress=80.0,
+                    stage_updates={
+                        "generating_subtitles": {
+                            "status": "waiting_retry",
+                            "metadata": {
+                                "retry_attempt": retry_attempt,
+                                "error_type": type(e).__name__,
+                                "error_message": str(e),
+                                "retry_in_seconds": backoff_seconds,
+                                "next_retry_at": (datetime.utcnow() + timedelta(seconds=backoff_seconds)).isoformat()
+                            }
+                        }
+                    }
+                )
+                
+                # Aguardar antes de tentar novamente
+                await asyncio.sleep(backoff_seconds)
+        
+        # Converter segmentos para formato dict (cues)
+        raw_cues = []
+        for segment in segments:
+            # Tentar usar word_timestamps se disponível
+            words = segment.get('words', [])
+            
+            if words:
+                # Word-level timestamps disponíveis
+                for word_data in words:
+                    raw_cues.append({
+                        'start': word_data['start'],
+                        'end': word_data['end'],
+                        'text': word_data['word']
+                    })
+            else:
+                # Fallback: dividir texto do segment em palavras
+                text = segment.get('text', '').strip()
+                if text:
+                    import re
+                    words_list = re.findall(r'\S+', text)
+                    seg_start = segment.get('start', 0.0)
+                    seg_end = segment.get('end', seg_start + 1.0)
+                    seg_duration = seg_end - seg_start
+                    
+                    if words_list:
+                        time_per_word = seg_duration / len(words_list)
                         
-                        if words_list:
-                            time_per_word = seg_duration / len(words_list)
+                        for i, word in enumerate(words_list):
+                            word_start = seg_start + (i * time_per_word)
+                            word_end = word_start + time_per_word
                             
-                            for i, word in enumerate(words_list):
-                                word_start = seg_start + (i * time_per_word)
-                                word_end = word_start + time_per_word
-                                
-                                raw_cues.append({
-                                    'start': word_start,
-                                    'end': word_end,
-                                    'text': word
-                                })
+                            raw_cues.append({
+                                'start': word_start,
+                                'end': word_end,
+                                'text': word
+                            })
             
             logger.info(f"📊 Transcription: {len(segments)} segments, {len(raw_cues)} words")
             
@@ -832,9 +902,6 @@ async def _process_make_video_async(job_id: str):
             
             # Salvar checkpoint (Sprint-01)
             await _save_checkpoint(job_id, "generating_subtitles_completed")
-        else:
-            logger.warning(f"⚠️ Skipping subtitle generation (fallback mode active)")
-            # Nota: video_path será definido sem subtitles mais adiante
         
         # Etapa 7: Composição final
         logger.info(f"🎨 [7/7] Final composition...")
@@ -850,23 +917,16 @@ async def _process_make_video_async(job_id: str):
         
         logger.info(f"✅ Audio added")
         
-        # Burn-in legendas (CONDICIONAL - apenas se legendas foram geradas)
+        # Burn-in legendas
         final_video_path = Path(settings['output_dir']) / f"{job_id}_final.mp4"
+        await video_builder.burn_subtitles(
+            video_path=str(video_with_audio_path),
+            subtitle_path=str(subtitle_path),
+            output_path=str(final_video_path),
+            style=job.subtitle_style
+        )
         
-        if not subtitle_generation_failed and subtitle_path and subtitle_path.exists():
-            # COM LEGENDAS: burn subtitles
-            await video_builder.burn_subtitles(
-                video_path=str(video_with_audio_path),
-                subtitle_path=str(subtitle_path),
-                output_path=str(final_video_path),
-                style=job.subtitle_style
-            )
-            logger.info(f"✅ Subtitles burned")
-        else:
-            # SEM LEGENDAS (fallback): apenas copiar video_with_audio_path
-            import shutil
-            shutil.copy2(str(video_with_audio_path), str(final_video_path))
-            logger.warning(f"⚠️ Video generated WITHOUT subtitles (fallback mode)")
+        logger.info(f"✅ Subtitles burned")
         
         # Etapa 8: Trimming final (Sprint-09)
         logger.info(f"✂️ [8/8] Trimming video to target duration...")
