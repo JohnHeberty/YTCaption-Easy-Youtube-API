@@ -96,7 +96,10 @@ class HealthChecker:
                 timeout=1.0
             )
             
-            if retrieved.decode() != test_value:
+            # Redis com decode_responses=True já retorna str
+            retrieved_str = retrieved if isinstance(retrieved, str) else retrieved.decode()
+            
+            if retrieved_str != test_value:
                 return HealthCheckResult(False, "Set/Get mismatch")
             
             # Calcular latência

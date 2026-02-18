@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     # Storage Paths - Nova Estrutura (data/raw → data/transform → data/validate → data/approved)
     audio_upload_dir: str = os.getenv("AUDIO_UPLOAD_DIR", "./data/raw/audio")
     shorts_cache_dir: str = os.getenv("SHORTS_CACHE_DIR", "./data/raw/shorts")
-    temp_dir: str = os.getenv("TEMP_DIR", "./data/transform/temp")
     output_dir: str = os.getenv("OUTPUT_DIR", "./data/approved/output")
     
     # Logging
@@ -152,7 +151,6 @@ def get_settings() -> Dict[str, Any]:
         "audio_transcriber_url": _settings.audio_transcriber_url,
         "audio_upload_dir": _settings.audio_upload_dir,
         "shorts_cache_dir": _settings.shorts_cache_dir,
-        "temp_dir": _settings.temp_dir,
         "output_dir": _settings.output_dir,
         "log_level": _settings.log_level,
         "logs_dir": _settings.log_dir,  # Adicionar logs_dir também
@@ -198,7 +196,6 @@ def ensure_directories():
     dirs = [
         settings["audio_upload_dir"],
         settings["shorts_cache_dir"],
-        settings["temp_dir"],
         settings["output_dir"],
         settings["log_dir"],
     ]

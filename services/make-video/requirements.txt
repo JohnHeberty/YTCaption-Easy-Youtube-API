@@ -10,6 +10,7 @@ aiofiles==23.2.1
 # Task Queue
 celery==5.3.4
 redis==5.0.1
+apscheduler==3.10.4  # Cron scheduler for background tasks
 
 # Data Validation
 pydantic==2.5.2

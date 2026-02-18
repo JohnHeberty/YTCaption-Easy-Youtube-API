@@ -8,6 +8,7 @@ Implementa APENAS processamento de vídeo - NÃO baixa vídeos.
 import asyncio
 import logging
 import json
+import shutil
 from pathlib import Path
 from typing import List, Dict, Tuple
 
@@ -19,12 +20,11 @@ logger = logging.getLogger(__name__)
 class VideoBuilder:
     """Construtor de vídeos usando FFmpeg"""
     
-    def __init__(self, temp_dir: str, output_dir: str, 
+    def __init__(self, output_dir: str, 
                  video_codec: str = "libx264",
                  audio_codec: str = "aac",
                  preset: str = "fast",
                  crf: int = 23):
-        self.temp_dir = Path(temp_dir)
         self.output_dir = Path(output_dir)
         self.ffmpeg_path = "ffmpeg"
         self.ffprobe_path = "ffprobe"
@@ -33,17 +33,68 @@ class VideoBuilder:
         self.preset = preset
         self.crf = crf
         
-        # Criar diretórios se não existirem
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        # Criar diretório de output se não existir
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
         logger.info(f"🎬 VideoBuilder initialized")
-        logger.info(f"   ├─ Temp dir: {self.temp_dir}")
         logger.info(f"   ├─ Output dir: {self.output_dir}")
         logger.info(f"   ├─ Video codec: {self.video_codec}")
         logger.info(f"   ├─ Audio codec: {self.audio_codec}")
         logger.info(f"   ├─ Preset: {self.preset}")
         logger.info(f"   └─ CRF: {self.crf}")
+    
+    async def convert_to_h264(self, input_path: str, output_path: str) -> str:
+        """
+        Converte vídeo para H264 mantendo resolução e proporção originais
+        
+        Args:
+            input_path: Path do vídeo original
+            output_path: Path do vídeo H264 de saída
+        
+        Returns:
+            Path do vídeo convertido
+        
+        Raises:
+            VideoProcessingException: Se conversão falhar
+        """
+        logger.info(f"🔄 Converting to H264: {Path(input_path).name}")
+        
+        cmd = [
+            self.ffmpeg_path,
+            "-i", input_path,
+            "-c:v", self.video_codec,
+            "-preset", self.preset,
+            "-crf", str(self.crf),
+            "-c:a", "copy",  # Copy audio stream
+            "-movflags", "+faststart",
+            "-y",
+            output_path
+        ]
+        
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            stdout, stderr = await proc.communicate()
+            
+            if proc.returncode != 0:
+                from ..shared.exceptions import ErrorCode
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                raise VideoProcessingException(
+                    f"H264 conversion failed: {error_msg}",
+                    ErrorCode.VIDEO_CONVERSION_FAILED,
+                    details={"input": input_path, "output": output_path}
+                )
+            
+            logger.info(f"✅ H264 conversion complete: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"❌ H264 conversion error: {e}")
+            raise
     
     async def concatenate_videos(self, 
                                  video_files: List[str], 
@@ -81,9 +132,11 @@ class VideoBuilder:
         }
         
         if aspect_ratio not in aspect_map:
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
-                f"Invalid aspect ratio: {aspect_ratio}",
-                {"valid_ratios": list(aspect_map.keys())}
+                f"Invalid aspect ratio: {aspect_ratio}. Valid ratios: {', '.join(aspect_map.keys())}",
+                ErrorCode.VIDEO_INVALID_RESOLUTION,
+                details={"valid_ratios": list(aspect_map.keys())}
             )
         
         target_width, target_height = aspect_map[aspect_ratio]
@@ -108,104 +161,226 @@ class VideoBuilder:
         # Combinar filtros: scale → crop → setsar (garantir aspect ratio)
         video_filter = f"{scale_filter},{crop_filter},setsar=1"
         
-        # Criar lista de concatenação
-        concat_list_path = self.temp_dir / f"concat_list_{Path(output_path).stem}.txt"
-        
-        try:
-            # Calcular duração esperada antes da concatenação
-            expected_duration = 0.0
-            logger.info(f"📊 Input videos for concatenation:")
-            
-            with open(concat_list_path, "w", encoding='utf-8') as f:
-                for i, video_file in enumerate(video_files):
-                    # FFmpeg concat demangle requer path absoluto
-                    abs_path = Path(video_file).resolve()
-                    f.write(f"file '{abs_path}'\n")
-                    
-                    # Log duração de cada input (para debug)
-                    try:
-                        input_info = await self.get_video_info(str(video_file))
-                        input_duration = input_info['duration']
-                        expected_duration += input_duration
-                        logger.info(f"  [{i+1}] {Path(video_file).name}: {input_duration:.2f}s")
-                    except Exception as e:
-                        logger.warning(f"  [{i+1}] {Path(video_file).name}: Could not get duration - {e}")
-            
-            logger.info(f"📊 Expected output duration: {expected_duration:.2f}s (sum of {len(video_files)} videos)")
-            
-            # FFmpeg command
-            cmd = [
-                self.ffmpeg_path,
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_list_path),
-                "-vf", video_filter,  # Usar o filtro corrigido
-                "-c:v", self.video_codec,
-                "-preset", self.preset,
-                "-crf", str(self.crf),
-            ]
-            
-            if remove_audio:
-                cmd.append("-an")  # Remove áudio
-            else:
-                cmd.extend(["-c:a", self.audio_codec, "-b:a", "192k"])
-            
-            cmd.append(str(output_path))
-            
-            logger.info(f"▶️ Running FFmpeg concatenation...")
-            
-            # Executar FFmpeg
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+        # Calcular duração esperada antes da concatenação
+        expected_duration = 0.0
+        resolved_video_files: List[str] = []
+        logger.info(f"📊 Input videos for concatenation:")
+
+        for i, video_file in enumerate(video_files):
+            abs_path = str(Path(video_file).resolve())
+            resolved_video_files.append(abs_path)
+
+            # Log duração de cada input (para debug)
+            try:
+                input_info = await self.get_video_info(str(video_file))
+                input_duration = input_info['duration']
+                expected_duration += input_duration
+                logger.info(f"  [{i+1}] {Path(video_file).name}: {input_duration:.2f}s")
+            except Exception as e:
+                logger.warning(f"  [{i+1}] {Path(video_file).name}: Could not get duration - {e}")
+
+        logger.info(f"📊 Expected output duration: {expected_duration:.2f}s (sum of {len(video_files)} videos)")
+
+        # FFmpeg com filter_complex concat para evitar truncamento de duração
+        # ao aplicar filtros de scale/crop em múltiplos inputs
+        cmd = [self.ffmpeg_path, "-y"]
+        for video_file in resolved_video_files:
+            cmd.extend(["-i", video_file])
+
+        filter_parts = []
+        concat_video_inputs = []
+        concat_audio_inputs = []
+
+        for i in range(len(resolved_video_files)):
+            filter_parts.append(f"[{i}:v]{video_filter}[v{i}]")
+            concat_video_inputs.append(f"[v{i}]")
+
+            if not remove_audio:
+                filter_parts.append(
+                    f"[{i}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[a{i}]"
+                )
+                concat_audio_inputs.append(f"[a{i}]")
+
+        from ..shared.exceptions import ErrorCode
+
+        if remove_audio:
+            filter_parts.append(
+                f"{''.join(concat_video_inputs)}concat=n={len(resolved_video_files)}:v=1:a=0[vout]"
             )
-            
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode != 0:
-                error_msg = stderr.decode()
-                logger.error(f"❌ FFmpeg error: {error_msg}")
-                raise VideoProcessingException(
-                    "FFmpeg concatenation failed",
-                    {"ffmpeg_error": error_msg, "return_code": process.returncode}
-                )
-            
-            # VALIDAÇÃO PÓS-CONCATENAÇÃO (BUG FIX: detectar duplicação)
-            output_info = await self.get_video_info(str(output_path))
-            actual_duration = output_info['duration']
-            
-            logger.info(f"📊 Concatenation result:")
-            logger.info(f"  ├─ Expected: {expected_duration:.2f}s")
-            logger.info(f"  ├─ Actual: {actual_duration:.2f}s")
-            logger.info(f"  └─ Difference: {abs(actual_duration - expected_duration):.2f}s")
-            
-            # Tolerância de 2 segundos (devido a keyframes e arredondamentos)
-            tolerance = 2.0
-            if abs(actual_duration - expected_duration) > tolerance:
-                logger.error(
-                    f"❌ CONCATENATION BUG DETECTED! "
-                    f"Actual duration ({actual_duration:.2f}s) differs from expected "
-                    f"({expected_duration:.2f}s) by {abs(actual_duration - expected_duration):.2f}s"
-                )
-                raise VideoProcessingException(
-                    "Concatenation resulted in incorrect duration",
-                    {
-                        "expected_duration": expected_duration,
-                        "actual_duration": actual_duration,
-                        "difference": actual_duration - expected_duration,
-                        "tolerance": tolerance,
-                        "input_count": len(video_files)
-                    }
-                )
-            
-            logger.info(f"✅ Video concatenated successfully: {output_path}")
-            return output_path
+        else:
+            filter_parts.append(
+                f"{''.join(concat_video_inputs)}{''.join(concat_audio_inputs)}"
+                f"concat=n={len(resolved_video_files)}:v=1:a=1[vout][aout]"
+            )
+
+        filter_complex = ";".join(filter_parts)
+
+        cmd.extend([
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-c:v", self.video_codec,
+            "-preset", self.preset,
+            "-crf", str(self.crf),
+        ])
+
+        if remove_audio:
+            cmd.append("-an")
+        else:
+            cmd.extend(["-map", "[aout]", "-c:a", self.audio_codec, "-b:a", "192k"])
+
+        cmd.append(str(output_path))
+
+        logger.info(f"▶️ Running FFmpeg concatenation...")
+
+        # Executar FFmpeg
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode != 0:
+            error_msg = stderr.decode()
+            logger.error(f"❌ FFmpeg error: {error_msg}")
+            raise VideoProcessingException(
+                "FFmpeg concatenation failed",
+                ErrorCode.CONCATENATION_FAILED,
+                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
+            )
+
+        # VALIDAÇÃO PÓS-CONCATENAÇÃO (BUG FIX: detectar duplicação)
+        output_info = await self.get_video_info(str(output_path))
+        actual_duration = output_info['duration']
+
+        logger.info(f"📊 Concatenation result:")
+        logger.info(f"  ├─ Expected: {expected_duration:.2f}s")
+        logger.info(f"  ├─ Actual: {actual_duration:.2f}s")
+        logger.info(f"  └─ Difference: {abs(actual_duration - expected_duration):.2f}s")
+
+        # Tolerância de 2 segundos (devido a keyframes e arredondamentos)
+        tolerance = 2.0
+        if abs(actual_duration - expected_duration) > tolerance:
+            logger.error(
+                f"❌ CONCATENATION BUG DETECTED! "
+                f"Actual duration ({actual_duration:.2f}s) differs from expected "
+                f"({expected_duration:.2f}s) by {abs(actual_duration - expected_duration):.2f}s"
+            )
+            raise VideoProcessingException(
+                f"Concatenation resulted in incorrect duration: expected {expected_duration:.2f}s, got {actual_duration:.2f}s",
+                ErrorCode.CONCATENATION_FAILED,
+                details={
+                    "expected_duration": expected_duration,
+                    "actual_duration": actual_duration,
+                    "difference": actual_duration - expected_duration,
+                    "tolerance": tolerance,
+                    "input_count": len(video_files)
+                }
+            )
+
+        logger.info(f"✅ Video concatenated successfully: {output_path}")
+        return output_path
+    
+    async def crop_video_for_validation(self,
+                                       video_path: str,
+                                       output_path: str,
+                                       aspect_ratio: str = "9:16",
+                                       crop_position: str = "center") -> str:
+        """
+        🚨 FORÇA BRUTA: Aplica crop 9:16 no vídeo ANTES da validação OCR
         
-        finally:
-            # Limpar arquivo temporário
-            if concat_list_path.exists():
-                concat_list_path.unlink()
+        CRÍTICO: Esta função garante que o OCR analisa EXATAMENTE o frame que
+        será usado no vídeo final, após o crop.
+        
+        Args:
+            video_path: Vídeo original (qualquer aspect ratio)
+            output_path: Vídeo cropado para validação
+            aspect_ratio: Proporção desejada (9:16, 16:9, 1:1, 4:5)
+            crop_position: Posição do crop (center, top, bottom)
+        
+        Returns:
+            Caminho do vídeo cropado
+        
+        Raises:
+            VideoProcessingException: Se falhar o crop
+        """
+        logger.info(f"✂️ Cropping video for OCR validation")
+        logger.info(f"   ├─ Input: {video_path}")
+        logger.info(f"   ├─ Output: {output_path}")
+        logger.info(f"   ├─ Aspect ratio: {aspect_ratio}")
+        logger.info(f"   └─ Crop position: {crop_position}")
+        
+        # Mapear aspect ratios para resoluções
+        aspect_map = {
+            "9:16": (1080, 1920),   # Vertical (Shorts, Stories)
+            "16:9": (1920, 1080),   # Horizontal (YouTube padrão)
+            "1:1": (1080, 1080),    # Quadrado (Instagram)
+            "4:5": (1080, 1350),    # Instagram Feed
+        }
+        
+        if aspect_ratio not in aspect_map:
+            from ..shared.exceptions import ErrorCode
+            raise VideoProcessingException(
+                f"Invalid aspect ratio: {aspect_ratio}",
+                ErrorCode.VIDEO_INVALID_RESOLUTION
+            )
+        
+        target_width, target_height = aspect_map[aspect_ratio]
+        
+        # 🚨 USAR OS MESMOS FILTROS DA CONCATENAÇÃO
+        # Isso garante que o OCR analisa EXATAMENTE o mesmo frame final
+        scale_filter = f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase"
+        
+        if crop_position == "center":
+            crop_filter = f"crop={target_width}:{target_height}"
+        elif crop_position == "top":
+            crop_filter = f"crop={target_width}:{target_height}:0:0"
+        elif crop_position == "bottom":
+            crop_filter = f"crop={target_width}:{target_height}:0:(ih-{target_height})"
+        else:
+            crop_filter = f"crop={target_width}:{target_height}"
+        
+        # Combinar filtros: scale → crop → setsar
+        video_filter = f"{scale_filter},{crop_filter},setsar=1"
+        
+        # Criar diretório de saída se não existir
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # FFmpeg: aplicar crop e remover áudio (validação não precisa de áudio)
+        cmd = [
+            self.ffmpeg_path, "-y",
+            "-i", str(video_path),
+            "-vf", video_filter,
+            "-an",  # Remover áudio (economia de espaço)
+            "-c:v", self.video_codec,
+            "-preset", "ultrafast",  # Rápido (é temporário)
+            "-crf", "28",  # Qualidade OK para validação
+            str(output_path)
+        ]
+        
+        logger.info(f"▶️ Running FFmpeg crop...")
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            error_msg = stderr.decode()
+            logger.error(f"❌ FFmpeg crop error: {error_msg}")
+            from ..shared.exceptions import ErrorCode
+            raise VideoProcessingException(
+                "FFmpeg crop failed",
+                ErrorCode.VIDEO_ENCODING_FAILED,
+                details={"ffmpeg_error": error_msg}
+            )
+        
+        logger.info(f"✅ Video cropped for validation: {output_path}")
+        return output_path
     
     async def add_audio(self, video_path: str, audio_path: str, output_path: str) -> str:
         """Adiciona áudio a um vídeo
@@ -249,9 +424,11 @@ class VideoBuilder:
         if process.returncode != 0:
             error_msg = stderr.decode()
             logger.error(f"❌ FFmpeg error: {error_msg}")
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
                 "FFmpeg audio addition failed",
-                {"ffmpeg_error": error_msg, "return_code": process.returncode}
+                ErrorCode.VIDEO_ENCODING_FAILED,
+                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
             )
         
         logger.info(f"✅ Audio added: {output_path}")
@@ -275,9 +452,30 @@ class VideoBuilder:
         """
         
         logger.info(f"📝 Burning subtitles (style: {style})")
+
+        video_path_obj = Path(video_path).resolve()
+        subtitle_path_obj = Path(subtitle_path).resolve()
+        output_path_obj = Path(output_path).resolve()
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+        if not subtitle_path_obj.exists():
+            from ..shared.exceptions import ErrorCode
+            raise VideoProcessingException(
+                f"Subtitle file not found: {subtitle_path_obj}",
+                ErrorCode.FILE_NOT_FOUND,
+                details={"subtitle_path": str(subtitle_path_obj)}
+            )
+
+        subtitle_size = subtitle_path_obj.stat().st_size
+        if subtitle_size == 0:
+            logger.warning(
+                f"⚠️ Subtitle file is empty ({subtitle_path_obj}), skipping burn-in and keeping video without subtitles"
+            )
+            shutil.copy2(video_path_obj, output_path_obj)
+            return str(output_path_obj)
         
         # Verificar duração do vídeo de entrada
-        input_info = await self.get_video_info(str(video_path))
+        input_info = await self.get_video_info(str(video_path_obj))
         input_duration = input_info['duration']
         logger.info(f"📊 Input video duration: {input_duration:.2f}s")
         
@@ -293,17 +491,17 @@ class VideoBuilder:
         subtitle_style = styles.get(style, styles["dynamic"])
         
         # Escapar caminho do subtitle para FFmpeg
-        subtitle_path_escaped = str(subtitle_path).replace("\\", "\\\\").replace(":", "\\:")
+        subtitle_path_escaped = str(subtitle_path_obj).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
         
         cmd = [
             self.ffmpeg_path,
-            "-i", str(video_path),
+            "-i", str(video_path_obj),
             "-vf", f"subtitles={subtitle_path_escaped}:force_style='{subtitle_style}'",
             "-c:a", "copy",  # Não re-encode áudio
             "-map", "0:v:0",  # BUG FIX: Mapear APENAS primeiro stream de vídeo
             "-map", "0:a:0",  # BUG FIX: Mapear APENAS primeiro stream de áudio
             "-y",
-            str(output_path)
+            str(output_path_obj)
         ]
         
         logger.info(f"▶️ Running FFmpeg subtitle burn-in...")
@@ -319,13 +517,15 @@ class VideoBuilder:
         if process.returncode != 0:
             error_msg = stderr.decode()
             logger.error(f"❌ FFmpeg error: {error_msg}")
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
                 "FFmpeg subtitle burn-in failed",
-                {"ffmpeg_error": error_msg, "return_code": process.returncode}
+                ErrorCode.VIDEO_ENCODING_FAILED,
+                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
             )
         
         # VALIDAÇÃO PÓS-BURN (verificar se duração se manteve)
-        output_info = await self.get_video_info(str(output_path))
+        output_info = await self.get_video_info(str(output_path_obj))
         output_duration = output_info['duration']
         
         logger.info(f"📊 Subtitle burn result:")
@@ -340,8 +540,8 @@ class VideoBuilder:
                 f"(diff: {abs(output_duration - input_duration):.2f}s)"
             )
         
-        logger.info(f"✅ Subtitles burned: {output_path}")
-        return output_path
+        logger.info(f"✅ Subtitles burned: {output_path_obj}")
+        return str(output_path_obj)
     
     async def trim_video(self, video_path: str, output_path: str, 
                         max_duration: float) -> str:
@@ -396,9 +596,11 @@ class VideoBuilder:
         if process.returncode != 0:
             error_msg = stderr.decode()
             logger.error(f"❌ FFmpeg trim error: {error_msg}")
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
                 "FFmpeg video trim failed",
-                {"ffmpeg_error": error_msg, "return_code": process.returncode}
+                ErrorCode.VIDEO_ENCODING_FAILED,
+                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
             )
         
         logger.info(f"✅ Video trimmed to {max_duration:.2f}s: {output_path}")
@@ -437,24 +639,29 @@ class VideoBuilder:
         if process.returncode != 0:
             error_msg = stderr.decode()
             logger.error(f"❌ FFprobe error: {error_msg}")
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
                 "FFprobe failed",
-                {"ffprobe_error": error_msg, "return_code": process.returncode}
+                ErrorCode.VIDEO_CORRUPTED,
+                details={"ffprobe_error": error_msg, "return_code": process.returncode}
             )
         
         try:
             info = json.loads(stdout.decode())
         except json.JSONDecodeError as e:
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
                 "Failed to parse ffprobe output",
-                {"error": str(e)}
+                ErrorCode.VIDEO_CORRUPTED,
+                details={"error": str(e)}
             )
         
         # Extrair informações relevantes
         video_stream = next((s for s in info.get("streams", []) if s["codec_type"] == "video"), None)
         
         if not video_stream:
-            raise VideoProcessingException("No video stream found")
+            from ..shared.exceptions import ErrorCode
+            raise VideoProcessingException("No video stream found", ErrorCode.VIDEO_CORRUPTED)
         
         result = {
             "duration": float(info["format"]["duration"]),
@@ -511,10 +718,27 @@ class VideoBuilder:
         
         if process.returncode != 0:
             error_msg = stderr.decode()
-            raise VideoProcessingException(
-                "Failed to get audio duration",
-                {"ffprobe_error": error_msg}
-            )
+            from ..shared.exceptions import ErrorCode
+            
+            # Melhorar mensagem de erro com detalhes do FFprobe
+            if "Invalid data found" in error_msg or "moov atom not found" in error_msg:
+                raise VideoProcessingException(
+                    "Audio file is corrupted or not a valid audio file. Please upload a valid MP3, WAV, M4A, or OGG file.",
+                    ErrorCode.VIDEO_CORRUPTED,
+                    details={"ffprobe_error": error_msg[:500]}
+                )
+            elif "No such file" in error_msg:
+                raise VideoProcessingException(
+                    "Audio file not found",
+                    ErrorCode.VIDEO_CORRUPTED,
+                    details={"ffprobe_error": error_msg[:500]}
+                )
+            else:
+                raise VideoProcessingException(
+                    f"Failed to get audio duration: {error_msg.split(':')[-1].strip()[:200] if error_msg else 'Unknown error'}",
+                    ErrorCode.VIDEO_CORRUPTED,
+                    details={"ffprobe_error": error_msg[:500]}
+                )
         
         try:
             info = json.loads(stdout.decode())
@@ -522,7 +746,9 @@ class VideoBuilder:
             logger.info(f"🎵 Audio duration: {duration:.2f}s")
             return duration
         except (json.JSONDecodeError, KeyError, ValueError) as e:
+            from ..shared.exceptions import ErrorCode
             raise VideoProcessingException(
                 "Failed to parse audio duration",
-                {"error": str(e)}
+                ErrorCode.VIDEO_CORRUPTED,
+                details={"error": str(e)}
             )

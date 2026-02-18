@@ -14,7 +14,7 @@ import logging
 from typing import Dict, List, Optional
 from pathlib import Path
 
-from ..shared.exceptions import MicroserviceException
+from ..shared.exceptions import MicroserviceException, ErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +103,10 @@ class MicroservicesClient:
                     error_msg = job.get("error", "Unknown error")
                     logger.error(f"❌ Busca falhou: {error_msg}")
                     raise MicroserviceException(
-                        "youtube-search",
                         f"Search failed: {error_msg}",
-                        {"job_id": job_id, "error": error_msg}
+                        ErrorCode.API_INVALID_RESPONSE,
+                        "youtube-search",
+                        details={"job_id": job_id, "error": error_msg}
                     )
                 
                 # Aguardar próximo poll
@@ -113,17 +114,19 @@ class MicroservicesClient:
             
             # Timeout
             raise MicroserviceException(
-                "youtube-search",
                 "Search timeout - job took too long",
-                {"job_id": job_id, "max_wait": max_polls * poll_interval}
+                ErrorCode.YOUTUBE_SEARCH_UNAVAILABLE,
+                "youtube-search",
+                details={"job_id": job_id, "max_wait": max_polls * poll_interval}
             )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling youtube-search: {e}")
             raise MicroserviceException(
-                "youtube-search",
                 f"HTTP error: {str(e)}",
-                {"error_type": type(e).__name__}
+                ErrorCode.YOUTUBE_SEARCH_UNAVAILABLE,
+                "youtube-search",
+                details={"error_type": type(e).__name__}
             )
     
     async def download_video(self, video_id: str, output_path: str) -> Dict:
@@ -193,9 +196,10 @@ class MicroservicesClient:
                     error_msg = job.get("error_message", job.get("error", "Unknown error"))
                     logger.error(f"❌ Download falhou: {error_msg}")
                     raise MicroserviceException(
-                        "video-downloader",
                         f"Download failed: {error_msg}",
-                        {"job_id": job_id, "video_id": video_id, "error": error_msg}
+                        ErrorCode.API_INVALID_RESPONSE,
+                        "video-downloader",
+                        details={"job_id": job_id, "video_id": video_id, "error": error_msg}
                     )
                 
                 # Log de progresso a cada 20s
@@ -209,18 +213,20 @@ class MicroservicesClient:
             # Timeout - pular este vídeo em vez de falhar tudo
             logger.warning(f"⚠️ Timeout downloading {video_id} após {max_polls * poll_interval}s - pulando")
             raise MicroserviceException(
-                "video-downloader",
                 f"Download timeout after {max_polls * poll_interval}s",
-                {"job_id": job_id, "video_id": video_id, "timeout": True}
+                ErrorCode.VIDEO_DOWNLOADER_UNAVAILABLE,
+                "video-downloader",
+                details={"job_id": job_id, "video_id": video_id, "timeout": True}
             )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling video-downloader: {e}")
             logger.debug(f"   Exception type: {type(e).__name__}, details: {str(e)}")
             raise MicroserviceException(
-                "video-downloader",
                 f"HTTP error: {str(e)}",
-                {"error_type": type(e).__name__, "video_id": video_id}
+                ErrorCode.VIDEO_DOWNLOADER_UNAVAILABLE,
+                "video-downloader",
+                details={"error_type": type(e).__name__, "video_id": video_id}
             )
     
     async def transcribe_audio(self, audio_path: str, language: str = "pt") -> List[Dict]:
@@ -240,24 +246,63 @@ class MicroservicesClient:
         logger.info(f"📡 Chamando audio-transcriber API: language_in={language}")
         
         try:
-            # 1. Criar job de transcrição (POST /jobs)
+            # 1. Criar job de transcrição (POST /jobs) com retry/backoff
             # OpenAPI params: file, language_in (default "auto"), language_out (opcional)
-            with open(audio_path, "rb") as f:
-                response = await self.client.post(
-                    f"{self.audio_transcriber_url}/jobs",
-                    files={"file": ("audio.ogg", f, "audio/ogg")},
-                    data={"language_in": language}  # ✅ Corrigido: language_in ao invés de language
-                    # language_out omitido = sem tradução (transcreve no idioma original)
+            max_create_attempts = 4
+            base_backoff_seconds = 2
+            job_id = None
+
+            for attempt in range(1, max_create_attempts + 1):
+                try:
+                    with open(audio_path, "rb") as f:
+                        response = await self.client.post(
+                            f"{self.audio_transcriber_url}/jobs",
+                            files={"file": ("audio.ogg", f, "audio/ogg")},
+                            data={"language_in": language}
+                        )
+                    response.raise_for_status()
+                    job = response.json()
+                    job_id = job.get("id")
+                    logger.info(f"🎤 Job de transcrição criado: {job_id}")
+                    break
+                except httpx.HTTPError as e:
+                    status_code = None
+                    if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                        status_code = e.response.status_code
+
+                    is_retryable = status_code in [429, 502, 503, 504] or isinstance(
+                        e,
+                        (
+                            httpx.ConnectError,
+                            httpx.ConnectTimeout,
+                            httpx.ReadTimeout,
+                            httpx.WriteTimeout,
+                            httpx.RemoteProtocolError,
+                        ),
+                    )
+
+                    if attempt >= max_create_attempts or not is_retryable:
+                        raise
+
+                    backoff_seconds = min(base_backoff_seconds * (2 ** (attempt - 1)), 20)
+                    logger.warning(
+                        f"⚠️ audio-transcriber indisponível ao criar job "
+                        f"(tentativa {attempt}/{max_create_attempts}, status={status_code}) - "
+                        f"retry em {backoff_seconds}s"
+                    )
+                    await asyncio.sleep(backoff_seconds)
+
+            if not job_id:
+                raise MicroserviceException(
+                    "Failed to create transcription job",
+                    ErrorCode.AUDIO_TRANSCRIBER_UNAVAILABLE,
+                    "audio-transcriber",
+                    details={"reason": "empty_job_id"}
                 )
-            response.raise_for_status()
-            job = response.json()
-            
-            job_id = job.get("id")
-            logger.info(f"🎤 Job de transcrição criado: {job_id}")
             
             # 2. Polling do status (GET /jobs/{job_id})
             poll_interval = 3  # segundos
-            max_polls = 300  # 15 minutos total
+            max_polls = 60  # 3 minutos total (reduzido de 15min para evitar travamentos)
             
             for attempt in range(max_polls):
                 response = await self.client.get(
@@ -301,9 +346,10 @@ class MicroservicesClient:
                     error_msg = job.get("error_message", "Unknown error")
                     logger.error(f"❌ Transcrição falhou: {error_msg}")
                     raise MicroserviceException(
-                        "audio-transcriber",
                         f"Transcription failed: {error_msg}",
-                        {"job_id": job_id, "error": error_msg}
+                        ErrorCode.API_INVALID_RESPONSE,
+                        "audio-transcriber",
+                        details={"job_id": job_id, "error": error_msg}
                     )
                 
                 # Aguardar próximo poll
@@ -311,15 +357,25 @@ class MicroservicesClient:
             
             # Timeout após 15 minutos
             raise MicroserviceException(
-                "audio-transcriber",
                 "Transcription timeout - job took too long",
-                {"job_id": job_id, "max_wait": max_polls * poll_interval}
+                ErrorCode.TRANSCRIBER_TIMEOUT,
+                "audio-transcriber",
+                details={"job_id": job_id, "max_wait": max_polls * poll_interval}
             )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling audio-transcriber: {e}")
+            status_code = None
+            if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
+                status_code = e.response.status_code
             raise MicroserviceException(
-                "audio-transcriber",
                 f"HTTP error: {str(e)}",
-                {"error_type": type(e).__name__}
+                ErrorCode.AUDIO_TRANSCRIBER_UNAVAILABLE,
+                "audio-transcriber",
+                status_code=status_code,
+                details={
+                    "error_type": type(e).__name__,
+                    "status_code": status_code,
+                    "suggestion": "audio-transcriber unavailable; retry later"
+                }
             )

@@ -191,7 +191,7 @@ class AudioProcessingException(EnhancedMakeVideoException):
     def __init__(
         self,
         message: str,
-        error_code: ErrorCode,
+        error_code: ErrorCode = ErrorCode.AUDIO_PROCESSING_FAILED,  # FIX: Default to avoid missing argument error
         audio_path: Optional[str] = None,
         **kwargs
     ):

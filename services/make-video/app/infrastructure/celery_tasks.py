@@ -68,7 +68,6 @@ def get_instances():
         )
         
         video_builder = VideoBuilder(
-            temp_dir=settings['temp_dir'],
             output_dir=settings['output_dir'],
             video_codec=settings['ffmpeg_video_codec'],
             audio_codec=settings['ffmpeg_audio_codec'],
@@ -85,9 +84,9 @@ def get_instances():
         # Inicializar validador e blacklist (usando factory)
         video_validator = VideoValidator(
             min_confidence=ValidationThresholds.OCR_MIN_CONFIDENCE,
-            frames_per_second=ValidationThresholds.OCR_FRAMES_PER_SECOND,
-            max_frames=ValidationThresholds.OCR_MAX_FRAMES,
-            redis_store=redis_store  # P2 Optimization: Cache de validação
+            frames_per_second=None,  # 🚨 FORÇA BRUTA: processar 100% frames
+            max_frames=None,  # 🚨 FORÇA BRUTA: sem limites
+            redis_store=redis_store
         )
         blacklist = get_blacklist()  # Factory cria instância baseada em config
         
@@ -129,6 +128,170 @@ async def update_job_status(job_id: str, status: JobStatus,
         job.expires_at = job.completed_at + timedelta(hours=24)
     
     await store.save_job(job)
+
+
+async def _transform_crop_and_validate_video(
+    video_id: str,
+    raw_video_path: str,
+    job_id: str,
+    aspect_ratio: str,
+    crop_position: str,
+    video_builder,
+    video_validator,
+    blacklist,
+    job_logger
+) -> Optional[str]:
+    """
+    Helper: Transform → Crop → Move → Validate → Finalize
+    
+    Fluxo CORRETO e RESILIENTE:
+    1. Transform H264: raw/ → transform/videos/
+    2. Crop PERMANENTE: substitui H264 in-place
+    3. MOVE com tag: transform/ → validate/in_progress/{job_id}_{video_id}_PROCESSING_.mp4
+    4. OCR (força bruta 100% frames)
+    5. Finalize:
+       - Aprovado: validate/ → approved/videos/
+       - Reprovado: DELETE + blacklist
+    
+    Args:
+        video_id: ID do vídeo
+        raw_video_path: Path do vídeo em data/raw/shorts/
+        job_id: ID do job (para tag)
+        aspect_ratio: Aspect ratio alvo
+        crop_position: Posição do crop
+        video_builder: VideoBuilder instance
+        video_validator: VideoValidator instance
+        blacklist: Blacklist instance
+        job_logger: Logger do job
+    
+    Returns:
+        Path do vídeo aprovado, ou None se rejeitado
+    """
+    from ..pipeline.video_pipeline import VideoPipeline
+    
+    pipeline = VideoPipeline()
+    transform_path = None
+    validation_path = None
+    
+    try:
+        # 1. TRANSFORM: H264 conversion
+        job_logger.info(f"   🔄 [1/5] Transforming to H264: {video_id}")
+        logger.info(f"🔄 Transforming {video_id} to H264...")
+        
+        raw_path = Path(raw_video_path)
+        transform_dir = Path("data/transform/videos")
+        transform_dir.mkdir(parents=True, exist_ok=True)
+        transform_path = transform_dir / f"{video_id}.mp4"
+        
+        # FFmpeg H264 conversion
+        await video_builder.convert_to_h264(
+            input_path=str(raw_path),
+            output_path=str(transform_path)
+        )
+        
+        if not transform_path.exists():
+            logger.error(f"❌ Transform failed: {video_id}")
+            return None
+        
+        job_logger.info(f"      ✅ Transformed: {transform_path}")
+        
+        # 2. CROP PERMANENTE: Substitui H264 in-place
+        job_logger.info(f"   ✂️  [2/5] Cropping to {aspect_ratio}: {video_id}")
+        logger.info(f"✂️ Cropping {video_id} to {aspect_ratio}...")
+        
+        cropped_temp = transform_dir / f"{video_id}_cropped_temp.mp4"
+        
+        await video_builder.crop_video_for_validation(
+            video_path=str(transform_path),
+            output_path=str(cropped_temp),
+            aspect_ratio=aspect_ratio,
+            crop_position=crop_position
+        )
+        
+        if not cropped_temp.exists():
+            logger.error(f"❌ Crop failed: {video_id}")
+            if transform_path.exists():
+                transform_path.unlink()
+            return None
+        
+        # Substituir H264 pelo cropado (crop permanente)
+        transform_path.unlink()
+        cropped_temp.rename(transform_path)
+        job_logger.info(f"      ✅ Cropped (permanent): {transform_path}")
+        
+        # 3. MOVE para validação com tag
+        job_logger.info(f"   🔄 [3/5] Moving to validation: {video_id}")
+        validation_path = pipeline.move_to_validation(video_id, str(transform_path), job_id)
+        job_logger.info(f"      🏷️  Tagged: {Path(validation_path).name}")
+        
+        # 4. VALIDATE: OCR 100% frames
+        job_logger.info(f"   🔍 [4/5] Validating (OCR 100% frames): {video_id}")
+        logger.info(f"🔍 Validating {video_id} (OCR 100% frames)...")
+        
+        # Usar o detector diretamente (has_embedded_subtitles é o método OCR)
+        has_text, confidence, reason, frames_processed = video_validator.has_embedded_subtitles(
+            video_path=validation_path,
+            force_revalidation=True  # Ignora cache, força 100% frames
+        )
+        
+        # Verificar frames processados
+        if frames_processed == 0:
+            logger.error(f"❌ ZERO FRAMES: {video_id} - corrupto")
+            job_logger.error(f"   ❌ Zero frames processed - vídeo corrupto")
+            blacklist.add(video_id, "zero_frames_processed", 0.0, {})
+            
+            # Cleanup
+            if Path(validation_path).exists():
+                Path(validation_path).unlink()
+            return None
+        
+        # Aprovar = SEM texto nos frames
+        approved = not has_text
+        
+        job_logger.info(f"      Frames processed: {frames_processed}")
+        job_logger.info(f"      Has text: {'Yes' if has_text else 'No'}")
+        job_logger.info(f"      Confidence: {confidence:.2f}%")
+        
+        # 5. FINALIZE: Remove tag + move ou delete
+        job_logger.info(f"   ✅ [5/5] Finalizing: {video_id}")
+        
+        if approved:
+            # Aprovado: mover para approved
+            final_path = pipeline.finalize_validation(validation_path, video_id, approved=True, job_id=job_id)
+            
+            if final_path:
+                job_logger.info(f"      ✅ APPROVED: {video_id}")
+                logger.info(f"✅ APPROVED: {video_id} → {final_path}")
+                return final_path
+            else:
+                logger.error(f"❌ Failed to finalize approved video: {video_id}")
+                return None
+        else:
+            # Reprovado: deletar + blacklist
+            pipeline.finalize_validation(validation_path, video_id, approved=False, job_id=job_id)
+            
+            blacklist.add(video_id, reason, confidence, {})
+            job_logger.info(f"      ❌ REJECTED: {video_id} (reason: {reason})")
+            logger.info(f"❌ REJECTED: {video_id} (reason: {reason})")
+            
+            return None
+    
+    except Exception as e:
+        logger.error(f"❌ Error processing {video_id}: {e}", exc_info=True)
+        job_logger.error(f"   ❌ Processing error: {e}")
+        
+        # Cleanup em caso de erro
+        try:
+            if validation_path and Path(validation_path).exists():
+                Path(validation_path).unlink()
+                logger.debug(f"🗑️  Cleanup: removed {validation_path}")
+            elif transform_path and Path(transform_path).exists():
+                Path(transform_path).unlink()
+                logger.debug(f"🗑️  Cleanup: removed {transform_path}")
+        except:
+            pass
+        
+        return None
 
 
 @celery_app.task(bind=True, name='app.infrastructure.celery_tasks.process_make_video')
@@ -188,7 +351,18 @@ def process_make_video(self, job_id: str):
         except RuntimeError:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
+        # Não sobrescrever erro detalhado já salvo pelo fluxo interno
+        store, _, _, _, _ = get_instances()
+        existing_job = loop.run_until_complete(store.get_job(job_id))
+
+        if existing_job and existing_job.status == JobStatus.FAILED and existing_job.error:
+            logger.info(
+                f"ℹ️ Preserving existing structured error for job {job_id}: "
+                f"{existing_job.error.get('message', 'n/a')}"
+            )
+            return
+
         loop.run_until_complete(update_job_status(
             job_id,
             JobStatus.FAILED,
@@ -256,24 +430,35 @@ async def _process_make_video_async(job_id: str):
         job_logger.error(f"❌ Job {job_id} not found in Redis")
         raise MakeVideoException(f"Job {job_id} not found")
     
-    job_logger.info(f"Job loaded: query='{job.query}', max_shorts={job.max_shorts}")
+    job_logger.info(f"Job loaded: max_shorts={job.max_shorts} (no query - uses approved videos)")
+    
+    # 🧹 CLEANUP: Remover arquivos órfãos de validação (jobs anteriores crashados)
+    try:
+        from ..pipeline.video_pipeline import VideoPipeline
+        pipeline = VideoPipeline()
+        pipeline.cleanup_stale_validations(job_id, max_age_minutes=30)
+        pipeline.cleanup_orphaned_files(max_age_minutes=30)
+        job_logger.info("🧹 Cleanup completed: stale files removed from all pipeline folders")
+    except Exception as e:
+        job_logger.warning(f"⚠️  Cleanup warning: {e}")
+        # Não falhar o job por causa do cleanup
     
     try:
         # Etapa 1: Analisar áudio
         logger.info(f"📊 [1/7] Analyzing audio...")
         await update_job_status(job_id, JobStatus.ANALYZING_AUDIO, progress=5.0)
         
-        audio_path = Path(settings['audio_upload_dir']) / job_id / "audio"
-        if not audio_path.exists():
-            # Procurar por extensões comuns
-            for ext in ['.mp3', '.wav', '.m4a', '.ogg']:
-                test_path = audio_path.parent / f"audio{ext}"
-                if test_path.exists():
-                    audio_path = test_path
-                    break
+        # Procurar áudio com job_id + extensão (sem subpasta)
+        audio_dir = Path(settings['audio_upload_dir'])
+        audio_path = None
+        for ext in ['.ogg', '.mp3', '.wav', '.m4a']:
+            test_path = audio_dir / f"{job_id}{ext}"
+            if test_path.exists():
+                audio_path = test_path
+                break
         
-        if not audio_path.exists():
-            raise AudioProcessingException(f"Audio file not found: {audio_path}")
+        if not audio_path:
+            raise AudioProcessingException(f"Audio file not found for job {job_id}")
         
         audio_duration = await video_builder.get_audio_duration(str(audio_path))
         
@@ -304,243 +489,102 @@ async def _process_make_video_async(job_id: str):
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "analyzing_audio_completed")
         
-        # Etapa 2: Buscar shorts
-        logger.info(f"🔍 [2/7] Fetching shorts...")
+        # Etapa 2: Buscar shorts APROVADOS (sem query - usa data/approved/videos/)
+        logger.info(f"🔍 [2/7] Fetching approved shorts from data/approved/videos/...")
         await update_job_status(job_id, JobStatus.FETCHING_SHORTS, progress=15.0)
         
-        shorts_list = await api_client.search_shorts(job.query, job.max_shorts)
-        logger.info(f"✅ Found {len(shorts_list)} shorts")
+        # Buscar vídeos aprovados diretamente da pasta data/approved/videos/
+        approved_dir = Path("data/approved/videos")
+        if not approved_dir.exists():
+            raise VideoProcessingException(
+                "No approved videos folder found. Run /download first to get approved videos.",
+                ErrorCode.NO_SHORTS_FOUND
+            )
+        
+        approved_files = list(approved_dir.glob("*.mp4"))
+        if not approved_files:
+            raise VideoProcessingException(
+                "No approved videos available. Run /download first to get approved videos.",
+                ErrorCode.NO_SHORTS_FOUND
+            )
+        
+        # Converter para formato esperado pelo código (lista de dicts com video_id e url)
+        shorts_list = []
+        for video_file in approved_files:
+            video_id = video_file.stem  # Nome do arquivo sem extensão
+            shorts_list.append({
+                'video_id': video_id,
+                'url': f'https://www.youtube.com/shorts/{video_id}',
+                'title': f'Approved short: {video_id}',
+                'duration': None  # Será detectado durante o processamento
+            })
+        
+        logger.info(f"✅ Found {len(shorts_list)} approved shorts in data/approved/videos/")
+        job_logger.info(f"✅ Found {len(shorts_list)} approved shorts: {[s['video_id'] for s in shorts_list[:5]]}...")
         
         if not shorts_list:
             raise VideoProcessingException(
-                f"No shorts found for query: {job.query}",
+                "No approved shorts found in data/approved/videos/",
                 ErrorCode.NO_SHORTS_FOUND
             )
         
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "fetching_shorts_completed")
         
-        # Etapa 3: Verificar cache e baixar shorts necessários
+        # Etapa 3: USAR VÍDEOS APROVADOS (sem download - vídeos já validados pelo /download)
         job_logger.info("="*60)
-        job_logger.info(f"⬇️ [3/7] CHECKING CACHE AND DOWNLOADING SHORTS")
+        job_logger.info(f"📦 [3/7] USING APPROVED VIDEOS FROM data/approved/videos/")
         job_logger.info("="*60)
-        logger.info(f"⬇️ [3/7] Checking cache and downloading shorts...")
+        logger.info(f"📦 [3/7] Using pre-approved videos...")
         await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=25.0)
         
-        job_logger.info(f"shorts_cache_dir: {settings['shorts_cache_dir']}")
-        job_logger.info(f"max_fetch_rounds: {settings['max_fetch_rounds']}")
-        job_logger.info(f"Initial shorts_list length: {len(shorts_list)}")
+        # Carregar vídeos aprovados e obter metadados
+        approved_shorts = []
+        approved_dir = Path("data/approved/videos")
         
-        downloaded_shorts = []
-        failed_downloads = []
-        processed_ids = set()
-        max_rounds = settings['max_fetch_rounds']  # Configurável via MAX_FETCH_ROUNDS
-        base_request = max(job.max_shorts, 10)
-        
-        job_logger.info(f"max_rounds={max_rounds}, base_request={base_request}")
-
-        async def download_with_retry(short_info, index):
+        for short_info in shorts_list:
             video_id = short_info['video_id']
-            # FIXED: Organizar shorts por job_id para evitar arquivos soltos
-            job_shorts_dir = Path(settings['shorts_cache_dir']) / job_id
-            job_shorts_dir.mkdir(parents=True, exist_ok=True)
-            output_path = job_shorts_dir / f"{video_id}.mp4"
+            video_path = approved_dir / f"{video_id}.mp4"
             
-            job_logger.debug(f"📥 [Download] Starting: {video_id} (#{index+1})")
-            job_logger.debug(f"   Output path: {output_path}")
+            if not video_path.exists():
+                job_logger.warning(f"⚠️ Approved video not found: {video_id}")
+                continue
             
-            # 🚫 CHECK 1: Verificar blacklist ANTES de baixar
-            if blacklist.is_blacklisted(video_id):
-                job_logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
-                logger.warning(f"🚫 BLACKLIST: {video_id} - pulando download")
-                failed_downloads.append(video_id)
-                return None
-            
-            job_logger.debug(f"   ✅ Not in blacklist")
-            
-            for attempt in range(3):  # 3 tentativas
-                try:
-                    job_logger.debug(f"   🔄 Download attempt {attempt+1}/3 for {video_id}")
-                    
-                    #Download do vídeo com timeout
-                    job_logger.debug(f"   📡 Calling video-downloader API: {video_id}")
-                    job_logger.debug(f"   ⏱️  Timeout: 180s (3 minutos)")
-                    
-                    try:
-                        metadata = await asyncio.wait_for(
-                            api_client.download_video(video_id, str(output_path)),
-                            timeout=180.0  # 3 minutos timeout absoluto
-                        )
-                        job_logger.debug(f"   ✅ Download completed: {video_id}, metadata: {metadata}")
-                    except asyncio.TimeoutError:
-                        job_logger.error(f"   ⏱️❌ TIMEOUT 180s for {video_id}")
-                        raise MicroserviceException(
-                            "video-downloader",
-                            f"Download timeout after 180s",
-                            {"video_id": video_id, "timeout": True}
-                        )
-                    
-                    # ✅ CHECK 2: Validar integridade do vídeo (síncrono)
-                    try:
-                        video_validator.validate_video_integrity(str(output_path), timeout=5)
-                    except Exception as e:
-                        logger.error(f"❌ INTEGRITY FAILED: {video_id} - {e}")
-                        if output_path.exists():
-                            output_path.unlink()
-                        failed_downloads.append(video_id)
-                        return None
-                    
-                    # 🔍 CHECK 3: Detectar legendas embutidas (OCR - síncrono)
-                    has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(output_path))
-                    
-                    if has_subs:
-                        # 🚫 LEGENDAS EMBUTIDAS DETECTADAS - BLOQUEAR
-                        logger.error(f"🚫 EMBEDDED SUBTITLES: {video_id} (conf: {confidence:.2f}) - adicionando à blacklist")
-                        blacklist.add(video_id, reason, confidence, metadata={
-                            'title': short_info.get('title', ''),
-                            'duration': short_info.get('duration_seconds', 0)
-                        })
-                        
-                        # Remover arquivo
-                        if output_path.exists():
-                            output_path.unlink()
-                        
-                        failed_downloads.append(video_id)
-                        return None
-                    
-                    # ✅ VÍDEO VÁLIDO - adicionar ao cache
-                    result = {
-                        'video_id': video_id,
-                        'duration_seconds': short_info.get('duration_seconds', 30),
-                        'file_path': str(output_path),
-                        'resolution': metadata.get('resolution', '1080x1920'),
-                        'title': short_info.get('title', ''),
-                    }
-                    
-                    shorts_cache.add(video_id, str(output_path), result)
-                    logger.info(f"✅ Downloaded & Validated: {video_id} ({index+1}) - limpo, sem legendas embutidas")
-                    return result
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Erro no download {video_id} (tentativa {attempt+1}/3): {e}")
-                    if attempt == 2:  # Última tentativa
-                        logger.error(f"❌ SKIP: {video_id} - falhou após 3 tentativas")
-                        failed_downloads.append(video_id)
-                        return None
-                    await asyncio.sleep(2 ** attempt)  # Backoff exponencial
-            
-            return None
-
-        for round_idx in range(1, max_rounds + 1):
-            request_size = base_request * round_idx
-            job_logger.info(f"🔁 ROUND {round_idx}/{max_rounds}: buscando até {request_size} shorts (base={base_request})")
-            logger.info(f"🔁 Round {round_idx}/{max_rounds}: buscando até {request_size} shorts (base={base_request})")
-            await update_job_status(
-                job_id,
-                JobStatus.DOWNLOADING_SHORTS,
-                progress=25.0 + (round_idx - 1) * 5.0
-            )
-            
-            job_logger.debug(f"Calling api_client.search_shorts(query='{job.query}', max_shorts={request_size})")
-            shorts_list = await api_client.search_shorts(job.query, request_size)
-            job_logger.info(f"🔍 Received {len(shorts_list)} shorts from search API")
-            logger.info(f"🔍 Verificando cache para {len(shorts_list)} vídeos (round {round_idx})...")
-            cache_hits = 0
-            to_download = []
-            
-            for short in shorts_list:
-                video_id = short['video_id']
-                if video_id in processed_ids:
-                    job_logger.debug(f"   ⏭️  {video_id}: already processed, skipping")
-                    continue
-                processed_ids.add(video_id)
-                job_logger.debug(f"   🔍 Checking cache for: {video_id}")
-                cached = shorts_cache.get(video_id)
-                if cached:
-                    try:
-                        file_path = Path(cached["file_path"])
-                        job_logger.debug(f"   ✅ Cache hit: {video_id}, validating integrity...")
-                        video_validator.validate_video_integrity(str(file_path), timeout=5)
-                        has_subs, confidence, reason = video_validator.has_embedded_subtitles(str(file_path))
-                        if has_subs:
-                            job_logger.warning(
-                                f"   🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
-                            )
-                            logger.error(
-                                f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f}) - blacklisting"
-                            )
-                            blacklist.add(video_id, reason, confidence, metadata={
-                                'title': short.get('title', ''),
-                                'duration': short.get('duration_seconds', 0)
-                            })
-                            shorts_cache.remove(video_id)
-                            continue
-                        shorts_cache.mark_validated(video_id, False, confidence)
-                        downloaded_shorts.append(cached)
-                        cache_hits += 1
-                        job_logger.info(f"   ✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
-                        logger.info(f"✅ Cache HIT validado: {video_id} (conf={confidence:.2f})")
-                    except Exception as e:
-                        job_logger.warning(f"   ⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
-                        logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Will re-download.")
-                        shorts_cache.remove(video_id)
-                        to_download.append(short)
-                else:
-                    job_logger.debug(f"   ⬇️  Cache miss: {video_id}, adding to download queue")
-                    to_download.append(short)
-            
-            job_logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download (round {round_idx})")
-            logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} precisam download (round {round_idx})")
-
-            if len(downloaded_shorts) < min(10, base_request):
-                job_logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
-                logger.info(f"⬇️ Baixando {len(to_download)} vídeos com validação OCR...")
-                batch_size = 5
-                for i in range(0, len(to_download), batch_size):
-                    batch = to_download[i:i+batch_size]
-                    job_logger.debug(f"   Batch {i//batch_size + 1}: processing {len(batch)} videos")
-                    job_logger.debug(f"   Video IDs in batch: {[s['video_id'] for s in batch]}")
-                    tasks = [download_with_retry(short, i+j) for j, short in enumerate(batch)]
-                    job_logger.debug(f"   Awaiting asyncio.gather for {len(tasks)} tasks...")
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    job_logger.debug(f"   Results received: {len([r for r in results if r and not isinstance(r, Exception)])} successful")
-                    for result in results:
-                        if result and not isinstance(result, Exception):
-                            downloaded_shorts.append(result)
-                    if len(to_download) > 0:
-                        progress = 30.0 + (40.0 * min(i + batch_size, len(to_download)) / len(to_download))
-                    else:
-                        progress = 70.0
-                    await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=progress)
-            
-            total_duration = sum(s.get('duration_seconds', 0) for s in downloaded_shorts)
-            logger.info(
-                f"📦 Round {round_idx} done: {len(downloaded_shorts)} vídeos válidos, duração acumulada {total_duration:.1f}s "
-                f"(target {target_duration:.1f}s)"
-            )
-            
-            if total_duration >= target_duration:
-                logger.info("✅ Duração suficiente alcançada, encerrando busca de shorts")
-                break
-            elif round_idx == max_rounds:
-                raise VideoProcessingException(
-                    f"Insufficient shorts after {max_rounds} rounds (got {total_duration:.1f}s, target {target_duration:.1f}s)"
-                )
-            else:
-                logger.warning(
-                    f"⚠️ Duração insuficiente ({total_duration:.1f}/{target_duration:.1f}s). "
-                    f"Nova rodada solicitará {base_request * (round_idx + 1)} vídeos (mult={round_idx+1}x)."
-                )
+            # Obter duração do vídeo
+            try:
+                video_info = await video_builder.get_video_info(str(video_path))
+                duration = video_info['duration']
+                
+                approved_shorts.append({
+                    'video_id': video_id,
+                    'duration_seconds': duration,
+                    'file_path': str(video_path),
+                    'resolution': video_info.get('resolution', '1080x1920'),
+                    'fps': int(video_info.get('fps', 30)),
+                    'title': short_info.get('title', '')
+                })
+                
+                job_logger.debug(f"✅ Loaded approved video: {video_id} ({duration:.1f}s)")
+                
+            except Exception as e:
+                job_logger.warning(f"⚠️ Error reading video {video_id}: {e}")
                 continue
         
-        logger.info(f"📦 Total final: {len(downloaded_shorts)} vídeos válidos")
-        if failed_downloads:
-            logger.warning(f"⚠️ Falhas: {len(failed_downloads)} vídeos não baixados: {failed_downloads[:5]}...")
+        logger.info(f"📦 Loaded {len(approved_shorts)} approved videos from data/approved/videos/")
         
-        if not downloaded_shorts:
-            raise VideoProcessingException("No shorts could be downloaded")
+        if not approved_shorts:
+            raise VideoProcessingException(
+                "No approved videos could be loaded",
+                ErrorCode.NO_VALID_SHORTS
+            )
         
-        # Salvar checkpoint (Sprint-01)
+        # Calcular duração total disponível
+        total_available = sum(s['duration_seconds'] for s in approved_shorts)
+        logger.info(f"📊 Total available duration: {total_available:.1f}s (need {target_duration:.1f}s)")
+        
+        await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=60.0)
+        
+        ## Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "downloading_shorts_completed")
         
         # Etapa 4: Selecionar shorts aleatoriamente
@@ -548,16 +592,16 @@ async def _process_make_video_async(job_id: str):
         await update_job_status(job_id, JobStatus.SELECTING_SHORTS, progress=70.0)
         
         # DEBUG: Log antes do shuffle
-        logger.info(f"📊 DEBUG: downloaded_shorts count = {len(downloaded_shorts)}, target_duration = {target_duration:.1f}s")
-        for i, s in enumerate(downloaded_shorts[:10]):  # Mostrar primeiros 10
+        logger.info(f"📊 DEBUG: approved_shorts count = {len(approved_shorts)}, target_duration = {target_duration:.1f}s")
+        for i, s in enumerate(approved_shorts[:10]):  # Mostrar primeiros 10
             logger.info(f"  [{i}] {s['video_id']}: {s['duration_seconds']:.1f}s")
         
-        random.shuffle(downloaded_shorts)
+        random.shuffle(approved_shorts)
         
         selected_shorts = []
         total_duration = 0.0
         
-        for short in downloaded_shorts:
+        for short in approved_shorts:
             if total_duration >= target_duration:
                 logger.info(f"🎯 Breaking loop: total_duration={total_duration:.1f}s >= target_duration={target_duration:.1f}s")
                 break
@@ -568,7 +612,17 @@ async def _process_make_video_async(job_id: str):
         logger.info(f"🎯 Selected {len(selected_shorts)} shorts ({total_duration:.1f}s / target {target_duration:.1f}s)")
         
         if not selected_shorts:
-            raise VideoProcessingException("No shorts available for video creation")
+            raise VideoProcessingException(
+                "No shorts available for video creation",
+                ErrorCode.NO_VALID_SHORTS
+            )
+        
+        # Verificar se temos duração suficiente
+        if total_duration < audio_duration:
+            logger.warning(
+                f"⚠️ Selected shorts duration ({total_duration:.1f}s) less than audio duration ({audio_duration:.1f}s). "
+                f"Video may need padding or you may need to run /download to get more approved videos."
+            )
         
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "selecting_shorts_completed")
@@ -578,7 +632,7 @@ async def _process_make_video_async(job_id: str):
         await update_job_status(job_id, JobStatus.ASSEMBLING_VIDEO, progress=75.0)
         
         video_files = [s['file_path'] for s in selected_shorts]
-        temp_video_path = Path(settings['temp_dir']) / job_id / "video_no_audio.mp4"
+        temp_video_path = Path("/tmp/make-video-temp") / job_id / "video_no_audio.mp4"
         temp_video_path.parent.mkdir(parents=True, exist_ok=True)
         
         await video_builder.concatenate_videos(
@@ -615,7 +669,8 @@ async def _process_make_video_async(job_id: str):
             
             raise VideoProcessingException(
                 "Concatenation produced incorrect duration",
-                {
+                ErrorCode.CONCATENATION_FAILED,
+                details={
                     "expected_duration": expected_duration,
                     "actual_duration": concat_duration,
                     "difference": concat_diff,
@@ -630,131 +685,163 @@ async def _process_make_video_async(job_id: str):
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "assembling_video_completed")
         
-        # Etapa 6: Gerar legendas
+        # Etapa 6: Gerar legendas (OPCIONAL - com fallback)
         logger.info(f"📝 [6/7] Generating subtitles...")
         await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=80.0)
         
-        segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
-        
-        # Converter segmentos para formato dict (cues)
-        raw_cues = []
-        for segment in segments:
-            # Tentar usar word_timestamps se disponível
-            words = segment.get('words', [])
-            
-            if words:
-                # Word-level timestamps disponíveis
-                for word_data in words:
-                    raw_cues.append({
-                        'start': word_data['start'],
-                        'end': word_data['end'],
-                        'text': word_data['word']
-                    })
-            else:
-                # Fallback: dividir texto do segment em palavras
-                text = segment.get('text', '').strip()
-                if text:
-                    import re
-                    words_list = re.findall(r'\S+', text)
-                    seg_start = segment.get('start', 0.0)
-                    seg_end = segment.get('end', seg_start + 1.0)
-                    seg_duration = seg_end - seg_start
-                    
-                    if words_list:
-                        time_per_word = seg_duration / len(words_list)
-                        
-                        for i, word in enumerate(words_list):
-                            word_start = seg_start + (i * time_per_word)
-                            word_end = word_start + time_per_word
-                            
-                            raw_cues.append({
-                                'start': word_start,
-                                'end': word_end,
-                                'text': word
-                            })
-        
-        logger.info(f"📊 Transcription: {len(segments)} segments, {len(raw_cues)} words")
-        
-        # DEBUG: Log first segment
-        if segments:
-            logger.info(f"DEBUG first segment: {segments[0]}")
-        else:
-            logger.error("❌ NO SEGMENTS from transcriber!")
-        
-        if not raw_cues:
-            logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
-        
-        # Aplicar Speech-Gated Subtitles (VAD)
-        logger.info(f"🎙️ [6.5/7] Applying speech gating (VAD)...")
-        await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=82.0)
+        segments = []  # Variável para armazenar segmentos
+        subtitle_generation_failed = False
+        subtitle_path = None  # Será None se não gerar legendas
         
         try:
-            gated_cues, vad_ok = process_subtitles_with_vad(str(audio_path), raw_cues)
-            
-            if vad_ok:
-                logger.info(f"✅ Speech gating OK: {len(gated_cues)}/{len(raw_cues)} cues (silero-vad)")
-            else:
-                logger.warning(f"⚠️ Speech gating fallback: {len(gated_cues)}/{len(raw_cues)} cues (webrtcvad/RMS)")
-            
-            # Usar cues com gating
-            final_cues = gated_cues
-            
+            segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
+            logger.info(f"✅ Subtitles generated: {len(segments)} segments")
+        except MicroserviceException as e:
+            subtitle_generation_failed = True
+            logger.warning(
+                f"⚠️ audio-transcriber unavailable during subtitle generation: {e}",
+                exc_info=False
+            )
+            logger.warning(
+                "⚠️ Continuing WITHOUT subtitles (fallback mode). "
+                "Video will be generated without captions."
+            )
+            # Não falhar o job - continuar sem legendas
         except Exception as e:
-            logger.error(f"⚠️ Speech gating failed: {e}, usando cues originais")
-            # Fallback: usar cues originais sem gating
-            final_cues = raw_cues
-            vad_ok = False
+            subtitle_generation_failed = True
+            logger.warning(
+                f"⚠️ Unexpected error during subtitle generation: {e}",
+                exc_info=True
+            )
+            logger.warning(
+                "⚠️ Continuing WITHOUT subtitles (fallback mode). "
+                "Video will be generated without captions."
+            )
+            # Não falhar o job - continuar sem legendas
         
-        # Gerar SRT com cues finais
-        subtitle_path = Path(settings['temp_dir']) / job_id / "subtitles.srt"
-        words_per_caption = int(settings.get('words_per_caption', 2))
-        
-        # DEBUG
-        logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
-        if not final_cues:
-            logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
-        
-        # Gerar SRT usando os cues filtrados por VAD
-        from .subtitle_generator import SubtitleGenerator
-        subtitle_gen = SubtitleGenerator()
-        
-        # Agrupar final_cues em segments (cada X palavras = 1 segment)
-        # O generate_word_by_word_srt irá re-dividir em palavras e agrupar por words_per_caption
-        segment_size = 10  # Agrupar 10 palavras por segment
-        segments_for_srt = []
-        
-        for i in range(0, len(final_cues), segment_size):
-            chunk = final_cues[i:i+segment_size]
-            if chunk:
-                segments_for_srt.append({
-                    'start': chunk[0]['start'],
-                    'end': chunk[-1]['end'],
-                    'text': ' '.join(c['text'] for c in chunk)
-                })
-        
-        subtitle_gen.generate_word_by_word_srt(segments_for_srt, str(subtitle_path), words_per_caption=words_per_caption)
-        
-        # DEBUG: Verificar se arquivo foi criado
-        if subtitle_path.exists():
-            srt_size = subtitle_path.stat().st_size
-            logger.info(f"DEBUG: SRT file created, size = {srt_size} bytes")
-            if srt_size == 0:
-                logger.error("❌ CRITICAL: SRT file is EMPTY (0 bytes)!")
+        # Converter segmentos para formato dict (cues) - APENAS SE TRANSCRIPTION OK
+        if not subtitle_generation_failed:
+            raw_cues = []
+            for segment in segments:
+                # Tentar usar word_timestamps se disponível
+                words = segment.get('words', [])
+                
+                if words:
+                    # Word-level timestamps disponíveis
+                    for word_data in words:
+                        raw_cues.append({
+                            'start': word_data['start'],
+                            'end': word_data['end'],
+                            'text': word_data['word']
+                        })
+                else:
+                    # Fallback: dividir texto do segment em palavras
+                    text = segment.get('text', '').strip()
+                    if text:
+                        import re
+                        words_list = re.findall(r'\S+', text)
+                        seg_start = segment.get('start', 0.0)
+                        seg_end = segment.get('end', seg_start + 1.0)
+                        seg_duration = seg_end - seg_start
+                        
+                        if words_list:
+                            time_per_word = seg_duration / len(words_list)
+                            
+                            for i, word in enumerate(words_list):
+                                word_start = seg_start + (i * time_per_word)
+                                word_end = word_start + time_per_word
+                                
+                                raw_cues.append({
+                                    'start': word_start,
+                                    'end': word_end,
+                                    'text': word
+                                })
+            
+            logger.info(f"📊 Transcription: {len(segments)} segments, {len(raw_cues)} words")
+            
+            # DEBUG: Log first segment
+            if segments:
+                logger.info(f"DEBUG first segment: {segments[0]}")
+            else:
+                logger.error("❌ NO SEGMENTS from transcriber!")
+            
+            if not raw_cues:
+                logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
+            
+            # Aplicar Speech-Gated Subtitles (VAD)
+            logger.info(f"🎙️ [6.5/7] Applying speech gating (VAD)...")
+            await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=82.0)
+            
+            try:
+                gated_cues, vad_ok = process_subtitles_with_vad(str(audio_path), raw_cues)
+                
+                if vad_ok:
+                    logger.info(f"✅ Speech gating OK: {len(gated_cues)}/{len(raw_cues)} cues (silero-vad)")
+                else:
+                    logger.warning(f"⚠️ Speech gating fallback: {len(gated_cues)}/{len(raw_cues)} cues (webrtcvad/RMS)")
+                
+                # Usar cues com gating
+                final_cues = gated_cues
+                
+            except Exception as e:
+                logger.error(f"⚠️ Speech gating failed: {e}, usando cues originais")
+                # Fallback: usar cues originais sem gating
+                final_cues = raw_cues
+                vad_ok = False
+            
+            # Gerar SRT com cues finais
+            subtitle_path = Path('/tmp/make-video-temp') / job_id / "subtitles.srt"
+            words_per_caption = int(settings.get('words_per_caption', 2))
+            
+            # DEBUG
+            logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
+            if not final_cues:
+                logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
+            
+            # Gerar SRT usando os cues filtrados por VAD
+            from ..services.subtitle_generator import SubtitleGenerator
+            subtitle_gen = SubtitleGenerator()
+            
+            # Agrupar final_cues em segments (cada X palavras = 1 segment)
+            # O generate_word_by_word_srt irá re-dividir em palavras e agrupar por words_per_caption
+            segment_size = 10  # Agrupar 10 palavras por segment
+            segments_for_srt = []
+            
+            for i in range(0, len(final_cues), segment_size):
+                chunk = final_cues[i:i+segment_size]
+                if chunk:
+                    segments_for_srt.append({
+                        'start': chunk[0]['start'],
+                        'end': chunk[-1]['end'],
+                        'text': ' '.join(c['text'] for c in chunk)
+                    })
+            
+            subtitle_gen.generate_word_by_word_srt(segments_for_srt, str(subtitle_path), words_per_caption=words_per_caption)
+            
+            # DEBUG: Verificar se arquivo foi criado
+            if subtitle_path.exists():
+                srt_size = subtitle_path.stat().st_size
+                logger.info(f"DEBUG: SRT file created, size = {srt_size} bytes")
+                if srt_size == 0:
+                    logger.error("❌ CRITICAL: SRT file is EMPTY (0 bytes)!")
+            else:
+                logger.error(f"❌ CRITICAL: SRT file NOT created at {subtitle_path}!")
+            
+            num_captions_expected = len(final_cues) // words_per_caption
+            logger.info(f"✅ Speech-gated subtitles: {len(final_cues)} words → {len(segments_for_srt)} segments → ~{num_captions_expected} captions, {words_per_caption} words/caption, vad_ok={vad_ok}")
+            
+            # Salvar checkpoint (Sprint-01)
+            await _save_checkpoint(job_id, "generating_subtitles_completed")
         else:
-            logger.error(f"❌ CRITICAL: SRT file NOT created at {subtitle_path}!")
-        
-        num_captions_expected = len(final_cues) // words_per_caption
-        logger.info(f"✅ Speech-gated subtitles: {len(final_cues)} words → {len(segments_for_srt)} segments → ~{num_captions_expected} captions, {words_per_caption} words/caption, vad_ok={vad_ok}")
-        
-        # Salvar checkpoint (Sprint-01)
-        await _save_checkpoint(job_id, "generating_subtitles_completed")
+            logger.warning(f"⚠️ Skipping subtitle generation (fallback mode active)")
+            # Nota: video_path será definido sem subtitles mais adiante
         
         # Etapa 7: Composição final
         logger.info(f"🎨 [7/7] Final composition...")
         await update_job_status(job_id, JobStatus.FINAL_COMPOSITION, progress=85.0)
         
         # Adicionar áudio
-        video_with_audio_path = Path(settings['temp_dir']) / job_id / "video_with_audio.mp4"
+        video_with_audio_path = Path('/tmp/make-video-temp') / job_id / "video_with_audio.mp4"
         await video_builder.add_audio(
             video_path=str(temp_video_path),
             audio_path=str(audio_path),
@@ -763,16 +850,23 @@ async def _process_make_video_async(job_id: str):
         
         logger.info(f"✅ Audio added")
         
-        # Burn-in legendas
+        # Burn-in legendas (CONDICIONAL - apenas se legendas foram geradas)
         final_video_path = Path(settings['output_dir']) / f"{job_id}_final.mp4"
-        await video_builder.burn_subtitles(
-            video_path=str(video_with_audio_path),
-            subtitle_path=str(subtitle_path),
-            output_path=str(final_video_path),
-            style=job.subtitle_style
-        )
         
-        logger.info(f"✅ Subtitles burned")
+        if not subtitle_generation_failed and subtitle_path and subtitle_path.exists():
+            # COM LEGENDAS: burn subtitles
+            await video_builder.burn_subtitles(
+                video_path=str(video_with_audio_path),
+                subtitle_path=str(subtitle_path),
+                output_path=str(final_video_path),
+                style=job.subtitle_style
+            )
+            logger.info(f"✅ Subtitles burned")
+        else:
+            # SEM LEGENDAS (fallback): apenas copiar video_with_audio_path
+            import shutil
+            shutil.copy2(str(video_with_audio_path), str(final_video_path))
+            logger.warning(f"⚠️ Video generated WITHOUT subtitles (fallback mode)")
         
         # Etapa 8: Trimming final (Sprint-09)
         logger.info(f"✂️ [8/8] Trimming video to target duration...")
@@ -787,7 +881,8 @@ async def _process_make_video_async(job_id: str):
         if final_duration <= audio_duration:
             raise VideoProcessingException(
                 "Invalid trim configuration: video would be shorter than or equal to audio",
-                {
+                ErrorCode.INVALID_TRIM_CONFIG,
+                details={
                     "audio_duration": audio_duration,
                     "padding_ms": padding_ms,
                     "final_duration": final_duration,
@@ -809,7 +904,8 @@ async def _process_make_video_async(job_id: str):
         if current_duration < audio_duration - 0.5:  # -0.5s tolerância para keyframes
             raise VideoProcessingException(
                 f"ERRO CRÍTICO: Vídeo ({current_duration:.2f}s) é menor que áudio ({audio_duration:.2f}s)!",
-                {
+                ErrorCode.INSUFFICIENT_DURATION,
+                details={
                     "video_duration": current_duration,
                     "audio_duration": audio_duration,
                     "target_duration": final_duration,
@@ -822,7 +918,7 @@ async def _process_make_video_async(job_id: str):
             logger.info(f"✂️ Trimming needed: {current_duration:.2f}s → {final_duration:.2f}s")
             
             # Criar path temporário para arquivo trimmed
-            trimmed_video_path = Path(settings['temp_dir']) / job_id / f"{job_id}_trimmed.mp4"
+            trimmed_video_path = Path('/tmp/make-video-temp') / job_id / f"{job_id}_trimmed.mp4"
             
             # Executar trim
             await video_builder.trim_video(
@@ -866,7 +962,8 @@ async def _process_make_video_async(job_id: str):
             
             raise VideoProcessingException(
                 "Final video duration validation failed",
-                {
+                ErrorCode.PROCESSING_STAGE_FAILED,
+                details={
                     "audio_duration": audio_duration,
                     "target_duration": final_duration,
                     "actual_duration": final_video_duration,
@@ -884,7 +981,8 @@ async def _process_make_video_async(job_id: str):
             )
             raise VideoProcessingException(
                 "Video is shorter than audio",
-                {
+                ErrorCode.INSUFFICIENT_DURATION,
+                details={
                     "video_duration": final_video_duration,
                     "audio_duration": audio_duration,
                     "problem": "Video cannot be shorter than audio"
@@ -974,6 +1072,15 @@ async def _process_make_video_async(job_id: str):
         raise
     
     finally:
+        # 🧹 CLEANUP FINAL: Remover arquivos órfãos de todas as pastas
+        try:
+            from ..pipeline.video_pipeline import VideoPipeline
+            pipeline_cleanup = VideoPipeline()
+            pipeline_cleanup.cleanup_orphaned_files(max_age_minutes=30)
+            job_logger.info("🧹 Final cleanup: orphaned files removed from all pipeline folders")
+        except Exception as e:
+            job_logger.warning(f"⚠️  Final cleanup warning: {e}")
+        
         # ===== P1 Optimization: Garbage Collection Aggressivo =====
         # Libera memória agressivamente após processar job
         import gc
@@ -987,7 +1094,7 @@ def cleanup_temp_files():
     logger.info("🧹 Running temp files cleanup...")
     
     settings = get_settings()
-    temp_dir = Path(settings['temp_dir'])
+    temp_dir = Path('/tmp/make-video-temp')
     cutoff_hours = settings['cleanup_temp_after_hours']
     
     if not temp_dir.exists():
@@ -1339,15 +1446,15 @@ async def _validate_job_prerequisites(job: Job, next_stage: JobStatus) -> dict:
         
         if next_stage == JobStatus.GENERATING_SUBTITLES:
             # Precisa de vídeo intermediário
-            temp_video = Path(settings['temp_dir']) / job.job_id / "video_no_audio.mp4"
+            temp_video = Path('/tmp/make-video-temp') / job.job_id / "video_no_audio.mp4"
             if not temp_video.exists():
                 return {"valid": False, "reason": "Intermediate video not found"}
             return {"valid": True}
         
         if next_stage == JobStatus.FINAL_COMPOSITION:
             # Precisa de vídeo com áudio e legendas
-            video_with_audio = Path(settings['temp_dir']) / job.job_id / "video_with_audio.mp4"
-            subtitle_file = Path(settings['temp_dir']) / job.job_id / "subtitles.srt"
+            video_with_audio = Path('/tmp/make-video-temp') / job.job_id / "video_with_audio.mp4"
+            subtitle_file = Path('/tmp/make-video-temp') / job.job_id / "subtitles.srt"
             
             if not video_with_audio.exists():
                 return {"valid": False, "reason": "Video with audio not found"}

@@ -51,23 +51,19 @@ class AnalyzeAudioStage(JobStage):
         """
         logger.info(f"📊 Analyzing audio for job {context.job_id}")
         
-        # Locate audio file
-        audio_base_path = Path(context.settings['audio_upload_dir']) / context.job_id / "audio"
+        # Locate audio file (saved as {job_id}.{ext} without subfolder)
+        audio_dir = Path(context.settings['audio_upload_dir'])
         
         audio_path = None
-        if audio_base_path.exists():
-            audio_path = audio_base_path
-        else:
-            # Try common extensions
-            for ext in ['.mp3', '.wav', '.m4a', '.ogg', '.flac']:
-                test_path = audio_base_path.parent / f"audio{ext}"
-                if test_path.exists():
-                    audio_path = test_path
-                    break
+        for ext in ['.ogg', '.mp3', '.wav', '.m4a', '.flac']:
+            test_path = audio_dir / f"{context.job_id}{ext}"
+            if test_path.exists():
+                audio_path = test_path
+                break
         
-        if not audio_path or not audio_path.exists():
+        if not audio_path:
             raise AudioProcessingException(
-                f"Audio file not found at {audio_base_path}",
+                f"Audio file not found for job {context.job_id}",
                 error_code=ErrorCode.AUDIO_FILE_NOT_FOUND,
                 details={'expected_path': str(audio_base_path)},
                 job_id=context.job_id,

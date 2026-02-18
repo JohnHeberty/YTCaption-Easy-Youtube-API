@@ -105,6 +105,50 @@ shorts_cache = ShortsCache(cache_dir=settings['shorts_cache_dir'])
 _rate_limiter = SimpleRateLimiter(max_requests=30, window_seconds=60)
 _thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="pipeline_worker")
 
+# Job lock system (prevents concurrent pipeline executions)
+from contextlib import asynccontextmanager
+import redis
+
+@asynccontextmanager
+async def acquire_pipeline_lock(timeout_seconds: int = 3600):
+    """Acquire distributed lock to prevent concurrent pipeline jobs"""
+    lock_key = "pipeline:lock:download"
+    lock_value = shortuuid.uuid()
+    redis_client = redis.Redis(
+        host=settings['redis_url'].split('://')[1].split(':')[0],
+        port=int(settings['redis_url'].split(':')[-1].split('/')[0]),
+        db=0,
+        decode_responses=True
+    )
+    
+    # Try to acquire lock
+    acquired = redis_client.set(lock_key, lock_value, nx=True, ex=timeout_seconds)
+    
+    if not acquired:
+        # Check if lock is stale (holder crashed)
+        ttl = redis_client.ttl(lock_key)
+        if ttl == -1:  # No expiration set (corrupted lock)
+            redis_client.delete(lock_key)
+            acquired = redis_client.set(lock_key, lock_value, nx=True, ex=timeout_seconds)
+    
+    if not acquired:
+        raise HTTPException(
+            status_code=429,
+            detail="Another pipeline job is already running. Please wait for it to complete."
+        )
+    
+    try:
+        logger.info(f"🔒 Pipeline lock acquired: {lock_value}")
+        yield lock_value
+    finally:
+        # Release lock only if we still own it
+        current_value = redis_client.get(lock_key)
+        if current_value == lock_value:
+            redis_client.delete(lock_key)
+            logger.info(f"🔓 Pipeline lock released: {lock_value}")
+        else:
+            logger.warning(f"⚠️  Lock expired or stolen: {lock_value}")
+
 # API client para microserviços
 from .api.api_client import MicroservicesClient
 api_client = MicroservicesClient(
@@ -113,6 +157,25 @@ api_client = MicroservicesClient(
     audio_transcriber_url=settings['audio_transcriber_url']
 )
 
+
+# ============================================================================
+# CRON JOB FUNCTIONS
+# ============================================================================
+
+async def cleanup_orphaned_videos_cron():
+    """Cron job: Limpa vídeos órfãos a cada 5 minutos"""
+    try:
+        logger.info("🧹 CRON: Starting orphaned videos cleanup...")
+        pipeline = VideoPipeline()
+        pipeline.cleanup_orphaned_files(max_age_minutes=10)  # Arquivos > 10 min são órfãos
+        logger.info("🧹 CRON: Orphaned videos cleanup completed")
+    except Exception as e:
+        logger.error(f"❌ CRON: Orphaned videos cleanup failed: {e}", exc_info=True)
+
+
+# ============================================================================
+# APPLICATION LIFECYCLE
+# ============================================================================
 
 @app.on_event("startup")
 async def startup_event():
@@ -123,21 +186,60 @@ async def startup_event():
     for dir_path in [
         settings['audio_upload_dir'],
         settings['shorts_cache_dir'],
-        settings['temp_dir'],
+        '/tmp/make-video-temp',
         settings['output_dir'],
         settings['logs_dir']
     ]:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
     
-    # Iniciar cleanup task automático
+    # Iniciar cleanup task automático (Redis)
     await redis_store.start_cleanup_task()
-    logger.info("🧹 Cleanup task started")
+    logger.info("🧹 Redis cleanup task started")
+    
+    # Iniciar cron de limpeza de vídeos órfãos (a cada 5 minutos)
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+        
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            cleanup_orphaned_videos_cron,
+            trigger=IntervalTrigger(minutes=5),
+            id='cleanup_orphaned_videos',
+            name='Cleanup orphaned videos every 5 minutes',
+            replace_existing=True
+        )
+        scheduler.start()
+        logger.info("🧹 Orphaned videos cleanup cron started (every 5 minutes)")
+        
+        # Store scheduler globally for shutdown
+        app.state.scheduler = scheduler
+    except Exception as e:
+        logger.error(f"❌ Failed to start APScheduler: {e}", exc_info=True)
+        logger.warning("⚠️  Continuing without automatic cleanup cron")
     
     logger.info("✅ Make-Video Service ready!")
     logger.info(f"   ├─ Redis: {settings['redis_url']}")
     logger.info(f"   ├─ YouTube Search: {settings['youtube_search_url']}")
     logger.info(f"   ├─ Video Downloader: {settings['video_downloader_url']}")
     logger.info(f"   └─ Audio Transcriber: {settings['audio_transcriber_url']}")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup ao desligar serviço"""
+    logger.info("🛑 Make-Video Service shutting down...")
+    
+    # Parar scheduler
+    if hasattr(app.state, 'scheduler'):
+        app.state.scheduler.shutdown(wait=False)
+        logger.info("🧹 Scheduler stopped")
+    
+    # Parar cleanup task do Redis
+    await redis_store.stop_cleanup_task()
+    logger.info("🧹 Redis cleanup task stopped")
+    
+    logger.info("✅ Make-Video Service stopped cleanly")
 
 
 # ============================================================================
@@ -312,81 +414,91 @@ async def _run_download_pipeline_job_resilient(job_id: str, query: str, max_shor
     - Timeout configurável (default: 30min)
     - Exception handling robusto
     - Circuit breaker para serviços externos
+    - LOCK DISTRIBUÍDO: Apenas 1 pipeline pode rodar por vez (evita conflitos de arquivos)
     """
     heartbeat_task = None
     heartbeat_running = asyncio.Event()
     
     try:
-        await _update_download_job(
-            job_id,
-            status=JobStatus.FETCHING_SHORTS,
-            progress=5.0,
-            stage_status="in_progress",
-            metadata={
-                "step": "initializing_pipeline",
-                "mode": "resilient_thread_pool",
-                "max_shorts": max_shorts
-            },
-        )
-
-        # Criar pipeline instance
-        pipeline = VideoPipeline()
-
-        # Iniciar heartbeat (atualiza status a cada 10s)
-        heartbeat_running.set()
-        heartbeat_task = asyncio.create_task(
-            _heartbeat_monitor(job_id, heartbeat_running, interval=10)
-        )
-
-        await _update_download_job(
-            job_id,
-            status=JobStatus.DOWNLOADING_SHORTS,
-            progress=10.0,
-            stage_status="in_progress",
-            metadata={
-                "step": "starting_download",
-                "heartbeat": "active"
-            },
-        )
-
-        # Executar pipeline em thread separada (não bloqueia FastAPI)
-        # Usa asyncio.to_thread() para compatibilidade com async context
-        try:
-            # Timeout de 30 minutos (ajustável baseado em max_shorts)
-            timeout_seconds = max(1800, max_shorts * 40)  # 40s por vídeo + buffer
-            
-            stats = await asyncio.wait_for(
-                asyncio.to_thread(_run_pipeline_sync_wrapper, pipeline, query, max_shorts),
-                timeout=timeout_seconds
+        # 🔒 ACQUIRE LOCK: Apenas 1 pipeline pode rodar por vez
+        async with acquire_pipeline_lock(timeout_seconds=max(3600, max_shorts * 60)):
+            await _update_download_job(
+                job_id,
+                status=JobStatus.FETCHING_SHORTS,
+                progress=5.0,
+                stage_status="in_progress",
+                metadata={
+                    "step": "initializing_pipeline",
+                    "mode": "resilient_thread_pool",
+                    "max_shorts": max_shorts
+                },
             )
-            
-            # Verificar se houve erro no pipeline
-            if isinstance(stats, dict) and stats.get("error"):
-                raise Exception(f"{stats.get('error_type', 'PipelineError')}: {stats.get('error_message', 'Unknown error')}")
-            
-        except asyncio.TimeoutError:
-            raise Exception(f"Pipeline timeout após {timeout_seconds}s (max_shorts={max_shorts})")
 
-        # Parar heartbeat
-        heartbeat_running.clear()
-        if heartbeat_task:
-            await asyncio.wait([heartbeat_task], timeout=2.0)
+            # Criar pipeline instance
+            pipeline = VideoPipeline()
 
-        await _update_download_job(
-            job_id,
-            status=JobStatus.COMPLETED,
-            progress=100.0,
-            stage_status="completed",
-            metadata={
-                "step": "completed",
-                "stats": stats,
-                "approved_videos_available": stats.get("approved", 0),
-                "ready_for_make_video": stats.get("approved", 0) > 0,
-                "heartbeat": "stopped"
-            },
-        )
+            # Iniciar heartbeat (atualiza status a cada 10s)
+            heartbeat_running.set()
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_monitor(job_id, heartbeat_running, interval=10)
+            )
 
-        logger.info(f"✅ Download job {job_id} completed (resilient mode)")
+            await _update_download_job(
+                job_id,
+                status=JobStatus.DOWNLOADING_SHORTS,
+                progress=10.0,
+                stage_status="in_progress",
+                metadata={
+                    "step": "starting_download",
+                    "heartbeat": "active"
+                },
+            )
+
+            # Executar pipeline em thread separada (não bloqueia FastAPI)
+            # Usa asyncio.to_thread() para compatibilidade com async context
+            try:
+                # Timeout dinâmico: 1h base ou 60s por short (o que for maior)
+                # Fixes: Previous 1800s (30min) was insufficient for 30+ shorts
+                timeout_seconds = max(3600, max_shorts * 60)  # 60s por vídeo + overhead
+                
+                stats = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        _run_pipeline_sync_wrapper, 
+                        pipeline, 
+                        query, 
+                        max_shorts, 
+                        job_id      # Passar job_id para callback de progresso
+                    ),
+                    timeout=timeout_seconds
+                )
+                
+                # Verificar se houve erro no pipeline
+                if isinstance(stats, dict) and stats.get("error"):
+                    raise Exception(f"{stats.get('error_type', 'PipelineError')}: {stats.get('error_message', 'Unknown error')}")
+                
+            except asyncio.TimeoutError:
+                raise Exception(f"Pipeline timeout após {timeout_seconds}s (max_shorts={max_shorts})")
+
+            # Parar heartbeat
+            heartbeat_running.clear()
+            if heartbeat_task:
+                await asyncio.wait([heartbeat_task], timeout=2.0)
+
+            await _update_download_job(
+                job_id,
+                status=JobStatus.COMPLETED,
+                progress=100.0,
+                stage_status="completed",
+                metadata={
+                    "step": "completed",
+                    "stats": stats,
+                    "approved_videos_available": stats.get("approved", 0),
+                    "ready_for_make_video": stats.get("approved", 0) > 0,
+                    "heartbeat": "stopped"
+                },
+            )
+
+            logger.info(f"✅ Download job {job_id} completed (resilient mode)")
 
     except asyncio.CancelledError:
         logger.warning(f"⚠️  Download job {job_id} cancelled")
@@ -441,9 +553,18 @@ async def _run_download_pipeline_job_resilient(job_id: str, query: str, max_shor
                 await heartbeat_task
             except asyncio.CancelledError:
                 pass
+        
+        # CRITICAL FIX: Always cleanup job files on exit (success or failure)
+        # This prevents orphaned files in raw/shorts, transform/videos, validate/in_progress
+        try:
+            if 'pipeline' in locals():
+                await asyncio.to_thread(pipeline.cleanup_job_files, job_id)
+                logger.info(f"🧹 Cleanup completed for job {job_id}")
+        except Exception as cleanup_error:
+            logger.warning(f"⚠️  Cleanup failed for job {job_id}: {cleanup_error}")
 
 
-def _run_pipeline_sync_wrapper(pipeline: VideoPipeline, query: str, max_shorts: int) -> dict:
+def _run_pipeline_sync_wrapper(pipeline: VideoPipeline, query: str, max_shorts: int, job_id: str = None) -> dict:
     """
     Wrapper síncrono para rodar pipeline em thread.
     
@@ -452,11 +573,75 @@ def _run_pipeline_sync_wrapper(pipeline: VideoPipeline, query: str, max_shorts: 
     
     NOTA: Não pode criar novo event loop aqui - isso causa deadlock.
     Converte pipeline async para sync usando asyncio.run() de forma segura.
+    
+    Args:
+        pipeline: Instância do VideoPipeline
+        query: Query de busca
+        max_shorts: Número máximo de shorts
+        job_id: ID do job (para callback com updates de progresso)
     """
     try:
+        # Criar callback que atualiza Redis diretamente sem event loop complexo
+        progress_callback = None
+        if job_id:
+            async def callback(progress: float, metadata: dict):
+                """Callback async que atualiza job status via sync Redis client"""
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"📊 Progress callback: {progress}% - Step: {metadata.get('step', '?')}")
+                
+                try:
+                    # Determinar status baseado no progresso
+                    if progress < 50:
+                        status = JobStatus.DOWNLOADING_SHORTS
+                    elif progress < 100:
+                        status = JobStatus.PROCESSING_VIDEOS
+                    else:
+                        status = JobStatus.COMPLETED
+                    
+                    # Atualizar Redis usando cliente síncrono (não precisa de event loop)
+                    import redis
+                    import json
+                    from datetime import datetime, timezone
+                    from urllib.parse import urlparse
+                    
+                    # Parsear REDIS_URL das settings
+                    redis_url = settings.get("redis_url", "redis://localhost:6379/0")
+                    parsed = urlparse(redis_url)
+                    
+                    redis_client = redis.Redis(
+                        host=parsed.hostname or 'localhost',
+                        port=parsed.port or 6379,
+                        db=int(parsed.path.lstrip('/') if parsed.path else 0),
+                        decode_responses=True
+                    )
+                    
+                    job_key = f"make_video:job:{job_id}"  # Correct key pattern used by RedisJobStore
+                    job_data_str = redis_client.get(job_key)
+                    if job_data_str:
+                        job_data = json.loads(job_data_str)
+                        job_data['status'] = status.value
+                        job_data['progress'] = progress
+                        job_data['metadata'] = metadata
+                        job_data['updated_at'] = datetime.now(timezone.utc).isoformat()
+                        
+                        redis_client.set(job_key, json.dumps(job_data))
+                        redis_client.expire(job_key, 86400)  # 24h TTL
+                        logger.info(f"✅ Progress updated in Redis: {progress}%")
+                    else:
+                        logger.warning(f"⚠️  Job key not found in Redis: {job_key}")
+                    
+                    redis_client.close()
+                except Exception as e:
+                    import traceback
+                    logger.warning(f"⚠️  Callback error: {type(e).__name__}: {e}")
+                    logger.debug(traceback.format_exc())
+            
+            progress_callback = callback
+        
         # SOLUÇÃO: Usar asyncio.run() que cria event loop isolado de forma segura
         import asyncio
-        stats = asyncio.run(pipeline.process_pipeline(query, max_shorts))
+        stats = asyncio.run(pipeline.process_pipeline(query, max_shorts, progress_callback=progress_callback))
         return stats
     except Exception as e:
         # Capturar e re-raise para que seja tratado no nível superior
@@ -512,7 +697,6 @@ async def _heartbeat_monitor(job_id: str, running: asyncio.Event, interval: int 
 @app.post("/make-video", status_code=202)
 async def create_video(
     audio_file: UploadFile = File(..., description="Audio file (max 100MB)"),
-    query: str = Form(..., min_length=3, max_length=200),
     max_shorts: int = Form(10, ge=10, le=500),  # Aligned with planning: 10-500
     subtitle_language: str = Form("pt"),
     subtitle_style: str = Form("static"),
@@ -522,7 +706,7 @@ async def create_video(
     """
     🎬 Criar vídeo com áudio + shorts APROVADOS
     
-    **⚠️ IMPORTANTE: Este endpoint agora usa apenas vídeos de `data/approved/videos/`**
+    **⚠️ IMPORTANTE: Este endpoint usa apenas vídeos de `data/approved/videos/`**
     
     **Para baixar e validar novos vídeos, use `/download` primeiro:**
     ```bash
@@ -534,20 +718,18 @@ async def create_video(
     # 2. Criar vídeo com shorts aprovados
     curl -X POST "http://localhost:8004/make-video" \\
       -F "audio_file=@audio.mp3" \\
-      -F "query=Videos Satisfatorio" \\
       -F "max_shorts=10"
     ```
     
     **Fluxo:**
     1. Recebe áudio
-    2. Busca shorts em `data/approved/videos/` (já validados pelo `/download`)
-    3. Monta vídeo final
+    2. Pega shorts aleatórios de `data/approved/videos/` (já validados pelo `/download`)
+    3. Monta vídeo final com legendas
     
     **Sprint-08: Rate limited to 30 jobs/minute**
     
     **Entrada:**
     - audio_file: Arquivo de áudio (mp3, wav, m4a, ogg) - Máx 100MB
-    - query: Query para filtrar shorts aprovados (3-200 caracteres)
     - max_shorts: Máximo de shorts para usar (10-500)
     - subtitle_language: Idioma das legendas (pt, en, es)
     - subtitle_style: Estilo das legendas (static, dynamic, minimal)
@@ -588,6 +770,52 @@ async def create_video(
                 detail="Audio file is empty"
             )
         
+        # Validar magic bytes (cabeçalho) para garantir que é um arquivo de áudio válido
+        def is_valid_audio(content: bytes, ext: str) -> bool:
+            """Verifica se o arquivo tem magic bytes válidos para áudio"""
+            if len(content) < 12:
+                return False
+            
+            # MP3: ID3 tag ou frame sync (0xFF 0xFB/0xFA/0xF3/0xF2)
+            if ext in ['.mp3']:
+                if content[:3] == b'ID3':
+                    return True
+                if content[0] == 0xFF and content[1] in [0xFB, 0xFA, 0xF3, 0xF2]:
+                    return True
+            
+            # WAV: RIFF header
+            if ext in ['.wav']:
+                if content[:4] == b'RIFF' and content[8:12] == b'WAVE':
+                    return True
+            
+            # M4A/MP4: ftyp box
+            if ext in ['.m4a', '.mp4']:
+                if content[4:8] == b'ftyp':
+                    return True
+            
+            # OGG: OggS header
+            if ext in ['.ogg']:
+                if content[:4] == b'OggS':
+                    return True
+            
+            return False
+        
+        # Primeiro validar extensão
+        file_ext = Path(audio_file.filename).suffix.lower()
+        allowed_extensions = FileExtensions.AUDIO_FORMATS
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail=f"Formato de áudio não suportado. Use: {', '.join(allowed_extensions)}"
+            )
+        
+        # Depois validar magic bytes
+        if not is_valid_audio(content, file_ext):
+            raise HTTPException(
+                status_code=HttpStatusCodes.BAD_REQUEST, 
+                detail=f"Invalid audio file. The uploaded file does not appear to be a valid {file_ext} audio file. Please upload a proper audio file (MP3, WAV, M4A, or OGG)."
+            )
+        
         # Validar max_shorts usando constantes
         if max_shorts < ProcessingLimits.MIN_SHORTS_COUNT or max_shorts > ProcessingLimits.MAX_SHORTS_COUNT:
             raise HTTPException(
@@ -615,32 +843,13 @@ async def create_video(
                 detail="subtitle_style inválido"
             )
         
-        # Verificar extensão usando FileExtensions
-        allowed_extensions = FileExtensions.AUDIO_FORMATS
-        file_ext = Path(audio_file.filename).suffix.lower()
-        if file_ext not in allowed_extensions:
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST, 
-                detail=f"Formato de áudio não suportado. Use: {', '.join(allowed_extensions)}"
-            )
-        
-        # Sanitizar query para prevenir injection/XSS
-        sanitized_query = QueryValidator.sanitize(query)
-        if not sanitized_query or len(sanitized_query) < 3:
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail="Query inválida após sanitização (mínimo 3 caracteres)"
-            )
-        
-        logger.info(f"🔍 Query sanitizada: '{query}' -> '{sanitized_query}'")
-        
-        # Criar job ID
+        # Criar job ID (sem query - make-video não precisa de query)
         job_id = shortuuid.uuid()
         
-        # Salvar áudio
-        audio_dir = Path(settings['audio_upload_dir']) / job_id
+        # Salvar áudio diretamente com job_id + extensão (sem subpastas)
+        audio_dir = Path(settings['audio_upload_dir'])
         audio_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = audio_dir / f"audio{file_ext}"
+        audio_path = audio_dir / f"{job_id}{file_ext}"
         
         # Salvar áudio (content já foi lido acima)
         with open(audio_path, "wb") as f:
@@ -648,11 +857,11 @@ async def create_video(
         
         logger.info(f"💾 Audio saved: {audio_path} ({len(content)} bytes)")
         
-        # Criar job
+        # Criar job (sem query - make-video usa vídeos de data/approved/videos/)
         job = Job(
             job_id=job_id,
             status=JobStatus.QUEUED,
-            query=sanitized_query,  # Usar query sanitizada
+            query=None,  # Make-video não usa query, apenas pega vídeos aprovados
             max_shorts=max_shorts,
             subtitle_language=subtitle_language,
             subtitle_style=subtitle_style,
@@ -675,7 +884,6 @@ async def create_video(
             "job_id": job_id,
             "status": JobStatus.QUEUED.value,
             "message": "Video creation job queued successfully",
-            "query": query,
             "max_shorts": max_shorts,
             "aspect_ratio": aspect_ratio
         }
@@ -717,7 +925,7 @@ async def get_job_status(job_id: str):
             "duration_seconds": int(duration_seconds),
             "duration_human": _format_duration(duration_seconds),
             "last_update_seconds": int(last_update_seconds),
-            "is_stale": last_update_seconds > 120,  # Sem update há 2+ minutos
+            "is_stale": last_update_seconds > 600,  # Sem update há 10+ minutos (increased from 2 to avoid premature cancellation)
         }
         
         # Adicionar info de heartbeat se disponível
@@ -739,6 +947,38 @@ async def get_job_status(job_id: str):
                 health["warning"] = "No updates in 2+ minutes - job may be stuck"
         
         job_dict["health"] = health
+
+        # Enriquecer erro com stage principal quando ausente
+        if job.error and isinstance(job.error, dict):
+            normalized_error = dict(job.error)
+
+            if not normalized_error.get("stage"):
+                failed_stage = None
+
+                if isinstance(job.stages, dict):
+                    for stage_name, stage_info in job.stages.items():
+                        stage_status = None
+                        if isinstance(stage_info, dict):
+                            stage_status = stage_info.get("status")
+                        else:
+                            stage_status = getattr(stage_info, "status", None)
+
+                        if stage_status == "failed":
+                            failed_stage = stage_name
+                            break
+
+                if failed_stage:
+                    normalized_error["stage"] = failed_stage
+
+            job_dict["error"] = normalized_error
+
+        # Mensagem explícita para clientes (inclui erros de microserviço)
+        if job.error and isinstance(job.error, dict):
+            job_dict["message"] = job_dict.get("error", {}).get("message")
+        elif job.status == JobStatus.COMPLETED:
+            job_dict["message"] = "Job completed successfully"
+        else:
+            job_dict["message"] = None
         
         return job_dict
         
@@ -854,7 +1094,7 @@ async def delete_job(job_id: str):
             shutil.rmtree(audio_dir)
         
         # Temp
-        temp_dir = Path(settings['temp_dir']) / job_id
+        temp_dir = Path('/tmp/make-video-temp') / job_id
         if temp_dir.exists():
             shutil.rmtree(temp_dir)
         
@@ -968,7 +1208,8 @@ async def cleanup_cache(days: int = Query(30, ge=1, le=365)):
 @app.post("/admin/cleanup")
 async def admin_cleanup(
     deep: bool = Query(False, description="Se true, faz limpeza PROFUNDA (factory reset)"),
-    purge_celery_queue: bool = Query(False, description="Se true, limpa fila Celery também")
+    purge_celery_queue: bool = Query(False, description="Se true, limpa fila Celery também"),
+    keep_database: bool = Query(False, description="Se true, mantém Redis intocável (apenas limpa arquivos)")
 ):
     """
     🧹 LIMPEZA ADMINISTRATIVA DO SISTEMA
@@ -988,21 +1229,33 @@ async def admin_cleanup(
        - TODO o cache de shorts
        - (Opcional) Purga fila Celery
     
+    3. **Limpeza de Arquivos** (deep=true + keep_database=true):
+       - MANTÉM banco Redis INTOCÁVEL
+       - Remove TODOS os arquivos (audio, output, temp, shorts)
+       - (Opcional) Purga fila Celery
+    
     **Parâmetros:**
     - deep (bool): Factory reset se true
     - purge_celery_queue (bool): Limpa fila Celery (apenas com deep=true)
+    - keep_database (bool): Mantém Redis intocável (apenas com deep=true)
     
     **Retorna:**
     Relatório detalhado da limpeza executada
     
     **⚠️ ATENÇÃO**: Operação SÍNCRONA - cliente aguarda conclusão completa
     """
-    cleanup_type = "PROFUNDA (FACTORY RESET)" if deep else "BÁSICA"
+    if keep_database and deep:
+        cleanup_type = "PROFUNDA (APENAS ARQUIVOS - DATABASE INTOCÁVEL)"
+    elif deep:
+        cleanup_type = "PROFUNDA (FACTORY RESET)"
+    else:
+        cleanup_type = "BÁSICA"
+    
     logger.warning(f"🧹 Iniciando limpeza {cleanup_type} (purge_celery={purge_celery_queue})")
     
     try:
         if deep:
-            result = await _perform_deep_cleanup(purge_celery_queue)
+            result = await _perform_deep_cleanup(purge_celery_queue, keep_database)
         else:
             result = await _perform_basic_cleanup()
         
@@ -1061,7 +1314,7 @@ async def admin_stats():
         # 2. Storage statistics
         audio_dir = Path(settings['audio_upload_dir'])
         output_dir = Path(settings['output_dir'])
-        temp_dir = Path(settings['temp_dir'])
+        temp_dir = Path('/tmp/make-video-temp')
         
         def get_dir_stats(dir_path: Path) -> dict:
             """Get file count and total size for directory"""
@@ -1227,7 +1480,7 @@ async def cleanup_orphans(
         # 2. Find and remove orphaned files
         audio_dir = Path(settings['audio_upload_dir'])
         output_dir = Path(settings['output_dir'])
-        temp_dir = Path(settings['temp_dir'])
+        temp_dir = Path('/tmp/make-video-temp')
         
         for directory in [audio_dir, output_dir, temp_dir]:
             if not directory.exists():
@@ -1314,7 +1567,7 @@ async def _perform_basic_cleanup() -> dict:
         # 2. Remove orphaned files (>24h old without job)
         audio_dir = Path(settings['audio_upload_dir'])
         output_dir = Path(settings['output_dir'])
-        temp_dir = Path(settings['temp_dir'])
+        temp_dir = Path('/tmp/make-video-temp')
         
         now = datetime.utcnow()
         max_age = timedelta(hours=24)
@@ -1367,50 +1620,60 @@ async def _perform_basic_cleanup() -> dict:
         return {"error": str(e), "jobs_removed": 0, "files_deleted": 0}
 
 
-async def _perform_deep_cleanup(purge_celery: bool) -> dict:
+async def _perform_deep_cleanup(purge_celery: bool, keep_database: bool = False) -> dict:
     """
     Executa limpeza PROFUNDA: ZERA TODO O SISTEMA (factory reset)
     
     Args:
         purge_celery: Se true, limpa fila Celery também
+        keep_database: Se true, mantém Redis INTOCÁVEL (apenas limpa arquivos)
     
     Returns:
         Relatório detalhado da limpeza
     """
     try:
         report = {
-            "mode": "deep",
+            "mode": "deep" if not keep_database else "deep_files_only",
             "jobs_removed": 0,
             "files_deleted": 0,
             "space_freed_mb": 0.0,
             "redis_flushed": False,
             "celery_purged": False,
+            "database_kept": keep_database,
             "errors": []
         }
         
-        logger.warning("🔥 INICIANDO LIMPEZA PROFUNDA - FACTORY RESET!")
+        if keep_database:
+            logger.warning("🔥 INICIANDO LIMPEZA PROFUNDA - APENAS ARQUIVOS (DATABASE INTOCÁVEL)!")
+        else:
+            logger.warning("🔥 INICIANDO LIMPEZA PROFUNDA - FACTORY RESET!")
         
-        # 1. Count jobs before flushing
-        job_stats = redis_store.get_stats()
-        report["jobs_removed"] = job_stats["total"]
+        # 1. Count jobs before flushing (só se for limpar database)
+        if not keep_database:
+            job_stats = redis_store.get_stats()
+            report["jobs_removed"] = job_stats["total"]
         
-        # 2. FLUSHDB no Redis (limpa APENAS o DB atual, não todos)
-        try:
-            # Flush apenas o DB atual (respeita REDIS_DIVISOR)
-            redis_store.redis.flushdb()
-            report["redis_flushed"] = True
-            logger.warning(f"🔥 Redis FLUSHDB executado: {report['jobs_removed']} jobs + metadata removidos")
-        except Exception as e:
-            logger.error(f"❌ Erro ao executar FLUSHDB: {e}")
-            report["errors"].append(f"Redis FLUSHDB: {str(e)}")
+        # 2. FLUSHDB no Redis (APENAS se keep_database=False)
+        if not keep_database:
+            try:
+                # Flush apenas o DB atual (respeita REDIS_DIVISOR)
+                redis_store.redis.flushdb()
+                report["redis_flushed"] = True
+                logger.warning(f"🔥 Redis FLUSHDB executado: {report['jobs_removed']} jobs + metadata removidos")
+            except Exception as e:
+                logger.error(f"❌ Erro ao executar FLUSHDB: {e}")
+                report["errors"].append(f"Redis FLUSHDB: {str(e)}")
+        else:
+            logger.info("✅ Database MANTIDO INTOCÁVEL (keep_database=True)")
         
         # 3. Remove TODOS os arquivos
         audio_dir = Path(settings['audio_upload_dir'])
         output_dir = Path(settings['output_dir'])
-        temp_dir = Path(settings['temp_dir'])
+        temp_dir = Path('/tmp/make-video-temp')
         shorts_dir = Path(settings['shorts_cache_dir'])
+        approved_videos_dir = Path('data/approved/videos')
         
-        for directory in [audio_dir, output_dir, temp_dir, shorts_dir]:
+        for directory in [audio_dir, output_dir, temp_dir, shorts_dir, approved_videos_dir]:
             if not directory.exists():
                 continue
             
@@ -1551,7 +1814,7 @@ async def prometheus_metrics():
         
         # Disk metrics
         try:
-            temp_stat = shutil.disk_usage(settings['temp_dir'])
+            temp_stat = shutil.disk_usage('/tmp/make-video-temp')
             disk_free_gb = temp_stat.free / (1024**3)
             disk_used_pct = (temp_stat.used / temp_stat.total) * 100
         except:
@@ -1590,11 +1853,11 @@ makevideo_orphans_failed_total {_metrics.orphans_failed}
 
 # HELP makevideo_disk_free_gb Free disk space in GB
 # TYPE makevideo_disk_free_gb gauge
-makevideo_disk_free_gb {{path="{settings['temp_dir']}"}} {disk_free_gb:.2f}
+makevideo_disk_free_gb {{path="{'/tmp/make-video-temp'}"}} {disk_free_gb:.2f}
 
 # HELP makevideo_disk_used_percent Disk usage percentage
 # TYPE makevideo_disk_used_percent gauge
-makevideo_disk_used_percent {{path="{settings['temp_dir']}"}} {disk_used_pct:.2f}
+makevideo_disk_used_percent {{path="{'/tmp/make-video-temp'}"}} {disk_used_pct:.2f}
 
 # HELP makevideo_circuit_breaker_state Circuit breaker state (0=closed, 1=open)
 # TYPE makevideo_circuit_breaker_state gauge
