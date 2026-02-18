@@ -7,7 +7,7 @@ Implements sliding window rate limiting to protect system from overload.
 import asyncio
 from datetime import datetime, timedelta
 from collections import deque
-from typing import Optional
+from typing import Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)

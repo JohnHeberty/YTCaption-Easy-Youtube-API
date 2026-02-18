@@ -77,20 +77,20 @@ class VideoValidator:
     - Confidence scoring combining OCR + Visual features
     """
     
-    def __init__(self, min_confidence: float = 0.40, frames_per_second: int = 6, max_frames: int = 30, redis_store: Optional[Any] = None):
+    def __init__(self, min_confidence: float = 0.15, frames_per_second: int = None, max_frames: int = None, redis_store: Optional[Any] = None):
         """
+        🚨 FORÇA BRUTA 100% FRAMES - ZERO TOLERÂNCIA
+        
         Args:
-            min_confidence: Confiança mínima para detectar texto (0-1)
-            frames_per_second: Frames analisados por segundo (padrão: 6)
-            max_frames: Limite máximo de frames para evitar OOM (padrão: 30)
-                       OTIMIZADO: 240 → 30 para reduzir uso de memória 87.5%
-                       30 frames = 5s de vídeo (suficiente para detectar legendas)
-            redis_store: Optional RedisJobStore for P2 cache optimization
+            min_confidence: Confiança mínima para detectar texto (padrão: 0.15 = ultra sensível)
+            frames_per_second: IGNORADO - processa 100% dos frames
+            max_frames: IGNORADO - processa 100% dos frames
+            redis_store: Optional RedisJobStore for cache
         """
         self.min_confidence = min_confidence
-        self.frames_per_second = frames_per_second
-        self.max_frames = max_frames
-        self.redis_store = redis_store  # P2 Optimization
+        self.frames_per_second = None  # FORÇA BRUTA: processar TODOS
+        self.max_frames = None  # FORÇA BRUTA: processar TODOS
+        self.redis_store = redis_store
         
         # P2 Optimization: Lock para thread-safe operations
         self._ocr_lock = threading.Lock()
@@ -126,8 +126,8 @@ class VideoValidator:
             logger.info("TRSD disabled - using legacy OCR detection")
         
         logger.info(
-            f"VideoValidator initialized "
-            f"(min_confidence={min_confidence}, fps={frames_per_second}, max_frames={max_frames})"
+            f"VideoValidator initialized - 🚨 FORÇA BRUTA 100% FRAMES "
+            f"(min_confidence={min_confidence}, ZERO sampling, ZERO limits)"
         )
     
     def validate_video_integrity(self, video_path: str, timeout: int = 10) -> bool:
@@ -360,41 +360,32 @@ class VideoValidator:
             # Reraise para fallback
             raise
     
-    def has_embedded_subtitles(self, video_path: str, timeout: int = 60) -> Tuple[bool, float, str]:
+    def has_embedded_subtitles(self, video_path: str, timeout: int = 300, force_revalidation: bool = False) -> Tuple[bool, float, str, int]:
         """
         Detecta legendas embutidas no vídeo usando TRSD (se habilitado) ou OCR legado
         
-        Sprint 04: Integração TRSD com fallback
-        - Se TRSD_ENABLED=true: usa detector inteligente
-        - Se falhar ou desabilitado: fallback para OCR legado
-        
-        Estratégia TRSD:
-        1. TextRegionExtractor: detecta texto por ROI
-        2. TemporalTracker: rastreia texto entre frames
-        3. SubtitleClassifier: classifica como legenda ou estático
-        4. Early exit em 10-15 frames se detectar legenda clara
-        
-        Estratégia OCR Legado:
-        1. Analisa N frames por segundo (configurável, padrão: 6fps)
-        2. Early exit: para na primeira detecção com confiança > threshold
-        3. Limite máximo de frames para evitar OOM (padrão: 30 frames - OTIMIZADO)
-        4. Full frame OCR (ROI removido)
-        5. Transcoding automático para codecs não suportados (AV1)
-        
-        P2 Optimization: Cache de resultados em Redis para evitar reprocessamento
+        🚨 FORÇA BRUTA 100% FRAMES quando force_revalidation=True
         
         Args:
             video_path: Path do vídeo
-            timeout: Timeout em segundos
+            timeout: Timeout em segundos (aumentado para 300s para processar 100% frames)
+            force_revalidation: Se True, IGNORA cache e força validação 100% frames
         
         Returns:
-            Tuple (has_subtitles, confidence, sample_text)
+            Tuple (has_subtitles, confidence, sample_text, frames_processed)
         """
-        # ===== P2 Optimization: Verificar cache =====
-        cached_result = self._check_cache(video_path)
-        if cached_result is not None:
-            logger.info(f"✅ Cache hit: {video_path}")
-            return cached_result
+        # 🚨 REVALIDAÇÃO: Ignorar cache completamente
+        if not force_revalidation:
+            # ===== Cache apenas quando NÃO for revalidação =====
+            cached_result = self._check_cache(video_path)
+            if cached_result is not None:
+                logger.info(f"✅ Cache hit: {video_path}")
+                # Cache pode ter 3 ou 4 valores, compatibilidade
+                if len(cached_result) == 3:
+                    return cached_result + (-1,)  # -1 indica cache (frames desconhecidos)
+                return cached_result
+        else:
+            logger.info(f"🚨 REVALIDAÇÃO FORÇADA: Ignorando cache, processando 100% frames")
         
         # Sprint 04: Tentar TRSD primeiro (se habilitado)
         if self.trsd_enabled:
@@ -403,8 +394,12 @@ class VideoValidator:
                 has_subs, conf, reason, debug_info = self._detect_with_trsd(video_path, timeout)
                 logger.info(f"✅ TRSD detection completed: {reason}")
                 
-                result = (has_subs, conf, reason)
-                self._save_cache(video_path, result)  # Salvar em cache
+                result = (has_subs, conf, reason, -1)  # -1 = frames não aplicável para TRSD
+                
+                # Salvar em cache apenas se NÃO for revalidação
+                if not force_revalidation:
+                    self._save_cache(video_path, result)
+                
                 return result
             
             except Exception as e:
@@ -413,7 +408,11 @@ class VideoValidator:
         
         # Método legado (ou fallback)
         result = self._detect_with_legacy_ocr(video_path, timeout)
-        self._save_cache(video_path, result)  # Salvar em cache
+        
+        # Salvar em cache apenas se NÃO for revalidação
+        if not force_revalidation:
+            self._save_cache(video_path, result)
+        
         return result
     
     def _process_single_frame(self, working_path: str, ts: float) -> Optional[Tuple[str, float, float]]:
@@ -466,12 +465,19 @@ class VideoValidator:
         
         return (text, combined_confidence, ts)
     
-    def _detect_with_legacy_ocr(self, video_path: str, timeout: int = 60) -> Tuple[bool, float, str]:
+    def _detect_with_legacy_ocr(self, video_path: str, timeout: int = 300) -> Tuple[bool, float, str]:
         """
-        Detecção legada com OCR (método original)
+        🚨 FORÇA BRUTA 100% FRAMES - ZERO TOLERÂNCIA
         
-        Sprint 04: Refatorado para ser fallback do TRSD
-        P2 Optimization: Processamento paralelo de frames (2-3x mais rápido)
+        Processa TODOS os frames do vídeo sequencialmente.
+        UMA LETRA DETECTADA = BAN IMEDIATO
+        
+        Args:
+            video_path: Caminho do vídeo
+            timeout: Timeout em segundos (aumentado para 300s para processar 100% frames)
+        
+        Returns:
+            Tuple (has_subtitles, confidence, text)
         """
         start_time = time.time()
         working_path = video_path
@@ -481,139 +487,99 @@ class VideoValidator:
             # Converter para codec suportado se necessário (ex.: AV1 → H.264)
             working_path, cleanup_path = self._ensure_supported_codec(video_path)
             
-            # Get video info já no arquivo convertido (se houver)
-            info = self.get_video_info(working_path)
-            duration = info['duration']
+            # Abrir vídeo com OpenCV
+            cap = cv2.VideoCapture(working_path)
+            if not cap.isOpened():
+                raise VideoIntegrityError(f"Cannot open video: {working_path}")
             
-            # Sample frames at different timestamps
-            timestamps = self._get_sample_timestamps(duration)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            duration = total_frames / fps if fps > 0 else 0
             
-            logger.debug(f"OCR: Sampling up to {len(timestamps)} frames from {duration:.1f}s video (parallel processing)")
+            logger.info(
+                f"🚨 FORÇA BRUTA: Processando 100% dos frames: {total_frames} frames "
+                f"({fps:.2f} fps, {duration:.1f}s) - ZERO tolerância"
+            )
             
-            detections = []
             frames_analyzed = 0
-            early_exit = False
-            early_exit_result = None
+            all_detections = []
+            first_text_detected = None
             
-            # P2 Optimization: Processamento paralelo de frames
-            # max_workers=1 (SEQUENCIAL) para evitar problemas de thread-safety do PaddleOCR
-            # PaddleOCR não é thread-safe em versão 2.7.3, causando "could not execute a primitive"
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                # Submit all frame processing tasks
-                future_to_ts = {
-                    executor.submit(self._process_single_frame, working_path, ts): ts
-                    for ts in timestamps
-                }
+            # 🚨 PROCESSAR TODOS OS FRAMES SEQUENCIALMENTE
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break  # Fim do vídeo
                 
-                # Process results as they complete
-                for future in as_completed(future_to_ts):
-                    ts = future_to_ts[future]
-                    frames_analyzed += 1
+                frames_analyzed += 1
+                
+                # Log progresso a cada 100 frames
+                if frames_analyzed % 100 == 0:
+                    logger.debug(f"   Processando frame {frames_analyzed}/{total_frames}...")
+                
+                # OCR no frame completo
+                try:
+                    with self._ocr_lock:
+                        ocr_results = self.ocr_detector.detect_text(frame)
                     
-                    try:
-                        result = future.result()
+                    # Verificar se encontrou texto
+                    if ocr_results:
+                        all_texts = []
+                        max_conf = 0.0
                         
-                        if result is None:
-                            # Frame extraction falhou para este timestamp
-                            continue
+                        for result in ocr_results:
+                            if result.text.strip():
+                                all_texts.append(result.text)
+                                max_conf = max(max_conf, result.confidence)
                         
-                        text, confidence, ts = result
-                        
-                        # 🚀 EARLY EXIT: Se detectou com confiança suficiente, para!
-                        if confidence >= self.min_confidence:
-                            elapsed_ms = (time.time() - start_time) * 1000
-                            logger.warning(
-                                f"⚠️ EMBEDDED SUBTITLES detected (conf={confidence:.2f}, "
-                                f"ts={ts:.1f}s, analyzed {frames_analyzed}/{len(timestamps)} frames, {elapsed_ms:.0f}ms): {text[:80]}"
-                            )
-                            early_exit = True
-                            early_exit_result = (True, confidence, text)
-                            # Cancel remaining futures
-                            for f in future_to_ts:
-                                f.cancel()
-                            break
-                        
-                        # Armazenar TODAS as detecções (não só as de alta confiança)
-                        detections.append((text, confidence, ts))
-                        logger.debug(f"OCR @ {ts:.1f}s (conf={confidence:.2f}): {text[:50]}")
-                        
-                    except Exception as e:
-                        logger.warning(f"⚠️ Frame processing failed at {ts:.1f}s: {e}")
-                        continue
+                        if all_texts:
+                            text = ' '.join(all_texts).strip()
+                            timestamp = frames_analyzed / fps if fps > 0 else frames_analyzed
+                            
+                            all_detections.append((text, max_conf, timestamp))
+                            
+                            # 🚨 PRIMEIRA DETECÇÃO = GUARDAR PARA RETORNO
+                            if first_text_detected is None and max_conf >= self.min_confidence:
+                                first_text_detected = (text, max_conf, timestamp)
+                                logger.warning(
+                                    f"🚨 TEXTO DETECTADO no frame {frames_analyzed}/{total_frames} "
+                                    f"(ts={timestamp:.1f}s, conf={max_conf:.2f}): {text[:80]}"
+                                )
+                
+                except Exception as e:
+                    # Ignorar erros de frame individual
+                    logger.debug(f"Erro no frame {frames_analyzed}: {e}")
+                    continue
             
-            # Se houve early exit, retornar imediatamente
-            if early_exit and early_exit_result:
-                return early_exit_result
-            
-            # 📊 NOVA ESTRATÉGIA: Densidade de detecção
-            # Se detectou texto em muitos frames, provavelmente é legenda
-            detection_density = len(detections) / max(frames_analyzed, 1)
+            cap.release()
             
             elapsed_ms = (time.time() - start_time) * 1000
             
-            if not detections:
-                logger.info(f"✅ No embedded subtitles detected (analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)")
-                return False, 0.0, ""
-            
-            # Calcular confiança média das detecções
-            avg_confidence = sum(conf for _, conf, _ in detections) / len(detections)
-            
-            # 🖥️ DETECTOR DE SCREENCAST/CÓDIGO
-            # Detecta vídeos de IDE/terminal/código que têm texto técnico em todos os frames
-            if detection_density > 0.80 and len(detections) >= 10:
-                # Contar palavras técnicas típicas de código/IDE
-                all_text = " ".join(text for text, _, _ in detections)
-                tech_patterns = [
-                    r'\bexplorer\b', r'\bmanager\b', r'\beditor\b', r'\bstorage\b',
-                    r'\bmain\b', r'\bsrc\b', r'\bpath\b', r'\bproject\b',
-                    r'\.ts\b', r'\.js\b', r'\.py\b', r'U\s*\|', r'>\s*>', 
-                    r'\bselection\b', r'\bview\b', r'\bedit\b'
-                ]
-                
-                tech_matches = sum(len(re.findall(pattern, all_text, re.IGNORECASE)) for pattern in tech_patterns)
-                tech_score = tech_matches / len(detections)  # Matches por detection
-                
-                if tech_score > 0.5:  # Se >50% das detecções têm padrões técnicos
-                    best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
-                    logger.warning(
-                        f"⚠️ SCREENCAST/CODE detected (density={detection_density:.1%}, "
-                        f"{len(detections)} detections, tech_score={tech_score:.2f})\n"
-                        f"Sample text: {all_text[:80]}"
-                    )
-                    return True, 0.50, f"Screencast/Code (tech_score={tech_score:.2f})"
-            
-            # 🎯 CRITÉRIOS COMBINADOS para detecção por densidade:
-            # 1. Densidade > 30% (texto em pelo menos 30% dos frames)
-            # 2. Pelo menos 5 detecções (evita ruído pontual)
-            # 3. Confiança média >= 0.30 (pelo menos algumas detecções razoáveis)
-            should_block_by_density = (
-                detection_density > 0.30 and
-                len(detections) >= 5 and
-                avg_confidence >= 0.30
-            )
-            
-            if should_block_by_density:
-                best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
-                logger.warning(
-                    f"⚠️ EMBEDDED SUBTITLES detected by DENSITY (density={detection_density:.1%}, "
-                    f"{len(detections)} detections, avg_conf={avg_confidence:.2f}, best_conf={best_conf:.2f})\n"
-                    f"Sample text: {best_text[:80]}"
+            # 🚨 ZERO TOLERÂNCIA: SE DETECTOU QUALQUER TEXTO ACIMA DO THRESHOLD = BAN
+            if first_text_detected:
+                text, conf, ts = first_text_detected
+                logger.error(
+                    f"🚨 EMBEDDED SUBTITLES DETECTED - BAN IMEDIATO!\n"
+                    f"   Frames analisados: {frames_analyzed}/{total_frames} (100%)\n"
+                    f"   Total detecções: {len(all_detections)}\n"
+                    f"   Primeira detecção: frame @ {ts:.1f}s (conf={conf:.2f})\n"
+                    f"   Texto: {text[:100]}\n"
+                    f"   Tempo: {elapsed_ms:.0f}ms"
                 )
-                return True, best_conf, best_text
+                return True, conf, text, frames_analyzed
             
-            # Retornar melhor detecção mesmo que abaixo do threshold
-            best_text, best_conf, best_ts = max(detections, key=lambda x: x[1])
+            # Se não encontrou texto acima do threshold
             logger.info(
-                f"✅ Low confidence OCR (conf={best_conf:.2f} < {self.min_confidence}, "
-                f"density={detection_density:.1%}, analyzed {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
+                f"✅ Vídeo APROVADO - Nenhum texto detectado\n"
+                f"   Frames analisados: {frames_analyzed}/{total_frames} (100%)\n"
+                f"   Detecções baixa confiança: {len(all_detections)}\n"
+                f"   Tempo: {elapsed_ms:.0f}ms"
             )
-            return False, best_conf, best_text
+            return False, 0.0, "", frames_analyzed
             
-            return has_subs, best_conf, best_text
-        
         except Exception as e:
             logger.error(f"❌ OCR detection error: {e}", exc_info=True)
-            return False, 0.0, f"Error: {e}"
+            return False, 0.0, f"Error: {e}", 0
         
         finally:
             # Limpar arquivo transcodado temporário, se criado
@@ -623,50 +589,34 @@ class VideoValidator:
                 except Exception:
                     logger.debug(f"Could not remove temp transcoded file: {cleanup_path}")
     
-    def _get_sample_timestamps(self, duration: float) -> list:
+    def _get_all_frame_indices(self, video_path: str) -> list:
         """
-        Gera timestamps para sampling POR SEGUNDO
+        🚨 FORÇA BRUTA: Retorna TODOS os índices de frames do vídeo
         
-        Estratégia:
-        1. Calcular total de frames: duration × frames_per_second
-        2. Se total > max_frames → ajustar FPS proporcionalmente
-        3. Gerar timestamps uniformemente ao longo do vídeo
-        4. Se frames calculados > frames disponíveis → usar todos
+        ZERO SAMPLING, ZERO LIMITS - processa 100% dos frames
         
         Args:
-            duration: Duração do vídeo em segundos
+            video_path: Caminho do vídeo
         
         Returns:
-            Lista de timestamps (em segundos)
+            Lista com TODOS os índices de frames [0, 1, 2, ..., total_frames-1]
         """
-        # Calcular total de frames baseado em FPS
-        total_frames = int(duration * self.frames_per_second)
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        cap.release()
         
-        # Aplicar limite máximo de segurança
-        if total_frames > self.max_frames:
-            logger.warning(
-                f"⚠️ Total frames ({total_frames}) exceeds max ({self.max_frames}). "
-                f"Limiting to {self.max_frames} frames"
-            )
-            total_frames = self.max_frames
+        # Retornar TODOS os frames, sem limite
+        all_indices = list(range(total_frames))
         
-        # Calcular FPS efetivo após aplicar limite
-        effective_fps = total_frames / duration if duration > 0 else self.frames_per_second
-        
-        # Gerar timestamps
-        timestamps = []
-        for i in range(total_frames):
-            timestamp = i / effective_fps
-            # Garantir que não excede duração do vídeo
-            if timestamp < duration:
-                timestamps.append(timestamp)
+        duration = total_frames / fps if fps > 0 else 0
         
         logger.info(
-            f"📊 OCR Sampling: {len(timestamps)} frames "
-            f"({effective_fps:.2f} fps) for {duration:.1f}s video"
+            f"🚨 FORÇA BRUTA: Processando 100% dos frames: {total_frames} frames "
+            f"({fps:.2f} fps, {duration:.1f}s video) - ZERO sampling"
         )
         
-        return timestamps
+        return all_indices
     
     def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> Optional[any]:
         """

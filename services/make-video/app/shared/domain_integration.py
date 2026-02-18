@@ -139,7 +139,7 @@ class DomainJobProcessor:
             job_logger.error(f"❌ Job {job_id} not found in Redis")
             raise MakeVideoException(f"Job {job_id} not found")
         
-        job_logger.info(f"Job loaded: query='{job.query}', max_shorts={job.max_shorts}")
+        job_logger.info(f"Job loaded: max_shorts={job.max_shorts} (no query - uses approved videos)")
         
         # Atualizar status inicial
         job.status = JobStatus.PROCESSING
@@ -150,7 +150,7 @@ class DomainJobProcessor:
             # Criar contexto compartilhado para todos os stages
             context = StageContext(
                 job_id=job_id,
-                query=job.query,
+                query=job.query if job.query else "approved_videos",  # Opcional: make-video não usa query
                 max_shorts=job.max_shorts,
                 aspect_ratio=job.aspect_ratio,
                 crop_position=getattr(job, 'crop_position', 'center'),
@@ -164,7 +164,7 @@ class DomainJobProcessor:
             if self.event_publisher:
                 await self.event_publisher.publish_job_started(
                     job_id=job_id,
-                    query=job.query
+                    query=job.query if job.query else "approved_videos"  # Opcional
                 )
             
             # Executar processamento através dos stages

@@ -14,6 +14,7 @@ class ProcessingLimits:
     MAX_AUDIO_DURATION_SECONDS = 300
     MIN_SHORTS_COUNT = 5
     MAX_SHORTS_COUNT = 50
+    MAX_SHORTS = 50  # Alias para MAX_SHORTS_COUNT
     MIN_SUBTITLE_DURATION_MS = 120
     MAX_SUBTITLE_GAP_MS = 120
     
@@ -51,14 +52,15 @@ class CacheConstants:
 
 
 class ValidationThresholds:
-    """Thresholds de validação"""
-    OCR_MIN_CONFIDENCE = 0.50
-    OCR_MAX_FRAMES = 30
-    OCR_FRAMES_PER_SECOND = 3
-    SUBTITLE_DETECTION_THRESHOLD = 0.30  # 30% frames com legenda
+    """Thresholds de validação - FORÇA BRUTA 100% FRAMES"""
+    # 🚨 POLÍTICA DE ZERO TOLERÂNCIA: UMA LETRA = BAN IMEDIATO
+    OCR_MIN_CONFIDENCE = 0.15  # ULTRA SENSÍVEL: detectar qualquer texto
+    OCR_MAX_FRAMES = None  # REMOVIDO: processar 100% dos frames
+    OCR_FRAMES_PER_SECOND = None  # REMOVIDO: processar TODOS os frames
+    SUBTITLE_DETECTION_THRESHOLD = 0.0  # ZERO TOLERÂNCIA: 1 frame com texto = ban
     
     # TRSD thresholds
-    TRSD_MIN_CONFIDENCE = 0.50
+    TRSD_MIN_CONFIDENCE = 0.15  # ULTRA SENSÍVEL
     TRSD_MIN_ALPHA_RATIO = 0.60
     TRSD_TRACK_IOU_THRESHOLD = 0.30
 

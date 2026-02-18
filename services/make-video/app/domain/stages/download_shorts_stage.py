@@ -211,7 +211,10 @@ class DownloadShortsStage(JobStage):
     async def _download_with_retry(self, short_info: Dict, context: StageContext) -> Dict[str, Any]:
         """Download single video with retry logic"""
         video_id = short_info['video_id']
-        output_path = Path(context.settings['shorts_cache_dir']) / f"{video_id}.mp4"
+        # FIXED: Organizar shorts por job_id para evitar arquivos soltos
+        job_shorts_dir = Path(context.settings['shorts_cache_dir']) / context.job_id
+        job_shorts_dir.mkdir(parents=True, exist_ok=True)
+        output_path = job_shorts_dir / f"{video_id}.mp4"
         
         # Check blacklist before download
         if self.blacklist.is_blacklisted(video_id):

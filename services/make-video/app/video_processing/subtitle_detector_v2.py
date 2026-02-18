@@ -137,6 +137,8 @@ class SubtitleDetectorV2:
         detection_ratio = frames_with_text / frame_count if frame_count > 0 else 0
         has_subtitles = frames_with_text > 0  # Basta 1 frame ter texto
         
+        # 🚨 IMPORTANTE: Se frame_count == 0, vídeo está corrupto!
+        # Returnar tuple com 4 elementos incluindo frames_processed
         sample_text = " ".join(all_texts[:10]) if all_texts else ""
         
         metadata = {
@@ -148,7 +150,8 @@ class SubtitleDetectorV2:
             'frames_with_text': frames_with_text,
             'detection_ratio': detection_ratio,
             'mode': 'BRUTE_FORCE_FULL_FRAME',
-            'version': 'V2_BRUTE_FORCE_FEB_2026'
+            'version': 'V2_BRUTE_FORCE_FEB_2026',
+            'is_valid': frame_count > 0  # Flag indicando se vídeo é válido
         }
         
         return has_subtitles, detection_ratio, sample_text, metadata
@@ -212,7 +215,7 @@ if __name__ == "__main__":
     # Teste rápido
     detector = SubtitleDetectorV2(max_frames=30)
     
-    test_video = "data/validate/test_datasets/sample_OK/5Bc-aOe4pC4.mp4"
+    # Test dataset removed - use real videos for testing
     if Path(test_video).exists():
         print(f"\n📹 Testando: {test_video}")
         has_text, conf, text, meta = detector.detect(test_video)

@@ -8,6 +8,7 @@ import shortuuid
 class JobStatus(str, Enum):
     """Status do job de criação de vídeo"""
     QUEUED = "queued"
+    PROCESSING = "processing"  # Status genérico de processamento
     ANALYZING_AUDIO = "analyzing_audio"
     FETCHING_SHORTS = "fetching_shorts"
     DOWNLOADING_SHORTS = "downloading_shorts"
@@ -70,7 +71,7 @@ class Job(BaseModel):
     progress: float = 0.0
     
     # Input data
-    query: str
+    query: Optional[str] = None  # Opcional: usado apenas no /download, não no /make-video
     audio_duration: Optional[float] = None  # Será preenchido após análise
     target_video_duration: Optional[float] = None  # Será preenchido após análise
     max_shorts: int = 100
