@@ -2,13 +2,16 @@
 Blacklist Manager - Gerenciamento de vídeos reprovados
 
 Impede reprocessamento de vídeos que foram rejeitados na validação.
+Usa VideoStatusStore (SQLite) para persistência eficiente com ACID.
 """
 
 import logging
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from datetime import datetime
 import json
+
+from .video_status_factory import get_video_status_store
 
 logger = logging.getLogger(__name__)
 
@@ -20,39 +23,81 @@ class BlacklistManager:
     Armazena vídeos que foram rejeitados (COM legendas detectadas)
     para evitar reprocessamento.
     
-    Usa SQLite via blacklist_factory ou fallback para arquivo JSON.
+    Usa VideoStatusStore (SQLite) com:
+    - Transações ACID
+    - Concorrência nativa (WAL mode)
+    - Performance superior ao JSON
+    - Histórico permanente
     """
     
-    def __init__(self, db_path: str = "data/raw/shorts/blacklist.db"):
+    def __init__(self, db_path: str = "data/database/video_status.db"):
+        """
+        Inicializa BlacklistManager com SQLite backend
+        
+        Args:
+            db_path: Caminho do banco SQLite (padrão: data/database/video_status.db)
+        """
         self.db_path = Path(db_path)
-        self.json_path = Path("data/raw/shorts/blacklist.json")
+        self.json_path = Path("data/raw/shorts/blacklist.json")  # Legacy path
         
-        # Criar diretório se não existir
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Usar VideoStatusStore (singleton)
+        self.store = get_video_status_store()
         
-        # Por enquanto, usar JSON simples
-        # TODO: Integrar com SQLiteBlacklist do blacklist_factory
-        self._ensure_json()
+        # Migrar dados legados do JSON se existir
+        self._migrate_from_json_if_needed()
+        
+        logger.info(f"✅ BlacklistManager initialized with SQLite: {db_path}")
     
-    def _ensure_json(self):
-        """Garantir que arquivo JSON existe"""
+    def _migrate_from_json_if_needed(self):
+        """
+        Migra dados do JSON legado para SQLite (executa apenas uma vez)
+        
+        Verifica se existe JSON antigo e migra para o novo sistema.
+        """
         if not self.json_path.exists():
-            self.json_path.write_text(json.dumps({}))
-    
-    def _load_blacklist(self) -> Dict:
-        """Carregar blacklist do JSON"""
+            logger.debug("No legacy JSON blacklist found, skipping migration")
+            return
+        
         try:
-            return json.loads(self.json_path.read_text())
+            # Carregar blacklist legada
+            legacy_data = json.loads(self.json_path.read_text())
+            
+            if not legacy_data:
+                logger.debug("Legacy JSON blacklist is empty, skipping migration")
+                return
+            
+            # Migrar cada entrada
+            migrated_count = 0
+            for video_id, entry in legacy_data.items():
+                # Verificar se já existe no novo sistema
+                if self.store.is_rejected(video_id):
+                    continue
+                
+                # Migrar com dados preservados
+                reason = entry.get('reason', 'legacy_blacklist')
+                metadata = entry.get('metadata', {})
+                metadata['migrated_from_json'] = True
+                metadata['original_blacklisted_at'] = entry.get('blacklisted_at', '')
+                
+                self.store.add_rejected(
+                    video_id=video_id,
+                    reason=reason,
+                    confidence=0.95,  # Assume alta confiança (já estava blacklisted)
+                    metadata=metadata
+                )
+                migrated_count += 1
+            
+            if migrated_count > 0:
+                logger.info(f"✅ Migrated {migrated_count} entries from JSON to SQLite")
+                
+                # Fazer backup do JSON antigo
+                backup_path = self.json_path.with_suffix('.json.bak')
+                self.json_path.rename(backup_path)
+                logger.info(f"📦 Legacy JSON backup created: {backup_path}")
+            
         except Exception as e:
-            logger.error(f"Erro ao carregar blacklist: {e}")
-            return {}
-    
-    def _save_blacklist(self, blacklist: Dict):
-        """Salvar blacklist no JSON"""
-        try:
-            self.json_path.write_text(json.dumps(blacklist, indent=2))
-        except Exception as e:
-            logger.error(f"Erro ao salvar blacklist: {e}")
+            logger.error(f"⚠️ Failed to migrate legacy JSON blacklist: {e}")
+            # Não falhar - sistema continua funcionando
     
     async def is_blacklisted(self, video_id: str) -> bool:
         """
@@ -64,8 +109,7 @@ class BlacklistManager:
         Returns:
             True se blacklisted, False caso contrário
         """
-        blacklist = self._load_blacklist()
-        return video_id in blacklist
+        return self.store.is_rejected(video_id)
     
     async def add(self, video_id: str, reason: str = "", metadata: Optional[Dict] = None):
         """
@@ -76,16 +120,16 @@ class BlacklistManager:
             reason: Motivo da rejeição
             metadata: Metadados adicionais
         """
-        blacklist = self._load_blacklist()
+        # Default confidence for manual blacklist additions
+        confidence = metadata.get('confidence', 0.95) if metadata else 0.95
         
-        blacklist[video_id] = {
-            'video_id': video_id,
-            'reason': reason,
-            'blacklisted_at': datetime.utcnow().isoformat(),
-            'metadata': metadata or {}
-        }
+        self.store.add_rejected(
+            video_id=video_id,
+            reason=reason or 'manual_blacklist',
+            confidence=confidence,
+            metadata=metadata
+        )
         
-        self._save_blacklist(blacklist)
         logger.info(f"⚫ Blacklisted: {video_id} - {reason}")
     
     async def remove(self, video_id: str):
@@ -94,22 +138,35 @@ class BlacklistManager:
         
         Args:
             video_id: ID do vídeo
+            
+        Note:
+            Remove da tabela rejected_videos no SQLite
         """
-        blacklist = self._load_blacklist()
-        
-        if video_id in blacklist:
-            del blacklist[video_id]
-            self._save_blacklist(blacklist)
-            logger.info(f"✅ Removed from blacklist: {video_id}")
+        try:
+            with self.store._get_conn() as conn:
+                result = conn.execute(
+                    "DELETE FROM rejected_videos WHERE video_id = ?",
+                    (video_id,)
+                )
+                
+                if result.rowcount > 0:
+                    logger.info(f"✅ Removed from blacklist: {video_id}")
+                else:
+                    logger.warning(f"⚠️ Video not in blacklist: {video_id}")
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to remove from blacklist: {e}")
+            raise
     
-    async def get_all(self) -> Dict:
+    async def get_all(self) -> List[Dict]:
         """
         Obter todos os vídeos blacklisted
         
         Returns:
-            Dict com todos os vídeos blacklisted
+            Lista de dicionários com todos os vídeos blacklisted
         """
-        return self._load_blacklist()
+        # Retorna todos (sem paginação)
+        return self.store.list_rejected(limit=10000, offset=0)
     
     async def count(self) -> int:
         """
@@ -118,4 +175,4 @@ class BlacklistManager:
         Returns:
             Número de vídeos blacklisted
         """
-        return len(self._load_blacklist())
+        return self.store.count_rejected()

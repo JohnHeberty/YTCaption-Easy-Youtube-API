@@ -928,6 +928,38 @@ async def _process_make_video_async(job_id: str):
         
         logger.info(f"✅ Subtitles burned")
         
+        # Validação de Sync Áudio-Vídeo (R-007: Sync Drift Validation)
+        # Detecta e corrige drift causado por VFR, duplicate frames, etc.
+        logger.info(f"🔍 [7.5/8] Validating A/V synchronization...")
+        
+        from ..services.sync_validator import SyncValidator
+        
+        sync_validator = SyncValidator(tolerance_seconds=0.5)  # Netflix standard: 500ms
+        
+        try:
+            is_valid, drift, sync_metadata = await sync_validator.validate_sync(
+                video_path=str(final_video_path),
+                audio_path=str(audio_path),
+                video_builder=video_builder,
+                job_id=job_id
+            )
+            
+            logger.info(
+                f"✅ A/V sync validated: drift={drift:.3f}s ({sync_metadata['drift_percentage']:.2f}%)"
+            )
+            
+        except Exception as sync_error:
+            # Log warning but don't fail job (drift validation is informative)
+            logger.warning(
+                f"⚠️ A/V sync validation failed (non-critical): {sync_error}",
+                extra={
+                    "error": str(sync_error),
+                    "video_path": str(final_video_path),
+                    "audio_path": str(audio_path)
+                }
+            )
+            # Continue with pipeline - sync drift doesn't block video generation
+        
         # Etapa 8: Trimming final (Sprint-09)
         logger.info(f"✂️ [8/8] Trimming video to target duration...")
         await update_job_status(job_id, JobStatus.FINAL_COMPOSITION, progress=92.0)

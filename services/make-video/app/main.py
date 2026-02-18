@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .core.config import get_settings
 from .core.models import Job, JobStatus, CreateVideoRequest, StageInfo
 from .infrastructure.redis_store import RedisJobStore
+from .infrastructure.distributed_rate_limiter import DistributedRateLimiter
 from .services.shorts_manager import ShortsCache
 from .infrastructure.celery_tasks import process_make_video
 from .infrastructure.celery_workaround import send_make_video_task_workaround
@@ -61,14 +62,17 @@ app.add_middleware(
 from collections import deque
 from time import time
 
+# LEGACY: SimpleRateLimiter (in-memory, não distribuído)
+# Mantido como referência, mas NÃO USAR em produção multi-instance
 class SimpleRateLimiter:
     """
-    Simple in-memory rate limiter (Sprint-08)
+    DEPRECATED: Simple in-memory rate limiter (Sprint-08)
     
     Limita número de requisições em janela de tempo deslizante.
     Implementação básica (in-memory, não distribuída).
     
-    TODO: Migrar para DistributedRateLimiter (Redis-based) do UPPER.md Fase 2.
+    PROBLEMA: Não funciona com múltiplas instâncias (cada instância tem seu próprio contador).
+    SOLUÇÃO: Migrar para DistributedRateLimiter (Redis-based).
     """
     def __init__(self, max_requests: int, window_seconds: int):
         self.max_requests = max_requests
@@ -98,11 +102,18 @@ class SimpleRateLimiter:
         
         return False
 
-
 # Global instances
 redis_store = RedisJobStore(redis_url=settings['redis_url'])
 shorts_cache = ShortsCache(cache_dir=settings['shorts_cache_dir'])
-_rate_limiter = SimpleRateLimiter(max_requests=30, window_seconds=60)
+
+# DistributedRateLimiter (Redis-based) - Suporta múltiplas instâncias
+_rate_limiter = DistributedRateLimiter(
+    max_requests=30,
+    window_seconds=60,
+    redis_url=settings['redis_url'],
+    fallback_to_allow=True  # Allow requests if Redis down (graceful degradation)
+)
+
 _thread_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="pipeline_worker")
 
 # Job lock system (prevents concurrent pipeline executions)

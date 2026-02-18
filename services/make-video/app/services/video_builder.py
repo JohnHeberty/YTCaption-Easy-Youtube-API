@@ -12,7 +12,25 @@ import shutil
 from pathlib import Path
 from typing import List, Dict, Tuple
 
-from ..shared.exceptions import VideoProcessingException
+# Use new exception hierarchy
+from ..shared.exceptions_v2 import (
+    VideoException,
+    VideoCorruptedException,
+    VideoEncodingException,
+    VideoInvalidResolutionException,
+    ConcatenationException,
+    SubtitleGenerationException,
+    AudioNotFoundException,
+    AudioCorruptedException,
+    FFmpegTimeoutException,
+    FFmpegFailedException,
+    FFprobeFailedException,
+    SubprocessTimeoutException
+)
+from ..infrastructure.subprocess_utils import (
+    run_ffmpeg_with_timeout,
+    run_ffprobe
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +73,8 @@ class VideoBuilder:
             Path do vídeo convertido
         
         Raises:
-            VideoProcessingException: Se conversão falhar
+            FFmpegFailedException: Se conversão falhar
+            FFmpegTimeoutException: Se operação exceder timeout
         """
         logger.info(f"🔄 Converting to H264: {Path(input_path).name}")
         
@@ -72,26 +91,36 @@ class VideoBuilder:
         ]
         
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            # Use subprocess utils with 10min timeout for video conversion
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=600,  # 10 minutes for H264 conversion
+                check=False,
+                capture_output=True
             )
             
-            stdout, stderr = await proc.communicate()
-            
-            if proc.returncode != 0:
-                from ..shared.exceptions import ErrorCode
+            if returncode != 0:
                 error_msg = stderr.decode() if stderr else "Unknown error"
-                raise VideoProcessingException(
-                    f"H264 conversion failed: {error_msg}",
-                    ErrorCode.VIDEO_CONVERSION_FAILED,
+                raise FFmpegFailedException(
+                    operation="H264 conversion",
+                    stderr=error_msg,
+                    returncode=returncode,
                     details={"input": input_path, "output": output_path}
                 )
             
             logger.info(f"✅ H264 conversion complete: {output_path}")
             return output_path
             
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ H264 conversion timeout: {e}")
+            raise FFmpegTimeoutException(
+                operation="H264 conversion",
+                timeout=600,
+                details={"input": input_path, "output": output_path},
+                cause=e
+            )
         except Exception as e:
             logger.error(f"❌ H264 conversion error: {e}")
             raise
@@ -115,13 +144,46 @@ class VideoBuilder:
             Caminho do vídeo gerado
         
         Raises:
-            VideoProcessingException: Se falhar a concatenação
+            ConcatenationException: Se falhar a concatenação ou duração divergir
+            FFmpegFailedException: Se FFmpeg falhar
+            FFmpegTimeoutException: Se concatenação exceder 30min
         """
         
         logger.info(f"🎬 Concatenating {len(video_files)} videos")
         logger.info(f"   ├─ Aspect ratio: {aspect_ratio}")
         logger.info(f"   ├─ Crop position: {crop_position}")
         logger.info(f"   └─ Remove audio: {remove_audio}")
+        
+        # ✅ VALIDAR COMPATIBILIDADE (R-009: Video Compatibility Check)
+        # Detecta incompatibilidades (codec, FPS, resolução) ANTES de concatenar
+        logger.info(f"🔍 Validating video compatibility before concatenation...")
+        
+        from ..services.video_compatibility_validator import VideoCompatibilityValidator
+        
+        try:
+            compat_result = await VideoCompatibilityValidator.validate_concat_compatibility(
+                video_files=video_files,
+                video_builder=self,
+                strict=True,  # Fail if incompatible
+                fps_tolerance=0.1
+            )
+            
+            logger.info(
+                f"✅ Compatibility check passed: all {compat_result['total_videos']} videos compatible",
+                extra={
+                    "reference_codec": compat_result['reference_video']['codec'] if compat_result['reference_video'] else None,
+                    "reference_fps": compat_result['reference_video']['fps'] if compat_result['reference_video'] else None,
+                    "reference_resolution": compat_result['reference_video']['resolution'] if compat_result['reference_video'] else None
+                }
+            )
+        
+        except Exception as compat_error:
+            # Compatibility check failed - log and re-raise
+            logger.error(
+                f"❌ Video compatibility check failed: {compat_error}",
+                exc_info=True
+            )
+            raise  # Re-raise to prevent concatenation of incompatible videos
         
         # Mapear aspect ratios para resoluções
         aspect_map = {
@@ -132,11 +194,9 @@ class VideoBuilder:
         }
         
         if aspect_ratio not in aspect_map:
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                f"Invalid aspect ratio: {aspect_ratio}. Valid ratios: {', '.join(aspect_map.keys())}",
-                ErrorCode.VIDEO_INVALID_RESOLUTION,
-                details={"valid_ratios": list(aspect_map.keys())}
+            raise VideoInvalidResolutionException(
+                aspect_ratio=aspect_ratio,
+                valid_ratios=list(aspect_map.keys())
             )
         
         target_width, target_height = aspect_map[aspect_ratio]
@@ -232,22 +292,34 @@ class VideoBuilder:
 
         logger.info(f"▶️ Running FFmpeg concatenation...")
 
-        # Executar FFmpeg
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        # Executar FFmpeg com timeout
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=1800,  # 30 minutes for concatenation (can be long with many videos)
+                check=False,
+                capture_output=True
+            )
 
-        stdout, stderr = await process.communicate()
-
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"❌ FFmpeg error: {error_msg}")
-            raise VideoProcessingException(
-                "FFmpeg concatenation failed",
-                ErrorCode.CONCATENATION_FAILED,
-                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
+            if returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ FFmpeg error: {error_msg}")
+                raise FFmpegFailedException(
+                    operation="video concatenation",
+                    stderr=error_msg,
+                    returncode=returncode,
+                    details={"video_count": len(resolved_video_files)}
+                )
+        
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ FFmpeg concatenation timeout: {e}")
+            raise FFmpegTimeoutException(
+                operation="video concatenation",
+                timeout=1800,
+                details={"video_count": len(resolved_video_files)},
+                cause=e
             )
 
         # VALIDAÇÃO PÓS-CONCATENAÇÃO (BUG FIX: detectar duplicação)
@@ -267,15 +339,14 @@ class VideoBuilder:
                 f"Actual duration ({actual_duration:.2f}s) differs from expected "
                 f"({expected_duration:.2f}s) by {abs(actual_duration - expected_duration):.2f}s"
             )
-            raise VideoProcessingException(
-                f"Concatenation resulted in incorrect duration: expected {expected_duration:.2f}s, got {actual_duration:.2f}s",
-                ErrorCode.CONCATENATION_FAILED,
+            raise ConcatenationException(
+                video_count=len(video_files),
+                expected_duration=expected_duration,
+                actual_duration=actual_duration,
+                reason=f"Duration mismatch: expected {expected_duration:.2f}s, got {actual_duration:.2f}s",
                 details={
-                    "expected_duration": expected_duration,
-                    "actual_duration": actual_duration,
                     "difference": actual_duration - expected_duration,
-                    "tolerance": tolerance,
-                    "input_count": len(video_files)
+                    "tolerance": tolerance
                 }
             )
 
@@ -303,7 +374,9 @@ class VideoBuilder:
             Caminho do vídeo cropado
         
         Raises:
-            VideoProcessingException: Se falhar o crop
+            VideoInvalidResolutionException: Se aspect ratio inválido
+            VideoEncodingException: Se falhar o crop
+            FFmpegTimeoutException: Se operação exceder timeout
         """
         logger.info(f"✂️ Cropping video for OCR validation")
         logger.info(f"   ├─ Input: {video_path}")
@@ -320,10 +393,9 @@ class VideoBuilder:
         }
         
         if aspect_ratio not in aspect_map:
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                f"Invalid aspect ratio: {aspect_ratio}",
-                ErrorCode.VIDEO_INVALID_RESOLUTION
+            raise VideoInvalidResolutionException(
+                aspect_ratio=aspect_ratio,
+                valid_ratios=list(aspect_map.keys())
             )
         
         target_width, target_height = aspect_map[aspect_ratio]
@@ -361,22 +433,32 @@ class VideoBuilder:
         
         logger.info(f"▶️ Running FFmpeg crop...")
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=300,  # 5 minutes for crop
+                check=False,
+                capture_output=True
+            )
+            
+            if returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ FFmpeg crop error: {error_msg}")
+                raise VideoEncodingException(
+                    operation="video crop for validation",
+                    reason=error_msg,
+                    details={"video_path": str(input_path), "crop_filter": crop_filter}
+                )
         
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"❌ FFmpeg crop error: {error_msg}")
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "FFmpeg crop failed",
-                ErrorCode.VIDEO_ENCODING_FAILED,
-                details={"ffmpeg_error": error_msg}
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ FFmpeg crop timeout: {e}")
+            raise FFmpegTimeoutException(
+                operation="video crop for validation",
+                timeout=300,
+                details={"video_path": str(input_path)},
+                cause=e
             )
         
         logger.info(f"✅ Video cropped for validation: {output_path}")
@@ -394,7 +476,8 @@ class VideoBuilder:
             Caminho do vídeo gerado
         
         Raises:
-            VideoProcessingException: Se falhar a adição de áudio
+            VideoEncodingException: Se falhar a adição de áudio
+            FFmpegTimeoutException: Se operação exceder 10min
         """
         
         logger.info(f"🔊 Adding audio to video")
@@ -413,22 +496,32 @@ class VideoBuilder:
         
         logger.info(f"▶️ Running FFmpeg audio addition...")
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=600,  # 10 minutes for audio addition
+                check=False,
+                capture_output=True
+            )
+            
+            if returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ FFmpeg error: {error_msg}")
+                raise VideoEncodingException(
+                    operation="audio addition to video",
+                    reason=error_msg,
+                    details={"video_path": str(video_path), "audio_path": str(audio_path), "return_code": returncode}
+                )
         
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"❌ FFmpeg error: {error_msg}")
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "FFmpeg audio addition failed",
-                ErrorCode.VIDEO_ENCODING_FAILED,
-                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ FFmpeg audio addition timeout: {e}")
+            raise FFmpegTimeoutException(
+                operation="audio addition to video",
+                timeout=600,
+                details={"video_path": str(video_path), "audio_path": str(audio_path)},
+                cause=e
             )
         
         logger.info(f"✅ Audio added: {output_path}")
@@ -448,7 +541,9 @@ class VideoBuilder:
             Caminho do vídeo gerado
         
         Raises:
-            VideoProcessingException: Se falhar burn-in de legendas
+            SubtitleGenerationException: Se arquivo de legenda não existir
+            VideoEncodingException: Se falhar burn-in de legendas
+            FFmpegTimeoutException: Se operação exceder 15min
         """
         
         logger.info(f"📝 Burning subtitles (style: {style})")
@@ -459,11 +554,10 @@ class VideoBuilder:
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
         if not subtitle_path_obj.exists():
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                f"Subtitle file not found: {subtitle_path_obj}",
-                ErrorCode.FILE_NOT_FOUND,
-                details={"subtitle_path": str(subtitle_path_obj)}
+            raise SubtitleGenerationException(
+                reason=f"Subtitle file not found: {subtitle_path_obj}",
+                subtitle_path=str(subtitle_path_obj),
+                details={"expected_path": str(subtitle_path_obj)}
             )
 
         subtitle_size = subtitle_path_obj.stat().st_size
@@ -506,22 +600,32 @@ class VideoBuilder:
         
         logger.info(f"▶️ Running FFmpeg subtitle burn-in...")
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=900,  # 15 minutes for subtitle burn-in (can be slow with many subs)
+                check=False,
+                capture_output=True
+            )
+            
+            if returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ FFmpeg error: {error_msg}")
+                raise VideoEncodingException(
+                    operation="subtitle burn-in",
+                    reason=error_msg,
+                    details={"video_path": str(video_path), "subtitle_path": str(subtitle_path), "return_code": returncode}
+                )
         
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"❌ FFmpeg error: {error_msg}")
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "FFmpeg subtitle burn-in failed",
-                ErrorCode.VIDEO_ENCODING_FAILED,
-                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ FFmpeg subtitle burn-in timeout: {e}")
+            raise FFmpegTimeoutException(
+                operation="subtitle burn-in",
+                timeout=900,
+                details={"video_path": str(video_path), "subtitle_path": str(subtitle_path)},
+                cause=e
             )
         
         # VALIDAÇÃO PÓS-BURN (verificar se duração se manteve)
@@ -556,7 +660,8 @@ class VideoBuilder:
             Caminho do vídeo gerado
         
         Raises:
-            VideoProcessingException: Se falhar o trim
+            VideoEncodingException: Se falhar o trim
+            FFmpegTimeoutException: Se operação exceder 10min
         
         Note:
             - Usa re-encode (libx264) para precisão frame-accurate
@@ -585,22 +690,32 @@ class VideoBuilder:
         
         logger.info(f"▶️ Running FFmpeg trim (re-encode for precision)...")
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=600,  # 10 minutes for trim
+                check=False,
+                capture_output=True
+            )
+            
+            if returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ FFmpeg trim error: {error_msg}")
+                raise VideoEncodingException(
+                    operation="video trim",
+                    reason=error_msg,
+                    details={"video_path": str(video_path), "max_duration": max_duration, "return_code": returncode}
+                )
         
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"❌ FFmpeg trim error: {error_msg}")
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "FFmpeg video trim failed",
-                ErrorCode.VIDEO_ENCODING_FAILED,
-                details={"ffmpeg_error": error_msg, "return_code": process.returncode}
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ FFmpeg trim timeout: {e}")
+            raise FFmpegTimeoutException(
+                operation="video trim",
+                timeout=600,
+                details={"video_path": str(video_path), "max_duration": max_duration},
+                cause=e
             )
         
         logger.info(f"✅ Video trimmed to {max_duration:.2f}s: {output_path}")
@@ -616,7 +731,8 @@ class VideoBuilder:
             Dicionário com informações do vídeo
         
         Raises:
-            VideoProcessingException: Se falhar a extração de informações
+            FFprobeFailedException: Se ffprobe falhar ou timeout
+            VideoCorruptedException: Se vídeo estiver corrupto ou sem streams
         """
         
         cmd = [
@@ -628,40 +744,51 @@ class VideoBuilder:
             str(video_path)
         ]
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=30,  # 30 seconds for ffprobe
+                check=False,
+                capture_output=True
+            )
+            
+            if returncode != 0:
+                error_msg = stderr.decode()
+                logger.error(f"❌ FFprobe error: {error_msg}")
+                raise FFprobeFailedException(
+                    video_path=str(video_path),
+                    stderr=error_msg,
+                    returncode=returncode
+                )
         
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            logger.error(f"❌ FFprobe error: {error_msg}")
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "FFprobe failed",
-                ErrorCode.VIDEO_CORRUPTED,
-                details={"ffprobe_error": error_msg, "return_code": process.returncode}
+        except SubprocessTimeoutException as e:
+            logger.error(f"❌ FFprobe timeout: {e}")
+            raise FFprobeFailedException(
+                video_path=str(video_path),
+                stderr="FFprobe timeout after 30s",
+                returncode=-1,
+                cause=e
             )
         
         try:
             info = json.loads(stdout.decode())
         except json.JSONDecodeError as e:
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "Failed to parse ffprobe output",
-                ErrorCode.VIDEO_CORRUPTED,
-                details={"error": str(e)}
+            raise VideoCorruptedException(
+                video_path=str(video_path),
+                reason="Failed to parse ffprobe JSON output",
+                details={"json_error": str(e)}
             )
         
         # Extrair informações relevantes
         video_stream = next((s for s in info.get("streams", []) if s["codec_type"] == "video"), None)
         
         if not video_stream:
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException("No video stream found", ErrorCode.VIDEO_CORRUPTED)
+            raise VideoCorruptedException(
+                video_path=str(video_path),
+                reason="No video stream found in file"
+            )
         
         result = {
             "duration": float(info["format"]["duration"]),
@@ -697,7 +824,8 @@ class VideoBuilder:
             Duração em segundos
         
         Raises:
-            VideoProcessingException: Se falhar a extração de duração
+            AudioNotFoundException: Se arquivo de áudio não existir
+            AudioCorruptedException: Se áudio estiver corrupto ou falhar parse
         """
         
         cmd = [
@@ -708,47 +836,48 @@ class VideoBuilder:
             str(audio_path)
         ]
         
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode()
-            from ..shared.exceptions import ErrorCode
-            
-            # Melhorar mensagem de erro com detalhes do FFprobe
-            if "Invalid data found" in error_msg or "moov atom not found" in error_msg:
-                raise VideoProcessingException(
-                    "Audio file is corrupted or not a valid audio file. Please upload a valid MP3, WAV, M4A, or OGG file.",
-                    ErrorCode.VIDEO_CORRUPTED,
-                    details={"ffprobe_error": error_msg[:500]}
-                )
-            elif "No such file" in error_msg:
-                raise VideoProcessingException(
-                    "Audio file not found",
-                    ErrorCode.VIDEO_CORRUPTED,
-                    details={"ffprobe_error": error_msg[:500]}
-                )
-            else:
-                raise VideoProcessingException(
-                    f"Failed to get audio duration: {error_msg.split(':')[-1].strip()[:200] if error_msg else 'Unknown error'}",
-                    ErrorCode.VIDEO_CORRUPTED,
-                    details={"ffprobe_error": error_msg[:500]}
-                )
-        
         try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+            
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=30,  # 30 seconds for ffprobe audio
+                check=False,
+                capture_output=True
+            )
+            
+            if returncode != 0:
+                error_msg = stderr.decode()
+                from ..shared.exceptions import ErrorCode
+                
+                # Melhorar mensagem de erro com detalhes do FFprobe
+                if "Invalid data found" in error_msg or "moov atom not found" in error_msg:
+                    raise AudioCorruptedException(
+                        audio_path=str(audio_path),
+                        reason="Audio file is corrupted or not a valid audio file",
+                        details={"ffprobe_error": error_msg[:500], "hint": "Upload a valid MP3, WAV, M4A, or OGG file"}
+                    )
+                elif "No such file" in error_msg:
+                    raise AudioNotFoundException(
+                        audio_path=str(audio_path),
+                        expected_location=str(audio_path)
+                    )
+                else:
+                    raise AudioCorruptedException(
+                        audio_path=str(audio_path),
+                        reason=f"FFprobe failed: {error_msg.split(':')[-1].strip()[:200] if error_msg else 'Unknown error'}",
+                        details={"ffprobe_error": error_msg[:500]}
+                    )
+        
+            # Parse JSON output
             info = json.loads(stdout.decode())
             duration = float(info["format"]["duration"])
             logger.info(f"🎵 Audio duration: {duration:.2f}s")
             return duration
+            
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            from ..shared.exceptions import ErrorCode
-            raise VideoProcessingException(
-                "Failed to parse audio duration",
-                ErrorCode.VIDEO_CORRUPTED,
-                details={"error": str(e)}
+            raise AudioCorruptedException(
+                audio_path=str(audio_path),
+                reason="Failed to parse audio duration from ffprobe output",
+                details={"parse_error": str(e)}
             )
