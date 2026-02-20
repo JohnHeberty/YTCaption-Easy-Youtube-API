@@ -154,9 +154,36 @@ class VideoBuilder:
         logger.info(f"   ├─ Crop position: {crop_position}")
         logger.info(f"   └─ Remove audio: {remove_audio}")
         
+        # ✅ COMPATIBILIZAR VÍDEOS AUTOMATICAMENTE (R-009: Video Compatibility Fix)
+        # Garante que todos os vídeos sejam compatíveis ANTES de concatenar
+        # NOTA: Os vídeos são convertidos IN-PLACE (sobrescrevem os originais)
+        logger.info(f"🔧 Ensuring video compatibility before concatenation...")
+        
+        from ..services.video_compatibility_fixer import VideoCompatibilityFixer
+        
+        fixer = VideoCompatibilityFixer()
+        try:
+            # Garantir compatibilidade (converte automaticamente se necessário)
+            # Agora sobrescreve os originais para economizar espaço em disco
+            video_files = await fixer.ensure_compatibility(
+                video_paths=[Path(vf) for vf in video_files],
+                output_dir=None,  # Não usado - conversão in-place
+                target_spec=None,  # Usa padrão do .env (720p HD)
+                force_reconvert=False
+            )
+            
+            # Converter de volta para lista de strings
+            video_files = [str(vf) for vf in video_files]
+            
+            logger.info(f"✅ Video compatibility ensured: {len(video_files)} videos ready (converted in-place)")
+            
+        except Exception as compat_error:
+            logger.error(f"❌ Failed to ensure video compatibility: {compat_error}", exc_info=True)
+            raise
+        
         # ✅ VALIDAR COMPATIBILIDADE (R-009: Video Compatibility Check)
-        # Detecta incompatibilidades (codec, FPS, resolução) ANTES de concatenar
-        logger.info(f"🔍 Validating video compatibility before concatenation...")
+        # Valida que compatibilização funcionou
+        logger.info(f"🔍 Validating video compatibility after fix...")
         
         from ..services.video_compatibility_validator import VideoCompatibilityValidator
         
@@ -562,11 +589,16 @@ class VideoBuilder:
 
         subtitle_size = subtitle_path_obj.stat().st_size
         if subtitle_size == 0:
-            logger.warning(
-                f"⚠️ Subtitle file is empty ({subtitle_path_obj}), skipping burn-in and keeping video without subtitles"
+            raise SubtitleGenerationException(
+                reason="Subtitle file is empty - subtitles are mandatory for this job",
+                subtitle_path=str(subtitle_path_obj),
+                details={
+                    "subtitle_size": 0,
+                    "expected_size": "> 0 bytes",
+                    "problem": "Cannot generate video without subtitles - empty SRT file",
+                    "recommendation": "Check audio transcription and VAD processing steps"
+                }
             )
-            shutil.copy2(video_path_obj, output_path_obj)
-            return str(output_path_obj)
         
         # Verificar duração do vídeo de entrada
         input_info = await self.get_video_info(str(video_path_obj))

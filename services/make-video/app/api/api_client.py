@@ -367,8 +367,7 @@ class MicroservicesClient:
 
             if not job_id:
                 raise TranscriberUnavailableException(
-                    reason="Failed to create transcription job - empty job_id",
-                    details={"create_attempts": max_create_attempts}
+                    reason="Failed to create transcription job - empty job_id"
                 )
             
             # 2. Polling do status (GET /jobs/{job_id}) - LIMITE DE 10 TENTATIVAS
@@ -423,8 +422,7 @@ class MicroservicesClient:
                         error_msg = job.get("error_message", "Unknown error")
                         logger.error(f"❌ Transcrição falhou: {error_msg}")
                         raise TranscriberUnavailableException(
-                            reason=f"Transcription job failed: {error_msg}",
-                            details={"job_id": job_id, "error": error_msg}
+                            reason=f"Transcription job failed: {error_msg}"
                         )
                     
                 except httpx.HTTPError as e:
@@ -445,11 +443,8 @@ class MicroservicesClient:
                 f"({max_polls * poll_interval}s total)"
             )
             raise TranscriptionTimeoutException(
-                timeout_seconds=max_polls * poll_interval,
-                details={
-                    "job_id": job_id,
-                    "max_polls": max_polls
-                }
+                job_id=job_id,
+                max_polls=max_polls
             )
         
         except httpx.HTTPError as e:
@@ -459,9 +454,5 @@ class MicroservicesClient:
                 status_code = e.response.status_code
             raise TranscriberUnavailableException(
                 reason=f"HTTP error: {str(e)}",
-                details={
-                    "error_type": type(e).__name__,
-                    "status_code": status_code
-                },
                 cause=e
             )

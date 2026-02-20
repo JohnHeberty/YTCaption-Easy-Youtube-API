@@ -17,6 +17,10 @@
 DOCKER_COMPOSE := docker compose
 DOCKER_SERVICE := make-video
 PYTHON := python3
+VENV := .venv
+VENV_BIN := $(VENV)/bin
+VENV_PYTHON := $(VENV_BIN)/python
+VENV_PYTEST := $(VENV_BIN)/pytest
 DATA_DIR := ./data
 RAW_DIR := $(DATA_DIR)/raw
 TRANSFORM_DIR := $(DATA_DIR)/transform
@@ -54,12 +58,21 @@ help: ## Mostrar esta mensagem de ajuda
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-25s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "📚 Categorias:"
-	@echo "  • Desenvolvimento: install, dev, logs, shell"
-	@echo "  • Testes: test, test-quick, test-imports"
+	@echo "  • Desenvolvimento: install, venv, dev, logs, shell"
+	@echo "  • Testes: test, test-all, test-quick, test-unit, test-integration, test-e2e"
+	@echo "  • Validação: test-validate, test-sprint, test-coverage"
+	@echo "  • Compatibilização: compatibility, compatibility-check"
 	@echo "  • API Controle: api-health, api-download, api-jobs, api-admin-stats"
 	@echo "  • Calibração: calibrate-start, calibrate-status, calibrate-watch, calibrate-logs"
-	@echo "  • Deployment: build, up, down, restart"
+	@echo "  • Deployment: network, build, up, down, restart"
 	@echo "  • Manutenção: clean, clean-all, validate"
+	@echo ""
+	@echo "🎯 Fluxo de Testes:"
+	@echo "  1. make test              → Todos os testes (379 tests)"
+	@echo "  2. make test-unit         → Apenas unit tests (~255 tests)"
+	@echo "  3. make test-integration  → Apenas integration tests (~74 tests)"
+	@echo "  4. make test-e2e          → Apenas e2e tests (~50 tests)"
+	@echo "  5. make test-validate     → Validação completa (zero mocks, zero skips)"
 	@echo ""
 	@echo "🎯 Fluxo de Calibração:"
 	@echo "  1. make calibrate-start     → Iniciar em background"
@@ -72,11 +85,22 @@ help: ## Mostrar esta mensagem de ajuda
 # DESENVOLVIMENTO
 # ============================================================================
 
-install: ## Instalar dependências Python localmente
-	@echo "📦 Instalando dependências..."
-	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -r requirements.txt
-	@echo "✅ Dependências instaladas"
+venv: ## Criar virtual environment (.venv)
+	@echo "🐍 Criando virtual environment..."
+	@if [ ! -d "$(VENV)" ]; then \
+		$(PYTHON) -m venv $(VENV); \
+		echo "✅ Virtual environment criado: $(VENV)"; \
+		echo "💡 Ativar: source $(VENV)/bin/activate"; \
+	else \
+		echo "✅ Virtual environment já existe: $(VENV)"; \
+	fi
+
+install: venv ## Instalar dependências Python no venv
+	@echo "📦 Instalando dependências no venv..."
+	$(VENV_PYTHON) -m pip install --upgrade pip
+	$(VENV_PYTHON) -m pip install -r requirements.txt
+	@echo "✅ Dependências instaladas no $(VENV)"
+	@echo "💡 Ativar venv: source $(VENV)/bin/activate"
 
 dev: ## Iniciar serviço em modo desenvolvimento
 	@echo "🚀 Iniciando em modo desenvolvimento..."
@@ -92,24 +116,151 @@ shell: ## Abrir shell interativo no container
 # TESTES
 # ============================================================================
 
-test: ## Executar todos os testes
-	@echo "🧪 Executando testes completos..."
-	$(PYTHON) -m pytest tests/ -v --tb=short
+test: ## Executar todos os testes (379 tests)
+	@echo "🧪 Executando TODOS os testes..."
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@$(VENV_PYTEST) tests/ -v --tb=short || (echo "❌ Testes falharam" && exit 1)
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "✅ Todos os testes passaram!"
 
-test-quick: ## Executar testes rápidos (sem calibração)
+test-all: test ## Alias para 'make test'
+
+test-quick: ## Executar testes rápidos (sem slow tests)
 	@echo "⚡ Executando testes rápidos..."
-	$(PYTHON) -m pytest tests/ -v -k "not calibration" --tb=short
+	@$(VENV_PYTEST) tests/ -v -m "not slow" --tb=short
 
-test-imports: ## Validar todos os imports
-	@echo "🔍 Validando imports..."
-	@$(PYTHON) -c "from app.video_processing.video_validator import VideoValidator; print('✅ VideoValidator')"
-	@$(PYTHON) -c "from app.video_processing.ocr_detector import get_ocr_detector; print('✅ get_ocr_detector')"
-	@$(PYTHON) -c "from app.infrastructure.celery_tasks import recover_orphaned_jobs; print('✅ celery_tasks')"
-	@echo "✅ Todos os imports funcionando"
+test-unit: ## Executar apenas testes unitários (~255 tests)
+	@echo "🔬 Executando testes unitários..."
+	@$(VENV_PYTEST) tests/unit/ -v --tb=short
+
+test-integration: ## Executar apenas testes de integração (~74 tests)
+	@echo "🔗 Executando testes de integração..."
+	@$(VENV_PYTEST) tests/integration/ -v --tb=short
+
+test-e2e: ## Executar apenas testes e2e (~50 tests)
+	@echo "🌐 Executando testes end-to-end..."
+	@$(VENV_PYTEST) tests/e2e/ -v --tb=short
+
+test-setup: ## Executar testes de setup/validação
+	@echo "⚙️  Executando testes de setup..."
+	@$(VENV_PYTEST) tests/test_setup_validation.py tests/test_00_setup_validation.py -v
+
+test-sprint: ## Executar testes por sprint (use SPRINT=X)
+	@if [ -z "$(SPRINT)" ]; then \
+		echo "❌ Use: make test-sprint SPRINT=<número>"; \
+		echo "Exemplo: make test-sprint SPRINT=10"; \
+		exit 1; \
+	fi
+	@echo "🎯 Executando testes da Sprint $(SPRINT)..."
+	@case "$(SPRINT)" in \
+		0|1) $(VENV_PYTEST) tests/test_*setup*.py tests/unit/core/ -v ;; \
+		2) $(VENV_PYTEST) tests/unit/shared/ -v ;; \
+		3) $(VENV_PYTEST) tests/unit/utils/ -v ;; \
+		4) $(VENV_PYTEST) tests/unit/infrastructure/ -v ;; \
+		5) $(VENV_PYTEST) tests/unit/video_processing/ tests/integration/video_processing/ -v ;; \
+		6) $(VENV_PYTEST) tests/unit/subtitle_processing/ tests/integration/subtitle_processing/ -v ;; \
+		7) $(VENV_PYTEST) tests/unit/services/ tests/integration/services/ -v ;; \
+		8) $(VENV_PYTEST) tests/integration/pipeline/ -v ;; \
+		9) $(VENV_PYTEST) tests/unit/domain/ tests/integration/domain/ -v ;; \
+		10) $(VENV_PYTEST) tests/e2e/ -v ;; \
+		*) echo "❌ Sprint válidas: 0-10"; exit 1 ;; \
+	esac
 
 test-coverage: ## Executar testes com cobertura
 	@echo "📊 Executando testes com cobertura..."
-	$(PYTHON) -m pytest tests/ --cov=app --cov-report=html --cov-report=term
+	@$(VENV_PYTEST) tests/ --cov=app --cov-report=html --cov-report=term
+	@echo ""
+	@echo "📄 Relatório HTML gerado: htmlcov/index.html"
+
+test-validate: ## Validação completa: zero mocks, zero skips, 100% pass
+	@echo "✅ VALIDAÇÃO COMPLETA DE TESTES"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo ""
+	@echo "📊 Coletando testes..."
+	@TOTAL=$$($(VENV_PYTEST) tests/ --collect-only -q 2>&1 | tail -1 | grep -oE '[0-9]+' | head -1); \
+	echo "   Total: $$TOTAL testes"; \
+	echo ""
+	@echo "🔍 Verificando mocks..."
+	@MOCKS=$$(find tests/ -name "*.py" -exec grep -l "Mock\|@patch\|MagicMock" {} \; 2>/dev/null | wc -l); \
+	if [ $$MOCKS -eq 0 ]; then \
+		echo "   ✅ Zero mocks encontrados"; \
+	else \
+		echo "   ❌ $$MOCKS arquivos com mocks encontrados!"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "🧪 Executando todos os testes..."
+	@$(VENV_PYTEST) tests/ -v --tb=short > /tmp/test_validation.txt 2>&1 || (cat /tmp/test_validation.txt && exit 1)
+	@echo ""
+	@echo "📈 Analisando resultados..."
+	@PASSED=$$(grep -E "passed" /tmp/test_validation.txt | tail -1 | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+'); \
+	FAILED=$$(grep -E "failed" /tmp/test_validation.txt | tail -1 | grep -oE '[0-9]+ failed' | grep -oE '[0-9]+' || echo 0); \
+	SKIPPED=$$(grep -E "skipped" /tmp/test_validation.txt | tail -1 | grep -oE '[0-9]+ skipped' | grep -oE '[0-9]+' || echo 0); \
+	echo "   Passed:  $$PASSED"; \
+	echo "   Failed:  $$FAILED"; \
+	echo "   Skipped: $$SKIPPED"; \
+	echo ""; \
+	if [ $$FAILED -gt 0 ]; then \
+		echo "   ❌ Testes falhando!"; \
+		exit 1; \
+	fi; \
+	if [ $$SKIPPED -gt 0 ]; then \
+		echo "   ❌ Testes sendo pulados!"; \
+		exit 1; \
+	fi; \
+	echo "   ✅ 100% dos testes passando"; \
+	echo "   ✅ Zero skips"; \
+	echo "   ✅ Zero mocks"
+	@echo ""
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "🎉 VALIDAÇÃO COMPLETA: SUCESSO!"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+test-validate-exception-fix: ## Validar correção do bug Exception Details Conflict
+	@echo "🔍 Validando correção do bug de Exception Details Conflict..."
+	@$(VENV_PYTHON) validate_exception_fix.py
+
+test-no-mocks: ## Verificar que não há mocks nos testes
+	@echo "🔍 Verificando ausência de mocks..."
+	@MOCKS=$$(find tests/ -name "*.py" -exec grep -l "Mock\|@patch\|MagicMock" {} \; 2>/dev/null); \
+	if [ -z "$$MOCKS" ]; then \
+		echo "✅ Nenhum mock encontrado (100% real)"; \
+	else \
+		echo "❌ Mocks encontrados em:"; \
+		echo "$$MOCKS"; \
+		exit 1; \
+	fi
+
+test-count: ## Contar testes por categoria
+	@echo "📊 Contagem de Testes"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "Unit Tests:"
+	@$(VENV_PYTEST) tests/unit/ --collect-only -q 2>&1 | tail -1
+	@echo ""
+	@echo "Integration Tests:"
+	@$(VENV_PYTEST) tests/integration/ --collect-only -q 2>&1 | tail -1
+	@echo ""
+	@echo "E2E Tests:"
+	@$(VENV_PYTEST) tests/e2e/ --collect-only -q 2>&1 | tail -1
+	@echo ""
+	@echo "Total:"
+	@$(VENV_PYTEST) tests/ --collect-only -q 2>&1 | tail -1
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+test-imports: ## Validar todos os imports críticos
+	@echo "🔍 Validando imports..."
+	@$(VENV_PYTHON) -c "from app.video_processing.video_validator import VideoValidator; print('✅ VideoValidator')"
+	@$(VENV_PYTHON) -c "from app.video_processing.ocr_detector import get_ocr_detector; print('✅ get_ocr_detector')"
+	@$(VENV_PYTHON) -c "from app.infrastructure.celery_tasks import recover_orphaned_jobs; print('✅ celery_tasks')"
+	@$(VENV_PYTHON) -c "from app.main import app; print('✅ FastAPI app')"
+	@echo "✅ Todos os imports funcionando"
+
+test-critical: ## Executar apenas testes críticos (CRON, bug fixes)
+	@echo "🔴 Executando testes críticos..."
+	@$(VENV_PYTEST) tests/unit/core/test_config.py::TestGetSettings::test_get_settings_has_pipeline_directory_keys -v
+	@$(VENV_PYTEST) tests/integration/pipeline/test_video_pipeline.py::TestCleanupOrphanedFiles::test_cleanup_orphaned_files_no_keyerror -v
+	@$(VENV_PYTEST) tests/e2e/test_main_application.py::TestCronJobs::test_cleanup_cron_does_not_crash -v
+	@echo "✅ Todos os testes críticos passaram!"
 
 # ============================================================================
 # CALIBRAÇÃO OCR
@@ -313,11 +464,16 @@ calibrate-results: ## Mostrar todos os resultados da calibração
 # DOCKER & DEPLOYMENT
 # ============================================================================
 
-build: ## Build da imagem Docker
+network: ## Criar rede Docker ytcaption-network (se não existir)
+	@docker network inspect ytcaption-network >/dev/null 2>&1 || \
+		(docker network create ytcaption-network && echo "✅ Rede ytcaption-network criada") || \
+		echo "✅ Rede ytcaption-network já existe"
+
+build: network ## Build da imagem Docker
 	@echo "🔨 Construindo imagem Docker..."
 	$(DOCKER_COMPOSE) build
 
-up: ## Iniciar serviços em background
+up: network ## Iniciar serviços em background
 	@echo "🚀 Iniciando serviços..."
 	$(DOCKER_COMPOSE) up -d
 	@echo "✅ Serviços iniciados"
@@ -349,6 +505,33 @@ status: ## Mostrar status dos containers
 	@echo "═══════════════════════════════════════════════════════════"
 
 ps: status ## Alias para 'make status'
+
+# ============================================================================
+# COMPATIBILIZAÇÃO DE VÍDEOS
+# ============================================================================
+
+compatibility: ## Executar compatibilização de vídeos em um diretório
+	@if [ -z "$(DIR)" ]; then \
+		echo "❌ Use: make compatibility DIR=/caminho/para/videos"; \
+		echo ""; \
+		echo "Exemplo:"; \
+		echo "  make compatibility DIR=data/raw/videos/job123"; \
+		echo ""; \
+		echo "O que faz:"; \
+		echo "  • Detecta specs de todos os vídeos .mp4"; \
+		echo "  • Define vídeo-alvo baseado no primeiro"; \
+		echo "  • Converte vídeos incompatíveis automaticamente"; \
+		echo "  • Mantém vídeos originais como backup"; \
+		exit 1; \
+	fi
+	@$(VENV_PYTHON) scripts/compatibility_fixer.py "$(DIR)"
+
+compatibility-check: ## Verificar se vídeos em diretório são compatíveis (sem converter)
+	@if [ -z "$(DIR)" ]; then \
+		echo "❌ Use: make compatibility-check DIR=/caminho/para/videos"; \
+		exit 1; \
+	fi
+	@$(VENV_PYTHON) scripts/compatibility_checker.py "$(DIR)"
 
 # ============================================================================
 # MANUTENÇÃO & LIMPEZA
@@ -593,5 +776,7 @@ prod-deploy: build up ## Deploy em produção (build + up)
 	@echo "✅ Deploy concluído"
 	@echo "📊 Status: make status"
 
-full-test: test-imports test ## Executar bateria completa de testes
-	@echo "✅ Todos os testes concluídos"
+full-test: test-imports test-validate test-coverage ## Executar bateria completa de testes
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+	@echo "🎉 BATERIA COMPLETA DE TESTES CONCLUÍDA!"
+	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -112,12 +112,25 @@ class MakeVideoBaseException(Exception):
         details: Optional[Dict[str, Any]] = None,
         cause: Optional[Exception] = None,
         job_id: Optional[str] = None,
-        recoverable: bool = False
+        recoverable: bool = False,
+        **kwargs  # Accept additional kwargs to handle details conflicts
     ) -> None:
         super().__init__(message)
         self.message = message
         self.error_code = error_code
-        self.details = details or {}
+        
+        # FIX: Merge details from both sources to prevent "got multiple values" error
+        # This handles cases where subclasses pass details= explicitly AND via **kwargs
+        merged_details = details or {}
+        if 'details' in kwargs:
+            extra_details = kwargs.pop('details')
+            if extra_details:
+                # Merge: explicit details take priority, then extra_details
+                for key, value in extra_details.items():
+                    if key not in merged_details:
+                        merged_details[key] = value
+        
+        self.details = merged_details
         self.cause = cause
         self.job_id = job_id
         self.recoverable = recoverable
@@ -160,10 +173,12 @@ class AudioException(MakeVideoBaseException):
 class AudioNotFoundException(AudioException):
     """Audio file not found"""
     def __init__(self, audio_path: str, **kwargs):
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"audio_path": audio_path})
         super().__init__(
-            f"Audio file not found: {audio_path}",
+            f"Audio not found: {audio_path}",
             ErrorCode.AUDIO_NOT_FOUND,
-            details={"audio_path": audio_path},
+            details=merged_details,
             **kwargs
         )
 
@@ -171,10 +186,12 @@ class AudioNotFoundException(AudioException):
 class AudioCorruptedException(AudioException):
     """Audio file is corrupted or unreadable"""
     def __init__(self, audio_path: str, reason: str = None, **kwargs):
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"audio_path": audio_path, "reason": reason})
         super().__init__(
-            f"Audio file corrupted: {audio_path}" + (f" ({reason})" if reason else ""),
+            f"Audio corrupted: {audio_path}" + (f" ({reason})" if reason else ""),
             ErrorCode.AUDIO_CORRUPTED,
-            details={"audio_path": audio_path, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -182,10 +199,13 @@ class AudioCorruptedException(AudioException):
 class AudioInvalidFormatException(AudioException):
     """Audio format not supported"""
     def __init__(self, audio_path: str, detected_format: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"audio_path": audio_path, "detected_format": detected_format})
         super().__init__(
             f"Invalid audio format: {audio_path}" + (f" (detected: {detected_format})" if detected_format else ""),
             ErrorCode.AUDIO_INVALID_FORMAT,
-            details={"audio_path": audio_path, "detected_format": detected_format},
+            details=merged_details,
             **kwargs
         )
 
@@ -193,10 +213,12 @@ class AudioInvalidFormatException(AudioException):
 class AudioTooShortException(AudioException):
     """Audio duration too short"""
     def __init__(self, duration: float, min_duration: float, **kwargs):
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"duration": duration, "min_duration": min_duration})
         super().__init__(
-            f"Audio too short: {duration:.1f}s (minimum: {min_duration:.1f}s)",
+            f"Audio too short: {duration}s (min: {min_duration}s)",
             ErrorCode.AUDIO_TOO_SHORT,
-            details={"duration": duration, "min_duration": min_duration},
+            details=merged_details,
             **kwargs
         )
 
@@ -204,10 +226,13 @@ class AudioTooShortException(AudioException):
 class AudioTooLongException(AudioException):
     """Audio duration exceeds maximum"""
     def __init__(self, duration: float, max_duration: float, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"duration": duration, "max_duration": max_duration})
         super().__init__(
             f"Audio too long: {duration:.1f}s (maximum: {max_duration:.1f}s)",
             ErrorCode.AUDIO_TOO_LONG,
-            details={"duration": duration, "max_duration": max_duration},
+            details=merged_details,
             **kwargs
         )
 
@@ -224,10 +249,13 @@ class VideoException(MakeVideoBaseException):
 class VideoNotFoundException(VideoException):
     """Video file not found"""
     def __init__(self, video_path: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path})
         super().__init__(
             f"Video file not found: {video_path}",
             ErrorCode.VIDEO_NOT_FOUND,
-            details={"video_path": video_path},
+            details=merged_details,
             **kwargs
         )
 
@@ -235,10 +263,13 @@ class VideoNotFoundException(VideoException):
 class VideoCorruptedException(VideoException):
     """Video file is corrupted or unreadable"""
     def __init__(self, video_path: str, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path, "reason": reason})
         super().__init__(
             f"Video file corrupted: {video_path}" + (f" ({reason})" if reason else ""),
             ErrorCode.VIDEO_CORRUPTED,
-            details={"video_path": video_path, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -246,10 +277,13 @@ class VideoCorruptedException(VideoException):
 class VideoDownloadException(VideoException):
     """Failed to download video"""
     def __init__(self, video_id: str, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_id": video_id, "reason": reason})
         super().__init__(
             f"Video download failed: {video_id}" + (f" ({reason})" if reason else ""),
             ErrorCode.VIDEO_DOWNLOAD_FAILED,
-            details={"video_id": video_id, "reason": reason},
+            details=merged_details,
             recoverable=True,  # Can retry downloads
             **kwargs
         )
@@ -258,10 +292,13 @@ class VideoDownloadException(VideoException):
 class VideoEncodingException(VideoException):
     """Video encoding/processing failed"""
     def __init__(self, operation: str, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"operation": operation, "reason": reason})
         super().__init__(
             f"Video encoding failed: {operation}" + (f" ({reason})" if reason else ""),
             ErrorCode.VIDEO_ENCODING_FAILED,
-            details={"operation": operation, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -269,10 +306,13 @@ class VideoEncodingException(VideoException):
 class VideoHasSubtitlesException(VideoException):
     """Video already has hardcoded subtitles"""
     def __init__(self, video_path: str, confidence: float, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path, "confidence": confidence})
         super().__init__(
             f"Video has subtitles: {video_path} (confidence: {confidence:.0%})",
             ErrorCode.VIDEO_HAS_SUBTITLES,
-            details={"video_path": video_path, "confidence": confidence},
+            details=merged_details,
             **kwargs
         )
 
@@ -280,10 +320,13 @@ class VideoHasSubtitlesException(VideoException):
 class VideoInvalidCodecException(VideoException):
     """Video codec not supported or incompatible"""
     def __init__(self, video_path: str, codec: str, expected: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path, "codec": codec, "expected": expected})
         super().__init__(
             f"Invalid codec: {codec}" + (f", expected: {expected}" if expected else ""),
             ErrorCode.VIDEO_INVALID_CODEC,
-            details={"video_path": video_path, "codec": codec, "expected": expected},
+            details=merged_details,
             **kwargs
         )
 
@@ -291,10 +334,13 @@ class VideoInvalidCodecException(VideoException):
 class VideoInvalidFPSException(VideoException):
     """Video FPS incompatible"""
     def __init__(self, video_path: str, fps: float, expected: float = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path, "fps": fps, "expected": expected})
         super().__init__(
             f"Invalid FPS: {fps}" + (f", expected: {expected}" if expected else ""),
             ErrorCode.VIDEO_INVALID_FPS,
-            details={"video_path": video_path, "fps": fps, "expected": expected},
+            details=merged_details,
             **kwargs
         )
 
@@ -302,10 +348,13 @@ class VideoInvalidFPSException(VideoException):
 class VideoInvalidResolutionException(VideoException):
     """Video resolution not supported"""
     def __init__(self, video_path: str, resolution: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path, "resolution": resolution})
         super().__init__(
             f"Invalid resolution: {resolution}",
             ErrorCode.VIDEO_INVALID_RESOLUTION,
-            details={"video_path": video_path, "resolution": resolution},
+            details=merged_details,
             **kwargs
         )
 
@@ -313,10 +362,15 @@ class VideoInvalidResolutionException(VideoException):
 class VideoIncompatibleException(VideoException):
     """Videos are incompatible for concatenation"""
     def __init__(self, reason: str, mismatches: Dict[str, Any], **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        # Add this exception's specific details
+        merged_details.update({"reason": reason, "mismatches": mismatches})
+        
         super().__init__(
             f"Videos incompatible: {reason}",
             ErrorCode.INCOMPATIBLE_VIDEOS,
-            details={"reason": reason, "mismatches": mismatches},
+            details=merged_details,
             **kwargs
         )
 
@@ -333,10 +387,13 @@ class ProcessingException(MakeVideoBaseException):
 class ConcatenationException(ProcessingException):
     """Video concatenation failed"""
     def __init__(self, video_count: int, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_count": video_count, "reason": reason})
         super().__init__(
             f"Concatenation failed: {video_count} videos" + (f" ({reason})" if reason else ""),
             ErrorCode.CONCATENATION_FAILED,
-            details={"video_count": video_count, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -344,10 +401,13 @@ class ConcatenationException(ProcessingException):
 class NoShortsFoundException(ProcessingException):
     """No shorts found for query"""
     def __init__(self, query: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"query": query})
         super().__init__(
             f"No shorts found for query: {query}",
             ErrorCode.NO_SHORTS_FOUND,
-            details={"query": query},
+            details=merged_details,
             recoverable=True,  # Can try different query
             **kwargs
         )
@@ -356,10 +416,13 @@ class NoShortsFoundException(ProcessingException):
 class InsufficientShortsException(ProcessingException):
     """Not enough valid shorts"""
     def __init__(self, required: int, found: int, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"required": required, "found": found})
         super().__init__(
             f"Insufficient shorts: need {required}, found {found}",
             ErrorCode.INSUFFICIENT_SHORTS,
-            details={"required": required, "found": found},
+            details=merged_details,
             recoverable=True,
             **kwargs
         )
@@ -368,10 +431,13 @@ class InsufficientShortsException(ProcessingException):
 class OCRDetectionException(ProcessingException):
     """OCR detection failed"""
     def __init__(self, video_path: str, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"video_path": video_path, "reason": reason})
         super().__init__(
             f"OCR detection failed: {video_path}" + (f" ({reason})" if reason else ""),
             ErrorCode.OCR_DETECTION_FAILED,
-            details={"video_path": video_path, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -379,10 +445,13 @@ class OCRDetectionException(ProcessingException):
 class SubtitleGenerationException(ProcessingException):
     """Subtitle generation failed"""
     def __init__(self, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"reason": reason})
         super().__init__(
             f"Subtitle generation failed" + (f": {reason}" if reason else ""),
             ErrorCode.SUBTITLE_GENERATION_FAILED,
-            details={"reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -390,10 +459,13 @@ class SubtitleGenerationException(ProcessingException):
 class ValidationException(ProcessingException):
     """Generic validation failure"""
     def __init__(self, validation_type: str, reason: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"validation_type": validation_type, "reason": reason})
         super().__init__(
             f"{validation_type} validation failed: {reason}",
             ErrorCode.VALIDATION_FAILED,
-            details={"validation_type": validation_type, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -401,10 +473,13 @@ class ValidationException(ProcessingException):
 class SyncDriftException(ProcessingException):
     """Audio-video sync drift exceeded threshold"""
     def __init__(self, drift_seconds: float, max_drift: float, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"drift_seconds": drift_seconds, "max_drift": max_drift})
         super().__init__(
             f"Sync drift exceeded: {drift_seconds:.3f}s (max: {max_drift:.3f}s)",
             ErrorCode.SYNC_DRIFT_EXCEEDED,
-            details={"drift_seconds": drift_seconds, "max_drift": max_drift},
+            details=merged_details,
             **kwargs
         )
 
@@ -421,10 +496,13 @@ class SubprocessException(MakeVideoBaseException):
 class SubprocessTimeoutException(SubprocessException):
     """Subprocess exceeded timeout"""
     def __init__(self, command: str, timeout: int, pid: int = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"command": command, "timeout": timeout, "pid": pid})
         super().__init__(
             f"Subprocess timeout: {command} (timeout: {timeout}s, PID: {pid})",
             ErrorCode.SUBPROCESS_TIMEOUT,
-            details={"command": command, "timeout": timeout, "pid": pid},
+            details=merged_details,
             **kwargs
         )
 
@@ -432,21 +510,33 @@ class SubprocessTimeoutException(SubprocessException):
 class FFmpegTimeoutException(SubprocessException):
     """FFmpeg process exceeded timeout"""
     def __init__(self, operation: str, timeout: int, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"operation": operation, "timeout": timeout})
         super().__init__(
             f"FFmpeg timeout: {operation} (timeout: {timeout}s)",
             ErrorCode.FFMPEG_TIMEOUT,
-            details={"operation": operation, "timeout": timeout},
+            details=merged_details,
             **kwargs
         )
 
 
 class FFmpegFailedException(SubprocessException):
     """FFmpeg process failed with error"""
-    def __init__(self, operation: str, stderr: str = None, returncode: int = None, **kwargs):
+    def __init__(self, operation: str, stderr: str = None, returncode: int = None, details: dict = None, **kwargs):
+        # Merge details from kwargs with default details
+        base_details = {
+            "operation": operation,
+            "stderr": stderr[:500] if stderr else None,
+            "returncode": returncode
+        }
+        if details:
+            base_details.update(details)
+        
         super().__init__(
             f"FFmpeg failed: {operation}",
             ErrorCode.FFMPEG_FAILED,
-            details={"operation": operation, "stderr": stderr[:500] if stderr else None, "returncode": returncode},
+            details=base_details,
             **kwargs
         )
 
@@ -454,10 +544,13 @@ class FFmpegFailedException(SubprocessException):
 class FFprobeFailedException(SubprocessException):
     """FFprobe failed to extract metadata"""
     def __init__(self, file_path: str, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"file_path": file_path, "reason": reason})
         super().__init__(
             f"FFprobe failed: {file_path}" + (f" ({reason})" if reason else ""),
             ErrorCode.FFPROBE_FAILED,
-            details={"file_path": file_path, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 
@@ -465,10 +558,13 @@ class FFprobeFailedException(SubprocessException):
 class ProcessOrphanedException(SubprocessException):
     """Process became orphaned"""
     def __init__(self, pid: int, process_name: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"pid": pid, "process_name": process_name})
         super().__init__(
             f"Process orphaned: {process_name} (PID: {pid})",
             ErrorCode.PROCESS_ORPHANED,
-            details={"pid": pid, "process_name": process_name},
+            details=merged_details,
             **kwargs
         )
 
@@ -481,10 +577,10 @@ class ExternalServiceException(MakeVideoBaseException):
     """Base class for external service errors"""
     def __init__(self, service_name: str, *args, **kwargs):
         self.service_name = service_name
-        if 'details' not in kwargs:
-            kwargs['details'] = {}
-        kwargs['details']['service'] = service_name
-        super().__init__(*args, **kwargs)
+        # Extract details if passed, merge with service_name
+        details = kwargs.pop('details', {})
+        details['service'] = service_name
+        super().__init__(*args, details=details, **kwargs)
 
 
 class YouTubeSearchUnavailableException(ExternalServiceException):
@@ -526,11 +622,14 @@ class TranscriberUnavailableException(ExternalServiceException):
 class TranscriptionTimeoutException(ExternalServiceException):
     """Transcription polling exceeded max attempts"""
     def __init__(self, job_id: str, max_polls: int, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"transcription_job_id": job_id, "max_polls": max_polls})
         super().__init__(
             "audio-transcriber",
             f"Transcription timeout: job {job_id} (max polls: {max_polls})",
             ErrorCode.API_TIMEOUT,
-            details={"transcription_job_id": job_id, "max_polls": max_polls},
+            details=merged_details,
             **kwargs
         )
 
@@ -538,11 +637,14 @@ class TranscriptionTimeoutException(ExternalServiceException):
 class APIRateLimitException(ExternalServiceException):
     """API rate limit exceeded"""
     def __init__(self, service_name: str, retry_after: int = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"retry_after": retry_after})
         super().__init__(
             service_name,
             f"Rate limit exceeded: {service_name}" + (f" (retry after {retry_after}s)" if retry_after else ""),
             ErrorCode.API_RATE_LIMIT,
-            details={"retry_after": retry_after},
+            details=merged_details,
             recoverable=True,
             **kwargs
         )
@@ -551,11 +653,14 @@ class APIRateLimitException(ExternalServiceException):
 class CircuitBreakerOpenException(ExternalServiceException):
     """Circuit breaker is open for service"""
     def __init__(self, service_name: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"circuit_state": "open"})
         super().__init__(
             service_name,
             f"Circuit breaker OPEN for {service_name}",
             ErrorCode.CIRCUIT_BREAKER_OPEN,
-            details={"circuit_state": "open"},
+            details=merged_details,
             recoverable=False,
             **kwargs
         )
@@ -573,10 +678,13 @@ class SystemException(MakeVideoBaseException):
 class DiskFullException(SystemException):
     """Disk space exhausted"""
     def __init__(self, path: str, required_mb: int = None, available_mb: int = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"path": path, "required_mb": required_mb, "available_mb": available_mb})
         super().__init__(
             f"Disk full: {path}" + (f" (need {required_mb}MB, have {available_mb}MB)" if required_mb else ""),
             ErrorCode.DISK_FULL,
-            details={"path": path, "required_mb": required_mb, "available_mb": available_mb},
+            details=merged_details,
             **kwargs
         )
 
@@ -584,10 +692,13 @@ class DiskFullException(SystemException):
 class OutOfMemoryException(SystemException):
     """Memory exhausted"""
     def __init__(self, operation: str, required_mb: int = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"operation": operation, "required_mb": required_mb})
         super().__init__(
             f"Out of memory: {operation}" + (f" (required: {required_mb}MB)" if required_mb else ""),
             ErrorCode.OUT_OF_MEMORY,
-            details={"operation": operation, "required_mb": required_mb},
+            details=merged_details,
             **kwargs
         )
 
@@ -595,10 +706,13 @@ class OutOfMemoryException(SystemException):
 class RedisUnavailableException(SystemException):
     """Redis connection unavailable"""
     def __init__(self, reason: str = None, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"reason": reason})
         super().__init__(
             f"Redis unavailable" + (f": {reason}" if reason else ""),
             ErrorCode.REDIS_UNAVAILABLE,
-            details={"reason": reason},
+            details=merged_details,
             recoverable=True,
             **kwargs
         )
@@ -607,10 +721,13 @@ class RedisUnavailableException(SystemException):
 class PermissionDeniedException(SystemException):
     """Permission denied for file/directory operation"""
     def __init__(self, path: str, operation: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"path": path, "operation": operation})
         super().__init__(
             f"Permission denied: {operation} on {path}",
             ErrorCode.PERMISSION_DENIED,
-            details={"path": path, "operation": operation},
+            details=merged_details,
             **kwargs
         )
 
@@ -618,10 +735,13 @@ class PermissionDeniedException(SystemException):
 class ConfigurationException(SystemException):
     """Invalid configuration"""
     def __init__(self, config_key: str, reason: str, **kwargs):
+        # Extract details from kwargs to prevent conflicts
+        merged_details = kwargs.pop('details', {})
+        merged_details.update({"config_key": config_key, "reason": reason})
         super().__init__(
             f"Configuration error: {config_key} ({reason})",
             ErrorCode.CONFIGURATION_ERROR,
-            details={"config_key": config_key, "reason": reason},
+            details=merged_details,
             **kwargs
         )
 

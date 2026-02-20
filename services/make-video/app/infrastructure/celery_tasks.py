@@ -26,10 +26,11 @@ from ..services.subtitle_postprocessor import process_subtitles_with_vad
 from ..video_processing.video_validator import VideoValidator
 from ..services.blacklist_factory import get_blacklist
 from .file_logger import FileLogger
-from ..shared.exceptions import (
-    MakeVideoException,
-    AudioProcessingException,
-    VideoProcessingException,
+from ..shared.exceptions_v2 import (
+    MakeVideoBaseException as MakeVideoException,
+    AudioException as AudioProcessingException,
+    VideoException as VideoProcessingException,
+    SubtitleGenerationException,
     MicroserviceException,
     ErrorCode
 )
@@ -863,10 +864,21 @@ async def _process_make_video_async(job_id: str):
             subtitle_path = Path('/tmp/make-video-temp') / job_id / "subtitles.srt"
             words_per_caption = int(settings.get('words_per_caption', 2))
             
-            # DEBUG
+            # VALIDAÇÃO CRÍTICA: final_cues NÃO pode estar vazio
             logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
             if not final_cues:
                 logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
+                raise SubtitleGenerationException(
+                    reason="No valid subtitle cues after speech gating (VAD processing)",
+                    subtitle_path=str(subtitle_path),
+                    details={
+                        "raw_cues_count": len(raw_cues),
+                        "final_cues_count": 0,
+                        "vad_ok": vad_ok,
+                        "problem": "All subtitle cues were filtered out during VAD processing",
+                        "recommendation": "Check VAD threshold settings or audio quality"
+                    }
+                )
             
             # Gerar SRT usando os cues filtrados por VAD
             from ..services.subtitle_generator import SubtitleGenerator

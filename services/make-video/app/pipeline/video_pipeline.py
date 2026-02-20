@@ -787,6 +787,9 @@ class VideoPipeline:
             video_id: ID do vídeo
             transform_path: Caminho do vídeo transformado
             metadata: Metadados da validação
+            
+        Returns:
+            Caminho do vídeo aprovado ou None se falhou
         """
         logger.info(f"✅ APPROVE: Movendo {video_id} para approved/")
         
@@ -811,8 +814,11 @@ class VideoPipeline:
             # Limpar pastas anteriores
             await self._cleanup_previous_stages(video_id)
             
+            return str(approved_path)
+            
         except Exception as e:
             logger.error(f"❌ Erro ao aprovar: {e}", exc_info=True)
+            return None
     
     async def reject_video(self, video_id: str, metadata: Dict):
         """
