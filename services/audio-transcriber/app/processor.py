@@ -83,56 +83,6 @@ class TranscriptionProcessor:
         manager = self._get_model_manager(engine)
         return manager.device if hasattr(manager, 'device') and manager.device else 'cpu'
     
-<<<<<<< HEAD
-    def _load_model(self):
-        """Carrega modelo Whisper (lazy loading) com detecção de GPU"""
-        if self.model is None:
-            try:
-                model_name = self.settings.get('whisper_model', 'base')
-                tries = int(self.settings.get('model_load_retries', 3))
-                delay = float(self.settings.get('model_load_backoff', 2.0))
-                download_root = self.model_dir
-                last_err = None
-                
-                for i in range(tries):
-                    try:
-                        
-                        # Detecta dispositivo disponível
-                        self.device = self._detect_device()
-                        
-                        logger.info(f"📦 Carregando modelo Whisper: {model_name}")
-                        logger.info(f"   └─ Dispositivo: {self.device}")
-                        logger.info(f"   └─ Diretório: {download_root}")
-                        
-                        # Garante que o diretório existe
-                        Path(download_root).mkdir(parents=True, exist_ok=True)
-                        
-                        # Testa GPU se disponível
-                        if self.device == 'cuda':
-                            try:
-                                self._test_gpu()
-                            except Exception:
-                                logger.warning("Falha no teste da GPU, trocando para CPU…")
-                                self.device = 'cpu'
-                                
-                        # Carrega modelo
-                        self.model = whisper.load_model(model_name, device=self.device, download_root=download_root)
-                        
-                        self.model_loaded = True
-                        logger.info(f"✅ Modelo Whisper carregado com sucesso no {self.device.upper()}")
-                            
-                        return
-                    except Exception as e:
-                        last_err = e
-                        logger.error(f"❌ Falha ao carregar modelo (tentativa {i+1}/{tries}): {e}")
-                        if i < tries - 1:
-                            time_sleep = delay * (2 ** i)
-                            logger.info(f"⏳ Retentando em {time_sleep} segundos...")
-                            time.sleep(time_sleep)
-            except Exception as e:
-                logger.error(f"❌ Erro ao carregar modelo Whisper: {e}")
-                raise AudioTranscriptionException(f"Falha ao carregar modelo após {tries} tentativas: {last_err}")
-=======
     def _load_model(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
         """
         Carrega modelo usando o engine especificado.
@@ -161,7 +111,6 @@ class TranscriptionProcessor:
         self.model_loaded = True
         
         logger.info(f"✅ Modelo {engine.value} carregado no {self.device.upper()}")
->>>>>>> 741fcc8eec86bf4d9f080ee7b5237e5ad308e36c
 
     def _test_gpu(self):
         """Legacy method - faster-whisper handles GPU automatically"""
@@ -606,24 +555,7 @@ class TranscriptionProcessor:
             try:
                 if needs_translation:
                     # Traduzir para inglês usando task="translate" explicitamente
-<<<<<<< HEAD
-                    transcribe_options = base_options.copy()
-                    transcribe_options["task"] = "translate"  # Força tradução para inglês
-                    transcribe_options["word_timestamps"] = True  # ✅ Timestamps palavra-por-palavra
-                    # Não especifica language para deixar Whisper detectar automaticamente
-                    logger.info(f"🌐 Usando Whisper com task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
-                    result = self.model.transcribe(audio_file, **transcribe_options)
-                    logger.info(f"✅ Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
-                else:
-                    # Transcrever no idioma original usando task="transcribe" explicitamente
-                    transcribe_options = base_options.copy()
-                    transcribe_options["task"] = "transcribe"  # Força transcrição no idioma original
-                    transcribe_options["language"] = None if language_in == "auto" else language_in
-                    transcribe_options["word_timestamps"] = True  # ✅ Timestamps palavra-por-palavra
-                    logger.info(f"📝 Usando Whisper com task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
-                    result = self.model.transcribe(audio_file, **transcribe_options)
-=======
-                    logger.info(f"🌐 Usando Faster-Whisper task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
+                    logger.info(f"🌐 Usando {self.current_engine.value} task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
                     result = self.model_manager.transcribe(
                         Path(audio_file),
                         language=None if language_in == "auto" else language_in,
@@ -633,14 +565,13 @@ class TranscriptionProcessor:
                     logger.info(f"✅ Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
                 else:
                     # Transcrever no idioma original usando task="transcribe" explicitamente
-                    logger.info(f"📝 Usando Faster-Whisper task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
+                    logger.info(f"📝 Usando {self.current_engine.value} task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
                     result = self.model_manager.transcribe(
                         Path(audio_file),
                         language=None if language_in == "auto" else language_in,
                         task="transcribe",
                         **base_options
                     )
->>>>>>> 741fcc8eec86bf4d9f080ee7b5237e5ad308e36c
                     logger.info(f"✅ Transcrição concluída. Idioma: {result.get('language', language_in)}")
                 
                 return result
