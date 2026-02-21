@@ -1,13 +1,15 @@
 import os
 import asyncio
 from pathlib import Path
-import whisper
-import torch
 import logging
+import torch
 from pydub import AudioSegment
-from .models import Job, JobStatus, TranscriptionSegment
+from .models import Job, JobStatus, TranscriptionSegment, WhisperEngine
 from .exceptions import AudioTranscriptionException
 from .config import get_settings
+from .faster_whisper_manager import FasterWhisperModelManager
+from .openai_whisper_manager import OpenAIWhisperManager
+from .whisperx_manager import WhisperXManager
 import time
 
 logger = logging.getLogger(__name__)
@@ -16,12 +18,38 @@ logger = logging.getLogger(__name__)
 class TranscriptionProcessor:
     def __init__(self, output_dir=None, model_dir=None):
         self.job_store = None  # Will be injected
-        self.model = None  # Lazy loading
         self.settings = get_settings()
         self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
-        self.device = None  # Will be set in _load_model
-        self.model_loaded = False  # Track if model is loaded
+        
+        # Managers para diferentes engines
+        self.model_managers = {}
+        self.current_engine = WhisperEngine.FASTER_WHISPER
+        
+        # Backwards compatibility
+        self.model_manager = None  # Será definido quando carregar
+        self.model = None  # Para compatibilidade
+        self.device = None
+        self.model_loaded = False
+    
+    def _get_model_manager(self, engine: WhisperEngine):
+        """
+        Retorna o model manager para o engine especificado.
+        Cria e cacheia managers sob demanda.
+        """
+        if engine not in self.model_managers:
+            logger.info(f"🔧 Criando manager para engine: {engine.value}")
+            
+            if engine == WhisperEngine.FASTER_WHISPER:
+                self.model_managers[engine] = FasterWhisperModelManager(model_dir=Path(self.model_dir))
+            elif engine == WhisperEngine.OPENAI_WHISPER:
+                self.model_managers[engine] = OpenAIWhisperManager(model_dir=Path(self.model_dir))
+            elif engine == WhisperEngine.WHISPERX:
+                self.model_managers[engine] = WhisperXManager(model_dir=Path(self.model_dir))
+            else:
+                raise AudioTranscriptionException(f"Engine não suportado: {engine}")
+        
+        return self.model_managers[engine]
     
     def _check_disk_space(self, file_path: str, output_dir: str) -> bool:
         """Verifica se há espaço em disco suficiente para transcrição."""
@@ -50,41 +78,12 @@ class TranscriptionProcessor:
             logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
             return True  # fail-open
     
-    def _detect_device(self):
-        """Detecta e valida dispositivo (CUDA/CPU) disponível"""
-        requested_device = self.settings.get('whisper_device', 'cpu').lower()
-        
-        # Verifica disponibilidade de CUDA
-        cuda_available = torch.cuda.is_available()
-        
-        if cuda_available:
-            device_count = torch.cuda.device_count()
-            device_name = torch.cuda.get_device_name(0)
-            cuda_version = torch.version.cuda
-            logger.info(f"🎮 CUDA DISPONÍVEL!")
-            logger.info(f"   └─ GPUs detectadas: {device_count}")
-            logger.info(f"   └─ GPU 0: {device_name}")
-            logger.info(f"   └─ CUDA Version: {cuda_version}")
-            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
-        else:
-            logger.warning("⚠️ CUDA NÃO DISPONÍVEL - usando CPU")
-            logger.info(f"   └─ PyTorch Version: {torch.__version__}")
-            logger.info(f"   └─ CUDA Built: {torch.version.cuda}")
-        
-        # Decide qual dispositivo usar
-        if requested_device == 'cuda':
-            if cuda_available:
-                device = 'cuda'
-                logger.info(f"✅ Usando GPU (CUDA)")
-            else:
-                device = 'cpu'
-                logger.warning(f"⚠️ CUDA solicitado mas não disponível. Fallback para CPU.")
-        else:
-            device = 'cpu'
-            logger.info(f"ℹ️ Usando CPU (conforme configuração)")
-        
-        return device
+    def _detect_device(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
+        """Detecta dispositivo para o engine especificado"""
+        manager = self._get_model_manager(engine)
+        return manager.device if hasattr(manager, 'device') and manager.device else 'cpu'
     
+<<<<<<< HEAD
     def _load_model(self):
         """Carrega modelo Whisper (lazy loading) com detecção de GPU"""
         if self.model is None:
@@ -133,29 +132,40 @@ class TranscriptionProcessor:
             except Exception as e:
                 logger.error(f"❌ Erro ao carregar modelo Whisper: {e}")
                 raise AudioTranscriptionException(f"Falha ao carregar modelo após {tries} tentativas: {last_err}")
+=======
+    def _load_model(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
+        """
+        Carrega modelo usando o engine especificado.
+        
+        Args:
+            engine: Engine a ser usado (faster-whisper, openai-whisper, whisperx)
+        """
+        manager = self._get_model_manager(engine)
+        
+        # Verifica se já está carregado
+        if manager.is_loaded:
+            logger.info(f"ℹ️ Modelo {engine.value} já está carregado")
+            self.model_manager = manager
+            self.current_engine = engine
+            self.model_loaded = True
+            self.device = manager.device
+            return
+        
+        logger.info(f"📦 Carregando modelo {engine.value}...")
+        manager.load_model()
+        
+        # Atualiza referências
+        self.model_manager = manager
+        self.current_engine = engine
+        self.device = manager.device
+        self.model_loaded = True
+        
+        logger.info(f"✅ Modelo {engine.value} carregado no {self.device.upper()}")
+>>>>>>> 741fcc8eec86bf4d9f080ee7b5237e5ad308e36c
 
     def _test_gpu(self):
-        """Testa se GPU está realmente funcionando"""
-        try:
-            # Cria tensor de teste na GPU
-            test_tensor = torch.randn(1000, 1000).to('cuda')
-            result = test_tensor @ test_tensor.T
-            
-            # Verifica memória GPU
-            memory_allocated = torch.cuda.memory_allocated(0) / 1024**2  # MB
-            memory_reserved = torch.cuda.memory_reserved(0) / 1024**2    # MB
-            
-            logger.info(f"🔥 GPU funcionando corretamente!")
-            logger.info(f"   └─ Memória Alocada: {memory_allocated:.2f} MB")
-            logger.info(f"   └─ Memória Reservada: {memory_reserved:.2f} MB")
-            
-            # Limpa tensor de teste
-            del test_tensor, result
-            torch.cuda.empty_cache()
-            
-        except Exception as e:
-            logger.error(f"⚠️ Erro ao testar GPU: {e}")
-            logger.warning("GPU pode não estar funcionando corretamente")
+        """Legacy method - faster-whisper handles GPU automatically"""
+        pass
     
     def unload_model(self) -> dict:
         """
@@ -449,8 +459,10 @@ class TranscriptionProcessor:
             
             logger.info(f"🎵 Processando arquivo: {job.input_file}")
             
-            # Carrega modelo se necessário
-            self._load_model()
+            # Carrega modelo do engine especificado no job
+            engine = job.engine if hasattr(job, 'engine') else WhisperEngine.FASTER_WHISPER
+            logger.info(f"🔧 Usando engine: {engine.value}")
+            self._load_model(engine)
             
             # Atualiza progresso
             job.progress = 25.0
@@ -594,6 +606,7 @@ class TranscriptionProcessor:
             try:
                 if needs_translation:
                     # Traduzir para inglês usando task="translate" explicitamente
+<<<<<<< HEAD
                     transcribe_options = base_options.copy()
                     transcribe_options["task"] = "translate"  # Força tradução para inglês
                     transcribe_options["word_timestamps"] = True  # ✅ Timestamps palavra-por-palavra
@@ -609,6 +622,25 @@ class TranscriptionProcessor:
                     transcribe_options["word_timestamps"] = True  # ✅ Timestamps palavra-por-palavra
                     logger.info(f"📝 Usando Whisper com task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
                     result = self.model.transcribe(audio_file, **transcribe_options)
+=======
+                    logger.info(f"🌐 Usando Faster-Whisper task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
+                    result = self.model_manager.transcribe(
+                        Path(audio_file),
+                        language=None if language_in == "auto" else language_in,
+                        task="translate",
+                        **base_options
+                    )
+                    logger.info(f"✅ Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
+                else:
+                    # Transcrever no idioma original usando task="transcribe" explicitamente
+                    logger.info(f"📝 Usando Faster-Whisper task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
+                    result = self.model_manager.transcribe(
+                        Path(audio_file),
+                        language=None if language_in == "auto" else language_in,
+                        task="transcribe",
+                        **base_options
+                    )
+>>>>>>> 741fcc8eec86bf4d9f080ee7b5237e5ad308e36c
                     logger.info(f"✅ Transcrição concluída. Idioma: {result.get('language', language_in)}")
                 
                 return result

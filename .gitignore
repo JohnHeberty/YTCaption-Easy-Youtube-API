@@ -83,3 +83,7 @@ dmypy.json
 
 # Docker
 *.dockerfile.swp
+
+# Whisper models (large files)
+services/audio-transcriber/models/
+services/*/models/models--*/

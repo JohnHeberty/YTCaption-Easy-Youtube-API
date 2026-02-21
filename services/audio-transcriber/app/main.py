@@ -153,7 +153,8 @@ async def create_transcription_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     language_in: str = Form("auto"),
-    language_out: Optional[str] = Form(None)
+    language_out: Optional[str] = Form(None),
+    engine: str = Form("faster-whisper")
 ) -> Job:
     """
     Cria um novo job de transcrição/tradução de áudio
@@ -164,16 +165,36 @@ async def create_transcription_job(
     - **language_out**: (Opcional) Código do idioma de saída para tradução (ISO 639-1).
                         Se omitido, usa o mesmo idioma detectado/especificado em language_in.
                         Exemplos: 'pt', 'en', 'es', 'fr', etc.
+    - **engine**: (Opcional) Engine de transcrição Whisper: 
+                  - 'faster-whisper' (padrão): 4x mais rápido, word timestamps nativos
+                  - 'openai-whisper': Original da OpenAI, compatibilidade máxima
+                  - 'whisperx': Word-level timestamps com forced alignment (mais preciso)
     
     **Exemplos de uso**:
     - Transcrever em português: language_in='pt', language_out=None
     - Detectar idioma e transcrever: language_in='auto', language_out=None
     - Traduzir inglês para português: language_in='en', language_out='pt'
     - Detectar e traduzir para inglês: language_in='auto', language_out='en'
+    - Usar whisperX para timestamps precisos: engine='whisperx'
     
     Use GET /languages para ver todos os idiomas suportados.
     """
     try:
+        # Validação de engine
+        from .models import WhisperEngine
+        try:
+            engine_enum = WhisperEngine(engine)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "Engine não suportado",
+                    "engine_provided": engine,
+                    "supported_engines": [e.value for e in WhisperEngine],
+                    "note": "Use 'faster-whisper' (padrão, 4x mais rápido), 'openai-whisper' ou 'whisperx'"
+                }
+            )
+        
         # Validação de linguagem de entrada
         if not is_language_supported(language_in):
             supported = get_supported_languages()
@@ -207,10 +228,10 @@ async def create_transcription_job(
             if language_out == language_in and language_in != "auto":
                 logger.warning(f"language_out='{language_out}' igual a language_in='{language_in}', tradução não será aplicada")
         
-        logger.info(f"Criando job: arquivo={file.filename}, language_in={language_in}, language_out={language_out or 'same'}")
+        logger.info(f"Criando job: arquivo={file.filename}, language_in={language_in}, language_out={language_out or 'same'}, engine={engine}")
         
         # Cria job para extrair ID
-        new_job = Job.create_new(file.filename, "transcribe", language_in, language_out)
+        new_job = Job.create_new(file.filename, "transcribe", language_in, language_out, engine_enum)
         
         # Verifica se já existe job com mesmo ID
         existing_job = job_store.get_job(new_job.id)

@@ -1,11 +1,12 @@
 # Audio Transcriber Service - Enterprise Grade
 
-Serviço de transcrição de áudio de alta resiliência usando Whisper AI com arquitetura empresarial completa.
+Serviço de transcrição de áudio de alta resiliência usando **Faster-Whisper** com arquitetura empresarial completa.
 
 ## 🚀 Características Principais
 
 ### Core Features
-- ✅ **Transcrição AI** - OpenAI Whisper com múltiplos modelos (tiny, base, small, medium, large)
+- ✅ **Transcrição AI** - Faster-Whisper (4x mais rápido que OpenAI Whisper)
+- ✅ **Word-Level Timestamps** - Sincronização perfeita palavra-por-palavra
 - ✅ **Múltiplos Formatos** - WAV, MP3, M4A, FLAC, OGG com conversão automática
 - ✅ **Saídas Flexíveis** - SRT, VTT, TXT, JSON com formatação precisa
 - ✅ **Processamento Assíncrono** - Jobs em background com monitoramento em tempo real
@@ -22,22 +23,50 @@ Serviço de transcrição de áudio de alta resiliência usando Whisper AI com a
 
 ### Performance & Scalability
 - ✅ **Processamento Concorrente** - Multiple job processing com resource management
+- ✅ **CPU Otimizado** - Faster-Whisper com CTranslate2 (int8 compute)
 - ✅ **GPU Acceleration** - Auto-detecção CUDA com fallback para CPU
 - ✅ **Resource Management** - Monitoramento CPU/GPU/memória com auto-scaling
 - ✅ **Cleanup Automático** - Gestão de arquivos temporários e jobs expirados
 
-## 🚀 Iniciar Serviços
+## 🚀 Quick Start
 
-### Docker Compose (RECOMENDADO)
-```powershell
-cd services/audio-normalization-service
-docker-compose up -d
+### Usando Makefile (Recomendado)
+```bash
+# Desenvolvimento local
+make install          # Instalar dependências
+make model-download   # Baixar modelo Whisper
+make dev              # Rodar localmente
+
+# Produção
+make prod-up          # Deploy em produção
+make api-health       # Verificar saúde
+make prod-logs        # Ver logs
+
+# Ver todos os comandos
+make help
+```
+
+### Docker Compose
+```bash
+# Desenvolvimento
+docker compose up -d
+
+# Produção (CPU otimizado)
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 ### Ver logs
-```powershell
-docker-compose logs -f
+```bash
+make logs
+# OU
+docker compose logs -f
 ```
+
+## 📖 Documentação
+
+- **[PRODUCTION.md](./PRODUCTION.md)** - Guia completo de produção
+- **[MODEL-MANAGEMENT.md](./MODEL-MANAGEMENT.md)** - Gerenciamento de modelos
+- **[ADMIN_ENDPOINTS_STANDARDIZATION.md](../../docs/ADMIN_ENDPOINTS_STANDARDIZATION.md)** - Endpoints administrativos
 
 ## 📊 Endpoints
 

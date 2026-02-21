@@ -12,6 +12,19 @@ class JobStatus(str, Enum):
     FAILED = "failed"
 
 
+class WhisperEngine(str, Enum):
+    """
+    Engines de transcrição Whisper disponíveis.
+    
+    - faster-whisper: Padrão. 4x mais rápido, menos VRAM, word timestamps nativos
+    - openai-whisper: Original da OpenAI, mais lento mas compatível
+    - whisperx: Word-level timestamps com forced alignment (mais preciso)
+    """
+    FASTER_WHISPER = "faster-whisper"
+    OPENAI_WHISPER = "openai-whisper"
+    WHISPERX = "whisperx"
+
+
 class TranscriptionSegment(BaseModel):
     """
     Segmento de transcrição com timestamps.
@@ -85,9 +98,22 @@ class TranscriptionResponse(BaseModel):
 
 
 class JobRequest(BaseModel):
-    operation: Optional[str] = "transcribe"  # transcribe, translate, etc.
-    language_in: Optional[str] = "auto"  # auto, pt, en, etc.
-    language_out: Optional[str] = None  # pt, en, es, etc. (None = mesmo que language_in)
+    operation: Optional[str] = Field(
+        default="transcribe",
+        description="Operação: transcribe (transcrever) ou translate (traduzir para inglês)"
+    )
+    language_in: Optional[str] = Field(
+        default="auto",
+        description="Idioma de entrada: auto (detectar), pt, en, es, etc."
+    )
+    language_out: Optional[str] = Field(
+        default=None,
+        description="Idioma de saída para tradução: pt, en, es, etc. (None = sem tradução)"
+    )
+    engine: Optional[WhisperEngine] = Field(
+        default=WhisperEngine.FASTER_WHISPER,
+        description="Engine de transcrição: faster-whisper (padrão, 4x mais rápido), openai-whisper, whisperx"
+    )
 
 
 class Job(BaseModel):
@@ -99,6 +125,7 @@ class Job(BaseModel):
     language_in: str = "auto"  # Idioma de entrada/origem
     language_out: Optional[str] = None  # Idioma de saída/tradução (None = mesmo que language_in)
     language_detected: Optional[str] = None  # Idioma detectado pelo Whisper (quando language_in="auto")
+    engine: WhisperEngine = WhisperEngine.FASTER_WHISPER  # Engine de transcrição usado
     filename: Optional[str] = None
     file_size_input: Optional[int] = None
     file_size_output: Optional[int] = None
@@ -145,10 +172,11 @@ class Job(BaseModel):
         filename: str, 
         operation: str = "transcribe", 
         language_in: str = "auto",
-        language_out: Optional[str] = None
+        language_out: Optional[str] = None,
+        engine: WhisperEngine = WhisperEngine.FASTER_WHISPER
     ) -> "Job":
-        # Calcula hash do nome do arquivo + operação + idiomas para criar ID único
-        hash_input = f"{filename}_{operation}_{language_in}_{language_out or 'none'}"
+        # Calcula hash do nome do arquivo + operação + idiomas + engine para criar ID único
+        hash_input = f"{filename}_{operation}_{language_in}_{language_out or 'none'}_{engine}"
         job_id = "{}_{}_{}".format(
             hashlib.md5(hash_input.encode()).hexdigest()[:12], 
             operation, 
@@ -165,6 +193,7 @@ class Job(BaseModel):
             operation=operation,
             language_in=language_in,
             language_out=language_out,
+            engine=engine,
             filename=filename,
             received_at=now,
             created_at=now,
