@@ -75,6 +75,7 @@ class SpeechGatedSubtitles:
         self,
         pre_pad: float = 0.06,
         post_pad: float = 0.12,
+        word_post_pad: float = 0.03,  # 🆕 Micro folga por palavra
         min_duration: float = 0.12,
         merge_gap: float = 0.12,
         vad_threshold: float = 0.5,
@@ -82,6 +83,7 @@ class SpeechGatedSubtitles:
     ):
         self.pre_pad = pre_pad
         self.post_pad = post_pad
+        self.word_post_pad = word_post_pad  # 🆕 Novo parâmetro
         self.min_duration = min_duration
         self.merge_gap = merge_gap
         self.vad_threshold = vad_threshold
@@ -331,21 +333,33 @@ class SpeechGatedSubtitles:
                 dropped_count += 1
                 continue
             
+            # ────────────────────────────────────────────────────────────
             # CLAMP: ajustar start/end para dentro do segment (com padding)
-            clamped_start = max(
-                intersecting_segment.start - self.pre_pad,
-                cue.start
-            )
-            # Corrigido: clamp até fim da fala + padding OU duração total
-            clamped_end = min(
-                audio_duration,
-                intersecting_segment.end + self.post_pad
-            )
-            # Não limitar pelo cue.end original (permite estender)
+            # ────────────────────────────────────────────────────────────
+            # 🔧 CORREÇÃO: RESPEITAR cue.end original (não estender demais)
+            # Problema anterior: clamped_end ia até segment.end + post_pad,
+            # fazendo palavras "durarem demais" e causando sobreposição
+            
+            # Limites permitidos pelo speech segment
+            allowed_start = max(0.0, intersecting_segment.start - self.pre_pad)
+            allowed_end = min(audio_duration, intersecting_segment.end + self.post_pad)
+            
+            # Start: limitar ao range permitido
+            clamped_start = max(allowed_start, cue.start)
+            
+            # End: usar o MENOR entre:
+            #   1. cue.end + word_post_pad (micro folga)
+            #   2. allowed_end (fim do speech segment + post_pad)
+            # Isso evita que palavras "se estendam" até o fim da fala
+            clamped_end = min(allowed_end, cue.end + self.word_post_pad)
             
             # Garantir duração mínima
             if clamped_end - clamped_start < self.min_duration:
-                clamped_end = min(audio_duration, clamped_start + self.min_duration)
+                clamped_end = min(allowed_end, clamped_start + self.min_duration)
+            
+            # Garantia final: end >= start
+            if clamped_end <= clamped_start:
+                clamped_end = min(allowed_end, clamped_start + self.min_duration)
             
             gated_cues.append(SubtitleCue(
                 index=cue.index,
