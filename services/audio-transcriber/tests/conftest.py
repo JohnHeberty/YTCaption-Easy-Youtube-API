@@ -7,10 +7,9 @@ import sys
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Generator, Dict
+from typing import Generator, Dict, List, Any
 import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock
 
 # Adiciona o diretório app ao path
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
@@ -116,16 +115,24 @@ def empty_audio_file(temp_dir: Path) -> Path:
 
 
 # ============================================================================
-# FIXTURES DE MODELOS E SERVIÇOS
+# FIXTURES DE MODELOS E SERVIÇOS (SEM MOCK)
 # ============================================================================
 
-@pytest.fixture
-def mock_whisper_model():
-    """Mock do modelo Faster-Whisper."""
-    mock = Mock()
-    mock.transcribe.return_value = (
-        [
-            Mock(
+class StubWhisperSegment:
+    """Stub para segmento de transcrição Whisper"""
+    def __init__(self, start: float, end: float, text: str, words: List[Dict[str, Any]]):
+        self.start = start
+        self.end = end
+        self.text = text
+        self.words = words
+
+
+class StubWhisperModel:
+    """Stub do modelo Faster-Whisper (sem Mock)"""
+    def transcribe(self, audio_path: str, **kwargs):
+        """Retorna transcrição stub"""
+        segments = [
+            StubWhisperSegment(
                 start=0.0,
                 end=2.5,
                 text="Hello world",
@@ -134,7 +141,7 @@ def mock_whisper_model():
                     {"start": 0.5, "end": 2.5, "word": "world"}
                 ]
             ),
-            Mock(
+            StubWhisperSegment(
                 start=2.5,
                 end=5.0,
                 text="This is a test",
@@ -145,29 +152,115 @@ def mock_whisper_model():
                     {"start": 4.0, "end": 5.0, "word": "test"}
                 ]
             )
-        ],
-        {"language": "en", "duration": 5.0}
-    )
-    return mock
+        ]
+        info = {"language": "en", "duration": 5.0}
+        return segments, info
 
 
 @pytest.fixture
-def mock_redis_client():
-    """Mock do cliente Redis."""
-    mock = Mock()
-    mock.ping.return_value = True
-    mock.get.return_value = None
-    mock.set.return_value = True
-    mock.exists.return_value = False
-    return mock
+def stub_whisper_model():
+    """Stub do modelo Faster-Whisper (sem Mock)"""
+    return StubWhisperModel()
+
+
+class StubRedisClient:
+    """Stub do cliente Redis (sem Mock)"""
+    def __init__(self):
+        self.data = {}
+    
+    def ping(self):
+        return True
+    
+    def get(self, key):
+        return self.data.get(key)
+    
+    def set(self, key, value):
+        self.data[key] = value
+        return True
+    
+    def setex(self, key, ttl, value):
+        self.data[key] = value
+        return True
+    
+    def exists(self, key):
+        return key in self.data
+    
+    def delete(self, key):
+        self.data.pop(key, None)
+        return True
+    
+    def keys(self, pattern):
+        # Simple pattern matching
+        prefix = pattern.replace('*', '')
+        return [k.encode() for k in self.data.keys() if k.startswith(prefix)]
+    
+    def zadd(self, key, mapping):
+        return True
+    
+    def zcard(self, key):
+        return 0
+    
+    def zremrangebyscore(self, key, min_score, max_score):
+        return 0
+    
+    def zrange(self, key, start, end, withscores=False):
+        return []
+    
+    def zrem(self, key, *members):
+        return True
+    
+    def pipeline(self):
+        return StubRedisPipeline(self)
+
+
+class StubRedisPipeline:
+    """Stub do pipeline Redis"""
+    def __init__(self, client):
+        self.client = client
+        self.commands = []
+    
+    def zremrangebyscore(self, key, min_score, max_score):
+        self.commands.append(0)
+        return self
+    
+    def zcard(self, key):
+        self.commands.append(0)
+        return self
+    
+    def zadd(self, key, mapping):
+        self.commands.append(1)
+        return self
+    
+    def expire(self, key, ttl):
+        self.commands.append(1)
+        return self
+    
+    def execute(self):
+        return self.commands
 
 
 @pytest.fixture
-def mock_celery_app():
-    """Mock do Celery app."""
-    mock = Mock()
-    mock.send_task = Mock(return_value=Mock(id="test-task-id"))
-    return mock
+def stub_redis_client():
+    """Stub do cliente Redis (sem Mock)"""
+    return StubRedisClient()
+
+
+class StubTaskResult:
+    """Stub do resultado de task Celery"""
+    def __init__(self, task_id: str):
+        self.id = task_id
+
+
+class StubCeleryApp:
+    """Stub do Celery app (sem Mock)"""
+    def send_task(self, name, args=None, kwargs=None):
+        return StubTaskResult("test-task-id")
+
+
+@pytest.fixture
+def stub_celery_app():
+    """Stub do Celery app (sem Mock)"""
+    return StubCeleryApp()
 
 
 # ============================================================================

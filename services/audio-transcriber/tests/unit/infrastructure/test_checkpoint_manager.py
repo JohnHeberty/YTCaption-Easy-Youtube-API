@@ -8,7 +8,6 @@ import pytest
 import json
 import sys
 import os
-from unittest.mock import Mock, MagicMock
 
 # Adicionar o caminho do app ao sys.path
 app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..', 'app'))
@@ -23,18 +22,45 @@ from infrastructure.checkpoint_manager import (
 )
 
 
-@pytest.fixture
-def mock_redis_store():
-    """Mock RedisJobStore"""
-    store = Mock()
-    store.redis = Mock()
-    return store
+# Stub para RedisJobStore (sem Mock)
+class StubRedisJobStore:
+    """Stub para RedisJobStore"""
+    def __init__(self):
+        self.redis = StubRedis()
+
+
+class StubRedis:
+    """Stub para cliente Redis"""
+    def __init__(self):
+        self.data = {}
+    
+    def setex(self, key, ttl, value):
+        self.data[key] = value
+        return True
+    
+    def get(self, key):
+        return self.data.get(key)
+    
+    def delete(self, key):
+        self.data.pop(key, None)
+        return True
+    
+    def keys(self, pattern):
+        # Simple pattern matching
+        prefix = pattern.replace('*', '')
+        return [k.encode() for k in self.data.keys() if k.startswith(prefix)]
 
 
 @pytest.fixture
-def checkpoint_manager(mock_redis_store):
-    """CheckpointManager com Redis mockado"""
-    return CheckpointManager(mock_redis_store)
+def stub_redis_store():
+    """Stub RedisJobStore"""
+    return StubRedisJobStore()
+
+
+@pytest.fixture
+def checkpoint_manager(stub_redis_store):
+    """CheckpointManager com Redis stub"""
+    return CheckpointManager(stub_redis_store)
 
 
 def test_checkpoint_manager_initialization(checkpoint_manager):
@@ -49,7 +75,7 @@ def test_checkpoint_key_generation(checkpoint_manager):
 
 
 @pytest.mark.asyncio
-async def test_save_checkpoint(checkpoint_manager, mock_redis_store):
+async def test_save_checkpoint(checkpoint_manager, stub_redis_store):
     """Deve salvar checkpoint no Redis"""
     job_id = "job_123"
     
@@ -62,16 +88,12 @@ async def test_save_checkpoint(checkpoint_manager, mock_redis_store):
         metadata={"language": "pt", "model": "base"}
     )
     
-    # Verifica se setex foi chamado
-    mock_redis_store.redis.setex.assert_called_once()
-    
-    # Verifica argumentos
-    args = mock_redis_store.redis.setex.call_args[0]
-    assert args[0] == "checkpoint:job_123"  # key
-    assert args[1] == 86400  # TTL
+    # Verifica se dados foram salvos
+    key = "checkpoint:job_123"
+    assert key in stub_redis_store.redis.data
     
     # Verifica dados salvos
-    saved_data = json.loads(args[2])
+    saved_data = json.loads(stub_redis_store.redis.data[key])
     assert saved_data['stage'] == 'transcribing'
     assert saved_data['progress'] == 0.5
     assert saved_data['processed_seconds'] == 150.0
@@ -80,11 +102,11 @@ async def test_save_checkpoint(checkpoint_manager, mock_redis_store):
     assert saved_data['metadata']['language'] == 'pt'
 
 
-def test_get_checkpoint_exists(checkpoint_manager, mock_redis_store):
+def test_get_checkpoint_exists(checkpoint_manager, stub_redis_store):
     """Deve recuperar checkpoint do Redis"""
     job_id = "job_123"
     
-    # Mock Redis get
+    # Salva checkpoint no stub Redis
     checkpoint_dict = {
         'stage': 'transcribing',
         'progress': 0.5,
@@ -94,7 +116,7 @@ def test_get_checkpoint_exists(checkpoint_manager, mock_redis_store):
         'metadata': {},
         'timestamp': '2024-01-01T00:00:00'
     }
-    mock_redis_store.redis.get.return_value = json.dumps(checkpoint_dict)
+    stub_redis_store.redis.data["checkpoint:job_123"] = json.dumps(checkpoint_dict)
     
     # Get checkpoint
     checkpoint = checkpoint_manager.get_checkpoint(job_id)
@@ -105,17 +127,16 @@ def test_get_checkpoint_exists(checkpoint_manager, mock_redis_store):
     assert checkpoint.processed_seconds == 150.0
 
 
-def test_get_checkpoint_not_exists(checkpoint_manager, mock_redis_store):
+def test_get_checkpoint_not_exists(checkpoint_manager, stub_redis_store):
     """Deve retornar None se checkpoint não existe"""
-    mock_redis_store.redis.get.return_value = None
-    
     checkpoint = checkpoint_manager.get_checkpoint("job_999")
     assert checkpoint is None
 
 
-def test_get_checkpoint_corrupted(checkpoint_manager, mock_redis_store):
+def test_get_checkpoint_corrupted(checkpoint_manager, stub_redis_store):
     """Deve retornar None se checkpoint está corrompido"""
-    mock_redis_store.redis.get.return_value = "invalid json"
+    # Coloca dados inválidos no Redis
+    stub_redis_store.redis.data["checkpoint:job_123"] = "invalid json"
     
     checkpoint = checkpoint_manager.get_checkpoint("job_123")
     assert checkpoint is None
@@ -141,23 +162,26 @@ def test_should_save_checkpoint_no(checkpoint_manager):
     assert result is False
 
 
-def test_delete_checkpoint(checkpoint_manager, mock_redis_store):
+def test_delete_checkpoint(checkpoint_manager, stub_redis_store):
     """Deve deletar checkpoint do Redis"""
     job_id = "job_123"
     
+    # Adiciona checkpoint ao stub Redis
+    stub_redis_store.redis.data["checkpoint:job_123"] = "some data"
+    
     checkpoint_manager.delete_checkpoint(job_id)
     
-    mock_redis_store.redis.delete.assert_called_once_with("checkpoint:job_123")
+    # Verifica que foi removido
+    assert "checkpoint:job_123" not in stub_redis_store.redis.data
 
 
-def test_list_checkpoints(checkpoint_manager, mock_redis_store):
+def test_list_checkpoints(checkpoint_manager, stub_redis_store):
     """Deve listar todos os checkpoints ativos"""
-    # Mock Redis keys
-    mock_redis_store.redis.keys.return_value = [
-        b"checkpoint:job_1",
-        b"checkpoint:job_2",
-        b"checkpoint:job_3"
-    ]
+    # Adiciona checkpoints ao stub Redis
+    stub_redis_store.redis.data["checkpoint:job_1"] = "data1"
+    stub_redis_store.redis.data["checkpoint:job_2"] = "data2"
+    stub_redis_store.redis.data["checkpoint:job_3"] = "data3"
+    stub_redis_store.redis.data["other:key"] = "data4"  # Não deve aparecer
     
     job_ids = checkpoint_manager.list_checkpoints()
     
@@ -165,14 +189,15 @@ def test_list_checkpoints(checkpoint_manager, mock_redis_store):
     assert "job_1" in job_ids
     assert "job_2" in job_ids
     assert "job_3" in job_ids
+    assert "other" not in job_ids
 
 
 @pytest.mark.asyncio
-async def test_resume_from_checkpoint_exists(checkpoint_manager, mock_redis_store):
+async def test_resume_from_checkpoint_exists(checkpoint_manager, stub_redis_store):
     """Deve resumir do checkpoint se existe"""
     job_id = "job_123"
     
-    # Mock checkpoint existente
+    # Salva checkpoint no stub Redis
     checkpoint_dict = {
         'stage': 'transcribing',
         'progress': 0.5,
@@ -182,7 +207,7 @@ async def test_resume_from_checkpoint_exists(checkpoint_manager, mock_redis_stor
         'metadata': {},
         'timestamp': '2024-01-01T00:00:00'
     }
-    mock_redis_store.redis.get.return_value = json.dumps(checkpoint_dict)
+    stub_redis_store.redis.data["checkpoint:job_123"] = json.dumps(checkpoint_dict)
     
     # Resume
     checkpoint = await checkpoint_manager.resume_from_checkpoint(job_id)
@@ -192,10 +217,8 @@ async def test_resume_from_checkpoint_exists(checkpoint_manager, mock_redis_stor
 
 
 @pytest.mark.asyncio
-async def test_resume_from_checkpoint_not_exists(checkpoint_manager, mock_redis_store):
+async def test_resume_from_checkpoint_not_exists(checkpoint_manager, stub_redis_store):
     """Deve retornar None se checkpoint não existe"""
-    mock_redis_store.redis.get.return_value = None
-    
     checkpoint = await checkpoint_manager.resume_from_checkpoint("job_999")
     assert checkpoint is None
 

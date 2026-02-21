@@ -10,19 +10,14 @@ Valida que:
 import pytest
 from pathlib import Path
 import sys
-from unittest.mock import MagicMock, patch
-
-# Mock Redis ANTES de importar qualquer coisa do app
-sys.modules['redis'] = MagicMock()
-sys.modules['app.redis_store'] = MagicMock()
 
 from app.models import WhisperEngine, Job
 from app.faster_whisper_manager import FasterWhisperModelManager
 
 
-# Mock processor para evitar Redis
-class MockTranscriptionProcessor:
-    """Mock do processor que não precisa de Redis"""
+# Stub processor para evitar Redis
+class StubTranscriptionProcessor:
+    """Stub do processor que não precisa de Redis"""
     def __init__(self):
         from app.config import get_settings
         self.settings = get_settings()
@@ -83,7 +78,7 @@ class TestEngineSelection:
     
     def test_processor_creates_faster_whisper_manager(self):
         """Testa que processor cria FasterWhisperModelManager"""
-        processor = MockTranscriptionProcessor()
+        processor = StubTranscriptionProcessor()
         
         # Pega manager para faster-whisper
         manager = processor._get_model_manager(WhisperEngine.FASTER_WHISPER)
@@ -93,7 +88,7 @@ class TestEngineSelection:
     
     def test_processor_caches_managers(self):
         """Testa que processor cacheia managers"""
-        processor = MockTranscriptionProcessor()
+        processor = StubTranscriptionProcessor()
         
         # Pega manager duas vezes
         manager1 = processor._get_model_manager(WhisperEngine.FASTER_WHISPER)
@@ -120,7 +115,7 @@ class TestEngineSelection:
     
     def test_processor_handles_openai_whisper_not_installed(self):
         """Testa que processor lida com openai-whisper não instalado"""
-        processor = MockTranscriptionProcessor()
+        processor = StubTranscriptionProcessor()
         
         # Tenta criar manager para openai-whisper
         try:
@@ -139,7 +134,7 @@ class TestEngineSelection:
     
     def test_processor_handles_whisperx_not_installed(self):
         """Testa que processor lida com whisperx não instalado"""
-        processor = MockTranscriptionProcessor()
+        processor = StubTranscriptionProcessor()
         
         # Tenta criar manager para whisperx
         try:
