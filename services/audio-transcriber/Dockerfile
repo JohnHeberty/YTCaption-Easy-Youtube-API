@@ -2,7 +2,9 @@
 FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG BUILD_ENV=development
 ENV TZ=Etc/UTC
+ENV BUILD_ENV=${BUILD_ENV}
 
 # --- Python 3.11 (via deadsnakes) ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -23,7 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Labels
 LABEL maintainer="audio-transcriber-service" \
       version="2.0.0" \
-      description="Audio Transcription Microservice with Whisper + CUDA Support"
+      description="Audio Transcription Microservice with Faster-Whisper + CPU/CUDA Support" \
+      build_env="${BUILD_ENV}"
 
 # Ambiente
 ENV PYTHONUNBUFFERED=1 \
@@ -54,12 +57,10 @@ COPY constraints.txt .
 # 🔥 Upgrade pip
 RUN python -m pip install --no-cache-dir --upgrade pip
 
-# 🔥 Instalar setuptools primeiro (fix para openai-whisper)
-RUN python -m pip install --no-cache-dir setuptools wheel
-
-# 🔥 Instalar TODAS as dependências
-RUN python -m pip install --no-cache-dir --ignore-installed blinker \
-      -r requirements.txt -c constraints.txt
+# 🔥 Instalar dependências (faster-whisper não precisa de setuptools extra)
+RUN python -m pip install --no-cache-dir \
+      -r requirements.txt -c constraints.txt || \
+    python -m pip install --no-cache-dir -r requirements.txt
 
 # 🔥 FORÇAR PyTorch cu118 POR ÚLTIMO (compatível com CUDA 11.8)
 RUN python -m pip install --no-cache-dir --force-reinstall \

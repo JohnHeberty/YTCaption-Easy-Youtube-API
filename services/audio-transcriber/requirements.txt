@@ -16,7 +16,8 @@ celery==5.3.4
 tenacity==8.2.3
 
 # === AI/ML for TRANSCRIPTION ===
-openai-whisper==20231117
+# faster-whisper é mais moderno e rápido que openai-whisper
+faster-whisper==1.0.1
 
 # === AUDIO PROCESSING ===
 pydub==0.25.1

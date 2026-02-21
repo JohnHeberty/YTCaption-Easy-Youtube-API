@@ -1,0 +1,169 @@
+# ============================================================================
+# Docker Compose - Produção (CPU-only, otimizado)
+# ============================================================================
+# Uso: docker compose -f docker-compose.prod.yml up -d
+# ============================================================================
+
+services:
+  audio-transcriber-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_ENV: production
+    container_name: audio-transcriber-api
+    ports:
+      - "${PORT:-8003}:${PORT:-8003}"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./transcriptions:/app/transcriptions
+      - ./models:/app/models
+      - ./temp:/app/temp
+      - ./logs:/app/logs
+      # Não monta app/ em produção para usar versão do build
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      - PYTHONPATH=/app
+      - WHISPER_DEVICE=cpu
+      - WHISPER_FALLBACK_CPU=true
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=${WORKERS:-2}
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 6G
+        reservations:
+          cpus: '2.0'
+          memory: 3G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-8003}/health", "-H", "accept: application/json"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    networks:
+      - ytcaption_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_ENV: production
+    container_name: audio-transcriber-celery
+    command: |
+      python -m celery -A app.celery_config worker 
+        --loglevel=info 
+        --concurrency=${CELERY_CONCURRENCY:-2}
+        --pool=prefork
+        --queues=audio_transcriber_queue
+        --max-tasks-per-child=10
+        --time-limit=3600
+        --soft-time-limit=3300
+    volumes:
+      - ./uploads:/app/uploads
+      - ./transcriptions:/app/transcriptions
+      - ./models:/app/models
+      - ./temp:/app/temp
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
+      - WHISPER_DEVICE=cpu
+      - WHISPER_FALLBACK_CPU=true
+      - WHISPER_MODEL=${WHISPER_MODEL:-base}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CELERY_BROKER_URL=${REDIS_URL}
+      - CELERY_RESULT_BACKEND=${REDIS_URL}
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 6G
+        reservations:
+          cpus: '2.0'
+          memory: 3G
+      replicas: ${CELERY_REPLICAS:-1}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'from app.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 180s
+    depends_on:
+      audio-transcriber-service:
+        condition: service_healthy
+    networks:
+      - ytcaption_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_ENV: production
+    container_name: audio-transcriber-beat
+    command: python -m celery -A app.celery_config beat --loglevel=info
+    volumes:
+      - ./logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CELERY_BROKER_URL=${REDIS_URL}
+      - CELERY_RESULT_BACKEND=${REDIS_URL}
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    restart: unless-stopped
+    depends_on:
+      audio-transcriber-service:
+        condition: service_healthy
+    networks:
+      - ytcaption_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  ytcaption_network:
+    external: true
+
+# ============================================================================
+# COMANDOS ÚTEIS
+# ============================================================================
+# Up:       docker compose -f docker-compose.prod.yml up -d
+# Down:     docker compose -f docker-compose.prod.yml down
+# Logs:     docker compose -f docker-compose.prod.yml logs -f
+# Scale:    docker compose -f docker-compose.prod.yml up -d --scale celery-worker=3
+# Restart:  docker compose -f docker-compose.prod.yml restart celery-worker
+# ============================================================================
