@@ -5,10 +5,24 @@ Converte segmentos de transcrição para formato SRT.
 """
 
 import logging
+import re
 from typing import List, Dict
 from pathlib import Path
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════════
+# DATACLASSES PARA MELHOR TIPAGEM
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class WordCue:
+    """Cue de palavra individual com timestamps precisos"""
+    start: float
+    end: float
+    text: str
 
 
 class SubtitleGenerator:
@@ -219,3 +233,196 @@ class SubtitleGenerator:
         
         logger.info(f"✅ Word-by-word SRT generated: {output_path} ({subtitle_index-1} captions)")
         return output_path
+
+
+# ═══════════════════════════════════════════════════════════════
+# NOVAS FUNÇÕES OTIMIZADAS (MELHORIAS DE SINCRONIZAÇÃO)
+# ═══════════════════════════════════════════════════════════════
+
+def format_srt_timestamp(seconds: float) -> str:
+    """
+    Converte segundos para formato SRT (HH:MM:SS,mmm)
+    
+    Args:
+        seconds: Tempo em segundos (pode ser negativo, será truncado para 0)
+    
+    Returns:
+        String formatada (ex: "00:00:05,500")
+    """
+    if seconds < 0:
+        seconds = 0.0
+    
+    ms = int(round(seconds * 1000))
+    hh = ms // 3_600_000
+    ms %= 3_600_000
+    mm = ms // 60_000
+    ms %= 60_000
+    ss = ms // 1_000
+    ms %= 1_000
+    
+    return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
+
+
+def write_srt_from_word_cues(
+    word_cues: List[Dict],
+    srt_path: str,
+    words_per_caption: int = 2
+) -> str:
+    """
+    Gera arquivo SRT direto dos word cues (SEM redistribuir timestamps).
+    
+    Esta função PRESERVA os timestamps refinados pelo VAD, ao contrário de 
+    generate_word_by_word_srt() que redistribui tempos uniformemente.
+    
+    Args:
+        word_cues: Lista de dicts {'start': float, 'end': float, 'text': str}
+                   Cues já devem estar finalizados (após gating VAD)
+        srt_path: Caminho do arquivo SRT de saída
+        words_per_caption: Quantas palavras agrupar por legenda
+    
+    Returns:
+        Caminho do arquivo SRT gerado
+        
+    Exemplo:
+        word_cues = [
+            {'start': 0.5, 'end': 1.4, 'text': 'Olá,'},
+            {'start': 1.4, 'end': 2.1, 'text': 'como'},
+            {'start': 2.1, 'end': 2.8, 'text': 'vai?'}
+        ]
+        write_srt_from_word_cues(word_cues, 'out.srt', words_per_caption=2)
+        
+        Resultado SRT:
+        1
+        00:00:00,500 --> 00:00:02,100
+        Olá, como
+        
+        2
+        00:00:02,100 --> 00:00:02,800
+        vai?
+    """
+    logger.info(
+        f"📝 Writing SRT directly from {len(word_cues)} word cues "
+        f"({words_per_caption} words/caption) - preserving VAD timestamps"
+    )
+    
+    # Criar diretório se não existir
+    Path(srt_path).parent.mkdir(parents=True, exist_ok=True)
+    
+    lines = []
+    caption_index = 1
+    
+    # Processar em grupos de N palavras
+    for i in range(0, len(word_cues), words_per_caption):
+        chunk = word_cues[i:i + words_per_caption]
+        
+        if not chunk:
+            continue
+        
+        # Timestamp do grupo: início da primeira palavra → fim da última
+        caption_start = chunk[0]['start']
+        caption_end = chunk[-1]['end']
+        
+        # Texto do grupo: juntar palavras com espaço
+        caption_text = " ".join(c['text'] for c in chunk).strip()
+        
+        if not caption_text:
+            continue  # Pular legendas vazias
+        
+        # Escrever entrada SRT
+        lines.append(str(caption_index))
+        lines.append(f"{format_srt_timestamp(caption_start)} --> {format_srt_timestamp(caption_end)}")
+        lines.append(caption_text)
+        lines.append("")  # Linha em branco entre legendas
+        
+        caption_index += 1
+    
+    # Escrever arquivo
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    
+    logger.info(
+        f"✅ SRT written with {caption_index - 1} captions, "
+        f"timestamps preserved from VAD gating"
+    )
+    
+    return srt_path
+
+
+def segments_to_weighted_word_cues(segments: List[Dict]) -> List[Dict]:
+    """
+    Converte segments em word cues com timestamps PONDERADOS por comprimento.
+    
+    Esta função corrige o problema de "tempo uniforme por palavra", que causa
+    drift perceptível. Palavras curtas ("a", "o") recebem menos tempo, palavras
+    longas ("responsabilidade") recebem mais tempo.
+    
+    Método: Ponderar por número de caracteres (sem pontuação nas bordas).
+    
+    Args:
+        segments: Lista de segmentos do Whisper
+                  [{'start': 0.5, 'end': 3.2, 'text': 'Olá, como vai?'}]
+    
+    Returns:
+        Lista de word cues com timestamps ponderados
+        [{'start': 0.5, 'end': 1.4, 'text': 'Olá,'},
+         {'start': 1.4, 'end': 2.3, 'text': 'como'},
+         {'start': 2.3, 'end': 3.2, 'text': 'vai?'}]
+    """
+    logger.info(f"📝 Converting {len(segments)} segments to weighted word cues")
+    
+    all_word_cues = []
+    
+    for segment in segments:
+        start = float(segment.get("start", 0.0))
+        end = float(segment.get("end", 0.0))
+        text = (segment.get("text") or "").strip()
+        
+        if not text or end <= start:
+            continue  # Pular segmentos vazios ou inválidos
+        
+        # Extrair palavras (mantém pontuação anexada)
+        words = re.findall(r'\S+', text)
+        
+        if not words:
+            continue
+        
+        duration = end - start
+        
+        # ────────────────────────────────────────────────────────────
+        # PONDERAR POR COMPRIMENTO DE PALAVRA
+        # ────────────────────────────────────────────────────────────
+        # Calcular "peso" de cada palavra (número de letras, sem pontuação)
+        def word_weight(word: str) -> int:
+            # Remove pontuação nas bordas: "Olá," → "Olá"
+            core = re.sub(r"^\W+|\W+$", "", word)
+            return max(1, len(core))  # Mínimo 1
+        
+        weights = [word_weight(w) for w in words]
+        total_weight = sum(weights)
+        
+        # Distribuir tempo proporcionalmente ao peso
+        current_time = start
+        
+        for word, weight in zip(words, weights):
+            word_duration = duration * (weight / total_weight)
+            word_end = current_time + word_duration
+            
+            all_word_cues.append({
+                'start': current_time,
+                'end': word_end,
+                'text': word
+            })
+            
+            current_time = word_end
+        
+        # Garantir que última palavra fecha exatamente no end do segmento
+        # (evita drift acumulado por arredondamento)
+        if all_word_cues:
+            all_word_cues[-1]['end'] = end
+    
+    logger.info(
+        f"✅ Generated {len(all_word_cues)} weighted word cues from "
+        f"{len(segments)} segments (weighted by word length)"
+    )
+    
+    return all_word_cues

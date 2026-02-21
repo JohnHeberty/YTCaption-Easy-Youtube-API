@@ -791,129 +791,121 @@ async def _process_make_video_async(job_id: str):
                 # Aguardar antes de tentar novamente
                 await asyncio.sleep(backoff_seconds)
         
-        # Converter segmentos para formato dict (cues)
+        # ════════════════════════════════════════════════════════════════
+        # CONVERSÃO: Segments → Word Cues (COM TIMESTAMPS PONDERADOS)
+        # ════════════════════════════════════════════════════════════════
+        # 🔧 MELHORIA: Usar peso por comprimento de palavra ao invés de
+        #              tempo uniforme, reduz drift perceptível
+        from ..services.subtitle_generator import segments_to_weighted_word_cues
+        
         raw_cues = []
-        for segment in segments:
-            # Tentar usar word_timestamps se disponível
-            words = segment.get('words', [])
-            
-            if words:
-                # Word-level timestamps disponíveis
+        
+        # Verificar se segmentos já têm word-level timestamps (alguns Whisper models)
+        has_word_timestamps = any(segment.get('words') for segment in segments)
+        
+        if has_word_timestamps:
+            # Usar timestamps fornecidos pelo Whisper
+            logger.info("✅ Using word-level timestamps from Whisper")
+            for segment in segments:
+                words = segment.get('words', [])
                 for word_data in words:
                     raw_cues.append({
                         'start': word_data['start'],
                         'end': word_data['end'],
                         'text': word_data['word']
                     })
+        else:
+            # 🆕 Usar divisão ponderada por comprimento de palavra
+            logger.info("🔧 Using weighted timestamps by word length")
+            raw_cues = segments_to_weighted_word_cues(segments)
+        
+        logger.info(f"📊 Transcription: {len(segments)} segments, {len(raw_cues)} words")
+        
+        # DEBUG: Log first segment
+        if segments:
+            logger.info(f"DEBUG first segment: {segments[0]}")
+        else:
+            logger.error("❌ NO SEGMENTS from transcriber!")
+        
+        if not raw_cues:
+            logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
+        
+        # ════════════════════════════════════════════════════════════════
+        # APLICAR SPEECH-GATED SUBTITLES (VAD)
+        # ════════════════════════════════════════════════════════════════
+        logger.info(f"🎙️ [6.5/7] Applying speech gating (VAD)...")
+        await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=82.0)
+        
+        try:
+            gated_cues, vad_ok = process_subtitles_with_vad(str(audio_path), raw_cues)
+            
+            if vad_ok:
+                logger.info(f"✅ Speech gating OK: {len(gated_cues)}/{len(raw_cues)} cues (silero-vad)")
             else:
-                # Fallback: dividir texto do segment em palavras
-                text = segment.get('text', '').strip()
-                if text:
-                    import re
-                    words_list = re.findall(r'\S+', text)
-                    seg_start = segment.get('start', 0.0)
-                    seg_end = segment.get('end', seg_start + 1.0)
-                    seg_duration = seg_end - seg_start
-                    
-                    if words_list:
-                        time_per_word = seg_duration / len(words_list)
-                        
-                        for i, word in enumerate(words_list):
-                            word_start = seg_start + (i * time_per_word)
-                            word_end = word_start + time_per_word
-                            
-                            raw_cues.append({
-                                'start': word_start,
-                                'end': word_end,
-                                'text': word
-                            })
+                logger.warning(f"⚠️ Speech gating fallback: {len(gated_cues)}/{len(raw_cues)} cues (webrtcvad/RMS)")
             
-            logger.info(f"📊 Transcription: {len(segments)} segments, {len(raw_cues)} words")
+            # Usar cues com gating
+            final_cues = gated_cues
             
-            # DEBUG: Log first segment
-            if segments:
-                logger.info(f"DEBUG first segment: {segments[0]}")
-            else:
-                logger.error("❌ NO SEGMENTS from transcriber!")
-            
-            if not raw_cues:
-                logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
-            
-            # Aplicar Speech-Gated Subtitles (VAD)
-            logger.info(f"🎙️ [6.5/7] Applying speech gating (VAD)...")
-            await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=82.0)
-            
-            try:
-                gated_cues, vad_ok = process_subtitles_with_vad(str(audio_path), raw_cues)
-                
-                if vad_ok:
-                    logger.info(f"✅ Speech gating OK: {len(gated_cues)}/{len(raw_cues)} cues (silero-vad)")
-                else:
-                    logger.warning(f"⚠️ Speech gating fallback: {len(gated_cues)}/{len(raw_cues)} cues (webrtcvad/RMS)")
-                
-                # Usar cues com gating
-                final_cues = gated_cues
-                
-            except Exception as e:
-                logger.error(f"⚠️ Speech gating failed: {e}, usando cues originais")
-                # Fallback: usar cues originais sem gating
-                final_cues = raw_cues
-                vad_ok = False
-            
-            # Gerar SRT com cues finais
-            subtitle_path = Path('/tmp/make-video-temp') / job_id / "subtitles.srt"
-            words_per_caption = int(settings.get('words_per_caption', 2))
-            
-            # VALIDAÇÃO CRÍTICA: final_cues NÃO pode estar vazio
-            logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
-            if not final_cues:
-                logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
-                raise SubtitleGenerationException(
-                    reason="No valid subtitle cues after speech gating (VAD processing)",
-                    subtitle_path=str(subtitle_path),
-                    details={
-                        "raw_cues_count": len(raw_cues),
-                        "final_cues_count": 0,
-                        "vad_ok": vad_ok,
-                        "problem": "All subtitle cues were filtered out during VAD processing",
-                        "recommendation": "Check VAD threshold settings or audio quality"
-                    }
-                )
-            
-            # Gerar SRT usando os cues filtrados por VAD
-            from ..services.subtitle_generator import SubtitleGenerator
-            subtitle_gen = SubtitleGenerator()
-            
-            # Agrupar final_cues em segments (cada X palavras = 1 segment)
-            # O generate_word_by_word_srt irá re-dividir em palavras e agrupar por words_per_caption
-            segment_size = 10  # Agrupar 10 palavras por segment
-            segments_for_srt = []
-            
-            for i in range(0, len(final_cues), segment_size):
-                chunk = final_cues[i:i+segment_size]
-                if chunk:
-                    segments_for_srt.append({
-                        'start': chunk[0]['start'],
-                        'end': chunk[-1]['end'],
-                        'text': ' '.join(c['text'] for c in chunk)
-                    })
-            
-            subtitle_gen.generate_word_by_word_srt(segments_for_srt, str(subtitle_path), words_per_caption=words_per_caption)
-            
-            # DEBUG: Verificar se arquivo foi criado
-            if subtitle_path.exists():
-                srt_size = subtitle_path.stat().st_size
-                logger.info(f"DEBUG: SRT file created, size = {srt_size} bytes")
-                if srt_size == 0:
-                    logger.error("❌ CRITICAL: SRT file is EMPTY (0 bytes)!")
-            else:
-                logger.error(f"❌ CRITICAL: SRT file NOT created at {subtitle_path}!")
-            
-            num_captions_expected = len(final_cues) // words_per_caption
-            logger.info(f"✅ Speech-gated subtitles: {len(final_cues)} words → {len(segments_for_srt)} segments → ~{num_captions_expected} captions, {words_per_caption} words/caption, vad_ok={vad_ok}")
-            
-            # Salvar checkpoint (Sprint-01)
-            await _save_checkpoint(job_id, "generating_subtitles_completed")
+        except Exception as e:
+            logger.error(f"⚠️ Speech gating failed: {e}, usando cues originais")
+            # Fallback: usar cues originais sem gating
+            final_cues = raw_cues
+            vad_ok = False
+        
+        # ════════════════════════════════════════════════════════════════
+        # GERAR SRT DIRETO DOS FINAL_CUES (SEM REDISTRIBUIR TIMESTAMPS)
+        # ════════════════════════════════════════════════════════════════
+        # 🔧 MELHORIA: Anteriormente, segments_for_srt + generate_word_by_word_srt()
+        #              redistribuía os timestamps uniformemente, PERDENDO a precisão
+        #              do VAD. Agora escrevemos SRT direto, PRESERVANDO timestamps.
+        
+        subtitle_path = Path('/tmp/make-video-temp') / job_id / "subtitles.srt"
+        words_per_caption = int(settings.get('words_per_caption', 2))
+        
+        # VALIDAÇÃO CRÍTICA: final_cues NÃO pode estar vazio
+        logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
+        if not final_cues:
+            logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
+            raise SubtitleGenerationException(
+                reason="No valid subtitle cues after speech gating (VAD processing)",
+                subtitle_path=str(subtitle_path),
+                details={
+                    "raw_cues_count": len(raw_cues),
+                    "final_cues_count": 0,
+                    "vad_ok": vad_ok,
+                    "problem": "All subtitle cues were filtered out during VAD processing",
+                    "recommendation": "Check VAD threshold settings or audio quality"
+                }
+            )
+        
+        # 🆕 Gerar SRT preservando timestamps do VAD (sem redistribuir)
+        from ..services.subtitle_generator import write_srt_from_word_cues
+        
+        write_srt_from_word_cues(
+            final_cues,
+            str(subtitle_path),
+            words_per_caption=words_per_caption
+        )
+        
+        # DEBUG: Verificar se arquivo foi criado
+        if subtitle_path.exists():
+            srt_size = subtitle_path.stat().st_size
+            logger.info(f"DEBUG: SRT file created, size = {srt_size} bytes")
+            if srt_size == 0:
+                logger.error("❌ CRITICAL: SRT file is EMPTY (0 bytes)!")
+        else:
+            logger.error(f"❌ CRITICAL: SRT file NOT created at {subtitle_path}!")
+        
+        num_captions_expected = len(final_cues) // words_per_caption
+        logger.info(
+            f"✅ Speech-gated subtitles: {len(final_cues)} words → "
+            f"~{num_captions_expected} captions, {words_per_caption} words/caption, "
+            f"vad_ok={vad_ok}, timestamps_preserved=True"
+        )
+        
+        # Salvar checkpoint (Sprint-01)
+        await _save_checkpoint(job_id, "generating_subtitles_completed")
         
         # Etapa 7: Composição final
         logger.info(f"🎨 [7/7] Final composition...")
