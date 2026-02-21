@@ -1,183 +1,401 @@
-# 🧪 Test Suite - Make Video Service
+# 🧪 Tests - Make Video Service
 
-## 📋 Estrutura dos Testes
+Estrutura profissional de testes com 100% seguindo padrão de produção.
 
-Suite completa de testes para todos os módulos do serviço make-video.
+## 📁 Estrutura
 
-### Arquivos de Teste
-
-| Arquivo | Descrição | Testes |
-|---------|-----------|--------|
-| **test_01_celery_config.py** | Configuração Celery | 8 testes |
-| **test_02_task_sending.py** | Envio de tasks (BUG PROOF) | 5 testes |
-| **test_03_workaround.py** | Workaround Kombu | 2 testes |
-| **test_04_core.py** | Core modules (config, models) | 6 testes |
-| **test_05_infrastructure.py** | Infrastructure (Redis, Circuit Breaker) | 8 classes |
-| **test_06_services.py** | Services (shorts, video, subtitle) | 10 testes |
-| **test_07_domain_stages.py** | Domain stages (pipeline) | 12 testes |
-| **test_08_video_processing.py** | Video processing (detectors, validators) | 14 testes |
-| **test_09_utils_subtitles.py** | Utils e subtitle processing | 10 testes |
-| **test_10_api_pipeline.py** | API endpoints e integração | 13 testes |
-
----
-
-## 🎯 Objetivo dos Testes
-
-1. **test_01-03**: Prova bug Celery 5.3.4 + Kombu e valida workaround
-2. **test_04-05**: Valida módulos core e infraestrutura
-3. **test_06-09**: Testa todos os serviços, stages, processamento de vídeo
-4. **test_10**: Testa API, pipeline e integração end-to-end
-
----
-
-## ⚙️ Como Rodar
-
-### Todos os Testes
-```bash
-cd /root/YTCaption-Easy-Youtube-API/services/make-video
-pytest tests/ -v -s
+```
+tests/
+├── 📖 README.md                           # Este arquivo
+├── 📋 RELATORIO_EXECUCAO.md               # Relatório de execução dos testes
+├── ⚙️ conftest.py                         # Fixtures compartilhadas (pytest)
+├── ⚙️ pytest.ini                          # Configuração do pytest
+│
+├── 📦 assets/                             # Arquivos de teste (áudio/vídeo)
+│   └── TEST-.ogg                          # Áudio real (75KB) - fala em português
+│
+├── 🏗️ fixtures/                           # Fixtures customizadas
+│
+├── 🔬 unit/                               # Testes unitários (isolados, rápidos)
+│   ├── core/                              # Config, settings
+│   ├── domain/                            # Entidades de domínio
+│   ├── infrastructure/                    # Circuit breaker, checkpoint
+│   ├── services/                          # VideoBuilder, SubtitleGenerator
+│   ├── shared/                            # Exceptions, validation
+│   ├── subtitle_processing/               # ASS, classificador
+│   ├── utils/                             # Audio utils, VAD, timeout
+│   └── video_processing/                  # OCR, frame extractor
+│
+├── 🔗 integration/                        # Testes de integração (componentes juntos)
+│   ├── domain/                            # Domain entities + services
+│   ├── infrastructure/                    # Infrastructure + external deps
+│   ├── pipeline/                          # Pipeline completo (interno)
+│   ├── services/                          # Services + dependencies
+│   ├── subtitle_processing/               # Subtitle pipeline
+│   ├── video_processing/                  # Video processing pipeline
+│   │
+│   └── 🌐 real/                           # ⚠️ TESTES REAIS (APIs/Serviços externos)
+│       ├── README.md                      # Documentação de testes reais
+│       ├── test_real_audio_transcription.py   # API real: audio-transcriber
+│       └── test_real_pipeline_complete.py     # Pipeline completo end-to-end
+│
+├── 🚀 e2e/                                # Testes end-to-end (sistema completo)
+│   ├── test_complete_integration.py       # Integração completa
+│   └── test_main_application.py           # Aplicação principal
+│
+└── ✅ test_setup_validation.py            # Validação de setup (rodar primeiro)
 ```
 
-### Teste Específico
-```bash
-pytest tests/test_01_celery_config.py -v -s
-```
+## 🎯 Tipos de Teste
 
-### Por Módulo
-```bash
-pytest tests/test_06_services.py -v -s
-pytest tests/test_07_domain_stages.py -v -s
-```
+### 1. 🔬 Unit Tests (`unit/`)
 
-### Apenas Testes Rápidos (Skip Integration)
-```bash
-pytest tests/ -v -s -m "not integration"
-```
+**Testes isolados, rápidos, sem dependências externas**
 
----
-
-## 📊 Resultados Esperados
-
-### ✅ PASS Obrigatórios
-- **test_01**: 8/8 - Celery config OK
-- **test_03**: 2/2 - Workaround funciona
-- **test_04**: 6/6 - Core modules OK
-
-### ⚠️ FAIL Conhecidos (PROVA DO BUG)
-- **test_02**: 
-  - ✅ test_send_task_kombu_direct (PASS - Kombu funciona)
-  - ❌ test_send_task_delay (FAIL - Celery bug)
-  - ❌ test_send_task_apply_async (FAIL - Celery bug)
-  - ❌ test_send_task_send_task (FAIL - Celery bug)
-
-### 🔄 SKIP Esperados
-- Testes de integração marcados com `@pytest.mark.integration`
-- Módulos ainda não implementados
-
----
-
-## 🐛 Bug Documentado
-
-**Celery 5.3.4 + Kombu 5.6.2 + Redis**
-
-❌ **Falham silenciosamente**:
-- `task.delay()`
-- `task.apply_async()`
-- `celery_app.send_task()`
-
-✅ **Funciona**:
-- Kombu direct publish: `Producer.publish()`
-- Implementado em: `app/infrastructure/celery_workaround.py`
-
----
-
-## 🔧 Workaround Aplicado
-
-**Arquivo**: `app/main.py` linha ~670
-
-**Antes**:
 ```python
-task_result = process_make_video.delay(job_id)
+# Exemplo: Testar função isolada
+def test_format_timestamp():
+    result = format_timestamp(65.5)
+    assert result == "00:01:05,500"
 ```
 
-**Depois**:
+**Características**:
+- ✅ Rápidos (< 1s cada)
+- ✅ Sem I/O (sem disco/rede/banco)
+- ✅ Mocks para dependências externas
+- ✅ Focados em 1 função/método
+
+**Executar**:
+```bash
+pytest tests/unit/ -v
+```
+
+---
+
+### 2. 🔗 Integration Tests (`integration/`)
+
+**Testes com múltiplos componentes, podem ter I/O local**
+
 ```python
-from .infrastructure.celery_workaround import send_make_video_task_workaround
-task_id = send_make_video_task_workaround(job_id, settings['redis_url'])
+# Exemplo: SubtitleGenerator + VideoBuilder
+async def test_subtitle_burn_in():
+    srt = generate_srt(segments)
+    video = burn_subtitles(video_path, srt)
+    assert video.exists()
 ```
 
----
+**Características**:
+- ⚡ Médios (1-5s cada)
+- 💾 Podem usar disco temporário
+- 🔧 Mocks para APIs externas
+- 📦 Testam integração de 2+ componentes
 
-## 📝 Notas Importantes
-
-### Workers Rodando
-Se workers (Docker ou local) estiverem rodando:
-- Tasks serão consumidos INSTANTANEAMENTE
-- Queue length = 0 é NORMAL (workers consumiram)
-- `test_03_workaround.py` pode mostrar queue=0 (OK!)
-
-### Workers Parados
-Para testar que mensagens chegam à fila:
+**Executar**:
 ```bash
-# Parar workers Docker
-docker stop ytcaption-make-video-celery
-docker stop ytcaption-make-video-celery-beat
-
-# Rodar teste
-pytest tests/test_03_workaround.py -v -s
-
-# Queue length > 0 = mensagens na fila ✅
+pytest tests/integration/ -v --ignore=tests/integration/real
 ```
 
-### Redis Monitor
-Para debug visual:
+---
+
+### 3. 🌐 Real Integration Tests (`integration/real/`)
+
+**⚠️ TESTES COM SERVIÇOS REAIS (NÃO MOCKS)**
+
+```python
+# Exemplo: Chama API real
+@pytest.mark.asyncio
+@pytest.mark.external
+async def test_real_transcription():
+    segments = await api.transcribe_audio(TEST_OGG)  # API REAL!
+    assert len(segments) > 0
+```
+
+**Características**:
+- 🐌 Lentos (30-90s cada)
+- 🌐 Chamam APIs/serviços em produção
+- ❌ Se serviço está DOWN, teste FALHA (correto!)
+- 🎯 Refletem exatamente o que vai acontecer em produção
+
+**Por que não usar mocks?**:
+- Mocks podem mentir
+- Se API muda formato, mock passa mas produção falha
+- Detecta problemas ANTES do deploy
+
+**APIs chamadas**:
+- `https://yttranscriber.loadstask.com` (audio-transcriber)
+- FFmpeg local
+- SubtitleGenerator real
+- VideoBuilder real
+
+**Executar**:
 ```bash
-redis-cli -h 192.168.1.110 -p 6379
-> MONITOR
+# Requer conectividade com APIs
+pytest tests/integration/real/ -v
+```
+
+**Documentação completa**: [integration/real/README.md](integration/real/README.md)
+
+---
+
+### 4. 🚀 E2E Tests (`e2e/`)
+
+**Testes do sistema completo (ponta a ponta)**
+
+```python
+# Exemplo: Job completo (download → transcrição → vídeo)
+async def test_complete_pipeline():
+    job = create_job(video_id="abc123")
+    await process_job(job)
+    assert job.status == "completed"
+    assert output_video.exists()
+```
+
+**Características**:
+- 🐢 Muito lentos (5-15min cada)
+- 🌐 Podem chamar APIs reais
+- 📦 Testam fluxo completo de usuário
+- 🎬 Incluem download, transcrição, processamento
+
+**Executar**:
+```bash
+pytest tests/e2e/ -v --timeout=900
 ```
 
 ---
 
-## 🎓 Lições Aprendidas
+## 🚀 Como Executar
 
-1. **Celery 5.3.4 tem bug crítico** com Redis transport
-2. **Queue length = 0** não significa falha (workers podem ter consumido)
-3. **Redis MONITOR** é essencial para debug de mensagens
-4. **Kombu direct** é solução confiável para bugs do Celery
-5. **Tests provam o bug** antes de implementar workaround
-
----
-
-## 📦 Dependências
+### Validação de Setup (rodar primeiro)
 
 ```bash
-pip install pytest pytest-asyncio redis kombu celery fastapi
+# Valida que ambiente está configurado corretamente
+pytest tests/test_setup_validation.py -v
+```
+
+### Testes Rápidos (unit + integration sem real)
+
+```bash
+# Todos exceto testes reais e e2e
+pytest tests/unit/ tests/integration/ --ignore=tests/integration/real/ -v
+```
+
+### Testes Completos (incluindo real, mas sem e2e)
+
+```bash
+# Requer APIs online
+pytest tests/unit/ tests/integration/ -v
+```
+
+### Testes REAIS apenas
+
+```bash
+# Testa com APIs/serviços de produção
+pytest tests/integration/real/ -v
+```
+
+### Tudo (incluindo e2e)
+
+```bash
+# ATENÇÃO: Pode levar 30+ minutos
+pytest tests/ -v --timeout=900
+```
+
+### Com Coverage
+
+```bash
+pytest tests/ --cov=app --cov-report=html --cov-report=term
+```
+
+### Por Markers
+
+```bash
+# Apenas testes rápidos
+pytest -m "not slow" tests/
+
+# Apenas testes que requerem FFmpeg
+pytest -m requires_ffmpeg tests/
+
+# Pular testes externos
+pytest -m "not external" tests/
 ```
 
 ---
 
-## ✅ Checklist Validação
+## 📋 Markers (pytest)
 
-- [ ] test_01: 8/8 PASS
-- [ ] test_02: Kombu PASS, Celery FAIL (esperado)
-- [ ] test_03: 2/2 PASS
-- [ ] test_04-09: Módulos importam sem erro
-- [ ] test_10: API responde health check
-- [ ] Workaround aplicado em main.py
-- [ ] Workers consomem tasks via workaround
+```python
+@pytest.mark.unit           # Teste unitário
+@pytest.mark.integration    # Teste de integração
+@pytest.mark.e2e           # Teste end-to-end
+@pytest.mark.slow          # Teste lento (> 5s)
+@pytest.mark.requires_ffmpeg   # Requer FFmpeg instalado
+@pytest.mark.requires_redis    # Requer Redis rodando
+@pytest.mark.external      # Chama serviços externos (pode falhar se DOWN)
+```
 
----
-
-## 🚀 Próximos Passos
-
-1. ✅ Suite de testes completa (DONE)
-2. ⏳ Rodar todos os testes
-3. ⏳ Testar end-to-end com workers
-4. ⏳ Validar geração de vídeo real
-5. ⏳ Docker compose testing
+**Ver markers disponíveis**:
+```bash
+pytest --markers
+```
 
 ---
 
-**Última atualização**: Após reestruturação completa da pasta tests  
-**Status**: Suite criada, aguardando execução  
-**Cobertura**: ~88 testes cobrindo todos os 73 módulos de app/
+## 🎯 Padrões e Boas Práticas
+
+### ✅ Nomenclatura
+
+```python
+# ✅ CORRETO
+test_format_timestamp.py
+test_video_builder.py
+test_real_audio_transcription.py
+
+# ❌ ERRADO (não usar prefixos numéricos)
+test_00_setup.py
+test_01_video.py
+test_001_builder.py
+```
+
+### ✅ Estrutura de Classes
+
+```python
+class TestVideoBuilder:
+    """Testes para VideoBuilder"""
+    
+    def test_initialization(self):
+        """Deve inicializar corretamente"""
+        builder = VideoBuilder()
+        assert builder is not None
+    
+    def test_burn_subtitles_with_valid_srt(self):
+        """Deve aplicar legendas em vídeo válido"""
+        # Arrange
+        video = create_test_video()
+        srt = create_test_srt()
+        
+        # Act
+        result = builder.burn_subtitles(video, srt)
+        
+        # Assert
+        assert result.exists()
+        assert result.size > 0
+```
+
+### ✅ Fixtures vs Mocks
+
+```python
+# ✅ Use fixtures para setup comum
+@pytest.fixture
+def sample_video():
+    video = create_test_video()
+    yield video
+    cleanup(video)
+
+# ✅ Use mocks para dependências externas (em unit/integration)
+@patch('app.api.transcribe_audio')
+def test_transcription_error_handling(mock_transcribe):
+    mock_transcribe.side_effect = Exception("API error")
+    # Test error handling
+
+# ⚠️ NÃO use mocks em integration/real/
+# Testes reais DEVEM chamar APIs reais
+```
+
+### ✅ Async Tests
+
+```python
+# ✅ Use pytest-asyncio
+@pytest.mark.asyncio
+async def test_async_function():
+    result = await process_video_async()
+    assert result is not None
+```
+
+---
+
+## 🛠️ Ferramentas
+
+- **pytest**: Framework de testes
+- **pytest-asyncio**: Suporte para testes assíncronos
+- **pytest-cov**: Coverage
+- **pytest-timeout**: Timeout automático
+- **pytest-xdist**: Execução paralela (`pytest -n auto`)
+
+---
+
+## 📊 Coverage
+
+```bash
+# Gerar relatório HTML
+pytest --cov=app --cov-report=html tests/
+
+# Abrir relatório
+xdg-open htmlcov/index.html
+```
+
+**Meta de coverage**: > 80% (ideal > 90%)
+
+---
+
+## ⚠️ Troubleshooting
+
+### Erro: "FFmpeg not found"
+```bash
+# Instalar FFmpeg
+sudo apt-get install ffmpeg
+
+# Verificar
+ffmpeg -version
+```
+
+### Erro: "Redis connection refused"
+```bash
+# Iniciar Redis
+redis-server
+
+# Em outro terminal
+redis-cli ping  # Deve retornar "PONG"
+```
+
+### Erro: "Connection timeout" (testes real/)
+```bash
+# Verificar se API está online
+curl https://yttranscriber.loadstask.com/health
+
+# Se retornar 200, API está OK
+# Se timeout/erro, API está DOWN (teste vai falhar - correto!)
+```
+
+### Testes lentos demais
+```bash
+# Executar em paralelo
+pytest -n auto tests/
+
+# Pular testes lentos
+pytest -m "not slow" tests/
+```
+
+---
+
+## 📖 Documentação Adicional
+
+- [RELATORIO_EXECUCAO.md](RELATORIO_EXECUCAO.md) - Relatório de execução
+- [integration/real/README.md](integration/real/README.md) - Testes com APIs reais
+- [conftest.py](conftest.py) - Fixtures disponíveis
+
+---
+
+## 🎯 Próximos Passos
+
+1. ✅ Setup validado: `pytest tests/test_setup_validation.py`
+2. ⚡ Testes unitários: `pytest tests/unit/ -v`
+3. 🔗 Testes integração: `pytest tests/integration/ -v`
+4. 🌐 Testes reais: `pytest tests/integration/real/ -v`
+5. 🚀 Testes e2e: `pytest tests/e2e/ -v`
+6. 📊 Coverage: `pytest --cov=app tests/`
+
+---
+
+**Desenvolvido com padrão de produção** ✨  
+**Sem prefixos numéricos feios (00, 01, etc)** ✅  
+**Testes reais refletem produção** 🎯
