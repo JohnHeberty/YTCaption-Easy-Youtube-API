@@ -495,6 +495,38 @@ def process_subtitles_with_vad(
     if not vad_ok:
         logger.warning("⚠️ VAD fallback usado, qualidade de gating degradada")
     
+    # 🔧 BYPASS: Se VAD fallback não detectou fala nenhuma, não aplicar gating
+    # (previne filtrar todas as legendas por erro do VAD)
+    if not vad_ok and len(speech_segments) == 0:
+        logger.warning(
+            "⚠️ VAD fallback não detectou fala! "
+            "Retornando raw_cues SEM gating (bypass)"
+        )
+        return raw_cues, False
+    
+    # 🔧 BYPASS 2: Se VAD fallback detectou muito pouco (<10% do áudio),
+    # usar áudio completo como segment
+    if not vad_ok and len(speech_segments) > 0:
+        # Calcular % do áudio coberto por speech segments
+        try:
+            cmd = ['ffprobe', '-v', 'error', '-show_entries', 
+                   'format=duration', '-of', 'json', audio_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            data = json.loads(result.stdout)
+            audio_dur = float(data['format']['duration'])
+            
+            speech_dur = sum(seg.end - seg.start for seg in speech_segments)
+            speech_ratio = speech_dur / audio_dur
+            
+            if speech_ratio < 0.1:  # Menos de 10% é fala
+                logger.warning(
+                    f"⚠️ VAD fallback detectou apenas {speech_ratio*100:.1f}% de fala! "
+                    f"Usando áudio completo como segment (bypass)"
+                )
+                speech_segments = [SpeechSegment(start=0.0, end=audio_dur, confidence=0.1)]
+        except Exception:
+            pass  # Se falhar, continuar com segments existentes
+    
     # 2. Obter duração do áudio
     if VAD_UTILS_AVAILABLE:
         audio_duration = validate_audio_format(audio_path)['duration']

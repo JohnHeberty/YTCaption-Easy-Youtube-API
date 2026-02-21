@@ -1145,8 +1145,8 @@ async def _process_make_video_async(job_id: str):
             JobStatus.FAILED,
             error={
                 "message": e.message,
-                "code": e.code,
-                "details": e.details
+                "code": e.error_code.value if hasattr(e, 'error_code') else "UNKNOWN",
+                "details": e.details if hasattr(e, 'details') else {}
             }
         )
         raise
