@@ -16,7 +16,18 @@ celery==5.3.4
 tenacity==8.2.3
 
 # === AI/ML for TRANSCRIPTION ===
-openai-whisper==20231117
+# Whisper Engines (múltiplas opções disponíveis)
+
+# faster-whisper (padrão): 4x mais rápido, word timestamps nativos
+faster-whisper==1.0.1
+
+# openai-whisper (opcional): Original da OpenAI, compatibilidade máxima
+# Descomente para habilitar:
+# openai-whisper==20231117
+
+# whisperx (opcional): Timestamps precisos com forced alignment
+# Descomente para habilitar:
+# git+https://github.com/m-bain/whisperX.git
 
 # === AUDIO PROCESSING ===
 pydub==0.25.1

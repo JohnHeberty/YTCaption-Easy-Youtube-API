@@ -1,0 +1,64 @@
+# Engines de Whisper Adicionais (Opcionais)
+# 
+# Por padrão, apenas faster-whisper está instalado.
+# Para usar outros engines, instale as dependências correspondentes:
+#
+# Para OpenAI Whisper:
+#   pip install -r requirements-engines-extras.txt --extra openai
+#
+# Para WhisperX:
+#   pip install -r requirements-engines-extras.txt --extra whisperx
+#
+# Para todos:
+#   pip install -r requirements-engines-extras.txt
+
+# ============================================================================
+# OpenAI Whisper (Original)
+# ============================================================================
+# Modelo original da OpenAI
+# Vantagens: Compatibilidade máxima, community support
+# Desvantagens: 4x mais lento, maior uso de VRAM
+openai-whisper==20231117
+
+# ============================================================================
+# WhisperX (Forced Alignment)
+# ============================================================================
+# WhisperX oferece word-level timestamps com forced alignment
+# Vantagens: Timestamps MUITO precisos, ideal para lip-sync
+# Desvantagens: ~20% mais lento, requer modelos adicionais
+
+# WhisperX (instalar do GitHub para última versão)
+git+https://github.com/m-bain/whisperX.git@v3.1.1
+
+# Dependências adicionais do WhisperX
+transformers>=4.30.0
+pyannote.audio>=3.0.0
+
+# Para diarization (separação de speakers) no WhisperX
+# Requer aceitar termos de uso: https://huggingface.co/pyannote/speaker-diarization
+# pyannote-audio>=3.0.0
+
+# ============================================================================
+# Notas de Instalação
+# ============================================================================
+#
+# 1. CUDA/GPU (Opcional mas recomendado):
+#    - Para melhor performance, instale PyTorch com CUDA:
+#      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# 2. FFmpeg (Requerido):
+#    - WhisperX e OpenAI Whisper requerem FFmpeg
+#    - Ubuntu/Debian: sudo apt-get install ffmpeg
+#    - macOS: brew install ffmpeg
+#    - Windows: https://ffmpeg.org/download.html
+#
+# 3. Modelos de Alignment (WhisperX):
+#    - Modelos serão baixados automaticamente na primeira execução
+#    - Requer ~500MB de espaço adicional por idioma
+#
+# 4. Memória:
+#    - faster-whisper: ~500MB RAM (small model)
+#    - openai-whisper: ~1.5GB RAM (small model)
+#    - whisperx: ~800MB RAM + modelos de alignment
+#
+# ============================================================================
