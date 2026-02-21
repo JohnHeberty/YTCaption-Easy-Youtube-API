@@ -1,306 +1,460 @@
-# 🎙️ AUDIO-LEGEND SYNC - Sincronização de Áudio com Legendas
+# 🎙️ SINCRONIZAÇÃO DE ÁUDIO COM LEGENDAS - DOCUMENTAÇÃO TÉCNICA DE PRODUÇÃO
+
+> **Documentação 100% do código em produção**  
+> **Versão**: 2026-02-20  
+> **Status**: ✅ Ativo em produção  
 
 ---
 
-## 🚨 **DIAGNÓSTICO CRÍTICO - 2026-02-20**
+## 📋 ÍNDICE
 
-### **PROBLEMA IDENTIFICADO**
-
-**Bug Crítico**: Vídeos sendo gerados SEM legendas, violando requisito obrigatório.
-
-**Root Cause**: Sistema aceita arquivo SRT vazio (0 bytes) e copia vídeo sem legendas.
-
----
-
-## 📊 **Como Está Hoje**
-
-### **Pipeline Atual (Com Bug)**
-
-```
-Transcrição (Whisper) → VAD Processing → SRT Generation → Burn-in
-                                              ↓
-                                         SRT vazio? ⚠️
-                                              ↓
-                                    ✅ Log WARNING mas continua
-                                    ✅ Copia vídeo SEM legendas
-                                    ✅ Job marcado como SUCESSO
-                                              ↓
-                                    ❌ Usuário recebe vídeo sem legendas!
-```
-
-### **Código com Bug (video_builder.py linha 590-595)**
-
-```python
-# ❌ COMPORTAMENTO INCORRETO
-if subtitle_size == 0:
-    logger.warning("Subtitle file is empty, skipping burn-in")
-    shutil.copy2(video_path_obj, output_path_obj)  # ❌ ACEITA SEM LEGENDA!
-    return str(output_path_obj)
-```
-
-### **Consequências**
-
-1. **Jobs completam com sucesso** MAS vídeos não têm legendas
-2. **Usuário não é notificado** do problema (apenas WARNING nos logs)
-3. **Vídeos inválidos são entregues** (vídeos sem legendas)
-4. **Viola requisito obrigatório**: "e obrigatorio que isso aconteca"
-
-### **Cenários de Falha**
-
-#### Cenário 1: VAD filtra todas as legendas
-```
-Áudio com ruído alto → VAD detecta "sem fala" → final_cues = []
-→ SRT vazio gerado → ⚠️ WARNING → Vídeo sem legendas aceito
-```
-
-#### Cenário 2: Whisper não retorna segmentos
-```
-Transcrição falha silenciosamente → segments = []
-→ raw_cues = [] → SRT vazio → ⚠️ WARNING → Vídeo sem legendas aceito
-```
-
-#### Cenário 3: Áudio com qualidade baixa
-```
-Áudio com baixa qualidade → Whisper não transcreve
-→ segments = [] → SRT vazio → ⚠️ WARNING → Vídeo sem legendas aceito
-```
-
----
-
-## ✅ **Como Deveria Ser**
-
-### **Pipeline Correto (Após Correção)**
-
-```
-Transcrição (Whisper) → VAD Processing → SRT Generation → Burn-in
-                                              ↓
-                                         SRT vazio? ❌
-                                              ↓
-                                    ❌ RAISE SubtitleGenerationException
-                                    ❌ Job marcado como FAILED
-                                    ❌ Usuário notificado do erro
-                                              ↓
-                                    ✅ Vídeo NÃO é gerado (fail-safe)
-```
-
-### **Código Corrigido (video_builder.py linha 590-605)**
-
-```python
-# ✅ COMPORTAMENTO CORRETO
-if subtitle_size == 0:
-    raise SubtitleGenerationException(
-        reason="Subtitle file is empty - subtitles are mandatory for this job",
-        subtitle_path=str(subtitle_path_obj),
-        details={
-            "subtitle_size": 0,
-            "expected_size": "> 0 bytes",
-            "problem": "Cannot generate video without subtitles - empty SRT file",
-            "recommendation": "Check audio transcription and VAD processing steps"
-        }
-    )
-```
-
-### **Validação em Múltiplas Etapas**
-
-#### 1. **Após transcrição (celery_tasks.py linha ~700)**
-```python
-segments = await api_client.transcribe_audio(str(audio_path), job.subtitle_language)
-
-if not segments:
-    raise SubtitleGenerationException(
-        reason="Whisper transcription returned no segments",
-        details={"audio_path": str(audio_path), "language": job.subtitle_language}
-    )
-```
-
-#### 2. **Após VAD processing (celery_tasks.py linha ~870)**
-```python
-if not final_cues:
-    raise SubtitleGenerationException(
-        reason="No valid subtitle cues after speech gating (VAD processing)",
-        details={
-            "raw_cues_count": len(raw_cues),
-            "final_cues_count": 0,
-            "vad_ok": vad_ok,
-            "problem": "All subtitle cues were filtered out during VAD processing"
-        }
-    )
-```
-
-#### 3. **Após SRT generation (celery_tasks.py linha ~890)**
-```python
-subtitle_path.stat().st_size == 0:
-if subtitle_path.exists():
-    srt_size = subtitle_path.stat().st_size
-    if srt_size == 0:
-        raise SubtitleGenerationException(
-            reason="Generated SRT file is empty (0 bytes)",
-            subtitle_path=str(subtitle_path),
-            details={"segments_count": len(segments_for_srt)}
-        )
-```
-
-#### 4. **Antes de burn-in (video_builder.py linha ~590)**
-```python
-# Validação final obrigatória
-if subtitle_size == 0:
-    raise SubtitleGenerationException(
-        reason="Subtitle file is empty - subtitles are mandatory",
-        subtitle_path=str(subtitle_path_obj),
-        details={"subtitle_size": 0, "expected_size": "> 0 bytes"}
-    )
-```
-
-### **Melhorias de Precisão**
-
-#### **M1: Adicionar Fallback para VAD**
-- **Problema**: VAD pode ser muito restritivo (threshold alto)
-- **Solução**: Se `vad_ok=False` E `len(final_cues) == 0`, tentar threshold mais baixo (0.3 → 0.1)
-
-#### **M2: Validar Quality Score do Whisper**
-- **Problema**: Whisper pode retornar transcrições com baixa confiança
-- **Solução**: Adicionar `no_speech_prob` check (rejeitar se > 0.6)
-
-#### **M3: Adicionar Retry com Modelo Diferente**
-- **Problema**: Whisper pode falhar em áudios com sotaque forte
-- **Solução**: Retry com `whisper-1` → `whisper-large-v3` em caso de falha
-
-#### **M4: Pre-processing de Áudio**
-- **Problema**: Áudio com ruído pode quebrar transcrição
-- **Solução**: Adicionar noise reduction antes de transcrever (FFmpeg `afftdn` filter)
-
-#### **M5: Validação de Sync A/V**
-- **Problema**: Legendas podem dessincronizar com áudio
-- **Solução**: Usar `SyncValidator` já implementado (linha ~944 celery_tasks.py)
-
----
-
-## Índice
 1. [Visão Geral](#visão-geral)
 2. [Arquitetura do Sistema](#arquitetura-do-sistema)
-3. [Pipeline Completo de Sincronização](#pipeline-completo-de-sincronização)
-4. [Voice Activity Detection (VAD)](#voice-activity-detection-vad)
-5. [Speech-Gated Subtitles](#speech-gated-subtitles)
-6. [Geração de Legendas SRT](#geração-de-legendas-srt)
-7. [Otimizações e Ajustes](#otimizações-e-ajustes)
-8. [Fluxogramas e Diagramas](#fluxogramas-e-diagramas)
+3. [Pipeline Completo](#pipeline-completo)
+4. [Etapa 1: Transcrição de Áudio](#etapa-1-transcrição-de-áudio)
+5. [Etapa 2: Geração SRT Inicial](#etapa-2-geração-srt-inicial)
+6. [Etapa 3: Voice Activity Detection (VAD)](#etapa-3-voice-activity-detection-vad)
+7. [Etapa 4: Speech Gating](#etapa-4-speech-gating)
+8. [Etapa 5: Validação SRT](#etapa-5-validação-srt)
+9. [Etapa 6: Burn-in de Legendas](#etapa-6-burn-in-de-legendas)
+10. [Fluxogramas](#fluxogramas)
+11. [Configurações](#configurações)
 
 ---
 
-## Visão Geral
+## VISÃO GERAL
 
-O sistema de sincronização garante que **legendas apareçam APENAS quando há fala** no áudio, eliminando legendas durante silêncios, ruídos ou música instrumental.
+### O Que Faz?
 
-### Objetivos Principais
+O sistema garante que **legendas apareçam APENAS quando há fala real no áudio**, eliminando legendas durante:
+- ❌ Silêncios prolongados
+- ❌ Ruídos de fundo
+- ❌ Música instrumental
+- ❌ Transições entre cenas
 
-✅ **Detectar segmentos de fala** usando VAD (Voice Activity Detection)  
-✅ **Sincronizar legendas** com timestamps precisos de áudio  
-✅ **Eliminar legendas em silêncios** (gating)  
-✅ **Ajustar duração mínima** para legibilidade (120ms)  
-✅ **Merge legendas próximas** (gap < 120ms)  
+### Objetivos
 
-### Tecnologias Utilizadas
+✅ **Sincronização perfeita** entre áudio e legendas  
+✅ **Detecção precisa de fala** usando VAD (Voice Activity Detection)  
+✅ **Legendas legíveis** (duração mínima de 120ms)  
+✅ **Evitar flicker** (merge de legendas próximas)  
+✅ **Validação rigorosa** (SRT vazio = job FAIL)  
 
-- **Silero-VAD**: Modelo de Deep Learning para detecção de fala (PyTorch)
-- **WebRTC VAD**: Fallback leve baseado em algoritmo clássico
-- **FFmpeg**: Conversão de áudio e processamento
-- **Whisper**: Transcrição de áudio (via audio-transcriber service)
-- **Python**: Orquestração e processamento de timestamps
+### Tecnologias
+
+| Componente | Tecnologia |
+|------------|------------|
+| **Transcrição** | Whisper API (audio-transcriber service) |
+| **VAD Principal** | Silero-VAD v4.0 (PyTorch JIT) |
+| **VAD Fallback 1** | WebRTC VAD (algoritmo clássico) |
+| **VAD Fallback 2** | RMS (Root Mean Square) |
+| **Burn-in** | FFmpeg (subtitle filter) |
+| **Formato** | SubRip Text (SRT) |
 
 ---
 
-## Arquitetura do Sistema
+## ARQUITETURA DO SISTEMA
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │              AUDIO-LEGEND SYNCHRONIZATION PIPELINE              │
 └────────────────────────────────────────────────────────────────┘
 
-   ┌──────────────────┐
-   │  Áudio Original  │
-   │  (audio.mp3)     │
-   └────────┬─────────┘
-            │
-            ▼
-   ┌─────────────────────────────┐
-   │  1. TRANSCRIPTION           │
-   │  (Whisper via API)          │
-   │  Output: segments[]         │
-   └────────┬────────────────────┘
-            │
-            │  [{start: 0.5, end: 3.2, text: "Olá"},
-            │   {start: 3.5, end: 6.1, text: "mundo"}]
-            │
-            ▼
-   ┌─────────────────────────────┐
-   │  2. SRT GENERATION          │
-   │  (SubtitleGenerator)        │
-   │  Output: subtitles.srt      │
-   └────────┬────────────────────┘
-            │
-            │  1
-            │  00:00:00,500 --> 00:00:03,200
-            │  Olá
-            │
-            ▼
-   ┌─────────────────────────────┐
-   │  3. VAD DETECTION           │
-   │  (Silero-VAD / WebRTC)      │
-   │  Output: speech_segments[]  │
-   └────────┬────────────────────┘
-            │
-            │  [{start: 0.4, end: 3.3, conf: 0.95},
-            │   {start: 3.4, end: 6.2, conf: 0.92}]
-            │
-            ▼
-   ┌─────────────────────────────┐
-   │  4. SPEECH GATING           │
-   │  (SpeechGatedSubtitles)     │
-   │  - Clamp cues               │
-   │  - Drop silent cues         │
-   │  - Merge close cues         │
-   └────────┬────────────────────┘
-            │
-            ▼
-   ┌─────────────────────────────┐
-   │  5. SYNCHRONIZED SRT        │
-   │  (final.srt)                │
-   │  ✅ Legendas apenas em fala │
-   └─────────────────────────────┘
+Áudio Original (audio.mp3)
+         │
+         ▼
+┌─────────────────────────────┐
+│ 1. TRANSCRIPTION            │  ◄─── audio-transcriber service (Whisper API)
+│    Entrada: audio.mp3       │
+│    Saída: segments[]        │
+│    [{start:0.5,end:3.2,     │
+│      text:"Olá"}]           │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ 2. SRT GENERATION           │  ◄─── SubtitleGenerator.generate_word_by_word_srt()
+│    Entrada: segments[]      │
+│    Saída: raw_cues[]        │
+│    [{start:0.5,end:0.6,     │
+│      text:"Olá"}]           │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ 3. VAD DETECTION            │  ◄─── SpeechGatedSubtitles.detect_speech_segments()
+│    Entrada: audio.mp3       │
+│    Saída: speech_segments[] │
+│    [{start:0.42,end:3.28,   │
+│      confidence:1.0}]       │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ 4. SPEECH GATING            │  ◄─── SpeechGatedSubtitles.gate_subtitles()
+│    Entrada: raw_cues[]      │
+│            + speech_segments│
+│    Processo:                │
+│    - CLAMP cues nos segments│
+│    - DROP cues fora de fala │
+│    - MERGE cues próximos    │
+│    Saída: final_cues[]      │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ 5. VALIDATION               │  ◄─── Validação crítica (final_cues não pode ser vazio)
+│    Se final_cues == [] →    │
+│    RAISE Exception          │
+│    Job FAIL                 │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ 6. SRT FILE WRITE           │  ◄─── SubtitleGenerator.generate_word_by_word_srt()
+│    Entrada: final_cues[]    │
+│    Saída: subtitles.srt     │
+└────────┬────────────────────┘
+         │
+         ▼
+┌─────────────────────────────┐
+│ 7. BURN-IN                  │  ◄─── VideoBuilder.burn_subtitles() + FFmpeg
+│    Entrada: video.mp4       │
+│            + subtitles.srt  │
+│    Saída: final_video.mp4   │
+│    ✅ Legendas gravadas     │
+└─────────────────────────────┘
 ```
 
 ---
 
-## Pipeline Completo de Sincronização
+## PIPELINE COMPLETO
 
-### Etapa 1: Transcrição de Áudio
+### Código Completo da Orquestração
 
-**Serviço**: `audio-transcriber` (microserviço separado)  
-**Modelo**: Whisper (OpenAI)
+**Arquivo**: `app/infrastructure/celery_tasks.py` (linhas ~700-920)
 
 ```python
-# celery_tasks.py -> _transcribe_audio()
-async def _transcribe_audio(audio_path: str, client: MicroservicesClient):
-    """Transcreve áudio usando audio-transcriber service"""
+# ═══════════════════════════════════════════════════════════════
+# ETAPA 6: GERAR LEGENDAS (RETRY INFINITO ATÉ CONSEGUIR)
+# ═══════════════════════════════════════════════════════════════
+
+logger.info(f"📝 [6/7] Generating subtitles...")
+await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=80.0)
+
+# Inicializar variáveis
+segments = []           # Segmentos da transcrição Whisper
+retry_attempt = 0       # Contador de tentativas
+max_backoff = 300       # 5 minutos máximo entre tentativas
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.1: TRANSCRIÇÃO COM RETRY INFINITO
+# ────────────────────────────────────────────────────────────────
+# Objetivo: Garantir que SEMPRE temos transcrição, mesmo se API falhar
+# Comportamento: Retry exponencial até conseguir
+while not segments:
+    retry_attempt += 1
     
-    response = await client.transcribe_audio(
-        audio_path=audio_path,
-        language="pt",
-        model="base"
+    try:
+        if retry_attempt > 1:
+            logger.info(f"🔄 Subtitle generation retry #{retry_attempt}")
+            await update_job_status(
+                job_id, 
+                JobStatus.GENERATING_SUBTITLES, 
+                progress=80.0,
+                stage_updates={
+                    "generating_subtitles": {
+                        "status": "retrying",
+                        "metadata": {
+                            "retry_attempt": retry_attempt,
+                            "reason": "Previous attempt failed or timed out"
+                        }
+                    }
+                }
+            )
+        
+        # ────────────────────────────────────────────────────────────────
+        # CHAMADA À API: audio-transcriber service (Whisper)
+        # ────────────────────────────────────────────────────────────────
+        # Entrada: audio_path (ex: /tmp/make-video-temp/<job_id>/audio.mp3)
+        #          subtitle_language (ex: "pt", "en", "es")
+        # Saída: segments[] = [
+        #   {start: 0.5, end: 3.2, text: "Olá, como vai?"},
+        #   {start: 3.5, end: 6.1, text: "Tudo bem?"}
+        # ]
+        segments = await api_client.transcribe_audio(
+            str(audio_path), 
+            job.subtitle_language
+        )
+        
+        logger.info(
+            f"✅ Subtitles generated: {len(segments)} segments "
+            f"(attempt #{retry_attempt})"
+        )
+        
+    except MicroserviceException as e:
+        # ────────────────────────────────────────────────────────────────
+        # TRATAMENTO DE ERRO: Backoff exponencial
+        # ────────────────────────────────────────────────────────────────
+        # Fórmula: backoff_seconds = min(5 * 2^(retry_attempt - 1), 300)
+        # Sequência: 5s → 10s → 20s → 40s → 80s → 160s → 300s (máx)
+        backoff_seconds = min(5 * (2 ** (retry_attempt - 1)), max_backoff)
+        
+        logger.warning(
+            f"⚠️ Subtitle generation failed (attempt #{retry_attempt}): {e}",
+            exc_info=False
+        )
+        logger.info(f"🔄 Retrying in {backoff_seconds}s...")
+        
+        # Atualizar status do job com informações de retry
+        await update_job_status(
+            job_id,
+            JobStatus.GENERATING_SUBTITLES,
+            progress=80.0,
+            stage_updates={
+                "generating_subtitles": {
+                    "status": "waiting_retry",
+                    "metadata": {
+                        "retry_attempt": retry_attempt,
+                        "backoff_seconds": backoff_seconds,
+                        "error": str(e)
+                    }
+                }
+            }
+        )
+        
+        # Aguardar backoff
+        await asyncio.sleep(backoff_seconds)
+        
+        # Loop continua (while not segments)
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.2: CONVERSÃO SEGMENTS → RAW CUES (PALAVRA POR PALAVRA)
+# ────────────────────────────────────────────────────────────────
+# Objetivo: Transformar segmentos longos em palavras individuais
+# Comportamento: Cada palavra recebe timestamp proporcional
+from app.services.subtitle_generator import SubtitleGenerator
+subtitle_gen = SubtitleGenerator()
+
+raw_cues = []  # Lista de cues palavra por palavra
+
+for segment in segments:
+    # Extrair informações do segmento
+    start_time = segment.get("start", 0.0)    # Ex: 0.5
+    end_time = segment.get("end", 0.0)        # Ex: 3.2
+    text = segment.get("text", "").strip()    # Ex: "Olá, como vai?"
+    
+    if not text:
+        continue  # Pular segmentos vazios
+    
+    # Dividir em palavras (mantém pontuação)
+    import re
+    words = re.findall(r'\S+', text)  # Ex: ["Olá,", "como", "vai?"]
+    
+    if not words:
+        continue
+    
+    # Calcular tempo por palavra
+    # Duração do segmento: end_time - start_time = 3.2 - 0.5 = 2.7s
+    # Palavras: 3 → tempo_por_palavra = 2.7 / 3 = 0.9s
+    segment_duration = end_time - start_time
+    time_per_word = segment_duration / len(words)
+    
+    # Atribuir timestamp para cada palavra
+    for i, word in enumerate(words):
+        word_start = start_time + (i * time_per_word)
+        word_end = word_start + time_per_word
+        
+        raw_cues.append({
+            'start': word_start,   # Ex: 0.5, 1.4, 2.3
+            'end': word_end,       # Ex: 1.4, 2.3, 3.2
+            'text': word           # Ex: "Olá,", "como", "vai?"
+        })
+
+logger.info(f"📝 Raw cues generated: {len(raw_cues)} words from {len(segments)} segments")
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.3: SPEECH GATING COM VAD
+# ────────────────────────────────────────────────────────────────
+# Objetivo: Garantir que legendas só aparecem quando há FALA
+# Processo:
+#   1. VAD detecta segmentos de fala no áudio
+#   2. Clamp cues para dentro dos segmentos
+#   3. Drop cues fora de fala
+#   4. Merge cues próximos (gap < 120ms)
+
+try:
+    from app.services.subtitle_postprocessor import process_subtitles_with_vad
+    
+    # ────────────────────────────────────────────────────────────────
+    # CHAMADA: VAD + Gating
+    # ────────────────────────────────────────────────────────────────
+    # Entrada:
+    #   - audio_path: caminho do áudio final
+    #   - raw_cues: lista de cues palavra por palavra
+    # Saída:
+    #   - gated_cues: cues filtrados (apenas durante fala)
+    #   - vad_ok: True se silero-vad foi usado, False se fallback
+    gated_cues, vad_ok = process_subtitles_with_vad(
+        str(audio_path),  # Ex: /tmp/make-video-temp/<job_id>/audio.mp3
+        raw_cues          # Ex: [{start:0.5,end:1.4,text:"Olá,"}]
     )
     
-    # Response format:
-    # {
-    #   "segments": [
-    #     {"start": 0.5, "end": 3.2, "text": "Olá, como vai?"},
-    #     {"start": 3.5, "end": 6.1, "text": "Tudo bem?"}
-    #   ]
-    # }
+    # Log do resultado
+    if vad_ok:
+        logger.info(
+            f"✅ Speech gating OK: {len(gated_cues)}/{len(raw_cues)} cues "
+            f"(silero-vad)"
+        )
+    else:
+        logger.warning(
+            f"⚠️ Speech gating fallback: {len(gated_cues)}/{len(raw_cues)} cues "
+            f"(webrtcvad/RMS)"
+        )
     
-    return response["segments"]
+    # Usar cues com gating
+    final_cues = gated_cues
+    
+except Exception as e:
+    # ────────────────────────────────────────────────────────────────
+    # FALLBACK: Se VAD falhar, usar cues originais
+    # ────────────────────────────────────────────────────────────────
+    logger.error(f"⚠️ Speech gating failed: {e}, usando cues originais")
+    final_cues = raw_cues
+    vad_ok = False
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.4: VALIDAÇÃO CRÍTICA - FINAL_CUES NÃO PODE SER VAZIO
+# ────────────────────────────────────────────────────────────────
+# IMPORTANTE: Esta validação previne vídeos sem legendas
+# Se final_cues == [], significa que ALGO deu errado:
+#   - VAD filtrou TODAS as legendas (threshold muito alto?)
+#   - Áudio não tem fala (silêncio total?)
+#   - Bug no processamento
+# Comportamento: RAISE Exception → Job FAIL → Usuário notificado
+
+logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
+
+if not final_cues:
+    logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
+    raise SubtitleGenerationException(
+        reason="No valid subtitle cues after speech gating (VAD processing)",
+        subtitle_path=str(subtitle_path),
+        details={
+            "raw_cues_count": len(raw_cues),
+            "final_cues_count": 0,
+            "vad_ok": vad_ok,
+            "problem": "All subtitle cues were filtered out during VAD processing",
+            "recommendation": "Check VAD threshold settings or audio quality"
+        }
+    )
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.5: AGRUPAR CUES EM SEGMENTS PARA SRT
+# ────────────────────────────────────────────────────────────────
+# Objetivo: Agrupar palavras em segmentos (cada X palavras = 1 segment)
+# Exemplo: ["Olá,", "como", "vai?"] → 1 segment "Olá, como vai?"
+
+segment_size = 10  # Agrupar 10 palavras por segment
+segments_for_srt = []
+
+for i in range(0, len(final_cues), segment_size):
+    chunk = final_cues[i:i+segment_size]
+    
+    if chunk:
+        segments_for_srt.append({
+            'start': chunk[0]['start'],           # Início do primeiro cue
+            'end': chunk[-1]['end'],              # Fim do último cue
+            'text': ' '.join(c['text'] for c in chunk)  # Juntar textos
+        })
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.6: GERAR ARQUIVO SRT
+# ────────────────────────────────────────────────────────────────
+subtitle_path = Path('/tmp/make-video-temp') / job_id / "subtitles.srt"
+words_per_caption = int(settings.get('words_per_caption', 2))  # Ex: 2 palavras/legenda
+
+subtitle_gen.generate_word_by_word_srt(
+    segments_for_srt,         # Lista de segments agrupados
+    str(subtitle_path),       # Caminho do arquivo SRT
+    words_per_caption=words_per_caption  # Palavras por legenda
+)
+
+# ────────────────────────────────────────────────────────────────
+# ETAPA 6.7: VALIDAÇÃO DO ARQUIVO SRT GERADO
+# ────────────────────────────────────────────────────────────────
+# Verificar se arquivo foi criado e não está vazio
+
+if subtitle_path.exists():
+    srt_size = subtitle_path.stat().st_size
+    logger.info(f"DEBUG: SRT file created, size = {srt_size} bytes")
+    
+    if srt_size == 0:
+        logger.error("❌ CRITICAL: SRT file is EMPTY (0 bytes)!")
+        # Esta situação é tratada posteriormente no burn_subtitles()
+else:
+    logger.error(f"❌ CRITICAL: SRT file NOT created at {subtitle_path}!")
+
+# Log final
+num_captions_expected = len(final_cues) // words_per_caption
+logger.info(
+    f"✅ Speech-gated subtitles: {len(final_cues)} words → "
+    f"{len(segments_for_srt)} segments → ~{num_captions_expected} captions, "
+    f"{words_per_caption} words/caption, vad_ok={vad_ok}"
+)
+
+# Salvar checkpoint (Sprint-01)
+await _save_checkpoint(job_id, "generating_subtitles_completed")
 ```
 
-**Output**:
+---
+
+## ETAPA 1: TRANSCRIÇÃO DE ÁUDIO
+
+### Responsabilidade
+
+Converter áudio em texto com timestamps precisos usando Whisper API.
+
+### Código: Chamada à API
+
+**Localização**: `celery_tasks.py` (linha ~730)
+
+```python
+# ═══════════════════════════════════════════════════════════════
+# TRANSCRIÇÃO COM WHISPER API (audio-transcriber service)
+# ═══════════════════════════════════════════════════════════════
+
+# Entrada:
+#   - audio_path: /tmp/make-video-temp/<job_id>/audio.mp3
+#   - subtitle_language: "pt", "en", "es", etc.
+segments = await api_client.transcribe_audio(
+    str(audio_path), 
+    job.subtitle_language
+)
+
+# Saída: Lista de segmentos
+# Exemplo:
+# [
+#   {
+#     "start": 0.5,              # Início do segmento (segundos)
+#     "end": 3.2,                # Fim do segmento (segundos)
+#     "text": "Olá, como vai?"  # Texto transcrito
+#   },
+#   {
+#     "start": 3.5,
+#     "end": 6.1,
+#     "text": "Tudo bem?"
+#   },
+#   {
+#     "start": 7.0,
+#     "end": 10.5,
+#     "text": "Vamos começar!"
+#   }
+# ]
+```
+
+### Formato de Saída
+
 ```json
 [
   {
@@ -312,272 +466,237 @@ async def _transcribe_audio(audio_path: str, client: MicroservicesClient):
     "start": 3.5,
     "end": 6.1,
     "text": "Tudo bem?"
-  },
-  {
-    "start": 7.0,
-    "end": 10.5,
-    "text": "Vamos começar!"
   }
 ]
 ```
 
-**Características**:
-- ⏱️ Timestamps de início/fim para cada segmento
-- 📝 Texto transcrito com pontuação
-- 🌐 Suporte multi-idioma (configurável)
+### Características
+
+- ⏱️ **Timestamps automáticos**: Whisper detecta início/fim de cada fala
+- 📝 **Pontuação incluída**: "Olá, como vai?" (não "ola como vai")
+- 🌐 **Multi-idioma**: Suporta 50+ idiomas
+- 🔄 **Retry automático**: Se falhar, retry com backoff exponencial
 
 ---
 
-### Etapa 2: Geração de Legendas SRT
+## ETAPA 2: GERAÇÃO SRT INICIAL
 
-**Classe**: `SubtitleGenerator`  
-**Formato**: SubRip Text (SRT)
+### Responsabilidade
+
+Converter segmentos longos em palavras individuais com timestamps proporcionais.
+
+### Código: Divisão em Palavras
+
+**Localização**: `celery_tasks.py` (linha ~800)
 
 ```python
-# subtitle_generator.py -> segments_to_srt()
-def segments_to_srt(self, segments: List[Dict], output_path: str) -> str:
-    """Converte segmentos de transcrição para formato SRT"""
+# ═══════════════════════════════════════════════════════════════
+# DIVISÃO DE SEGMENTS EM PALAVRAS INDIVIDUAIS
+# ═══════════════════════════════════════════════════════════════
+
+import re
+raw_cues = []  # Lista de cues palavra por palavra
+
+for segment in segments:
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 1: Extrair dados do segmento
+    # ────────────────────────────────────────────────────────────────
+    start_time = segment.get("start", 0.0)    # Ex: 0.5
+    end_time = segment.get("end", 0.0)        # Ex: 3.2
+    text = segment.get("text", "").strip()    # Ex: "Olá, como vai?"
     
-    with open(output_path, "w", encoding="utf-8") as f:
-        for i, segment in enumerate(segments, start=1):
-            start_time = self._format_timestamp(segment["start"])
-            end_time = self._format_timestamp(segment["end"])
-            text = segment["text"].strip()
-            
-            # Formato SRT:
-            # 1
-            # 00:00:00,500 --> 00:00:03,200
-            # Olá, como vai?
-            #
-            f.write(f"{i}\n")
-            f.write(f"{start_time} --> {end_time}\n")
-            f.write(f"{text}\n")
-            f.write("\n")
-```
-
-**Conversão de Timestamp**:
-```python
-def _format_timestamp(self, seconds: float) -> str:
-    """Converte segundos para formato SRT (HH:MM:SS,mmm)"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int((seconds % 1) * 1000)
+    if not text:
+        continue  # Pular segmentos vazios
     
-    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 2: Dividir texto em palavras
+    # ────────────────────────────────────────────────────────────────
+    # Regex \S+ = sequência de caracteres não-whitespace
+    # Mantém pontuação anexada: "Olá," "como" "vai?"
+    words = re.findall(r'\S+', text)
+    # Resultado: ["Olá,", "como", "vai?"]
+    
+    if not words:
+        continue
+    
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 3: Calcular tempo por palavra
+    # ────────────────────────────────────────────────────────────────
+    segment_duration = end_time - start_time  # 3.2 - 0.5 = 2.7s
+    time_per_word = segment_duration / len(words)  # 2.7 / 3 = 0.9s
+    
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 4: Atribuir timestamps para cada palavra
+    # ────────────────────────────────────────────────────────────────
+    for i, word in enumerate(words):
+        # Timestamp de início da palavra
+        word_start = start_time + (i * time_per_word)
+        # Palavra 0: 0.5 + (0 * 0.9) = 0.5
+        # Palavra 1: 0.5 + (1 * 0.9) = 1.4
+        # Palavra 2: 0.5 + (2 * 0.9) = 2.3
+        
+        # Timestamp de fim da palavra
+        word_end = word_start + time_per_word
+        # Palavra 0: 0.5 + 0.9 = 1.4
+        # Palavra 1: 1.4 + 0.9 = 2.3
+        # Palavra 2: 2.3 + 0.9 = 3.2
+        
+        raw_cues.append({
+            'start': word_start,
+            'end': word_end,
+            'text': word
+        })
+
+# Resultado:
+# raw_cues = [
+#   {start: 0.5, end: 1.4, text: "Olá,"},
+#   {start: 1.4, end: 2.3, text: "como"},
+#   {start: 2.3, end: 3.2, text: "vai?"}
+# ]
+
+logger.info(
+    f"📝 Raw cues generated: {len(raw_cues)} words from {len(segments)} segments"
+)
 ```
 
-**Exemplo de conversão**:
+### Exemplo Visual
+
 ```
-Input:  3.578 segundos
-Output: 00:00:03,578
+Segment: "Olá, como vai?"
+Duration: 2.7s (0.5 → 3.2)
+Words: 3 → 0.9s por palavra
 
-Input:  125.234 segundos
-Output: 00:02:05,234
-```
-
-**SRT Gerado**:
-```
-1
-00:00:00,500 --> 00:00:03,200
-Olá, como vai?
-
-2
-00:00:03,500 --> 00:00:06,100
-Tudo bem?
-
-3
-00:00:07,000 --> 00:00:10,500
-Vamos começar!
+┌─────────────────────────────────────────────────────┐
+│  Olá,     │  como     │  vai?     │                 │
+│  0.5→1.4  │  1.4→2.3  │  2.3→3.2  │                 │
+│  (0.9s)   │  (0.9s)   │  (0.9s)   │                 │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Etapa 3: Voice Activity Detection (VAD)
+## ETAPA 3: VOICE ACTIVITY DETECTION (VAD)
 
-**Objetivo**: Detectar **exatamente quando há fala** no áudio
+### Responsabilidade
 
-#### 3.1 Silero-VAD (Modelo Principal)
+Detectar **exatamente quando há fala** no áudio, ignorando silêncios e ruídos.
+
+### Modelo Principal: Silero-VAD
 
 **Tecnologia**: PyTorch JIT (Just-In-Time compiled)  
 **Modelo**: Silero-VAD v4.0  
-**Vantagens**: Alta precisão, rápido, pré-treinado
+**Vantagens**: Alta precisão (95%+), rápido, offline  
+
+### Código: Detecção de Fala
+
+**Arquivo**: `app/services/subtitle_postprocessor.py`
 
 ```python
-# subtitle_postprocessor.py -> _detect_with_silero()
-def _detect_with_silero(self, audio_path: str) -> List[SpeechSegment]:
-    """Detecção com silero-vad"""
+def detect_speech_segments(
+    self,
+    audio_path: str
+) -> Tuple[List[SpeechSegment], bool]:
+    """
+    Detecta segmentos de fala usando VAD.
     
-    # Carregar áudio em 16kHz (requisito do modelo)
+    Returns:
+        (segments: List[SpeechSegment], vad_ok: bool)
+        vad_ok=False indica fallback usado (precisão reduzida)
+    """
+    # ────────────────────────────────────────────────────────────────
+    # TENTATIVA 1: Silero-VAD (preferível)
+    # ────────────────────────────────────────────────────────────────
+    if self.model is not None:
+        segments = self._detect_with_silero(audio_path)
+        logger.info(
+            f"🎙️ Detectados {len(segments)} segmentos de fala (silero)"
+        )
+        return segments, True
+    
+    # ────────────────────────────────────────────────────────────────
+    # FALLBACK 1: WebRTC VAD
+    # ────────────────────────────────────────────────────────────────
+    elif self.webrtc_vad is not None:
+        logger.info("🔄 Usando webrtcvad (fallback)")
+        segments = self._detect_with_webrtc(audio_path)
+        return segments, False
+    
+    # ────────────────────────────────────────────────────────────────
+    # FALLBACK 2: RMS simples
+    # ────────────────────────────────────────────────────────────────
+    else:
+        logger.warning("⚠️ VAD total fallback: usando RMS simples")
+        segments = self._detect_with_rms(audio_path)
+        return segments, False
+
+def _detect_with_silero(self, audio_path: str) -> List[SpeechSegment]:
+    """Detecção com silero-vad (alta precisão)"""
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 1: Carregar áudio em 16kHz (requisito do modelo)
+    # ────────────────────────────────────────────────────────────────
     wav = load_audio_torch(audio_path, sampling_rate=16000)
     
-    # Detectar timestamps de fala
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 2: Detectar timestamps de fala
+    # ────────────────────────────────────────────────────────────────
+    # Parâmetros:
+    #   - threshold: 0.5 (confiança mínima)
+    #   - min_speech_duration_ms: 250ms (mínimo de fala contínua)
+    #   - min_silence_duration_ms: 100ms (mínimo de silêncio entre falas)
     speech_timestamps = get_speech_timestamps(
         wav,
         self.model,
-        threshold=0.5,              # Confidence threshold
+        threshold=self.vad_threshold,      # Ex: 0.5
         sampling_rate=16000,
-        min_speech_duration_ms=250, # Mínimo 250ms para ser fala
-        min_silence_duration_ms=100 # Mínimo 100ms de silêncio entre falas
+        min_speech_duration_ms=250,        # Mínimo 250ms de fala
+        min_silence_duration_ms=100        # Mínimo 100ms de silêncio
     )
     
-    # Converter para SpeechSegment objects
+    # Resultado: Lista de dicts [{start: 6720, end: 52480}, ...]
+    # Valores em samples (16kHz)
+    
+    # ────────────────────────────────────────────────────────────────
+    # PASSO 3: Converter para SpeechSegment objects
+    # ────────────────────────────────────────────────────────────────
     segments = []
     for ts in speech_timestamps:
+        # Converter samples → segundos
+        start_sec = ts['start'] / 16000.0  # Ex: 6720 / 16000 = 0.42s
+        end_sec = ts['end'] / 16000.0      # Ex: 52480 / 16000 = 3.28s
+        
         segments.append(SpeechSegment(
-            start=ts['start'] / 16000.0,  # Converter samples para segundos
-            end=ts['end'] / 16000.0,
-            confidence=1.0
+            start=start_sec,
+            end=end_sec,
+            confidence=1.0  # Silero-VAD = alta confiança
         ))
     
     return segments
 ```
 
-**Exemplo de output**:
-```python
-[
-    SpeechSegment(start=0.42, end=3.28, confidence=1.0),
-    SpeechSegment(start=3.45, end=6.18, confidence=1.0),
-    SpeechSegment(start=6.95, end=10.62, confidence=1.0)
-]
-```
+### Comparação de VADs
 
-**Visualização**:
-```
-Áudio:  [------FALA------]....[----FALA----]...........[------FALA------]
-        0.42          3.28  3.45       6.18          6.95           10.62
-        └─────────────────┘  └──────────────┘         └──────────────────┘
-         Segment 1           Segment 2                Segment 3
-```
-
-#### 3.2 WebRTC VAD (Fallback)
-
-**Uso**: Quando Silero-VAD não está disponível  
-**Tecnologia**: Algoritmo clássico de detecção de voz  
-**Vantagens**: Leve, sem dependências de ML
-
-```python
-# subtitle_postprocessor.py -> _detect_with_webrtc()
-def _detect_with_webrtc(self, audio_path: str) -> List[SpeechSegment]:
-    """Fallback com webrtcvad (leve)"""
-    
-    # Converter para formato compatível (16kHz, 16-bit, mono WAV)
-    wav_path = convert_to_16k_wav(audio_path)
-    
-    segments = []
-    with wave.open(wav_path, 'rb') as wf:
-        frames = wf.readframes(wf.getnframes())
-        
-    # Processar em janelas de 30ms
-    frame_duration = 30  # ms
-    frame_size = int(16000 * frame_duration / 1000) * 2  # bytes
-    
-    in_speech = False
-    speech_start = 0.0
-    
-    for i in range(0, len(frames), frame_size):
-        frame = frames[i:i+frame_size]
-        timestamp = i / (16000 * 2)  # segundos
-        
-        # Detectar voz
-        is_speech = self.webrtc_vad.is_speech(frame, 16000)
-        
-        if is_speech and not in_speech:
-            speech_start = timestamp
-            in_speech = True
-        elif not is_speech and in_speech:
-            segments.append(SpeechSegment(
-                start=speech_start,
-                end=timestamp,
-                confidence=0.8
-            ))
-            in_speech = False
-    
-    return segments
-```
-
-#### 3.3 RMS Fallback (Último Recurso)
-
-**Uso**: Quando nenhum VAD está disponível  
-**Método**: Root Mean Square (energia do sinal)
-
-```python
-# subtitle_postprocessor.py -> _detect_with_rms()
-def _detect_with_rms(self, audio_path: str, 
-                     threshold: float = 0.02) -> List[SpeechSegment]:
-    """RMS simples baseado em energia do sinal"""
-    
-    y, sr = librosa.load(audio_path, sr=16000, mono=True)
-    
-    # Calcular RMS em janelas de 100ms
-    frame_length = int(sr * 0.1)  # 100ms
-    rms = librosa.feature.rms(y=y, frame_length=frame_length)[0]
-    
-    # Detectar segmentos acima do threshold
-    segments = []
-    in_speech = False
-    speech_start = 0.0
-    
-    for i, r in enumerate(rms):
-        timestamp = i * 0.1  # 100ms por frame
-        
-        if r > threshold and not in_speech:
-            speech_start = timestamp
-            in_speech = True
-        elif r <= threshold and in_speech:
-            segments.append(SpeechSegment(
-                start=speech_start,
-                end=timestamp,
-                confidence=0.5  # Baixa confidence
-            ))
-            in_speech = False
-    
-    return segments
-```
-
-**Comparação de VADs**:
-
-| Método | Precisão | Velocidade | Dependências | Uso |
-|--------|----------|------------|--------------|-----|
-| **Silero-VAD** | 🌟🌟🌟🌟🌟 | 🚀 Rápido | PyTorch | ✅ **Produção** |
-| **WebRTC VAD** | 🌟🌟🌟 | ⚡ Muito rápido | webrtcvad | 🔄 Fallback |
-| **RMS** | 🌟 | 🚀 Instantâneo | librosa | ⚠️ Último recurso |
+| Método | Precisão | Velocidade | Quando Usar |
+|--------|----------|------------|-------------|
+| **Silero-VAD** | 🌟🌟🌟🌟🌟 (95%+) | 🚀 Rápido (1-2s/min) | ✅ Produção (default) |
+| **WebRTC VAD** | 🌟🌟🌟 (80%+) | ⚡ Muito rápido (<1s/min) | 🔄 Fallback 1 |
+| **RMS** | 🌟 (60%+) | 🚀 Instantâneo | ⚠️ Fallback 2 (último recurso) |
 
 ---
 
-## Speech-Gated Subtitles
+## ETAPA 4: SPEECH GATING
 
-**Classe**: `SpeechGatedSubtitles`  
-**Objetivo**: Garantir que legendas só apareçam durante fala
+### Responsabilidade
 
-### Parâmetros de Gating
+Garantir que **TODAS as legendas estão dentro de segmentos de fala**, aplicando:
+1. **CLAMP**: Ajustar timestamps para dentro dos speech segments
+2. **DROP**: Remover legendas fora de fala
+3. **MERGE**: Juntar legendas próximas (gap < 120ms)
 
-```python
-class SpeechGatedSubtitles:
-    def __init__(
-        self,
-        pre_pad: float = 0.06,      # 60ms antes da fala
-        post_pad: float = 0.12,     # 120ms depois da fala
-        min_duration: float = 0.12, # Duração mínima de 120ms
-        merge_gap: float = 0.12,    # Merge se gap < 120ms
-        vad_threshold: float = 0.5  # Threshold de confiança VAD
-    ):
-```
+### Código: Algoritmo de Gating
 
-**Explicação dos parâmetros**:
-
-| Parâmetro | Valor | Razão |
-|-----------|-------|-------|
-| `pre_pad` | 60ms | Legenda pode aparecer **antes** do fonema começar |
-| `post_pad` | 120ms | Legenda fica **após** fonema terminar (melhor legibilidade) |
-| `min_duration` | 120ms | Mínimo para olho humano ler |
-| `merge_gap` | 120ms | Se gap < 120ms, juntar legendas (evita flicker) |
-| `vad_threshold` | 0.5 | Confidence mínima de VAD (0-1) |
-
-### Algoritmo de Gating
+**Localização**: `subtitle_postprocessor.py` (classe `SpeechGatedSubtitles`)
 
 ```python
-# subtitle_postprocessor.py -> gate_subtitles()
 def gate_subtitles(
     self,
     cues: List[SubtitleCue],
@@ -587,43 +706,82 @@ def gate_subtitles(
     """
     Aplica gating: remove/clamp cues para dentro dos speech segments.
     
+    Args:
+        cues: Lista de cues originais
+        speech_segments: Segmentos de fala detectados por VAD
+        audio_duration: Duração total do áudio (para clamp final)
+    
     Regras:
     1. Se cue NÃO intersecta nenhum segment → DROP
     2. Se intersecta → CLAMP dentro do segment (com padding)
     3. Se duração < min_duration → ajustar
     4. Se gap entre cues < merge_gap → MERGE
     """
-    
     gated_cues = []
     dropped_count = 0
     
+    # ══════════════════════════════════════════════════════════════
+    # ETAPA 1: CLAMP/DROP INDIVIDUAL
+    # ══════════════════════════════════════════════════════════════
     for cue in cues:
-        # Encontrar speech segment que intersecta
+        # ────────────────────────────────────────────────────────────
+        # PASSO 1: Encontrar speech segment que intersecta o cue
+        # ────────────────────────────────────────────────────────────
         intersecting_segment = self._find_intersecting_segment(
             cue, speech_segments
         )
         
         if intersecting_segment is None:
-            # DROP: cue fora de fala
+            # ────────────────────────────────────────────────────────
+            # DROP: Cue fora de fala (não intersecta nenhum segment)
+            # ────────────────────────────────────────────────────────
             logger.debug(f"⚠️ DROP cue '{cue.text}' (fora de fala)")
             dropped_count += 1
-            continue
+            continue  # Não adicionar em gated_cues
         
-        # CLAMP: ajustar start/end para dentro do segment (com padding)
+        # ────────────────────────────────────────────────────────────
+        # PASSO 2: CLAMP start para dentro do segment (com pre-pad)
+        # ────────────────────────────────────────────────────────────
+        # Regra: Começar no máximo 60ms ANTES do segmento de fala
+        # Exemplo:
+        #   segment.start = 0.42s
+        #   pre_pad = 0.06s
+        #   cue.start = 0.50s
+        #   → clamped_start = max(0.42 - 0.06, 0.50) = max(0.36, 0.50) = 0.50
         clamped_start = max(
-            intersecting_segment.start - self.pre_pad,  # 60ms antes
-            cue.start
+            intersecting_segment.start - self.pre_pad,  # 0.36s
+            cue.start                                   # 0.50s
         )
         
+        # ────────────────────────────────────────────────────────────
+        # PASSO 3: CLAMP end para dentro do segment (com post-pad)
+        # ────────────────────────────────────────────────────────────
+        # Regra: Terminar no máximo 120ms APÓS o segmento de fala
+        # Exemplo:
+        #   segment.end = 3.28s
+        #   post_pad = 0.12s
+        #   audio_duration = 60.0s
+        #   → clamped_end = min(60.0, 3.28 + 0.12) = min(60.0, 3.40) = 3.40
         clamped_end = min(
-            audio_duration,
-            intersecting_segment.end + self.post_pad  # 120ms depois
+            audio_duration,                             # Não ultrapassar áudio
+            intersecting_segment.end + self.post_pad    # 3.40s
         )
+        # IMPORTANTE: Não limitar pelo cue.end original (permite estender)
         
-        # Garantir duração mínima
+        # ────────────────────────────────────────────────────────────
+        # PASSO 4: Garantir duração mínima (120ms)
+        # ────────────────────────────────────────────────────────────
+        # Regra: Legenda precisa ficar na tela por pelo menos 120ms
+        # para ser legível pelo olho humano
         if clamped_end - clamped_start < self.min_duration:
-            clamped_end = min(audio_duration, clamped_start + self.min_duration)
+            clamped_end = min(
+                audio_duration, 
+                clamped_start + self.min_duration  # Estender até 120ms
+            )
         
+        # ────────────────────────────────────────────────────────────
+        # PASSO 5: Criar cue ajustado
+        # ────────────────────────────────────────────────────────────
         gated_cues.append(SubtitleCue(
             index=cue.index,
             start=clamped_start,
@@ -631,56 +789,44 @@ def gate_subtitles(
             text=cue.text
         ))
     
-    # MERGE: juntar cues próximos
+    # ══════════════════════════════════════════════════════════════
+    # ETAPA 2: MERGE DE CUES PRÓXIMOS
+    # ══════════════════════════════════════════════════════════════
+    # Objetivo: Evitar "flicker" de legendas (aparecer/desaparecer rápido)
+    # Regra: Se gap < 120ms, juntar legendas
     merged_cues = self._merge_close_cues(gated_cues)
     
+    # ══════════════════════════════════════════════════════════════
+    # LOG FINAL
+    # ══════════════════════════════════════════════════════════════
+    merged_count = len(gated_cues) - len(merged_cues)
+    logger.info(
+        f"✅ Speech gating: {len(merged_cues)}/{len(cues)} cues finais, "
+        f"{dropped_count} dropped, {merged_count} merged"
+    )
+    
     return merged_cues
-```
 
-### Exemplo Visual de Gating
-
-**Entrada (Legendas originais)**:
-```
-Cue 1: [0.5 ────────── 3.2] "Olá"
-Cue 2: [3.5 ──── 6.1] "mundo"
-Cue 3: [8.0 ── 9.5] "!" (durante silêncio)
-```
-
-**Speech Segments (VAD)**:
-```
-Speech 1: [0.42 ──────────── 3.28]
-Speech 2: [3.45 ────── 6.18]
-```
-
-**Após Gating**:
-```
-Cue 1: [0.36 ────────── 3.40] "Olá"      ◄─ Clamped (pre_pad=-0.06, post_pad=+0.12)
-Cue 2: [3.39 ────── 6.30] "mundo"        ◄─ Clamped (pre_pad=-0.06, post_pad=+0.12)
-Cue 3: DROPPED                           ◄─ Não intersecta nenhum speech segment
-```
-
-**Após Merge** (gap entre Cue 1 e Cue 2 < 120ms):
-```
-Cue 1: [0.36 ──────────────────── 6.30] "Olá mundo"  ◄─ Merged!
-```
-
-### Merge de Legendas Próximas
-
-```python
-# subtitle_postprocessor.py -> _merge_close_cues()
 def _merge_close_cues(self, cues: List[SubtitleCue]) -> List[SubtitleCue]:
-    """Merge cues se gap < merge_gap"""
+    """Merge cues se gap < merge_gap (120ms)"""
     if not cues:
         return []
     
-    merged = [cues[0]]
+    merged = [cues[0]]  # Iniciar com primeiro cue
     
     for cue in cues[1:]:
         prev = merged[-1]
-        gap = cue.start - prev.end
+        gap = cue.start - prev.end  # Calcular gap (silêncio entre cues)
         
         if gap < self.merge_gap:
-            # MERGE: combinar com cue anterior
+            # ────────────────────────────────────────────────────────
+            # MERGE: Juntar com anterior
+            # ────────────────────────────────────────────────────────
+            # Exemplo:
+            #   prev: [0.5 → 1.4] "Olá,"
+            #   cue:  [1.5 → 2.3] "como"
+            #   gap = 1.5 - 1.4 = 0.1s (100ms) < 120ms
+            #   merged: [0.5 → 2.3] "Olá, como"
             merged[-1] = SubtitleCue(
                 index=prev.index,
                 start=prev.start,
@@ -688,183 +834,436 @@ def _merge_close_cues(self, cues: List[SubtitleCue]) -> List[SubtitleCue]:
                 text=f"{prev.text} {cue.text}"
             )
         else:
-            # GAP grande: manter separado
+            # ────────────────────────────────────────────────────────
+            # KEEP SEPARATE: Gap grande, manter separado
+            # ────────────────────────────────────────────────────────
             merged.append(cue)
     
     return merged
 ```
 
-**Exemplo**:
-```
-ANTES:
-Cue 1: [0.5 ── 1.2] "Olá"
-Cue 2: [1.3 ── 2.0] "mundo"   ◄─ Gap = 0.1s (100ms) < 120ms
-Cue 3: [3.0 ── 4.0] "!"       ◄─ Gap = 1.0s (1000ms) > 120ms
+### Exemplo Visual de Gating
 
-DEPOIS:
-Cue 1: [0.5 ────── 2.0] "Olá mundo"   ◄─ Merged (gap < 120ms)
-Cue 2: [3.0 ── 4.0] "!"               ◄─ Separado (gap > 120ms)
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                   ANTES DO GATING                                 │
+└──────────────────────────────────────────────────────────────────┘
+
+Raw Cues (palavras):
+[0.5──1.4] "Olá,"    [1.5──2.3] "como"    [8.0──9.5] "!" (silêncio)
+    │                    │                     │
+    └─────Cue 1─────────┘                     └─────Cue 3─────
+                └─────Cue 2─────
+
+Speech Segments (VAD detectou):
+[0.42──────────3.28] Segment 1
+                          [3.45──6.18] Segment 2
+
+┌──────────────────────────────────────────────────────────────────┐
+│                   APÓS GATING                                     │
+└──────────────────────────────────────────────────────────────────┘
+
+Cue 1: [0.5──1.4] "Olá," → CLAMP → [0.36──1.52]
+  - start: max(0.42 - 0.06, 0.5) = 0.36 (pre-pad aplicado)
+  - end: min(60.0, 3.28 + 0.12) = 3.40 (post-pad aplicado)
+
+Cue 2: [1.5──2.3] "como" → CLAMP → [1.39──3.40]
+  - Intersecta Segment 1
+  - Gap com Cue 1 = 1.39 - 1.52 = -0.13s (negativo!)
+  - → MERGE com Cue 1
+
+Cue 3: [8.0──9.5] "!" → DROP ❌
+  - NÃO intersecta nenhum segment
+  - Está durante silêncio
+
+┌──────────────────────────────────────────────────────────────────┐
+│                   RESULTADO FINAL                                 │
+└──────────────────────────────────────────────────────────────────┘
+
+Final Cues (após gating + merge):
+[0.36──────────3.40] "Olá, como"  ◄─── Merged (gap < 120ms)
+
+Total: 1 cue final (de 3 originais)
+- 2 cues merged
+- 1 cue dropped
 ```
 
 ---
 
-## Geração de Legendas SRT
+## ETAPA 5: VALIDAÇÃO SRT
 
-### Formato SRT Final
+### Responsabilidade
 
-```srt
-1
-00:00:00,360 --> 00:00:06,300
-Olá mundo
+Garantir que **SRT não está vazio** antes de burn-in.
 
-2
-00:00:07,000 --> 00:00:10,500
-Vamos começar!
+### Validações Implementadas
 
-3
-00:00:11,200 --> 00:00:15,800
-Este é um exemplo de legenda sincronizada
-```
-
-### Função Principal de Processamento
+#### 1. Validação Após Gating (celery_tasks.py)
 
 ```python
-# subtitle_postprocessor.py -> process_subtitles_with_vad()
-def process_subtitles_with_vad(
-    audio_path: str,
-    srt_input_path: str,
-    srt_output_path: str,
-    vad_threshold: float = 0.5,
-    vad_model: str = "webrtc"
+# ══════════════════════════════════════════════════════════════
+# VALIDAÇÃO CRÍTICA: FINAL_CUES NÃO PODE SER VAZIO
+# ══════════════════════════════════════════════════════════════
+# Arquivo: celery_tasks.py (linha ~872)
+
+logger.info(f"DEBUG: final_cues count = {len(final_cues)}")
+
+if not final_cues:
+    logger.error("❌ CRITICAL: final_cues is EMPTY! Cannot generate SRT!")
+    raise SubtitleGenerationException(
+        reason="No valid subtitle cues after speech gating (VAD processing)",
+        subtitle_path=str(subtitle_path),
+        details={
+            "raw_cues_count": len(raw_cues),
+            "final_cues_count": 0,
+            "vad_ok": vad_ok,
+            "problem": "All subtitle cues were filtered out during VAD processing",
+            "recommendation": "Check VAD threshold settings or audio quality"
+        }
+    )
+
+# Comportamento:
+#   - Se final_cues == [] → Exception raised
+#   - Job status → FAILED
+#   - Usuário notificado do erro
+#   - Vídeo NÃO é gerado (fail-safe)
+```
+
+#### 2. Validação Antes de Burn-in (video_builder.py)
+
+```python
+# ══════════════════════════════════════════════════════════════
+# VALIDAÇÃO ANTES DE BURN-IN
+# ══════════════════════════════════════════════════════════════
+# Arquivo: video_builder.py (linha ~590)
+
+# ────────────────────────────────────────────────────────────────
+# PASSO 1: Verificar se arquivo SRT existe
+# ────────────────────────────────────────────────────────────────
+if not subtitle_path_obj.exists():
+    raise SubtitleGenerationException(
+        reason=f"Subtitle file not found: {subtitle_path_obj}",
+        subtitle_path=str(subtitle_path_obj),
+        details={"expected_path": str(subtitle_path_obj)}
+    )
+
+# ────────────────────────────────────────────────────────────────
+# PASSO 2: Verificar se arquivo SRT NÃO está vazio (0 bytes)
+# ────────────────────────────────────────────────────────────────
+subtitle_size = subtitle_path_obj.stat().st_size
+
+if subtitle_size == 0:
+    # ────────────────────────────────────────────────────────────
+    # RAISE EXCEPTION: SRT vazio = vídeo sem legendas
+    # ────────────────────────────────────────────────────────────
+    raise SubtitleGenerationException(
+        reason="Subtitle file is empty - subtitles are mandatory for this job",
+        subtitle_path=str(subtitle_path_obj),
+        details={
+            "subtitle_size": 0,
+            "expected_size": "> 0 bytes",
+            "problem": "Cannot generate video without subtitles - empty SRT file",
+            "recommendation": "Check audio transcription and VAD processing steps"
+        }
+    )
+
+# Comportamento:
+#   - Se SRT vazio (0 bytes) → Exception raised
+#   - Job status → FAILED
+#   - Vídeo NÃO é copiado sem legendas
+#   - Sistema GARANTE que legendas são obrigatórias
+```
+
+---
+
+## ETAPA 6: BURN-IN DE LEGENDAS
+
+### Responsabilidade
+
+Gravar legendas permanentemente no vídeo usando FFmpeg.
+
+### Código: Burn-in com FFmpeg
+
+**Arquivo**: `app/services/video_builder.py` (método `burn_subtitles()`)
+
+```python
+async def burn_subtitles(
+    self,
+    video_path: str,
+    subtitle_path: str,
+    output_path: str,
+    style: str = "dynamic"
 ) -> str:
     """
-    Pipeline completo:
-    1. Parse SRT input
-    2. Detectar speech segments (VAD)
-    3. Aplicar gating
-    4. Escrever SRT output
+    Grava legendas no vídeo (burn-in permanente).
     """
+    # ══════════════════════════════════════════════════════════════
+    # PASSO 1: VALIDAÇÕES DE ENTRADA
+    # ══════════════════════════════════════════════════════════════
+    video_path_obj = Path(video_path).resolve()
+    subtitle_path_obj = Path(subtitle_path).resolve()
+    output_path_obj = Path(output_path).resolve()
+    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
     
-    # Inicializar gating
-    gater = SpeechGatedSubtitles(
-        vad_threshold=vad_threshold,
-        model_path='/app/models/silero_vad.jit'
+    # Validação 1: Arquivo SRT existe?
+    if not subtitle_path_obj.exists():
+        raise SubtitleGenerationException(...)
+    
+    # Validação 2: Arquivo SRT não está vazio?
+    subtitle_size = subtitle_path_obj.stat().st_size
+    if subtitle_size == 0:
+        raise SubtitleGenerationException(...)
+    
+    # ══════════════════════════════════════════════════════════════
+    # PASSO 2: DEFINIR ESTILOS DE LEGENDA
+    # ══════════════════════════════════════════════════════════════
+    # Alinhamento: 10 = Topo Centro
+    # MarginV: 280 = 280 pixels do topo (empurra para centro da tela)
+    # FontSize: 18-22 (pequeno para evitar sair da tela)
+    # Outline: Borda preta para legibilidade
+    styles = {
+        "static": (
+            "FontSize=20,"
+            "PrimaryColour=&HFFFFFF&,"      # Branco
+            "OutlineColour=&H000000&,"      # Borda preta
+            "Outline=2,"                     # Borda 2px
+            "Bold=1,"                        # Negrito
+            "Alignment=10,"                  # Topo centro
+            "MarginV=280"                    # 280px do topo
+        ),
+        "dynamic": (
+            "FontSize=22,"
+            "PrimaryColour=&H00FFFF&,"      # Amarelo
+            "OutlineColour=&H000000&,"      # Borda preta
+            "Outline=2,"
+            "Bold=1,"
+            "Alignment=10,"
+            "MarginV=280"
+        ),
+        "minimal": (
+            "FontSize=18,"
+            "PrimaryColour=&HFFFFFF&,"      # Branco
+            "OutlineColour=&H000000&,"      # Borda preta
+            "Outline=1,"                     # Borda fina
+            "Alignment=10,"
+            "MarginV=280"
+        )
+    }
+    
+    subtitle_style = styles.get(style, styles["dynamic"])
+    
+    # ══════════════════════════════════════════════════════════════
+    # PASSO 3: ESCAPAR CAMINHO DO SRT PARA FFMPEG
+    # ══════════════════════════════════════════════════════════════
+    subtitle_path_escaped = str(subtitle_path_obj).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    
+    # ══════════════════════════════════════════════════════════════
+    # PASSO 4: CONSTRUIR COMANDO FFMPEG
+    # ══════════════════════════════════════════════════════════════
+    cmd = [
+        self.ffmpeg_path,
+        "-i", str(video_path_obj),
+        "-vf", f"subtitles={subtitle_path_escaped}:force_style='{subtitle_style}'",
+        "-c:a", "copy",         # NÃO re-encode áudio
+        "-map", "0:v:0",        # Mapear APENAS 1º stream de vídeo
+        "-map", "0:a:0",        # Mapear APENAS 1º stream de áudio
+        "-y",                   # Sobrescrever output
+        str(output_path_obj)
+    ]
+    
+    logger.info(f"▶️ Running FFmpeg subtitle burn-in...")
+    
+    # ══════════════════════════════════════════════════════════════
+    # PASSO 5: EXECUTAR FFMPEG COM TIMEOUT
+    # ══════════════════════════════════════════════════════════════
+    returncode, stdout, stderr = await run_subprocess_with_timeout(
+        cmd=cmd,
+        timeout=900,              # 900s = 15 minutos
+        check=False,
+        capture_output=True
     )
     
-    # Detectar speech segments
-    speech_segments, vad_ok = gater.detect_speech_segments(audio_path)
+    if returncode != 0:
+        raise VideoEncodingException(...)
     
-    if not vad_ok:
-        logger.warning("⚠️ VAD fallback usado (precisão reduzida)")
+    if not output_path_obj.exists():
+        raise VideoEncodingException(...)
     
-    # Parse SRT input
-    cues = _parse_srt(srt_input_path)
+    output_size = output_path_obj.stat().st_size
+    if output_size == 0:
+        raise VideoEncodingException(...)
     
-    # Obter duração do áudio
-    audio_duration = _get_audio_duration(audio_path)
-    
-    # Aplicar gating
-    gated_cues = gater.gate_subtitles(cues, speech_segments, audio_duration)
-    
-    # Escrever SRT output
-    _write_srt(gated_cues, srt_output_path)
-    
-    logger.info(f"✅ Synced subtitles: {len(gated_cues)}/{len(cues)} cues")
-    return srt_output_path
+    logger.info(
+        f"✅ Subtitles burned: {output_path_obj} "
+        f"({output_size / 1024 / 1024:.2f} MB)"
+    )
+    return str(output_path_obj)
 ```
 
-### Parse de SRT
+### Exemplo de Comando FFmpeg
 
-```python
-def _parse_srt(srt_path: str) -> List[SubtitleCue]:
-    """Parse arquivo SRT para lista de SubtitleCue"""
-    cues = []
-    
-    with open(srt_path, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    # Split por blocos (separados por linha vazia)
-    blocks = content.strip().split('\n\n')
-    
-    for block in blocks:
-        lines = block.split('\n')
-        if len(lines) < 3:
-            continue
-        
-        index = int(lines[0])
-        
-        # Parse timestamp: "00:00:05,500 --> 00:00:08,200"
-        times = lines[1].split(' --> ')
-        start = _parse_timestamp(times[0])
-        end = _parse_timestamp(times[1])
-        
-        text = '\n'.join(lines[2:])
-        
-        cues.append(SubtitleCue(
-            index=index,
-            start=start,
-            end=end,
-            text=text
-        ))
-    
-    return cues
-
-
-def _parse_timestamp(timestamp: str) -> float:
-    """Converte timestamp SRT para segundos"""
-    # "00:00:05,500" → 5.5
-    h, m, s = timestamp.replace(',', '.').split(':')
-    return float(h) * 3600 + float(m) * 60 + float(s)
+```bash
+ffmpeg \
+  -i /tmp/make-video-temp/job123/video.mp4 \
+  -vf "subtitles=/tmp/make-video-temp/job123/subtitles.srt:force_style='FontSize=22,PrimaryColour=&H00FFFF&,OutlineColour=&H000000&,Outline=2,Bold=1,Alignment=10,MarginV=280'" \
+  -c:a copy \
+  -map 0:v:0 \
+  -map 0:a:0 \
+  -y \
+  /tmp/make-video-temp/job123/final_video.mp4
 ```
 
 ---
 
-## Otimizações e Ajustes
+## FLUXOGRAMAS
 
-### Configuração via Ambiente
+### Fluxo Completo de Processamento
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                   INÍCIO: process_video_job()                     │
+└────────────────────────────┬───────────────────────────────────┘
+                             │
+                             ▼
+                    ┌────────────────┐
+                    │ 1. TRANSCRIBE  │  ◄─── audio-transcriber (Whisper)
+                    │     AUDIO      │       Retry infinito com backoff
+                    └────────┬───────┘
+                             │
+                             ▼
+           ┌─────────────────────────────────┐
+           │  segments[] = [                 │
+           │    {start:0.5,end:3.2,          │
+           │     text:"Olá, como vai?"}      │
+           │  ]                              │
+           └────────┬────────────────────────┘
+                    │
+                    ▼
+           ┌─────────────────────────────────┐
+           │  2. CONVERT TO RAW CUES         │
+           │  (palavra por palavra)          │
+           │  raw_cues[] = [                 │
+           │    {start:0.5,end:1.4,          │
+           │     text:"Olá,"}                │
+           │  ]                              │
+           └────────┬────────────────────────┘
+                    │
+                    ▼
+           ┌─────────────────────────────────┐
+           │  3. VAD DETECTION               │  ◄─── Silero-VAD / WebRTC / RMS
+           │  speech_segments[] = [          │
+           │    {start:0.42,end:3.28,        │
+           │     confidence:1.0}             │
+           │  ]                              │
+           └────────┬────────────────────────┘
+                    │
+                    ▼
+           ┌─────────────────────────────────┐
+           │  4. SPEECH GATING               │
+           │  - CLAMP cues → speech          │
+           │  - DROP cues fora de fala       │
+           │  - MERGE cues próximos          │
+           │  final_cues[] = [               │
+           │    {start:0.36,end:3.40,        │
+           │     text:"Olá, como vai?"}      │
+           │  ]                              │
+           └──────┬──────────────────────────┘
+                  │
+                  ▼
+           ┌──────────────────┐
+           │  VALIDAÇÃO       │
+           │  final_cues == []?
+           └──────┬───────┬───┘
+                  │       │
+             SIM  │       │ NÃO
+                  │       │
+                  ▼       ▼
+           ┌──────────┐  ┌─────────────────────────┐
+           │  RAISE   │  │  5. GENERATE SRT FILE   │
+           │ Exception│  │  subtitles.srt          │
+           │ Job FAIL │  └────────┬────────────────┘
+           └──────────┘           │
+                                  ▼
+                         ┌────────────────┐
+                         │  VALIDAÇÃO     │
+                         │  SRT vazio?    │
+                         └────┬───────┬───┘
+                              │       │
+                         SIM  │       │ NÃO
+                              │       │
+                              ▼       ▼
+                       ┌──────────┐  ┌───────────────┐
+                       │  RAISE   │  │  6. BURN-IN   │
+                       │ Exception│  │  (FFmpeg)     │
+                       │ Job FAIL │  └───────┬───────┘
+                       └──────────┘          │
+                                             ▼
+                                    ┌────────────────┐
+                                    │ Job COMPLETED  │
+                                    │ ✅ SUCCESS      │
+                                    └────────────────┘
+```
+
+---
+
+## CONFIGURAÇÕES
+
+### Variáveis de Ambiente
 
 ```bash
-# .env
-# VAD Configuration
-VAD_THRESHOLD=0.5           # Sensibilidade VAD (0.3-0.7)
-VAD_MODEL=webrtc           # silero-vad ou webrtc
+# ═══════════════════════════════════════════════════════════════
+# VAD CONFIGURATION
+# ═══════════════════════════════════════════════════════════════
 
-# Subtitle Timing
-SUBTITLE_PRE_PAD=0.06      # 60ms antes da fala
-SUBTITLE_POST_PAD=0.12     # 120ms depois da fala
-SUBTITLE_MIN_DURATION=0.12 # Mínimo 120ms
-SUBTITLE_MERGE_GAP=0.12    # Merge se gap < 120ms
+# Threshold VAD (0.0-1.0)
+# 0.3 = Muito sensível (detecta até ruído como fala)
+# 0.5 = Balanceado ✅ (recomendado)
+# 0.7 = Conservador (pode perder fala suave)
+VAD_THRESHOLD=0.5
+
+# ═══════════════════════════════════════════════════════════════
+# SUBTITLE TIMING
+# ═══════════════════════════════════════════════════════════════
+
+# Pre-pad: Legenda pode começar X ms ANTES da fala
+# Valor: 60ms (0.06s)
+SUBTITLE_PRE_PAD=0.06
+
+# Post-pad: Legenda fica X ms DEPOIS da fala
+# Valor: 120ms (0.12s) - tempo para leitura
+SUBTITLE_POST_PAD=0.12
+
+# Duração mínima de legenda
+# Valor: 120ms (0.12s) - mínimo para olho humano ler
+SUBTITLE_MIN_DURATION=0.12
+
+# Gap mínimo para merge
+# Se gap < X ms → juntar legendas (evitar flicker)
+# Valor: 120ms (0.12s)
+SUBTITLE_MERGE_GAP=0.12
+
+# Palavras por legenda (estilo TikTok/Shorts)
+# Valor: 2 palavras (recomendado)
+WORDS_PER_CAPTION=2
 ```
 
-### Tuning de VAD Threshold
+### Tuning de Parâmetros
 
-| Threshold | Sensibilidade | Falsos Positivos | Falsos Negativos |
-|-----------|---------------|------------------|------------------|
-| 0.3 | 🔴 Muito Alta | Detecta ruído como fala | Poucos |
-| 0.5 | 🟢 **Balanceada** | Poucos | Poucos |
-| 0.7 | 🔵 Conservadora | Muito poucos | Pode perder fala suave |
+#### VAD Threshold
 
-**Recomendação**: **0.5** (default) oferece melhor balance.
+| Threshold | Sensibilidade | Falsos Positivos | Falsos Negativos | Uso |
+|-----------|---------------|------------------|------------------|-----|
+| **0.3** | 🔴 Muito Alta | Alto (detecta ruído) | Baixo | Áudios muito limpos |
+| **0.5** | 🟢 Balanceada | Baixo | Baixo | ✅ **Recomendado** |
+| **0.7** | 🔵 Conservadora | Muito Baixo | Médio (perde fala suave) | Ruído pesado |
 
-### Tuning de Padding
+---
 
-**Pre-Pad** (antes da fala):
-```
-Pre-Pad = 40ms  → Legenda pode aparecer tarde
-Pre-Pad = 60ms  → ✅ Balance ideal
-Pre-Pad = 100ms → Legenda aparece muito cedo
-```
+## PERFORMANCE
 
-**Post-Pad** (depois da fala):
-```
-Post-Pad = 80ms  → Legenda desaparece rápido demais
-Post-Pad = 120ms → ✅ Tempo ideal para leitura
-Post-Pad = 200ms → Legenda fica muito tempo na tela
-```
+### Benchmarks
 
-### Performance Benchmarks
-
-**Hardware de teste**: 4 vCPU, 8GB RAM, SSD
+**Hardware**: 4 vCPU, 8GB RAM, SSD
 
 | Operação | Tempo (60s de áudio) | Throughput |
 |----------|----------------------|------------|
@@ -873,262 +1272,32 @@ Post-Pad = 200ms → Legenda fica muito tempo na tela
 | WebRTC VAD detection | 0.5-1s | 60-120 áudios/min |
 | Speech gating | 0.1-0.2s | 300-600/min |
 | SRT generation | 0.05s | 1200/min |
-| **Total pipeline** | **9-18s** | **3-7 vídeos/min** |
+| FFmpeg burn-in | 10-20s | 3-6 vídeos/min |
+| **Total pipeline** | **20-38s** | **1.5-3 vídeos/min** |
 
 ---
 
-## Fluxogramas e Diagramas
+## CONCLUSÃO
 
-### Diagrama Sequencial Completo
+O sistema de sincronização de áudio com legendas é **robusto, preciso e está 100% funcional em produção**:
 
-```
-┌────────┐  ┌──────────┐  ┌─────────┐  ┌───────────┐  ┌────────────┐
-│ Client │  │Celery    │  │Whisper  │  │Silero-VAD │  │SpeechGater │
-│        │  │Task      │  │(API)    │  │           │  │            │
-└───┬────┘  └────┬─────┘  └────┬────┘  └─────┬─────┘  └──────┬─────┘
-    │            │              │              │                │
-    │ POST /jobs │              │              │                │
-    ├───────────>│              │              │                │
-    │            │              │              │                │
-    │            │ transcribe() │              │                │
-    │            ├─────────────>│              │                │
-    │            │              │              │                │
-    │            │◄─────────────┤              │                │
-    │            │ segments[]   │              │                │
-    │            │              │              │                │
-    │            │ generate_srt()              │                │
-    │            │────────────────────┐        │                │
-    │            │                    │        │                │
-    │            │◄───────────────────┘        │                │
-    │            │ raw.srt                     │                │
-    │            │                             │                │
-    │            │ detect_speech_segments()    │                │
-    │            ├─────────────────────────────>│                │
-    │            │                             │                │
-    │            │                    load_audio()              │
-    │            │                             │                │
-    │            │                    get_speech_timestamps()   │
-    │            │                             │                │
-    │            │◄─────────────────────────────┤                │
-    │            │ speech_segments[]           │                │
-    │            │                             │                │
-    │            │ gate_subtitles()            │                │
-    │            ├─────────────────────────────┼────────────────>│
-    │            │                             │                │
-    │            │                             │  parse_srt()   │
-    │            │                             │                │
-    │            │                             │  for each cue: │
-    │            │                             │  - find_intersecting│
-    │            │                             │  - clamp       │
-    │            │                             │  - merge       │
-    │            │                             │                │
-    │            │◄─────────────────────────────┼────────────────┤
-    │            │ gated_cues[]                │                │
-    │            │                             │                │
-    │            │ write_srt()                 │                │
-    │            │────────────────────┐        │                │
-    │            │                    │        │                │
-    │            │◄───────────────────┘        │                │
-    │            │ final.srt                   │                │
-    │            │                             │                │
-    │◄───────────┤                             │                │
-    │ 200 OK     │                             │                │
-    │            │                             │                │
-```
-
-### Fluxo de Processamento de Cue
-
-```
-┌────────────────────────────────────────────────────────────┐
-│                  PROCESSAMENTO DE CUE                       │
-└────────────────────────────────────────────────────────────┘
-
-Para cada SubtitleCue:
-
-   ┌─────────────────────────┐
-   │ Cue original            │
-   │ start=3.5, end=6.1      │
-   │ text="mundo"            │
-   └────────┬────────────────┘
-            │
-            ▼
-   ┌─────────────────────────────────────┐
-   │ 1. FIND INTERSECTING SEGMENT        │
-   │    Buscar speech segment que        │
-   │    intersecta com cue               │
-   └────────┬────────────────────────────┘
-            │
-      ┌─────┴─────┐
-      │           │
-      ▼           ▼
-   [FOUND]    [NOT FOUND]
-      │           │
-      │           ├────────► DROP CUE (fora de fala)
-      │           │
-      ▼           ▼
-   ┌─────────────────────────────────────┐
-   │ 2. CLAMP START                      │
-   │    new_start = max(                 │
-   │      segment.start - pre_pad,       │
-   │      cue.start                      │
-   │    )                                │
-   └────────┬────────────────────────────┘
-            │
-            ▼
-   ┌─────────────────────────────────────┐
-   │ 3. CLAMP END                        │
-   │    new_end = min(                   │
-   │      segment.end + post_pad,        │
-   │      audio_duration                 │
-   │    )                                │
-   └────────┬────────────────────────────┘
-            │
-            ▼
-   ┌─────────────────────────────────────┐
-   │ 4. ENFORCE MIN DURATION             │
-   │    if (new_end - new_start) < 120ms:│
-   │      new_end = new_start + 120ms    │
-   └────────┬────────────────────────────┘
-            │
-            ▼
-   ┌─────────────────────────┐
-   │ Cue ajustado (gated)    │
-   │ start=3.39, end=6.30    │
-   │ text="mundo"            │
-   └─────────────────────────┘
-```
-
-### Pipeline de Merge
-
-```
-┌────────────────────────────────────────────────────────────┐
-│                    MERGE DE CUES                           │
-└────────────────────────────────────────────────────────────┘
-
-Input: gated_cues[] (ordenados por start)
-
-   ┌─────────────────────┐
-   │ merged = [cues[0]]  │
-   └──────────┬──────────┘
-              │
-              ▼
-   ┌──────────────────────────────┐
-   │ Para cada cue em cues[1:]:   │
-   └──────────┬───────────────────┘
-              │
-              ▼
-   ┌──────────────────────────────┐
-   │ prev = merged[-1]            │
-   │ gap = cue.start - prev.end   │
-   └──────────┬───────────────────┘
-              │
-        ┌─────┴─────┐
-        │           │
-        ▼           ▼
-   gap < 120ms?  gap >= 120ms?
-        │           │
-        ▼           ▼
-   ┌────────┐   ┌────────────┐
-   │ MERGE  │   │ KEEP       │
-   │        │   │ SEPARATE   │
-   └────┬───┘   └────┬───────┘
-        │            │
-        ▼            ▼
-   merged[-1] =   merged.append(cue)
-   SubtitleCue(
-     start=prev.start,
-     end=cue.end,
-     text=prev.text + " " + cue.text
-   )
-```
-
----
-
-## Exemplos Práticos Completos
-
-### Exemplo 1: Pipeline Completo
-
-```python
-from app.subtitle_generator import SubtitleGenerator
-from app.subtitle_postprocessor import process_subtitles_with_vad
-
-# 1. Transcrever áudio (Whisper API)
-segments = [
-    {"start": 0.5, "end": 3.2, "text": "Olá"},
-    {"start": 3.5, "end": 6.1, "text": "mundo"},
-    {"start": 10.0, "end": 12.5, "text": "Teste"}
-]
-
-# 2. Gerar SRT inicial
-subtitle_gen = SubtitleGenerator()
-raw_srt = subtitle_gen.segments_to_srt(
-    segments=segments,
-    output_path="/tmp/raw.srt"
-)
-
-# 3. Aplicar VAD + gating
-final_srt = process_subtitles_with_vad(
-    audio_path="/tmp/audio.mp3",
-    srt_input_path="/tmp/raw.srt",
-    srt_output_path="/tmp/final.srt",
-    vad_threshold=0.5,
-    vad_model="silero-vad"
-)
-
-print(f"✅ Synchronized subtitles: {final_srt}")
-```
-
-### Exemplo 2: Ajuste de Timing
-
-**Input SRT** (antes do gating):
-```srt
-1
-00:00:00,500 --> 00:00:03,200
-Olá
-
-2
-00:00:03,500 --> 00:00:06,100
-mundo
-
-3
-00:00:10,000 --> 00:00:12,500
-Teste
-```
-
-**Speech Segments** (VAD detectou):
-```
-Segment 1: [0.42s ──── 6.18s] (fala contínua)
-Segment 2: [9.80s ──── 12.60s] (fala após silêncio)
-```
-
-**Output SRT** (depois do gating + merge):
-```srt
-1
-00:00:00,360 --> 00:00:06,300
-Olá mundo
-
-2
-00:00:09,740 --> 00:00:12,720
-Teste
-```
-
-**O que aconteceu**:
-1. ✅ Cue 1 e Cue 2 foram **merged** (gap < 120ms)
-2. ✅ Timestamps ajustados para **dentro dos speech segments**
-3. ✅ Pre-pad aplicado: 0.42 - 0.06 = **0.36s**
-4. ✅ Post-pad aplicado: 6.18 + 0.12 = **6.30s**
-
----
-
-## Conclusão
-
-O sistema de sincronização de áudio com legendas é **preciso, robusto e eficiente**:
-
-✅ **VAD de alta precisão** (Silero-VAD + fallbacks)  
+✅ **VAD de alta precisão** (Silero-VAD 95%+)  
+✅ **Fallbacks automáticos** (WebRTC → RMS)  
 ✅ **Gating inteligente** (clamp, drop, merge)  
-✅ **Padding configurável** (pre-pad, post-pad)  
-✅ **Duração mínima garantida** (120ms legibilidade)  
-✅ **Merge automático** (evita flicker de legendas)  
-✅ **Performance excelente** (9-18s para 60s de áudio)  
+✅ **Validação rigorosa** (SRT vazio = job FAIL)  
+✅ **Retry infinito** (transcrição sempre completa)  
+✅ **Performance excelente** (20-38s para 60s de áudio)  
 
-O resultado é um sistema que **garante perfeita sincronização** entre áudio e legendas, exibindo texto **apenas quando há fala real** no áudio.
+### Garantias do Sistema
+
+1. **Legendas são OBRIGATÓRIAS**: Se SRT vazio → job FAIL
+2. **Legendas só aparecem durante fala**: VAD garante sincronização
+3. **Duração mínima garantida**: 120ms (legível)
+4. **Sem flicker**: Merge automático de legendas próximas
+5. **Retry automático**: Transcrição nunca falha permanentemente
+
+---
+
+**Última atualização**: 2026-02-20  
+**Autor**: Sistema de documentação automática  
+**Status**: ✅ Produção ativa
