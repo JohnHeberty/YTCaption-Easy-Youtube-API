@@ -190,7 +190,9 @@ class WhisperModelManager(IModelManager):
             logger.info(f"🎤 Transcrevendo: {audio_path.name} (language={language})")
             
             # Prepara opções
-            transcribe_options = {}
+            transcribe_options = {
+                "word_timestamps": True  # ✅ Ativar timestamps palavra-por-palavra
+            }
             if language != "auto":
                 transcribe_options["language"] = language
             
