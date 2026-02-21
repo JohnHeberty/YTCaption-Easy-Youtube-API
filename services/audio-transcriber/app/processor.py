@@ -596,6 +596,7 @@ class TranscriptionProcessor:
                     # Traduzir para inglês usando task="translate" explicitamente
                     transcribe_options = base_options.copy()
                     transcribe_options["task"] = "translate"  # Força tradução para inglês
+                    transcribe_options["word_timestamps"] = True  # ✅ Timestamps palavra-por-palavra
                     # Não especifica language para deixar Whisper detectar automaticamente
                     logger.info(f"🌐 Usando Whisper com task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
                     result = self.model.transcribe(audio_file, **transcribe_options)
@@ -605,6 +606,7 @@ class TranscriptionProcessor:
                     transcribe_options = base_options.copy()
                     transcribe_options["task"] = "transcribe"  # Força transcrição no idioma original
                     transcribe_options["language"] = None if language_in == "auto" else language_in
+                    transcribe_options["word_timestamps"] = True  # ✅ Timestamps palavra-por-palavra
                     logger.info(f"📝 Usando Whisper com task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
                     result = self.model.transcribe(audio_file, **transcribe_options)
                     logger.info(f"✅ Transcrição concluída. Idioma: {result.get('language', language_in)}")

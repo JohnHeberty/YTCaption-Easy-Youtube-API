@@ -54,7 +54,10 @@ COPY constraints.txt .
 # 🔥 Upgrade pip
 RUN python -m pip install --no-cache-dir --upgrade pip
 
-# 🔥 Instalar TODAS as dependências primeiro
+# 🔥 Instalar setuptools primeiro (fix para openai-whisper)
+RUN python -m pip install --no-cache-dir setuptools wheel
+
+# 🔥 Instalar TODAS as dependências
 RUN python -m pip install --no-cache-dir --ignore-installed blinker \
       -r requirements.txt -c constraints.txt
 

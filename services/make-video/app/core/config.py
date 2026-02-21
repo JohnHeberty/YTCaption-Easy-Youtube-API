@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     subtitle_outline: int = int(os.getenv("SUBTITLE_OUTLINE", "2"))
     subtitle_alignment: int = int(os.getenv("SUBTITLE_ALIGNMENT", "10"))
     subtitle_margin_v: int = int(os.getenv("SUBTITLE_MARGIN_V", "280"))
-    words_per_caption: int = int(os.getenv("WORDS_PER_CAPTION", "2"))
+    words_per_caption: int = int(os.getenv("WORDS_PER_CAPTION", "1"))  # ✅ 1 palavra = sincronização perfeita
     
     # OCR Detection Settings
     ocr_confidence_threshold: float = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "0.50"))  # Equilibrado + densidade
