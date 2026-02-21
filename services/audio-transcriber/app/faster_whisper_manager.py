@@ -60,7 +60,7 @@ ado
             return 'cpu'
     
     def load_model(self) -> None:
-        """Carrega modelo Faster-Whisper"""
+        """Carrega modelo Faster-Whisper com Circuit Breaker"""
         if self.is_loaded and self.model is not None:
             logger.info(f"Modelo {self.model_name} já carregado no {self.device}")
             return
@@ -72,6 +72,16 @@ ado
         
         # Garante diretório existe
         self.model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Get circuit breaker
+        cb = get_circuit_breaker()
+        service_name = f"faster_whisper_load_{self.model_name}"
+        
+        # Verifica circuit breaker
+        if cb.is_open(service_name):
+            raise AudioTranscriptionException(
+                f"Circuit breaker OPEN for {service_name}. Service temporarily unavailable."
+            )
         
         # Tenta carregar com retry
         last_error = None
@@ -90,12 +100,19 @@ ado
                 )
                 
                 self.is_loaded = True
+                
+                # Registra sucesso no circuit breaker
+                cb.record_success(service_name)
+                
                 logger.info(f"✅ Faster-Whisper {self.model_name} carregado no {self.device.upper()} ({compute_type})")
                 return
                 
             except Exception as e:
                 last_error = e
                 logger.error(f"❌ Falha na tentativa {attempt}: {e}")
+                
+                # Registra falha no circuit breaker
+                cb.record_failure(service_name)
                 
                 if attempt < self.max_retries:
                     sleep_time = self.retry_backoff ** attempt
