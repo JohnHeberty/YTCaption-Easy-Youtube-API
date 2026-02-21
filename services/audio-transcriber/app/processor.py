@@ -4,10 +4,12 @@ from pathlib import Path
 import logging
 import torch
 from pydub import AudioSegment
-from .models import Job, JobStatus, TranscriptionSegment
+from .models import Job, JobStatus, TranscriptionSegment, WhisperEngine
 from .exceptions import AudioTranscriptionException
 from .config import get_settings
 from .faster_whisper_manager import FasterWhisperModelManager
+from .openai_whisper_manager import OpenAIWhisperManager
+from .whisperx_manager import WhisperXManager
 import time
 
 logger = logging.getLogger(__name__)
@@ -20,11 +22,34 @@ class TranscriptionProcessor:
         self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
         
-        # Usa FasterWhisperModelManager
-        self.model_manager = FasterWhisperModelManager(model_dir=Path(self.model_dir))
+        # Managers para diferentes engines
+        self.model_managers = {}
+        self.current_engine = WhisperEngine.FASTER_WHISPER
+        
+        # Backwards compatibility
+        self.model_manager = None  # Será definido quando carregar
         self.model = None  # Para compatibilidade
         self.device = None
         self.model_loaded = False
+    
+    def _get_model_manager(self, engine: WhisperEngine):
+        """
+        Retorna o model manager para o engine especificado.
+        Cria e cacheia managers sob demanda.
+        """
+        if engine not in self.model_managers:
+            logger.info(f"🔧 Criando manager para engine: {engine.value}")
+            
+            if engine == WhisperEngine.FASTER_WHISPER:
+                self.model_managers[engine] = FasterWhisperModelManager(model_dir=Path(self.model_dir))
+            elif engine == WhisperEngine.OPENAI_WHISPER:
+                self.model_managers[engine] = OpenAIWhisperManager(model_dir=Path(self.model_dir))
+            elif engine == WhisperEngine.WHISPERX:
+                self.model_managers[engine] = WhisperXManager(model_dir=Path(self.model_dir))
+            else:
+                raise AudioTranscriptionException(f"Engine não suportado: {engine}")
+        
+        return self.model_managers[engine]
     
     def _check_disk_space(self, file_path: str, output_dir: str) -> bool:
         """Verifica se há espaço em disco suficiente para transcrição."""
@@ -53,19 +78,39 @@ class TranscriptionProcessor:
             logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
             return True  # fail-open
     
-    def _detect_device(self):
-        """Detecta dispositivo (delegado para FasterWhisperModelManager)"""
-        # Faster-whisper detecta automaticamente
-        return self.model_manager.device
+    def _detect_device(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
+        """Detecta dispositivo para o engine especificado"""
+        manager = self._get_model_manager(engine)
+        return manager.device if hasattr(manager, 'device') and manager.device else 'cpu'
     
-    def _load_model(self):
-        """Carrega modelo usando FasterWhisperModelManager"""
-        if not self.model_loaded:
-            logger.info("📦 Carregando Faster-Whisper...")
-            self.model_manager.load_model()
-            self.device = self.model_manager.device
+    def _load_model(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
+        """
+        Carrega modelo usando o engine especificado.
+        
+        Args:
+            engine: Engine a ser usado (faster-whisper, openai-whisper, whisperx)
+        """
+        manager = self._get_model_manager(engine)
+        
+        # Verifica se já está carregado
+        if manager.is_loaded:
+            logger.info(f"ℹ️ Modelo {engine.value} já está carregado")
+            self.model_manager = manager
+            self.current_engine = engine
             self.model_loaded = True
-            logger.info(f"✅ Faster-Whisper carregado no {self.device.upper()}")
+            self.device = manager.device
+            return
+        
+        logger.info(f"📦 Carregando modelo {engine.value}...")
+        manager.load_model()
+        
+        # Atualiza referências
+        self.model_manager = manager
+        self.current_engine = engine
+        self.device = manager.device
+        self.model_loaded = True
+        
+        logger.info(f"✅ Modelo {engine.value} carregado no {self.device.upper()}")
 
     def _test_gpu(self):
         """Legacy method - faster-whisper handles GPU automatically"""
@@ -363,8 +408,10 @@ class TranscriptionProcessor:
             
             logger.info(f"🎵 Processando arquivo: {job.input_file}")
             
-            # Carrega modelo se necessário
-            self._load_model()
+            # Carrega modelo do engine especificado no job
+            engine = job.engine if hasattr(job, 'engine') else WhisperEngine.FASTER_WHISPER
+            logger.info(f"🔧 Usando engine: {engine.value}")
+            self._load_model(engine)
             
             # Atualiza progresso
             job.progress = 25.0

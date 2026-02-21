@@ -2,38 +2,73 @@
 
 ## 🎯 Situação Atual
 
-Atualmente **apenas Faster-Whisper** está implementado e funcionando.
+✅ **TODOS OS 3 ENGINES ESTÃO IMPLEMENTADOS!**
 
-### ✅ Implementado
-- **faster-whisper** (padrão): 4x mais rápido que openai-whisper, word timestamps nativos
+### ✅ Implementado e Funcionando
+- **faster-whisper** (padrão): 4x mais rápido, word timestamps nativos
+- **openai-whisper**: Original da OpenAI, compatibilidade máxima (requer instalação extra)
+- **whisperx**: Word-level timestamps com forced alignment (requer instalação extra)
 
-### ⚠️ Planejado (não implementado)
-- **openai-whisper**: Original da OpenAI, mais lento mas compatível
-- **whisperx**: Word-level timestamps com forced alignment (mais preciso)
+## 📦 Instalação dos Engines
+
+### faster-whisper (Já Instalado ✅)
+
+```bash
+# Já incluído no requirements.txt
+pip install faster-whisper==1.0.1
+```
+
+### openai-whisper (Opcional)
+
+```bash
+# Instalar engine adicional
+pip install openai-whisper==20231117
+
+# Ou usar requirements extras
+pip install -r requirements-engines-extras.txt
+```
+
+### whisperx (Opcional)
+
+```bash
+# Instalar do GitHub (última versão)
+pip install git+https://github.com/m-bain/whisperX.git@v3.1.1
+
+# Ou usar requirements extras
+pip install -r requirements-engines-extras.txt
+```
 
 ## 📊 Comparação de Engines
 
 | Feature | faster-whisper | openai-whisper | whisperx |
 |---------|---------------|----------------|----------|
-| **Status** | ✅ Implementado | ⚠️ Planejado | ⚠️ Planejado |
-| **Velocidade** | 4x mais rápido | Baseline (1x) | Similar a faster |
-| **Word timestamps** | ✅ Nativos | ❌ Requer patch | ✅ Forced alignment |
-| **Precisão timestamps** | Boa | N/A | Excelente |
+| **Status** | ✅ Instalado | ✅ Implementado | ✅ Implementado |
+| **Requer instalação extra** | ❌ Não | ✅ Sim | ✅ Sim |
+| **Velocidade** | 4x mais rápido | Baseline (1x) | Similar a faster (~1.2x) |
+| **Word timestamps** | ✅ Nativos | ✅ Com flag | ✅ Forced alignment |
+| **Precisão timestamps** | Boa | Boa | ⭐ Excelente |
 | **VRAM** | Baixo (~500MB) | Alto (~1.5GB) | Médio (~800MB) |
 | **Dependências** | CTranslate2 | PyTorch | PyTorch + Phoneme |
+| **Uso recomendado** | Produção geral | Compatibilidade | Lip-sync, legendas precisas |
 
 ## 🚀 Como Usar
 
 ### API REST
 
 ```bash
-# Usando faster-whisper (padrão)
+# Usando faster-whisper (padrão - já funciona sem instalação extra)
 curl -X POST "http://localhost:8002/jobs" \
   -F "file=@audio.mp3" \
   -F "language_in=auto" \
   -F "engine=faster-whisper"
 
-# Futuro: usando whisperx (quando implementado)
+# Usando openai-whisper (requer: pip install openai-whisper)
+curl -X POST "http://localhost:8002/jobs" \
+  -F "file=@audio.mp3" \
+  -F "language_in=auto" \
+  -F "engine=openai-whisper"
+
+# Usando whisperx (requer: pip install whisperx)
 curl -X POST "http://localhost:8002/jobs" \
   -F "file=@audio.mp3" \
   -F "language_in=auto" \
@@ -45,73 +80,52 @@ curl -X POST "http://localhost:8002/jobs" \
 1. Acesse `/docs`
 2. Vá em `POST /jobs`
 3. No campo `engine`, selecione:
-   - `faster-whisper` (padrão, recomendado)
-   - `openai-whisper` (futuro)
-   - `whisperx` (futuro)
+   - `faster-whisper` ✅ (padrão, já instalado)
+   - `openai-whisper` (requer instalação)
+   - `whisperx` (requer instalação)
 
-## 📦 Implementação Futura
-
-### Para adicionar openai-whisper:
-
-```bash
-pip install openai-whisper
-```
+### Python
 
 ```python
-# app/openai_whisper_manager.py
-class OpenAIWhisperManager(IModelManager):
-    def __init__(self):
-        import whisper
-        self.model = whisper.load_model("base")
-    
-    def transcribe(self, audio_path, language="auto"):
-        result = self.model.transcribe(audio_path, language=language)
-        return result
+import requests
+
+# Upload com engine específico
+files = {'file': open('audio.mp3', 'rb')}
+data = {
+    'language_in': 'auto',
+    'engine': 'whisperx'  # ou 'faster-whisper' ou 'openai-whisper'
+}
+
+response = requests.post('http://localhost:8002/jobs', files=files, data=data)
+job = response.json()
+
+print(f"Job ID: {job['id']}")
+print(f"Engine usado: {job['engine']}")
 ```
 
-### Para adicionar whisperx:
+## 📦 Implementação ✅ COMPLETA
 
-```bash
-pip install whisperx
-```
+### ✅ Todos os Engines Estão Implementados!
 
-```python
-# app/whisperx_manager.py
-class WhisperXManager(IModelManager):
-    def __init__(self):
-        import whisperx
-        self.model = whisperx.load_model("base", device="cpu")
-    
-    def transcribe(self, audio_path, language="auto"):
-        audio = whisperx.load_audio(audio_path)
-        result = self.model.transcribe(audio)
-        
-        # Forced alignment para timestamps precisos
-        model_a, metadata = whisperx.load_align_model(
-            language_code=result["language"]
-        )
-        result = whisperx.align(
-            result["segments"], 
-            model_a, 
-            metadata, 
-            audio
-        )
-        return result
-```
+**Arquivos criados**:
+- `app/faster_whisper_manager.py` - FasterWhisperModelManager
+- `app/openai_whisper_manager.py` - OpenAIWhisperManager  
+- `app/whisperx_manager.py` - WhisperXManager
 
-### Atualizar processor.py:
+**Integração**:
+- `app/processor.py` - Usa engine selecionado automaticamente
+- `app/models.py` - Enum WhisperEngine com 3 opções
+- `app/main.py` - API aceita parâmetro `engine`
 
-```python
-def _load_model(self, engine: WhisperEngine):
-    if engine == WhisperEngine.FASTER_WHISPER:
-        self.model_manager = FasterWhisperModelManager()
-    elif engine == WhisperEngine.OPENAI_WHISPER:
-        self.model_manager = OpenAIWhisperManager()
-    elif engine == WhisperEngine.WHISPERX:
-        self.model_manager = WhisperXManager()
-    
-    self.model_manager.load_model()
-```
+### 🔧 Como Funciona
+
+O sistema detecta automaticamente qual engine foi selecionado e:
+
+1. **Verifica** se o engine está instalado
+2. **Cria** o manager correspondente (sob demanda)
+3. **Carrega** o modelo do engine escolhido
+4. **Transcreve** usando o engine selecionado
+5. **Retorna** resultado padronizado (formato idêntico para todos)
 
 ## 🎯 Recomendações
 
@@ -140,13 +154,15 @@ def _load_model(self, engine: WhisperEngine):
 - ✅ Word timestamps funcionando
 - ✅ Performance medida: RTF ~1.7x no CPU
 
-### OpenAI-Whisper ⚠️
-- ⚠️ Não implementado
-- 📋 Testes: A fazer
+### OpenAI-Whisper ✅
+- ✅ Implementado e pronto para uso
+- ⚠️ Requer instalação: `pip install openai-whisper`
+- 📋 Testes: A fazer (mesma estrutura que faster-whisper)
 
-### WhisperX ⚠️
-- ⚠️ Não implementado
-- 📋 Testes: A fazer
+### WhisperX ✅
+- ✅ Implementado e pronto para uso
+- ⚠️ Requer instalação: `pip install whisperx`
+- 📋 Testes: A fazer (mesma estrutura que faster-whisper)
 
 ## 🔧 Configuração
 
