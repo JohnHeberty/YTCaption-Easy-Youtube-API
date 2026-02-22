@@ -57,19 +57,12 @@ COPY constraints.txt .
 # 🔥 Upgrade pip
 RUN python -m pip install --no-cache-dir --upgrade pip
 
-<<<<<<< HEAD
 # 🔥 Instalar setuptools primeiro (fix para openai-whisper)
 RUN python -m pip install --no-cache-dir setuptools wheel
 
 # 🔥 Instalar TODAS as dependências
 RUN python -m pip install --no-cache-dir --ignore-installed blinker \
       -r requirements.txt -c constraints.txt
-=======
-# 🔥 Instalar dependências (faster-whisper não precisa de setuptools extra)
-RUN python -m pip install --no-cache-dir \
-      -r requirements.txt -c constraints.txt || \
-    python -m pip install --no-cache-dir -r requirements.txt
->>>>>>> 741fcc8eec86bf4d9f080ee7b5237e5ad308e36c
 
 # 🔥 FORÇAR PyTorch cu118 POR ÚLTIMO (compatível com CUDA 11.8)
 RUN python -m pip install --no-cache-dir --force-reinstall \
