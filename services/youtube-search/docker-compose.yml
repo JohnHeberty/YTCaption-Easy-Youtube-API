@@ -12,7 +12,7 @@ services:
     env_file:
       - .env
     environment:
-      - TZ=${TZ}
+      - TZ=${TZ:-UTC}
       - PYTHONPATH=/app
     restart: unless-stopped
     healthcheck:
@@ -38,8 +38,8 @@ services:
     env_file:
       - .env
     environment:
-      - TZ=${TZ}
-      - PYTHONPATH=${PYTHONPATH}
+      - TZ=${TZ:-UTC}
+      - PYTHONPATH=/app
     restart: unless-stopped
     labels:
       - "com.example.service=youtube-search-worker"
@@ -58,7 +58,8 @@ services:
     env_file:
       - .env
     environment:
-      - PYTHONPATH=${PYTHONPATH}
+      - TZ=${TZ:-UTC}
+      - PYTHONPATH=/app
     restart: unless-stopped
     labels:
       - "com.example.service=youtube-search-beat"
