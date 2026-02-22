@@ -15,52 +15,13 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-      - PORT=${PORT}
-      - DEBUG=${DEBUG}
-      - REDIS_URL=${REDIS_URL}
-      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS}
-      - MAX_CACHE_SIZE_GB=${MAX_CACHE_SIZE_GB}
-      - YOUTUBE_SEARCH_URL=${YOUTUBE_SEARCH_URL}
-      - VIDEO_DOWNLOADER_URL=${VIDEO_DOWNLOADER_URL}
-      - AUDIO_TRANSCRIBER_URL=${AUDIO_TRANSCRIBER_URL}
-      - AUDIO_UPLOAD_DIR=${AUDIO_UPLOAD_DIR}
-      - SHORTS_CACHE_DIR=${SHORTS_CACHE_DIR}
-      - TEMP_DIR=${TEMP_DIR}
-      - OUTPUT_DIR=${OUTPUT_DIR}
-      - LOG_DIR=${LOG_DIR}
-      - LOG_LEVEL=${LOG_LEVEL}
-      - LOG_FORMAT=${LOG_FORMAT}
-      - DEFAULT_ASPECT_RATIO=${DEFAULT_ASPECT_RATIO}
-      - DEFAULT_CROP_POSITION=${DEFAULT_CROP_POSITION}
-      - DEFAULT_VIDEO_QUALITY=${DEFAULT_VIDEO_QUALITY}
-      - CLEANUP_TEMP_AFTER_HOURS=${CLEANUP_TEMP_AFTER_HOURS}
-      - CLEANUP_OUTPUT_AFTER_HOURS=${CLEANUP_OUTPUT_AFTER_HOURS}
-      - CLEANUP_SHORTS_CACHE_AFTER_DAYS=${CLEANUP_SHORTS_CACHE_AFTER_DAYS}
-      - SUBTITLE_FONT_SIZE=${SUBTITLE_FONT_SIZE}
-      - SUBTITLE_FONT_NAME=${SUBTITLE_FONT_NAME}
-      - SUBTITLE_COLOR=${SUBTITLE_COLOR}
-      - SUBTITLE_OUTLINE_COLOR=${SUBTITLE_OUTLINE_COLOR}
-      - SUBTITLE_OUTLINE=${SUBTITLE_OUTLINE}
-      - SUBTITLE_ALIGNMENT=${SUBTITLE_ALIGNMENT}
-      - SUBTITLE_MARGIN_V=${SUBTITLE_MARGIN_V}
-      - WORDS_PER_CAPTION=${WORDS_PER_CAPTION}
-      - OCR_CONFIDENCE_THRESHOLD=${OCR_CONFIDENCE_THRESHOLD}
-      - API_TIMEOUT=${API_TIMEOUT}
-      - DOWNLOAD_POLL_INTERVAL=${DOWNLOAD_POLL_INTERVAL}
-      - DOWNLOAD_MAX_POLLS=${DOWNLOAD_MAX_POLLS}
-      - TRANSCRIBE_POLL_INTERVAL=${TRANSCRIBE_POLL_INTERVAL}
-      - TRSD_ENABLED=${TRSD_ENABLED}
-      - TRANSCRIBE_MAX_POLLS=${TRANSCRIBE_MAX_POLLS}
-      - MAX_FETCH_ROUNDS=${MAX_FETCH_ROUNDS}
-      - VIDEO_TRIM_PADDING_MS=${VIDEO_TRIM_PADDING_MS}
     restart: unless-stopped
-    # Healthcheck temporarily disabled for testing
-    # healthcheck:
-    #   test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
-    #   interval: 30s
-    #   timeout: 10s
-    #   retries: 5
-    #   start_period: 60s
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   make-video-celery:
     build: .
@@ -73,29 +34,6 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-      - PORT=${PORT}
-      - DEBUG=${DEBUG}
-      - REDIS_URL=${REDIS_URL}
-      - CACHE_TTL_HOURS=${CACHE_TTL_HOURS}
-      - MAX_CACHE_SIZE_GB=${MAX_CACHE_SIZE_GB}
-      - YOUTUBE_SEARCH_URL=${YOUTUBE_SEARCH_URL}
-      - VIDEO_DOWNLOADER_URL=${VIDEO_DOWNLOADER_URL}
-      - AUDIO_TRANSCRIBER_URL=${AUDIO_TRANSCRIBER_URL}
-      - AUDIO_UPLOAD_DIR=${AUDIO_UPLOAD_DIR}
-      - SHORTS_CACHE_DIR=${SHORTS_CACHE_DIR}
-      - TEMP_DIR=${TEMP_DIR}
-      - OUTPUT_DIR=${OUTPUT_DIR}
-      - LOG_DIR=${LOG_DIR}
-      - LOG_LEVEL=${LOG_LEVEL}
-      - LOG_FORMAT=${LOG_FORMAT}
-      - SUBTITLE_FONT_SIZE=${SUBTITLE_FONT_SIZE}
-      - SUBTITLE_OUTLINE=${SUBTITLE_OUTLINE}
-      - WORDS_PER_CAPTION=${WORDS_PER_CAPTION}
-      - OCR_CONFIDENCE_THRESHOLD=${OCR_CONFIDENCE_THRESHOLD}
-      - API_TIMEOUT=${API_TIMEOUT}
-      - TRANSCRIBE_MAX_POLLS=${TRANSCRIBE_MAX_POLLS}
-      - MAX_FETCH_ROUNDS=${MAX_FETCH_ROUNDS}
-      - VIDEO_TRIM_PADDING_MS=${VIDEO_TRIM_PADDING_MS}
     extra_hosts:
       - "redis-server:192.168.1.110"
       - "youtube-search:192.168.1.110"
@@ -122,8 +60,6 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-      - REDIS_URL=${REDIS_URL}
-      - LOG_LEVEL=${LOG_LEVEL}
     extra_hosts:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
