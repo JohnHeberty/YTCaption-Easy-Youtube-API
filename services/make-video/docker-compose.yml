@@ -71,3 +71,4 @@ services:
 networks:
   ytcaption-network:
     external: true
+    name: ytcaption-network
