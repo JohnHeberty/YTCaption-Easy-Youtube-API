@@ -8,6 +8,17 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def expand_env_vars(value: str) -> str:
+    """Expand ${VAR} patterns in environment variable values"""
+    if isinstance(value, str) and "${" in value:
+        # Substituir ${DIVISOR} e outras variáveis
+        for key in os.environ:
+            placeholder = f"${{{key}}}"
+            if placeholder in value:
+                value = value.replace(placeholder, os.environ[key])
+    return value
+
+
 class Settings(BaseSettings):
     """Configurações do Make-Video Service"""
     
@@ -16,11 +27,11 @@ class Settings(BaseSettings):
     version: str = "1.0.0"
     
     # Server Configuration
-    port: int = int(os.getenv("PORT", "8004"))
+    port: int = int(expand_env_vars(os.getenv("PORT", "8005")))
     debug: bool = os.getenv("DEBUG", "False").lower() == "true"
     
     # Redis Configuration
-    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis_url: str = expand_env_vars(os.getenv("REDIS_URL", "redis://localhost:6379/5"))
     cache_ttl_hours: int = int(os.getenv("CACHE_TTL_HOURS", "24"))
     max_cache_size_gb: int = int(os.getenv("MAX_CACHE_SIZE_GB", "50"))
     

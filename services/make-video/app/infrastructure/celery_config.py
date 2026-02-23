@@ -9,8 +9,20 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-# Get Redis URL from environment
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+def expand_env_vars(value: str) -> str:
+    """Expand ${VAR} patterns in environment variable values"""
+    if isinstance(value, str) and "${" in value:
+        # Substituir ${DIVISOR} e outras variáveis
+        for key in os.environ:
+            placeholder = f"${{{key}}}"
+            if placeholder in value:
+                value = value.replace(placeholder, os.environ[key])
+    return value
+
+
+# Get Redis URL from environment (with variable expansion)
+redis_url = expand_env_vars(os.getenv('REDIS_URL', 'redis://localhost:6379/5'))
 
 # Get Celery worker settings from environment
 celery_worker_concurrency = int(os.getenv('CELERY_WORKER_CONCURRENCY', '4'))
