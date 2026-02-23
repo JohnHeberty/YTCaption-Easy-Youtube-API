@@ -20,5 +20,5 @@ librosa==0.10.1
 soundfile==0.12.1
 
 # === NOISE REDUCTION ===
-noisereduce==3.0.0
+noisereduce==2.0.1
 tenacity==9.0.0
