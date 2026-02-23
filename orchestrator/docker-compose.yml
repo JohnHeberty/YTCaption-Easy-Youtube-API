@@ -5,7 +5,7 @@ services:
     env_file:
       - .env
     ports:
-      - "${HOST_PORT:-8004}:${CONTAINER_PORT:-8000}"  # host:container
+      - "${HOST_PORT:-8005}:${CONTAINER_PORT:-8000}"  # host:container
     volumes:
       - "${LOG_DIR:-./logs}:/app/logs"
       - "./artifacts:/app/artifacts"                  # útil p/ ver saídas
