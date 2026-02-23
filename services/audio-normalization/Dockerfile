@@ -41,12 +41,8 @@ COPY common/ ./common/
 COPY requirements.txt .
 COPY constraints.txt .
 
-# PyTorch CPU-only + deps Python (mais leve e rápido)
+# Instala dependências Python (sem PyTorch - CPU only sem ML)
 RUN python -m pip install --no-cache-dir --upgrade pip
-RUN python -m pip install --no-cache-dir \
-      torch==2.1.2 torchaudio==2.1.2 \
-      --index-url https://download.pytorch.org/whl/cpu \
-      -c constraints.txt 
 RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Copia código

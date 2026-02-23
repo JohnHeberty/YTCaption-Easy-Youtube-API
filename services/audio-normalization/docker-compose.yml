@@ -28,12 +28,9 @@ services:
       - .env
     environment:
       - TZ=${TZ}
-      - PYTHONPATH=${PYTHONPATH}
+      - PYTHONPATH=/app
       - NUMBA_CACHE_DIR=${NUMBA_CACHE_DIR}
       - NUMBA_DISABLE_JIT=${NUMBA_DISABLE_JIT}
-      - FORCE_CUDA=${FORCE_CUDA}
-      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}
-      - USE_GPU=${USE_GPU}
     restart: unless-stopped
     #depends_on:
     #  redis:
@@ -62,13 +59,10 @@ services:
     env_file:
       - .env
     environment:
-      - PYTHONPATH=${PYTHONPATH}
+      - PYTHONPATH=/app
       - C_FORCE_ROOT=${C_FORCE_ROOT}
       - NUMBA_CACHE_DIR=${NUMBA_CACHE_DIR}
       - NUMBA_DISABLE_JIT=${NUMBA_DISABLE_JIT}
-      - FORCE_CUDA=${FORCE_CUDA}
-      - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}
-      - USE_GPU=${USE_GPU}
     restart: unless-stopped
     depends_on:
       #redis:
