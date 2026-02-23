@@ -43,12 +43,11 @@ RUN mkdir -p /app/data/raw/audio \
 # Set permissions
 RUN chmod -R 755 /app/data /app/logs
 
-# Expose port
-EXPOSE 8004
+# Expose port (será definido por variável de ambiente)
+EXPOSE ${PORT:-8005}
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-  CMD curl -f http://localhost:8004/health || exit 1
+# Health check (sem hardcoding)
+# O healthcheck será feito pelo docker-compose que tem acesso às ENV vars
 
-# Default command
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004"]
+# Default command - usa script para expandir variáveis
+CMD ["python", "run.py"]
