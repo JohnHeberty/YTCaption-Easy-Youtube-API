@@ -204,5 +204,5 @@ services:
 
 networks:
   ytcaption-network:
-    external: true
+    driver: bridge
     name: ytcaption-network
