@@ -199,6 +199,18 @@ build-%: ## Build de um serviço específico (ex: make build-youtube-search)
 		exit 1; \
 	fi
 
+build-only-%: ## Build isolado sem subir (ex: make build-only-audio-normalization)
+	@service_name=$(subst build-only-,,$@); \
+	if [ -f "$(SERVICES_DIR)/$$service_name/docker-compose.yml" ]; then \
+		echo -e "$(YELLOW)🔨 Building $$service_name (isolated)...$(NC)"; \
+		docker compose -f $(SERVICES_DIR)/$$service_name/docker-compose.yml build --no-cache; \
+		echo -e "$(GREEN)✅ $$service_name built successfully!$(NC)"; \
+		echo -e "$(BLUE)📊 Use 'make up-$$service_name' para iniciar$(NC)"; \
+	else \
+		echo -e "$(RED)❌ Serviço $$service_name não encontrado$(NC)"; \
+		exit 1; \
+	fi
+
 # ==================== UP/DOWN ====================
 up: ## Inicia todos os serviços
 	@echo -e "$(BLUE)Iniciando todos os serviços...$(NC)"
@@ -356,6 +368,34 @@ list-services: ## Lista todos os serviços disponíveis
 check-ports: ## Verifica portas em uso
 	@echo -e "$(BLUE)Portas em uso pelos serviços:$(NC)"
 	@netstat -tuln | grep -E "8001|8002|8003|8004|8005" || echo "Nenhuma porta dos serviços em uso"
+
+check-port-conflicts: ## Verifica conflitos de portas dos serviços
+	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
+	@echo -e "$(BLUE)  Verificando Conflitos de Portas$(NC)"
+	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
+	@echo -e "$(YELLOW)Serviços e suas portas configuradas:$(NC)"
+	@for service in $(SERVICES); do \
+		if [ -f "$(SERVICES_DIR)/$$service/.env" ]; then \
+			port=$$(grep "^PORT=" $(SERVICES_DIR)/$$service/.env | cut -d= -f2); \
+			if [ -n "$$port" ]; then \
+				echo -e "  $(GREEN)•$(NC) $$service: porta $$port"; \
+			fi; \
+		fi; \
+	done
+	@echo ""
+	@echo -e "$(YELLOW)Containers em execução:$(NC)"
+	@docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -E "NAME|audio|youtube|video|make" || echo "Nenhum container em execução"
+
+stop-port-%: ## Para container usando porta específica (ex: make stop-port-8002)
+	@port=$(subst stop-port-,,$@); \
+	echo -e "$(YELLOW)🛑 Parando container na porta $$port...$(NC)"; \
+	container_id=$$(docker ps --format "{{.ID}}" --filter "publish=$$port"); \
+	if [ -n "$$container_id" ]; then \
+		docker stop $$container_id; \
+		echo -e "$(GREEN)✅ Container parado$(NC)"; \
+	else \
+		echo -e "$(RED)❌ Nenhum container encontrado na porta $$port$(NC)"; \
+	fi
 
 docker-info: ## Mostra informações do Docker
 	@echo -e "$(BLUE)Informações do Docker:$(NC)"

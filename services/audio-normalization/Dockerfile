@@ -60,10 +60,10 @@ RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
 
 USER appuser
 
-EXPOSE 8002
+EXPOSE 8003
 
 # Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8002/health || exit 1
+  CMD curl -f http://localhost:8003/health || exit 1
 
 CMD ["python", "run.py"]

@@ -11,7 +11,16 @@ Este Makefile fornece uma interface unificada para gerenciar todos os serviços 
 ```bash
 make help              # Mostra todos os comandos disponíveis
 make list-services     # Lista todos os serviços
-make docker-info       # Informações do Docker
+make docker-info       # Informaçõe => [celery-worker] resolving provenance for metadata file                                                                                                 0.0s
+ => [audio-normalization-service] resolving provenance for metadata file                                                                                   0.0s
+[+] Running 5/5
+ ✔ audio-normalization-celery-worker                Built                                                                                                  0.0s 
+ ✔ audio-normalization-audio-normalization-service  Built                                                                                                  0.0s 
+ ✔ Network audio-normalization_default              Created                                                                                                0.0s 
+ ✔ Container audio-normalization-api                Created                                                                                                0.1s 
+ ✔ Container audio-normalization-celery             Created                                                                                                0.0s 
+Attaching to audio-normalization-api, audio-normalization-celery
+Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint audio-normalization-api (4a812dc42838cd08df483267d046dbc788c6c172ed3e95895a534c7ca6771f61): Bind for 0.0.0.0:8002 failed: port is already allocateds do Docker
 make check-ports       # Verifica portas em uso
 ```
 
