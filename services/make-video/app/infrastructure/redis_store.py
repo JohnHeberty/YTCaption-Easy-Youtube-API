@@ -4,6 +4,19 @@ import os
 import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 # Use resilient Redis from common library
 from common.redis_utils import ResilientRedisStore
@@ -109,7 +122,7 @@ class RedisJobStore:
     
     async def cleanup_expired(self) -> int:
         """Remove expired jobs from Redis"""
-        now = datetime.utcnow()
+        now = now_brazil()
         expired_count = 0
         
         # Search for all job keys (operação síncrona)
@@ -285,7 +298,7 @@ class RedisJobStore:
             List of orphaned jobs
         """
         orphaned = []
-        now = datetime.utcnow()
+        now = now_brazil()
         max_age = timedelta(minutes=max_age_minutes)
         
         try:

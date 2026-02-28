@@ -5,6 +5,19 @@ Responsável APENAS por rastrear e atualizar progresso de jobs.
 import logging
 from typing import Any, Optional
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 from ..domain.interfaces import IProgressTracker, IJobStore
 from ..domain.models import Job, JobStatus
@@ -89,7 +102,7 @@ class RedisProgressTracker(IProgressTracker):
                 return
             
             job.status = JobStatus.PROCESSING
-            job.started_at = datetime.now()
+            job.started_at = now_brazil()
             job.progress = 0.0
             job.status_message = "Processamento iniciado"
             
@@ -114,7 +127,7 @@ class RedisProgressTracker(IProgressTracker):
                 return
             
             job.status = JobStatus.COMPLETED
-            job.completed_at = datetime.now()
+            job.completed_at = now_brazil()
             job.progress = 1.0
             job.status_message = "Processamento concluído com sucesso"
             
@@ -158,7 +171,7 @@ class RedisProgressTracker(IProgressTracker):
             
             # Calcula tempo até falha
             if job.started_at:
-                job.completed_at = datetime.now()
+                job.completed_at = now_brazil()
                 job.processing_time = (job.completed_at - job.started_at).total_seconds()
             
             self.job_store.update_job(job)

@@ -5,6 +5,19 @@ Implementa resiliência automática e recuperação de falhas.
 import logging
 import asyncio
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from typing import List, Dict, Any
 from celery import Celery
 
@@ -101,12 +114,12 @@ class OrphanJobCleaner:
             # Job em PROCESSING sem started_at é definitivamente órfão
             return True
         
-        age = datetime.now() - job.started_at
+        age = now_brazil() - job.started_at
         return age > self.processing_timeout
     
     def _is_orphan_queued(self, job: Job) -> bool:
         """Verifica se job em QUEUED é órfão"""
-        age = datetime.now() - job.created_at
+        age = now_brazil() - job.created_at
         return age > self.queued_timeout
     
     async def _handle_orphan_job(self, job: Job, stats: Dict) -> None:
@@ -145,7 +158,7 @@ class OrphanJobCleaner:
     
     async def _handle_stale_queued_job(self, job: Job, stats: Dict) -> None:
         """Trata job muito antigo em QUEUED"""
-        age = datetime.now() - job.created_at
+        age = now_brazil() - job.created_at
         
         job.status = JobStatus.FAILED
         job.error_message = f"Job permaneceu em fila por {age} sem ser processado. Possível problema no worker."
@@ -177,7 +190,7 @@ class DeadLetterQueueManager:
         try:
             job.status = JobStatus.FAILED
             job.error_message = f"[DLQ] {reason}"
-            job.dlq_at = datetime.now()
+            job.dlq_at = now_brazil()
             
             # Salva com prefixo DLQ
             dlq_job_id = f"{self.dlq_prefix}{job.id}"

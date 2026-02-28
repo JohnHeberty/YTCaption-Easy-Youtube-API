@@ -5,6 +5,19 @@ import socket
 import logging
 from typing import Optional, Any
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from redis import Redis
 from redis.connection import ConnectionPool
 from redis.exceptions import RedisError, ConnectionError, TimeoutError
@@ -45,7 +58,7 @@ class RedisCircuitBreaker:
         if self.state == "OPEN":
             # Verifica se passou tempo de recovery
             if self.last_failure_time:
-                elapsed = (datetime.now() - self.last_failure_time).total_seconds()
+                elapsed = (now_brazil() - self.last_failure_time).total_seconds()
                 if elapsed > self.timeout_seconds:
                     logger.info(f"Circuit breaker transitioning OPEN → HALF_OPEN")
                     self.state = "HALF_OPEN"
@@ -57,7 +70,7 @@ class RedisCircuitBreaker:
         if self.half_open_attempts >= self.half_open_max_requests:
             logger.warning(f"Circuit breaker HALF_OPEN limit reached, reopening")
             self.state = "OPEN"
-            self.last_failure_time = datetime.now()
+            self.last_failure_time = now_brazil()
             return True
         
         return False
@@ -75,7 +88,7 @@ class RedisCircuitBreaker:
     
     def record_failure(self):
         """Registra falha - pode abrir circuit"""
-        self.last_failure_time = datetime.now()
+        self.last_failure_time = now_brazil()
         
         if self.state == "HALF_OPEN":
             self.half_open_attempts += 1

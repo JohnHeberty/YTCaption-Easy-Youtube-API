@@ -4,6 +4,20 @@ from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 import hashlib
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    # Fallback se common não estiver instalado
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
@@ -190,7 +204,7 @@ class Job(BaseModel):
     
     @property
     def is_expired(self) -> bool:
-        return datetime.now() > self.expires_at
+        return now_brazil() > self.expires_at
     
     @property
     def needs_translation(self) -> bool:
@@ -214,7 +228,7 @@ class Job(BaseModel):
             language_out or language_in
         )
         
-        now = datetime.now()
+        now = now_brazil()
         cache_ttl_hours = 24
         
         return cls(

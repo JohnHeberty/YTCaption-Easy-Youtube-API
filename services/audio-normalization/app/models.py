@@ -4,6 +4,19 @@ from typing import Optional
 from pydantic import BaseModel
 import hashlib
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
@@ -47,7 +60,7 @@ class  Job(BaseModel):
     
     @property
     def is_expired(self) -> bool:
-        return datetime.now() > self.expires_at
+        return now_brazil() > self.expires_at
     
     @property
     def is_orphaned(self, timeout_minutes: int = 15) -> bool:
@@ -56,14 +69,14 @@ class  Job(BaseModel):
             return False
         if not self.last_heartbeat:
             # Se nunca teve heartbeat, usa created_at
-            age = datetime.now() - self.created_at
+            age = now_brazil() - self.created_at
         else:
-            age = datetime.now() - self.last_heartbeat
+            age = now_brazil() - self.last_heartbeat
         return age > timedelta(minutes=timeout_minutes)
     
     def update_heartbeat(self):
         """Atualiza heartbeat do job"""
-        self.last_heartbeat = datetime.now()
+        self.last_heartbeat = now_brazil()
     
     @property
     def processing_operations(self) -> str:
@@ -100,7 +113,7 @@ class  Job(BaseModel):
         
         # Calcula hash ÚNICO do arquivo + operações + timestamp
         # Isso garante que cada job tenha ID único, evitando colisões de cache
-        now = datetime.now()
+        now = now_brazil()
         operations = [
             "n" if remove_noise else "",
             "m" if convert_to_mono else "",

@@ -10,6 +10,19 @@ Pattern: Exception Hierarchy + Error Codes
 from typing import Optional, Dict, Any
 from enum import Enum
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 import traceback
 import json
 
@@ -125,7 +138,7 @@ class EnhancedMakeVideoException(Exception):
         self.cause = cause
         self.job_id = job_id
         self.recoverable = recoverable
-        self.timestamp = datetime.utcnow()
+        self.timestamp = now_brazil()
         
         # Preservar stack trace da exceção original
         if cause:

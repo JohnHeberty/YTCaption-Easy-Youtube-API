@@ -18,6 +18,19 @@ Total: 35+ specific exception classes
 from typing import Optional, Dict, Any
 from enum import Enum
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 import traceback
 
 
@@ -134,7 +147,7 @@ class MakeVideoBaseException(Exception):
         self.cause = cause
         self.job_id = job_id
         self.recoverable = recoverable
-        self.timestamp = datetime.utcnow()
+        self.timestamp = now_brazil()
         
         # Preserve cause traceback
         if cause:

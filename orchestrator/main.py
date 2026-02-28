@@ -9,6 +9,19 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from typing import Optional
 from pathlib import Path
 import json
@@ -72,7 +85,7 @@ logger = logging.getLogger(__name__)
 # Variáveis globais
 orchestrator: Optional[PipelineOrchestrator] = None
 redis_store = None
-app_start_time = datetime.now()
+app_start_time = now_brazil()
 
 
 async def validate_configuration():
@@ -131,7 +144,7 @@ async def lifespan(app: FastAPI):
         # Valida configuração
         await validate_configuration()
         
-        app_start_time = datetime.now()
+        app_start_time = now_brazil()
         logger.info("=" * 60)
         logger.info("✅ Orchestrator API started successfully")
         logger.info("=" * 60)
@@ -297,7 +310,7 @@ async def health_check():
     """
     try:
         # Calcula uptime
-        uptime = (datetime.now() - app_start_time).total_seconds()
+        uptime = (now_brazil() - app_start_time).total_seconds()
         
         # Verifica Redis
         redis_ok = False
@@ -335,7 +348,7 @@ async def health_check():
             status=overall_status,
             service="orchestrator",
             version=settings["app_version"],
-            timestamp=datetime.now(),
+            timestamp=now_brazil(),
             microservices=microservices_status,
             uptime_seconds=uptime,
             redis_connected=redis_ok
@@ -585,14 +598,14 @@ async def wait_for_job_completion(
     import asyncio
     from datetime import datetime, timedelta
     
-    start_time = datetime.now()
+    start_time = now_brazil()
     max_wait = timedelta(seconds=timeout)
     poll_interval = 5  # Verifica a cada 5 segundos
     
     logger.info(f"Client waiting for job {job_id} completion (timeout: {timeout}s)")
     
     try:
-        while datetime.now() - start_time < max_wait:
+        while now_brazil() - start_time < max_wait:
             job = redis_store.get_job(job_id)
             
             if not job:
@@ -600,7 +613,7 @@ async def wait_for_job_completion(
             
             # Verifica se job finalizou (sucesso ou erro)
             if job.status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
-                elapsed = (datetime.now() - start_time).total_seconds()
+                elapsed = (now_brazil() - start_time).total_seconds()
                 logger.info(f"Job {job_id} finished with status {job.status.value} after {elapsed:.1f}s")
                 
                 # Monta resposta completa
@@ -665,7 +678,7 @@ async def wait_for_job_completion(
             await asyncio.sleep(poll_interval)
         
         # Timeout atingido
-        elapsed = (datetime.now() - start_time).total_seconds()
+        elapsed = (now_brazil() - start_time).total_seconds()
         logger.warning(f"Timeout waiting for job {job_id} after {elapsed:.1f}s")
         raise HTTPException(
             status_code=408,  # Request Timeout
@@ -725,7 +738,7 @@ async def stream_job_progress(
     """
     async def event_generator():
         """Gera eventos SSE com progresso do job"""
-        start_time = datetime.now()
+        start_time = now_brazil()
         max_wait = timedelta(seconds=timeout)
         poll_interval = 1  # Atualiza a cada 1 segundo
         last_progress = -1
@@ -736,7 +749,7 @@ async def stream_job_progress(
             # Envia evento inicial
             yield f"event: connected\ndata: {json.dumps({'message': 'Conectado ao stream', 'job_id': job_id})}\n\n"
             
-            while datetime.now() - start_time < max_wait:
+            while now_brazil() - start_time < max_wait:
                 job = redis_store.get_job(job_id)
                 
                 if not job:
@@ -793,7 +806,7 @@ async def stream_job_progress(
                 await asyncio.sleep(poll_interval)
             
             # Timeout
-            if datetime.now() - start_time >= max_wait:
+            if now_brazil() - start_time >= max_wait:
                 timeout_data = {
                     "job_id": job_id,
                     "error": f"Timeout após {timeout}s",

@@ -1,6 +1,19 @@
 import asyncio
 import os
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -498,14 +511,14 @@ async def wait_for_job_completion(job_id: str, timeout: int = 600) -> Job:
     """
     from datetime import datetime, timedelta
     
-    start_time = datetime.now()
+    start_time = now_brazil()
     max_wait = timedelta(seconds=timeout)
     poll_interval = 2  # Check every 2 seconds
     
     logger.info(f"Client waiting for job {job_id} completion (timeout: {timeout}s)")
     
     try:
-        while datetime.now() - start_time < max_wait:
+        while now_brazil() - start_time < max_wait:
             job = job_store.get_job(job_id)
             
             if not job:
@@ -513,7 +526,7 @@ async def wait_for_job_completion(job_id: str, timeout: int = 600) -> Job:
             
             # Check if job finished (success or error)
             if job.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
-                elapsed = (datetime.now() - start_time).total_seconds()
+                elapsed = (now_brazil() - start_time).total_seconds()
                 logger.info(f"Job {job_id} finished with status {job.status.value} after {elapsed:.1f}s")
                 return job
             
@@ -522,7 +535,7 @@ async def wait_for_job_completion(job_id: str, timeout: int = 600) -> Job:
             await asyncio.sleep(poll_interval)
         
         # Timeout reached
-        elapsed = (datetime.now() - start_time).total_seconds()
+        elapsed = (now_brazil() - start_time).total_seconds()
         logger.warning(f"Timeout waiting for job {job_id} after {elapsed:.1f}s")
         raise HTTPException(
             status_code=408,  # Request Timeout

@@ -6,6 +6,19 @@ Tasks do Celery para download de vídeos
 import os
 import logging
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from celery import Task
 from celery import signals
 from .celery_config import celery_app
@@ -165,7 +178,7 @@ def download_video_task(self, job_dict: dict) -> dict:
         
         # Atualiza status
         job.status = JobStatus.DOWNLOADING
-        job.started_at = datetime.now()  # Marca quando começou
+        job.started_at = now_brazil()  # Marca quando começou
         job.progress = 0.0
         self.job_store.update_job(job)
         

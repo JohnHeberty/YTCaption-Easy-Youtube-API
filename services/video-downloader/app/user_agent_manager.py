@@ -7,6 +7,19 @@ import random
 import logging
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from pathlib import Path
         
 logger = logging.getLogger(__name__)
@@ -198,7 +211,7 @@ class UserAgentManager:
             user_agent: User-Agent que causou erro
             error_details: Detalhes opcionais do erro
         """
-        now = datetime.now()
+        now = now_brazil()
         
         # Inicializa ou atualiza cache de erro
         if user_agent not in self.error_cache:
@@ -233,7 +246,7 @@ class UserAgentManager:
     def _quarantine_user_agent(self, user_agent: str) -> None:
         """Coloca User-Agent em quarentena"""
         self.quarantined_uas.add(user_agent)
-        quarantine_until = datetime.now() + timedelta(hours=self.quarantine_hours)
+        quarantine_until = now_brazil() + timedelta(hours=self.quarantine_hours)
         
         # Armazena timestamp de quarentena
         if user_agent not in self.error_cache:
@@ -245,7 +258,7 @@ class UserAgentManager:
     
     def _cleanup_quarantine(self) -> None:
         """Remove User-Agents cuja quarentena expirou"""
-        now = datetime.now()
+        now = now_brazil()
         expired_uas = []
         
         for ua in list(self.quarantined_uas):

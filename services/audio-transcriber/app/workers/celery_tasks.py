@@ -2,6 +2,19 @@ import os
 import logging
 import asyncio
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from celery import Task
 from celery import signals
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -163,9 +176,9 @@ def transcribe_audio_task(self, job_dict):
                     error_message=f"Schema inválido: {str(ve)}. Job precisa ser recriado com schema atualizado.",
                     input_file=job_dict.get('input_file', 'unknown'),
                     operation=job_dict.get('operation', 'transcribe'),
-                    created_at=datetime.now(),
-                    received_at=datetime.now(),
-                    expires_at=datetime.now() + timedelta(hours=24)
+                    created_at=now_brazil(),
+                    received_at=now_brazil(),
+                    expires_at=now_brazil() + timedelta(hours=24)
                 )
                 store.save_job(minimal_job)
                 logger.info(f"✅ Job {job_id} marcado como FAILED por schema inválido")
@@ -177,7 +190,7 @@ def transcribe_audio_task(self, job_dict):
         
         # Atualiza status
         job.status = JobStatus.PROCESSING
-        job.started_at = datetime.now()  # Marca quando começou
+        job.started_at = now_brazil()  # Marca quando começou
         job.progress = 0.0
         self.job_store.update_job(job)
         

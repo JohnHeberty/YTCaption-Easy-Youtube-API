@@ -2,6 +2,19 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 from .models import Job, JobStatus, SearchType
 from .exceptions import YouTubeSearchException, YouTubeAPIError, ProcessingTimeoutError
@@ -72,7 +85,7 @@ class YouTubeSearchProcessor:
             job.result = result
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
-            job.completed_at = datetime.now()
+            job.completed_at = now_brazil()
             
             if self.job_store:
                 self.job_store.update_job(job)
@@ -84,7 +97,7 @@ class YouTubeSearchProcessor:
             logger.error(f"❌ Error processing job {job.id}: {str(e)}", exc_info=True)
             job.status = JobStatus.FAILED
             job.error_message = str(e)
-            job.completed_at = datetime.now()
+            job.completed_at = now_brazil()
             
             if self.job_store:
                 self.job_store.update_job(job)

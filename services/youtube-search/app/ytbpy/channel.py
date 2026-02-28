@@ -2,6 +2,19 @@ import re
 import json
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data
 
@@ -116,7 +129,7 @@ def _parse_time_ago(time_text):
     if not time_text or "ago" not in time_text.lower():
         return None
 
-    current_time = datetime.now()
+    current_time = now_brazil()
     time_text = time_text.lower()
 
     number_match = re.search(r"(\d+)\s+(\w+)", time_text)

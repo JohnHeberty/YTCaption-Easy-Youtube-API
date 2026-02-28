@@ -7,6 +7,19 @@ import time
 from typing import Dict, List, Optional
 from collections import defaultdict
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 from ..domain.models import Job, JobStatus, TranscriptionStats
 from ..core.logging_config import get_logger
@@ -98,7 +111,7 @@ class JobStorage:
             jobs = list(self._jobs.values())
             
             # Remove jobs expirados
-            current_time = datetime.now()
+            current_time = now_brazil()
             valid_jobs = []
             expired_jobs = []
             
@@ -139,7 +152,7 @@ class JobStorage:
         """
         
         async with self._lock:
-            current_time = datetime.now()
+            current_time = now_brazil()
             expired_jobs = []
             
             for job in self._jobs.values():
@@ -160,7 +173,7 @@ class JobStorage:
             jobs = list(self._jobs.values())
             
             # Remove jobs expirados das estatísticas
-            current_time = datetime.now()
+            current_time = now_brazil()
             valid_jobs = [job for job in jobs if job.expires_at > current_time]
             
             total_jobs = len(valid_jobs)
@@ -220,7 +233,7 @@ class JobStorage:
         """
         
         async with self._lock:
-            current_time = datetime.now()
+            current_time = now_brazil()
             expired_job_ids = []
             
             for job_id, job in self._jobs.items():

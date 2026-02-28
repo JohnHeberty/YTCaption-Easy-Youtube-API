@@ -4,6 +4,20 @@ from enum import Enum
 from datetime import datetime
 import shortuuid
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    # Fallback se common não estiver instalado
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 class JobStatus(str, Enum):
     """Status do job de criação de vídeo"""
@@ -88,8 +102,8 @@ class Job(BaseModel):
     error: Optional[Dict[str, Any]] = None
     
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_brazil)
+    updated_at: datetime = Field(default_factory=now_brazil)
     completed_at: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     
@@ -129,4 +143,4 @@ class HealthResponse(BaseModel):
     version: str = "1.0.0"
     dependencies: Dict[str, str]
     storage: Dict[str, Any]
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=now_brazil)

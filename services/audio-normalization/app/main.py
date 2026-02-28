@@ -1,6 +1,19 @@
 import asyncio
 import os
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
@@ -234,7 +247,7 @@ async def create_audio_job(
                 
                 # Se job está processando há mais de 30 minutos, considera órfão
                 processing_timeout = timedelta(minutes=30)
-                job_age = datetime.now() - existing_job.created_at
+                job_age = now_brazil() - existing_job.created_at
                 
                 if job_age > processing_timeout:
                     logger.warning(f"⚠️ Job {new_job.id} órfão detectado (processando há {job_age}), reprocessando...")
@@ -761,7 +774,7 @@ async def _perform_basic_cleanup():
         # Limpar jobs expirados
         try:
             keys = job_store.redis.keys("normalization_job:*")
-            now = datetime.now()
+            now = now_brazil()
             expired_count = 0
             for key in keys:
                 job_data = job_store.redis.get(key)
@@ -790,7 +803,7 @@ async def _perform_basic_cleanup():
                     if not file_path.is_file():
                         continue
                     try:
-                        age = datetime.now() - datetime.fromtimestamp(file_path.stat().st_mtime)
+                        age = now_brazil() - datetime.fromtimestamp(file_path.stat().st_mtime)
                         if age > timedelta(hours=24):
                             size_mb = file_path.stat().st_size / (1024 * 1024)
                             await asyncio.to_thread(file_path.unlink)
@@ -1105,7 +1118,7 @@ async def get_orphaned_jobs(max_age_minutes: int = Query(30, ge=1, description="
         # Format response with detailed info
         orphaned_info = []
         for job in orphaned:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             status_str = job.status.value if hasattr(job.status, 'value') else str(job.status)
             orphaned_info.append({
                 "job_id": job.id,
@@ -1172,7 +1185,7 @@ async def cleanup_orphaned_jobs_endpoint(
         errors = []  # Track errors for graceful degradation
         
         for job in orphaned:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             
             # Remove associated files with comprehensive error handling
             files_deleted = []
@@ -1226,7 +1239,7 @@ async def cleanup_orphaned_jobs_endpoint(
                 try:
                     job.status = JobStatus.FAILED
                     job.error_message = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
-                    job.updated_at = datetime.utcnow()
+                    job.updated_at = now_brazil()
                     job_store.update_job(job)
                 except Exception as e:
                     errors.append(f"Failed to mark job {job.id} as failed: {str(e)}")
@@ -1291,7 +1304,7 @@ async def health_check():
         "status": "healthy",
         "service": "audio-normalization", 
         "version": "2.0.0",
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": now_brazil().isoformat(),
         "checks": {}
     }
     

@@ -3,6 +3,19 @@ from datetime import datetime, timedelta
 from typing import Optional
 from pydantic import BaseModel
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
@@ -35,7 +48,7 @@ class Job(BaseModel):
     
     @property
     def is_expired(self) -> bool:
-        return datetime.now() > self.expires_at
+        return now_brazil() > self.expires_at
     
     @classmethod
     def create_new(cls, url: str, quality: str = "best") -> "Job":
@@ -55,7 +68,7 @@ class Job(BaseModel):
         # Cria ID único: video_id + quality (para diferentes qualidades do mesmo vídeo)
         job_id = f"{video_id}_{quality}" if video_id else str(uuid.uuid4())
         
-        now = datetime.now()
+        now = now_brazil()
         return cls(
             id=job_id,
             url=url,

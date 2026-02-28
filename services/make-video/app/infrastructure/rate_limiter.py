@@ -6,6 +6,19 @@ Implements sliding window rate limiting to protect system from overload.
 
 import asyncio
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from collections import deque
 from typing import Optional, Tuple
 import logging
@@ -37,7 +50,7 @@ class SlidingWindowRateLimiter:
             bool: True if request is allowed, False if rate limit exceeded
         """
         async with self.lock:
-            now = datetime.now()
+            now = now_brazil()
             cutoff = now - timedelta(seconds=self.window_seconds)
             
             # Remove old requests outside the window
@@ -62,14 +75,14 @@ class SlidingWindowRateLimiter:
         Returns:
             bool: True if allowed, False if timeout exceeded
         """
-        start = datetime.now()
+        start = now_brazil()
         
         while True:
             if await self.is_allowed():
                 return True
             
             # Check timeout
-            elapsed = (datetime.now() - start).total_seconds()
+            elapsed = (now_brazil() - start).total_seconds()
             if elapsed > timeout:
                 logger.warning(f"Rate limit wait timeout after {elapsed}s")
                 return False
@@ -90,7 +103,7 @@ class SlidingWindowRateLimiter:
             
             # Get oldest request in window
             oldest = self.requests[0]
-            cutoff = datetime.now() - timedelta(seconds=self.window_seconds)
+            cutoff = now_brazil() - timedelta(seconds=self.window_seconds)
             wait_seconds = (oldest - cutoff).total_seconds()
             
             return max(0.0, wait_seconds)

@@ -10,6 +10,19 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +84,7 @@ class ShortsCache:
                 return None
             
             # Atualizar estatísticas de uso
-            short["last_used"] = datetime.utcnow().isoformat()
+            short["last_used"] = now_brazil().isoformat()
             short["usage_count"] = short.get("usage_count", 0) + 1
             self._save_metadata()
             
@@ -92,9 +105,9 @@ class ShortsCache:
         self.metadata[video_id] = {
             "video_id": video_id,
             "file_path": file_path,
-            "downloaded_at": datetime.utcnow().isoformat(),
+            "downloaded_at": now_brazil().isoformat(),
             "downloaded_via": "video-downloader-api",  # Origem: API externa
-            "last_used": datetime.utcnow().isoformat(),
+            "last_used": now_brazil().isoformat(),
             "usage_count": 1,
             **metadata
         }
@@ -122,7 +135,7 @@ class ShortsCache:
         short = self.metadata.get(video_id)
         if not short:
             return False
-        short["validated_at"] = datetime.utcnow().isoformat()
+        short["validated_at"] = now_brazil().isoformat()
         short["has_embedded_subtitles"] = has_subtitles
         short["ocr_confidence"] = confidence
         if reason:
@@ -204,7 +217,7 @@ class ShortsCache:
         Returns:
             Número de shorts removidos
         """
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = now_brazil() - timedelta(days=days)
         to_remove = []
         
         for video_id, short in self.metadata.items():

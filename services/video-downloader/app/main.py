@@ -1,6 +1,19 @@
 import asyncio
 import os
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks, Query
 from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
@@ -367,7 +380,7 @@ async def _perform_basic_cleanup():
         try:
             redis = Redis.from_url(redis_url, decode_responses=True)
             keys = redis.keys("video_job:*")
-            now = datetime.now()
+            now = now_brazil()
             expired_count = 0
             
             for key in keys:
@@ -404,7 +417,7 @@ async def _perform_basic_cleanup():
                 # Arquivo órfão se não há job correspondente
                 # (lógica simplificada: arquivos >24h)
                 try:
-                    age = datetime.now() - datetime.fromtimestamp(file_path.stat().st_mtime)
+                    age = now_brazil() - datetime.fromtimestamp(file_path.stat().st_mtime)
                     if age > timedelta(hours=24):
                         size_mb = file_path.stat().st_size / (1024 * 1024)
                         await asyncio.to_thread(file_path.unlink)
@@ -768,7 +781,7 @@ async def get_orphaned_jobs(max_age_minutes: int = Query(30, ge=1, description="
         # Format response with detailed info
         orphaned_info = []
         for job in orphaned:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             status_str = job.status.value if hasattr(job.status, 'value') else str(job.status)
             orphaned_info.append({
                 "job_id": job.job_id,
@@ -834,7 +847,7 @@ async def cleanup_orphaned_jobs_endpoint(
         space_freed = 0
         
         for job in orphaned:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             
             # Remove associated files
             files_deleted = []
@@ -876,7 +889,7 @@ async def cleanup_orphaned_jobs_endpoint(
                 try:
                     job.status = JobStatus.FAILED
                     job.error = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
-                    job.updated_at = datetime.utcnow()
+                    job.updated_at = now_brazil()
                     # video-downloader usa save_job síncrono
                     job_store.save_job(job)
                     
@@ -1024,7 +1037,7 @@ async def fix_stuck_jobs(max_age_minutes: int = 30):
         logger.info(f"🔍 Procurando jobs travados em QUEUED (>{max_age_minutes}min)")
         
         keys = job_store.redis.keys("job:*")
-        now = datetime.now()
+        now = now_brazil()
         fixed_count = 0
         
         for key in keys:
