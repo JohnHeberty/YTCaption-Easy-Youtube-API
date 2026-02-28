@@ -63,8 +63,7 @@ RUN python -m pip install --no-cache-dir setuptools wheel
 # 🔥 Instalar TODAS as dependências
 RUN python -m pip install --no-cache-dir --ignore-installed blinker \
       -r requirements.txt -c constraints.txt
-
-# 🔥 FORÇAR PyTorch cu118 POR ÚLTIMO (compatível com CUDA 11.8)
+# Volta a usar constraints.txt com numpy 2.x
 RUN python -m pip install --no-cache-dir --force-reinstall \
       torch==2.4.0+cu118 torchaudio==2.4.0+cu118 \
       --index-url https://download.pytorch.org/whl/cu118

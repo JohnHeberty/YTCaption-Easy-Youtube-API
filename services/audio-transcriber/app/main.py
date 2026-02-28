@@ -12,11 +12,11 @@ import logging
 from common.log_utils import setup_structured_logging, get_logger
 from common.exception_handlers import setup_exception_handlers
 
-from .models import Job, JobRequest, JobStatus, TranscriptionResponse
-from .processor import TranscriptionProcessor
-from .redis_store import RedisJobStore
-from .exceptions import AudioTranscriptionException, ServiceException, exception_handler
-from .config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
+from .domain.models import Job, JobRequest, JobStatus, TranscriptionResponse, WhisperEngine
+from .services.processor import TranscriptionProcessor
+from .infrastructure.redis_store import RedisJobStore
+from .domain.exceptions import AudioTranscriptionException, ServiceException, exception_handler
+from .core.config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
 
 # Configuração de logging
 settings = get_settings()
@@ -154,7 +154,7 @@ async def create_transcription_job(
     file: UploadFile = File(...),
     language_in: str = Form("auto"),
     language_out: Optional[str] = Form(None),
-    engine: str = Form("faster-whisper")
+    engine: WhisperEngine = Form(WhisperEngine.FASTER_WHISPER)
 ) -> Job:
     """
     Cria um novo job de transcrição/tradução de áudio
@@ -180,20 +180,8 @@ async def create_transcription_job(
     Use GET /languages para ver todos os idiomas suportados.
     """
     try:
-        # Validação de engine
-        from .models import WhisperEngine
-        try:
-            engine_enum = WhisperEngine(engine)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Engine não suportado",
-                    "engine_provided": engine,
-                    "supported_engines": [e.value for e in WhisperEngine],
-                    "note": "Use 'faster-whisper' (padrão, 4x mais rápido), 'openai-whisper' ou 'whisperx'"
-                }
-            )
+        # Engine já vem como Enum do Form, não precisa converter
+        engine_enum = engine
         
         # Validação de linguagem de entrada
         if not is_language_supported(language_in):
@@ -442,6 +430,102 @@ async def get_supported_languages_endpoint():
                 "language_out": "en",
                 "description": "Traduz áudio em português para inglês"
             }
+        }
+    }
+
+
+@app.get("/engines")
+async def get_available_engines():
+    """
+    Retorna lista de engines de transcrição disponíveis.
+    
+    **Engines suportados:**
+    - **faster-whisper**: Padrão. 4x mais rápido, menos VRAM, word timestamps nativos
+    - **openai-whisper**: Original da OpenAI, compatibilidade máxima, mais lento
+    - **whisperx**: Word-level timestamps com forced alignment (mais preciso para lip-sync)
+    
+    **Word-level timestamps:**
+    - **faster-whisper**: Sim (nativos, mas menos precisos)
+    - **openai-whisper**: Não (apenas segments)
+    - **whisperx**: Sim (forced alignment, máxima precisão)
+    
+    **Performance:**
+    - **faster-whisper**: ⚡⚡⚡⚡ (4x mais rápido)
+    - **openai-whisper**: ⚡ (baseline, mais lento)
+    - **whisperx**: ⚡⚡⚡ (20% mais lento que faster-whisper, mas timestamps perfeitos)
+    """
+    from .models import WhisperEngine
+    
+    # Verifica disponibilidade de WhisperX
+    try:
+        import whisperx
+        whisperx_available = True
+    except ImportError:
+        whisperx_available = False
+    
+    engines = [
+        {
+            "id": WhisperEngine.FASTER_WHISPER.value,
+            "name": "Faster-Whisper",
+            "description": "4x mais rápido que OpenAI Whisper, usa CTranslate2",
+            "available": True,
+            "default": True,
+            "features": {
+                "word_timestamps": True,
+                "word_timestamps_precision": "good",
+                "forced_alignment": False,
+                "speaker_diarization": False,
+                "speed": "very_fast",
+                "vram_usage": "low"
+            },
+            "use_cases": ["Transcrição rápida", "Produção em larga escala", "Recursos limitados"],
+            "recommendation": "Recomendado para a maioria dos casos"
+        },
+        {
+            "id": WhisperEngine.OPENAI_WHISPER.value,
+            "name": "OpenAI Whisper",
+            "description": "Implementação original da OpenAI",
+            "available": True,
+            "default": False,
+            "features": {
+                "word_timestamps": False,
+                "word_timestamps_precision": None,
+                "forced_alignment": False,
+                "speaker_diarization": False,
+                "speed": "slow",
+                "vram_usage": "high"
+            },
+            "use_cases": ["Compatibilidade máxima", "Referência de qualidade"],
+            "recommendation": "Use apenas se precisar compatibilidade exata com OpenAI"
+        },
+        {
+            "id": WhisperEngine.WHISPERX.value,
+            "name": "WhisperX",
+            "description": "Word-level timestamps com forced alignment para precisão máxima",
+            "available": whisperx_available,
+            "default": False,
+            "features": {
+                "word_timestamps": True,
+                "word_timestamps_precision": "excellent",
+                "forced_alignment": True,
+                "speaker_diarization": True,
+                "speed": "fast",
+                "vram_usage": "medium"
+            },
+            "use_cases": ["Lip-sync", "Legendas precisas", "Timing palavra por palavra"],
+            "recommendation": "Recomendado para lip-sync e legendas precisas" if whisperx_available else "Instale whisperx: pip install whisperx",
+            "note": None if whisperx_available else "⚠️ WhisperX não está instalado neste servidor"
+        }
+    ]
+    
+    return {
+        "engines": engines,
+        "default_engine": WhisperEngine.FASTER_WHISPER.value,
+        "total_available": sum(1 for e in engines if e["available"]),
+        "recommendation": {
+            "general_use": WhisperEngine.FASTER_WHISPER.value,
+            "word_level_precision": WhisperEngine.WHISPERX.value if whisperx_available else WhisperEngine.FASTER_WHISPER.value,
+            "compatibility": WhisperEngine.OPENAI_WHISPER.value
         }
     }
 

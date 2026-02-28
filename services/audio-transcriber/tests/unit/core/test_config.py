@@ -3,7 +3,7 @@ Testes Unitários - Config Module
 Princípio SOLID: Single Responsibility - Testa apenas configurações
 """
 import pytest
-from app.config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
+from app.core.config import get_settings, get_supported_languages, is_language_supported, get_whisper_models
 
 
 class TestConfigSettings:

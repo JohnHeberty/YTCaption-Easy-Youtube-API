@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # Use resilient Redis from common library
 from common.redis_utils import ResilientRedisStore
 
-from .models import Job
+from ..domain.models import Job
 
 logger = logging.getLogger(__name__)
 

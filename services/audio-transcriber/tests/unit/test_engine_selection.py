@@ -11,8 +11,8 @@ import pytest
 from pathlib import Path
 import sys
 
-from app.models import WhisperEngine, Job
-from app.faster_whisper_manager import FasterWhisperModelManager
+from app.domain.models import WhisperEngine, Job
+from app.services.faster_whisper_manager import FasterWhisperModelManager
 
 
 # Stub processor para evitar Redis

@@ -6,7 +6,7 @@ import logging
 from typing import Dict, Any
 import torch
 
-from .interfaces import IDeviceManager
+from ..domain.interfaces import IDeviceManager
 
 logger = logging.getLogger(__name__)
 

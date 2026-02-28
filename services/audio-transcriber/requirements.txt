@@ -19,14 +19,14 @@ tenacity==8.2.3
 # Whisper Engines (múltiplas opções disponíveis)
 
 # faster-whisper (padrão): 4x mais rápido, word timestamps nativos
-faster-whisper==1.0.1
+faster-whisper>=1.1.1  # Atualizado para compatibilidade com whisperx 3.8.1
 
 # openai-whisper (opcional): Original da OpenAI, compatibilidade máxima
 # Descomente para habilitar:
 # openai-whisper==20231117
 
-# whisperx (opcional): Timestamps precisos com forced alignment
-# Descomente para habilitar:
+# whisperx: Timestamps precisos com forced alignment (word-level)
+# TEMPORARIAMENTE DESABILITADO para rebuild rápido - validar estrutura modular primeiro
 # git+https://github.com/m-bain/whisperX.git
 
 # === AUDIO PROCESSING ===

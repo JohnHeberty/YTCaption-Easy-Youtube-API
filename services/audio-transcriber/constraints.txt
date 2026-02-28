@@ -1,5 +1,5 @@
 # constraints.txt — manter compatibilidade com torch 2.1.x (wheels cu121)
-numpy==1.26.4
+numpy>=2.1.0  # Atualizado para compatibilidade com whisperx 3.8.1 (requer numpy>=2.1.0)
 numba<0.60
 llvmlite<0.43
 scipy<1.13

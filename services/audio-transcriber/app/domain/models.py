@@ -25,15 +25,40 @@ class WhisperEngine(str, Enum):
     WHISPERX = "whisperx"
 
 
+class TranscriptionWord(BaseModel):
+    """
+    Palavra individual com timestamps precisos.
+    Disponível quando engine suporta word-level timestamps (faster-whisper, whisperx).
+    """
+    word: str = Field(..., description="Palavra transcrita")
+    start: float = Field(..., description="Tempo inicial da palavra em segundos", ge=0)
+    end: float = Field(..., description="Tempo final da palavra em segundos", ge=0)
+    probability: float = Field(..., description="Confiança do modelo (0.0-1.0)", ge=0.0, le=1.0)
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "word": "welcome",
+                "start": 0.12,
+                "end": 0.58,
+                "probability": 0.95
+            }
+        }
+
+
 class TranscriptionSegment(BaseModel):
     """
     Segmento de transcrição com timestamps.
-    Formato compatível com projeto v1.
+    Formato compatível com projeto v1 + word-level timestamps.
     """
     text: str = Field(..., description="Texto do segmento transcrito")
     start: float = Field(..., description="Tempo inicial em segundos", ge=0)
     end: float = Field(..., description="Tempo final em segundos", ge=0)
     duration: float = Field(..., description="Duração do segmento em segundos", ge=0)
+    words: Optional[List[TranscriptionWord]] = Field(
+        None,
+        description="Lista de palavras com timestamps precisos (disponível com faster-whisper ou whisperx)"
+    )
     
     class Config:
         json_schema_extra = {
@@ -41,7 +66,13 @@ class TranscriptionSegment(BaseModel):
                 "text": "Welcome to the show",
                 "start": 0.0,
                 "end": 2.5,
-                "duration": 2.5
+                "duration": 2.5,
+                "words": [
+                    {"word": "Welcome", "start": 0.0, "end": 0.5, "probability": 0.98},
+                    {"word": "to", "start": 0.6, "end": 0.8, "probability": 0.99},
+                    {"word": "the", "start": 0.9, "end": 1.1, "probability": 0.97},
+                    {"word": "show", "start": 1.2, "end": 1.5, "probability": 0.96}
+                ]
             }
         }
 

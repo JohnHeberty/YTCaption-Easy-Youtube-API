@@ -7,8 +7,8 @@ from typing import Dict, Any
 from datetime import datetime
 import asyncio
 
-from .interfaces import IHealthChecker, IJobStore
-from .config import get_settings
+from ..domain.interfaces import IHealthChecker, IJobStore
+from ..core.config import get_settings
 
 logger = logging.getLogger(__name__)
 

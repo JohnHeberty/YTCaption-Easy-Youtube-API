@@ -1,7 +1,7 @@
 # 📖 API Reference - Audio Transcriber
 
 **Versão**: 1.0.0  
-**Base URL**: `http://localhost:8002`
+**Base URL**: `http://localhost:8004`
 
 ---
 
@@ -60,7 +60,7 @@ model_size: tiny|base|small|medium|large (opcional)
 #### Exemplo
 
 ```bash
-curl -X POST "http://localhost:8002/transcribe" \
+curl -X POST "http://localhost:8004/transcribe" \
   -F "file=@audio.mp3" \
   -F "engine=faster-whisper" \
   -F "language=pt" \
@@ -77,7 +77,7 @@ data = {
     'model_size': 'base'
 }
 
-response = requests.post('http://localhost:8002/transcribe', 
+response = requests.post('http://localhost:8004/transcribe', 
                         files=files, data=data)
 job = response.json()
 ```
@@ -131,14 +131,14 @@ GET /status/{job_id} HTTP/1.1
 #### Exemplo
 
 ```bash
-curl "http://localhost:8002/status/abc123def456"
+curl "http://localhost:8004/status/abc123def456"
 ```
 
 ```python
 import requests
 
 job_id = "abc123def456"
-status = requests.get(f'http://localhost:8002/status/{job_id}').json()
+status = requests.get(f'http://localhost:8004/status/{job_id}').json()
 print(f"Status: {status['status']}")
 print(f"Progress: {status.get('progress', 0)}%")
 ```
@@ -242,13 +242,13 @@ Obrigado por usar o serviço.
 
 ```bash
 # Texto puro
-curl "http://localhost:8002/result/abc123?format=txt" > transcription.txt
+curl "http://localhost:8004/result/abc123?format=txt" > transcription.txt
 
 # SRT
-curl "http://localhost:8002/result/abc123?format=srt" > subtitles.srt
+curl "http://localhost:8004/result/abc123?format=srt" > subtitles.srt
 
 # JSON
-curl "http://localhost:8002/result/abc123?format=json" > result.json
+curl "http://localhost:8004/result/abc123?format=json" > result.json
 ```
 
 ```python
@@ -257,10 +257,10 @@ import requests
 job_id = "abc123def456"
 
 # Texto
-txt = requests.get(f'http://localhost:8002/result/{job_id}?format=txt').text
+txt = requests.get(f'http://localhost:8004/result/{job_id}?format=txt').text
 
 # JSON
-data = requests.get(f'http://localhost:8002/result/{job_id}?format=json').json()
+data = requests.get(f'http://localhost:8004/result/{job_id}?format=json').json()
 print(f"Texto: {data['text']}")
 print(f"Duração: {data['duration']}s")
 ```
@@ -299,7 +299,7 @@ DELETE /job/{job_id} HTTP/1.1
 #### Exemplo
 
 ```bash
-curl -X DELETE "http://localhost:8002/job/abc123def456"
+curl -X DELETE "http://localhost:8004/job/abc123def456"
 ```
 
 ---
@@ -433,7 +433,7 @@ WEBHOOK_SECRET=your-secret-key
   "event": "job.completed",
   "job_id": "abc123def456",
   "status": "completed",
-  "result_url": "http://localhost:8002/result/abc123def456",
+  "result_url": "http://localhost:8004/result/abc123def456",
   "duration_seconds": 15,
   "timestamp": "2026-02-21T10:05:00Z"
 }
@@ -456,7 +456,7 @@ Verifique com HMAC-SHA256 usando `WEBHOOK_SECRET`.
 ```python
 from audio_transcriber_client import AudioTranscriber
 
-client = AudioTranscriber(base_url='http://localhost:8002')
+client = AudioTranscriber(base_url='http://localhost:8004')
 
 # Transcrever
 job = client.transcribe(
@@ -478,7 +478,7 @@ print(transcript)
 ```javascript
 const AudioTranscriber = require('audio-transcriber-client');
 
-const client = new AudioTranscriber('http://localhost:8002');
+const client = new AudioTranscriber('http://localhost:8004');
 
 // Transcrever
 const job = await client.transcribe({

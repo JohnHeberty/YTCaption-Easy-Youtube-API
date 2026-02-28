@@ -15,9 +15,9 @@ except ImportError:
     WHISPERX_AVAILABLE = False
     logging.warning("⚠️ whisperx não instalado. Instale com: pip install whisperx")
 
-from .interfaces import IModelManager
-from .exceptions import AudioTranscriptionException
-from .config import get_settings
+from ..domain.interfaces import IModelManager
+from ..domain.exceptions import AudioTranscriptionException
+from ..core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
