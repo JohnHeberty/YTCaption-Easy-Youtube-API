@@ -8,6 +8,19 @@ import asyncio
 import logging
 from typing import Dict, Tuple, Optional
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 import shutil
 from pathlib import Path
 
@@ -67,7 +80,7 @@ class HealthChecker:
         if self.redis_store is None:
             return HealthCheckResult(False, "Not initialized")
         
-        start = datetime.now()
+        start = now_brazil()
         
         try:
             # Redis síncrono - rodar em executor para não bloquear
@@ -103,12 +116,12 @@ class HealthChecker:
                 return HealthCheckResult(False, "Set/Get mismatch")
             
             # Calcular latência
-            latency_ms = (datetime.now() - start).total_seconds() * 1000
+            latency_ms = (now_brazil() - start).total_seconds() * 1000
             
             return HealthCheckResult(True, "OK", latency_ms)
         
         except asyncio.TimeoutError:
-            latency_ms = (datetime.now() - start).total_seconds() * 1000
+            latency_ms = (now_brazil() - start).total_seconds() * 1000
             return HealthCheckResult(False, f"Timeout (>{latency_ms:.0f}ms)")
         
         except Exception as e:
@@ -127,7 +140,7 @@ class HealthChecker:
         - Conectividade básica
         - Latência
         """
-        start = datetime.now()
+        start = now_brazil()
         
         try:
             import aiohttp
@@ -138,7 +151,7 @@ class HealthChecker:
                 # Tentar endpoint /health primeiro
                 try:
                     async with session.get(f"{base_url}/health") as resp:
-                        latency_ms = (datetime.now() - start).total_seconds() * 1000
+                        latency_ms = (now_brazil() - start).total_seconds() * 1000
                         
                         if resp.status == 200:
                             return HealthCheckResult(True, "OK", latency_ms)
@@ -152,7 +165,7 @@ class HealthChecker:
                 except aiohttp.ClientConnectorError:
                     # Endpoint /health não existe, tentar conectividade básica
                     async with session.get(base_url) as resp:
-                        latency_ms = (datetime.now() - start).total_seconds() * 1000
+                        latency_ms = (now_brazil() - start).total_seconds() * 1000
                         
                         # Qualquer resposta (mesmo 404) indica serviço ativo
                         if resp.status < 500:
@@ -169,7 +182,7 @@ class HealthChecker:
                             )
         
         except asyncio.TimeoutError:
-            latency_ms = (datetime.now() - start).total_seconds() * 1000
+            latency_ms = (now_brazil() - start).total_seconds() * 1000
             return HealthCheckResult(False, f"Timeout (>{latency_ms:.0f}ms)")
         
         except Exception as e:

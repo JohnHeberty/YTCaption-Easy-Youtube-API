@@ -17,6 +17,19 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import httpx
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 from app.core.config import get_settings
 from app.video_processing.subtitle_detector_v2 import SubtitleDetectorV2
@@ -400,7 +413,7 @@ class VideoPipeline:
                     'video_id': video_id,
                     'title': f'Reused: {video_id}',
                     'raw_path': str(video_path),
-                    'downloaded_at': datetime.utcnow().isoformat(),
+                    'downloaded_at': now_brazil().isoformat(),
                     'reused': True
                 })
             
@@ -435,7 +448,7 @@ class VideoPipeline:
                 'video_id': video_id,
                 'title': f'Existing: {video_id}',
                 'raw_path': str(video_path),
-                'downloaded_at': datetime.utcnow().isoformat(),
+                'downloaded_at': now_brazil().isoformat(),
                 'reused': True
             })
         
@@ -574,7 +587,7 @@ class VideoPipeline:
                         'video_id': video_id,
                         'title': short.get('title'),
                         'raw_path': str(video_path),
-                        'downloaded_at': datetime.utcnow().isoformat()
+                        'downloaded_at': now_brazil().isoformat()
                     })
                     
                     logger.info(f"   ✅ [{i}/{len(unique_shorts)}] {video_id}: Downloaded")
@@ -763,7 +776,7 @@ class VideoPipeline:
                 'detection_ratio': metadata.get('detection_ratio', 0.0),
                 'aspect_ratio': aspect_ratio,
                 'crop_position': crop_position,
-                'validated_at': datetime.utcnow().isoformat()
+                'validated_at': now_brazil().isoformat()
             }
             
             if aprovado:
@@ -920,7 +933,7 @@ class VideoPipeline:
             'approved': 0,
             'rejected': 0,
             'errors': 0,
-            'start_time': datetime.utcnow().isoformat()
+            'start_time': now_brazil().isoformat()
         }
         
         # 1. DOWNLOAD (10-50% do progresso)
@@ -936,7 +949,7 @@ class VideoPipeline:
         
         if not shorts:
             logger.warning("⚠️  Nenhum short baixado. Pipeline finalizado.")
-            stats['end_time'] = datetime.utcnow().isoformat()
+            stats['end_time'] = now_brazil().isoformat()
             return stats
         
         # 2. TRANSFORM + 3. VALIDATE + 4. APPROVE/REJECT
@@ -1033,7 +1046,7 @@ class VideoPipeline:
                 await self._cleanup_all_stages(video_id)
                 continue
         
-        stats['end_time'] = datetime.utcnow().isoformat()
+        stats['end_time'] = now_brazil().isoformat()
         
         logger.info(f"🎉 PIPELINE COMPLETO:")
         logger.info(f"   📥 Downloaded: {stats['downloaded']}")

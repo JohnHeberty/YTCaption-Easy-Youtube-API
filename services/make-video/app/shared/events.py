@@ -8,6 +8,19 @@ Pattern: Publisher-Subscriber / Observer
 from enum import Enum
 from dataclasses import dataclass, asdict
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from typing import Dict, Any, Optional, Callable, Coroutine
 import json
 import logging
@@ -184,7 +197,7 @@ class EventPublisher:
             id=shortuuid.uuid(),
             type=event_type,
             source=source,
-            timestamp=datetime.utcnow(),
+            timestamp=now_brazil(),
             subject=job_id,
             data={
                 "job_id": job_id,
@@ -382,7 +395,7 @@ async def publish_video_rejected(video_id: str, reason: str, **kwargs):
         id=shortuuid.uuid(),
         type=EventType.VIDEO_REJECTED,
         source="make-video/validator",
-        timestamp=datetime.utcnow(),
+        timestamp=now_brazil(),
         subject=video_id,
         data={
             "video_id": video_id,

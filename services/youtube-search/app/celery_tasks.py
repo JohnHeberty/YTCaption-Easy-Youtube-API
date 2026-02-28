@@ -5,6 +5,19 @@ import logging
 from typing import Dict, Any
 import asyncio
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 from .celery_config import celery_app
 from .models import Job, JobStatus
@@ -42,7 +55,7 @@ def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
         
         # Update job status
         job.status = JobStatus.PROCESSING
-        job.started_at = datetime.now()  # Marca quando começou
+        job.started_at = now_brazil()  # Marca quando começou
         job_store.update_job(job)
         
         # Process job asynchronously

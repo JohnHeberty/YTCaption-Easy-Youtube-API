@@ -18,6 +18,19 @@ JobStage - Template Method pattern for processing stages
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -181,7 +194,7 @@ class JobStage(ABC):
         Returns:
             StageResult with execution outcome
         """
-        start_time = datetime.utcnow()
+        start_time = now_brazil()
         
         try:
             # Publish stage start event
@@ -200,7 +213,7 @@ class JobStage(ABC):
             result_data = await self.execute(context)
             
             # 3. Calculate duration
-            end_time = datetime.utcnow()
+            end_time = now_brazil()
             duration = (end_time - start_time).total_seconds()
             
             # 4. Create success result
@@ -229,7 +242,7 @@ class JobStage(ABC):
             
         except Exception as e:
             # Calculate duration even on failure
-            end_time = datetime.utcnow()
+            end_time = now_brazil()
             duration = (end_time - start_time).total_seconds()
             
             # Wrap in EnhancedMakeVideoException if needed

@@ -5,6 +5,19 @@ Implementa verificação profunda de saúde e disponibilidade.
 import logging
 from typing import Dict, Any
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 import asyncio
 
 from ..domain.interfaces import IHealthChecker, IJobStore
@@ -68,7 +81,7 @@ class CeleryHealthChecker(IHealthChecker):
                 "workers": list(stats.keys())
             }
             
-            self.last_check_time = datetime.now()
+            self.last_check_time = now_brazil()
             self.last_check_result = result
             
             if result["healthy"]:

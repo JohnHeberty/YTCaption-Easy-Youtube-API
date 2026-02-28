@@ -1,6 +1,19 @@
 from enum import Enum
 from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from pydantic import BaseModel, Field, field_validator
 import hashlib
 import json
@@ -54,12 +67,12 @@ class PipelineStage(BaseModel):
         """Marca estágio como iniciado"""
         self.status = StageStatus.PROCESSING
         if not self.started_at:  # Só seta se ainda não foi setado
-            self.started_at = datetime.now()
+            self.started_at = now_brazil()
     
     def complete(self, output_file: Optional[str] = None):
         """Marca estágio como completo"""
         self.status = StageStatus.COMPLETED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         self.progress = 100.0
         if output_file:
             self.output_file = output_file
@@ -67,7 +80,7 @@ class PipelineStage(BaseModel):
     def fail(self, error: str):
         """Marca estágio como falho"""
         self.status = StageStatus.FAILED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         self.error_message = error
 
 
@@ -155,7 +168,7 @@ class PipelineJob(BaseModel):
             base_progress += stage_progress
         
         self.overall_progress = min(100.0, base_progress)
-        self.updated_at = datetime.now()
+        self.updated_at = now_brazil()
     
     def get_current_stage(self) -> Optional[PipelineStage]:
         """Retorna estágio atual em processamento"""
@@ -165,16 +178,16 @@ class PipelineJob(BaseModel):
     def mark_as_completed(self):
         """Marca job como completo"""
         self.status = PipelineStatus.COMPLETED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         self.overall_progress = 100.0
-        self.updated_at = datetime.now()
+        self.updated_at = now_brazil()
     
     def mark_as_failed(self, error: str):
         """Marca job como falho"""
         self.status = PipelineStatus.FAILED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         self.error_message = error
-        self.updated_at = datetime.now()
+        self.updated_at = now_brazil()
 
 
 class PipelineRequest(BaseModel):

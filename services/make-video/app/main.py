@@ -11,6 +11,19 @@ import logging
 import asyncio
 import shortuuid
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from pathlib import Path
 from typing import List, Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -320,8 +333,8 @@ async def download_and_validate_shorts(
             progress=0.0,
             query=sanitized_query,
             max_shorts=max_shorts,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=now_brazil(),
+            updated_at=now_brazil(),
             stages={
                 "download_pipeline": StageInfo(
                     status="pending",
@@ -390,7 +403,7 @@ async def _update_download_job(
         logger.error(f"Download job {job_id} não encontrado para atualização")
         return
 
-    now = datetime.utcnow()
+    now = now_brazil()
     job.status = status
     job.progress = progress
     job.updated_at = now
@@ -521,7 +534,7 @@ async def _run_download_pipeline_job_resilient(job_id: str, query: str, max_shor
             stage_status="cancelled",
             error={
                 "message": "Job cancelled by system",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": now_brazil().isoformat(),
             },
             metadata={"step": "cancelled"},
         )
@@ -537,7 +550,7 @@ async def _run_download_pipeline_job_resilient(job_id: str, query: str, max_shor
             "message": "Download pipeline failed",
             "error_type": error_type,
             "details": str(e),
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_brazil().isoformat(),
         }
         
         # Adicionar dicas de troubleshooting
@@ -686,13 +699,13 @@ async def _heartbeat_monitor(job_id: str, running: asyncio.Event, interval: int 
             # Atualizar timestamp do job (prova que está vivo)
             job = await redis_store.get_job(job_id)
             if job:
-                job.updated_at = datetime.utcnow()
+                job.updated_at = now_brazil()
                 
                 # Adicionar info de heartbeat no metadata
                 stage = job.stages.get("download_pipeline")
                 if stage and stage.metadata:
                     stage.metadata["heartbeat_count"] = heartbeat_count
-                    stage.metadata["last_heartbeat"] = datetime.utcnow().isoformat()
+                    stage.metadata["last_heartbeat"] = now_brazil().isoformat()
                 
                 await redis_store.save_job(job)
                 
@@ -878,7 +891,7 @@ async def create_video(
             subtitle_style=subtitle_style,
             aspect_ratio=aspect_ratio,
             crop_position=crop_position,
-            created_at=datetime.utcnow()
+            created_at=now_brazil()
         )
         
         # Salvar no Redis
@@ -928,7 +941,7 @@ async def get_job_status(job_id: str):
         job_dict = job.dict()
         
         # Adicionar informações de saúde/diagnóstico
-        now = datetime.utcnow()
+        now = now_brazil()
         duration_seconds = (now - job.created_at).total_seconds()
         last_update_seconds = (now - job.updated_at).total_seconds()
         
@@ -1396,7 +1409,7 @@ async def admin_stats():
                 "free_gb": round(disk.free / (1024**3), 2),
                 "percent_used": round((disk.used / disk.total) * 100, 1)
             },
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": now_brazil().isoformat()
         }
         
         return {
@@ -1466,7 +1479,7 @@ async def cleanup_orphans(
                 # Mark as failed
                 job.status = JobStatus.FAILED
                 job.error = f"Job órfão detectado após {max_age_minutes}min em PROCESSING"
-                job.updated_at = datetime.utcnow()
+                job.updated_at = now_brazil()
                 
                 await redis_store.save_job(job)
                 report["orphaned_jobs_fixed"] += 1
@@ -1580,7 +1593,7 @@ async def _perform_basic_cleanup() -> dict:
         output_dir = Path(settings['output_dir'])
         temp_dir = Path('/tmp/make-video-temp')
         
-        now = datetime.utcnow()
+        now = now_brazil()
         max_age = timedelta(hours=24)
         
         for directory in [audio_dir, output_dir, temp_dir]:
@@ -1792,7 +1805,7 @@ async def health_check():
                 "service": "make-video",
                 "version": "1.0.0",
                 "checks": checks_dict,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": now_brazil().isoformat()
             }
         )
         
@@ -1803,7 +1816,7 @@ async def health_check():
             content={
                 "status": "unhealthy",
                 "error": str(e),
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": now_brazil().isoformat()
             }
         )
 
@@ -2073,7 +2086,7 @@ async def get_orphaned_jobs(max_age_minutes: int = Query(30, ge=1, description="
         # Format response with detailed info
         orphaned_info = []
         for job in orphaned:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             orphaned_info.append({
                 "job_id": job.job_id,
                 "status": job.status,
@@ -2140,7 +2153,7 @@ async def cleanup_orphaned_jobs_endpoint(
         space_freed = 0
         
         for job in orphaned:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             
             # Remove associated files
             files_deleted = []
@@ -2197,7 +2210,7 @@ async def cleanup_orphaned_jobs_endpoint(
                 try:
                     job.status = JobStatus.FAILED
                     job.error = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
-                    job.updated_at = datetime.utcnow()
+                    job.updated_at = now_brazil()
                     await redis_store.save_job(job)
                     
                     actions.append({

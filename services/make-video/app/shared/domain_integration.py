@@ -10,6 +10,19 @@ reais dos serviços.
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from typing import Dict, List, Any, Optional
 
 from ..domain.job_processor import JobProcessor
@@ -143,7 +156,7 @@ class DomainJobProcessor:
         
         # Atualizar status inicial
         job.status = JobStatus.PROCESSING
-        job.updated_at = datetime.utcnow()
+        job.updated_at = now_brazil()
         await self.redis_store.save_job(job)
         
         try:
@@ -178,7 +191,7 @@ class DomainJobProcessor:
             job.result = result
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
-            job.completed_at = datetime.utcnow()
+            job.completed_at = now_brazil()
             job.expires_at = job.completed_at + timedelta(hours=24)
             await self.redis_store.save_job(job)
             
@@ -215,7 +228,7 @@ class DomainJobProcessor:
                     "details": getattr(e, 'context', {})
                 }
             
-            job.updated_at = datetime.utcnow()
+            job.updated_at = now_brazil()
             await self.redis_store.save_job(job)
             
             # Publicar evento de erro
@@ -274,7 +287,7 @@ class DomainJobProcessor:
                 for i, s in enumerate(selected_shorts)
             ],
             subtitle_segments=len(segments),
-            processing_time=(datetime.utcnow() - job.created_at).total_seconds()
+            processing_time=(now_brazil() - job.created_at).total_seconds()
         )
         
         return result

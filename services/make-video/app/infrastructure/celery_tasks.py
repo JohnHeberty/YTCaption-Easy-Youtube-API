@@ -12,6 +12,19 @@ import json
 import gc
 from pathlib import Path
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from typing import List, Dict, Optional
 
 from .celery_config import celery_app
@@ -109,7 +122,7 @@ async def update_job_status(job_id: str, status: JobStatus,
         return
     
     job.status = status
-    job.updated_at = datetime.utcnow()
+    job.updated_at = now_brazil()
     
     if progress is not None:
         job.progress = progress
@@ -134,7 +147,7 @@ async def update_job_status(job_id: str, status: JobStatus,
         job.error = error
     
     if status == JobStatus.COMPLETED:
-        job.completed_at = datetime.utcnow()
+        job.completed_at = now_brazil()
         job.expires_at = job.completed_at + timedelta(hours=24)
     
     await store.save_job(job)
@@ -750,7 +763,7 @@ async def _process_make_video_async(job_id: str):
                                 "error_type": type(e).__name__,
                                 "error_message": str(e),
                                 "retry_in_seconds": backoff_seconds,
-                                "next_retry_at": (datetime.utcnow() + timedelta(seconds=backoff_seconds)).isoformat()
+                                "next_retry_at": (now_brazil() + timedelta(seconds=backoff_seconds)).isoformat()
                             }
                         }
                     }
@@ -782,7 +795,7 @@ async def _process_make_video_async(job_id: str):
                                 "error_type": type(e).__name__,
                                 "error_message": str(e),
                                 "retry_in_seconds": backoff_seconds,
-                                "next_retry_at": (datetime.utcnow() + timedelta(seconds=backoff_seconds)).isoformat()
+                                "next_retry_at": (now_brazil() + timedelta(seconds=backoff_seconds)).isoformat()
                             }
                         }
                     }
@@ -1109,14 +1122,14 @@ async def _process_make_video_async(job_id: str):
                 for i, s in enumerate(selected_shorts)
             ],
             subtitle_segments=len(segments),
-            processing_time=(datetime.utcnow() - job.created_at).total_seconds()
+            processing_time=(now_brazil() - job.created_at).total_seconds()
         )
         
         # Atualizar job como completo
         job.result = result
         job.status = JobStatus.COMPLETED
         job.progress = 100.0
-        job.completed_at = datetime.utcnow()
+        job.completed_at = now_brazil()
         job.expires_at = job.completed_at + timedelta(hours=24)
         await store.save_job(job)
         
@@ -1196,7 +1209,7 @@ def cleanup_temp_files():
     if not temp_dir.exists():
         return
     
-    cutoff_time = datetime.utcnow() - timedelta(hours=cutoff_hours)
+    cutoff_time = now_brazil() - timedelta(hours=cutoff_hours)
     removed_count = 0
     
     for job_dir in temp_dir.iterdir():
@@ -1281,7 +1294,7 @@ def recover_orphaned_jobs():
         failed_count = 0
         
         for job in orphaned_jobs:
-            age_minutes = (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            age_minutes = (now_brazil() - job.updated_at).total_seconds() / 60
             
             logger.info(
                 f"🔧 [AUTO-RECOVERY] Attempting recovery of job {job.job_id} "
@@ -1405,16 +1418,16 @@ async def _recover_single_job(job: Job) -> bool:
         # Atualizar job para status "queued" para re-processamento
         job.status = JobStatus.QUEUED
         job.progress = _stage_to_progress(next_stage)
-        job.updated_at = datetime.utcnow()
+        job.updated_at = now_brazil()
         
         # Salvar metadata de recuperação
         if not job.error:
             job.error = {}
         job.error["recovery_info"] = {
-            "recovered_at": datetime.utcnow().isoformat(),
+            "recovered_at": now_brazil().isoformat(),
             "original_stage": current_stage,
             "resume_stage": next_stage.value if hasattr(next_stage, 'value') else str(next_stage),
-            "age_minutes": (datetime.utcnow() - job.updated_at).total_seconds() / 60
+            "age_minutes": (now_brazil() - job.updated_at).total_seconds() / 60
         }
         
         await store.save_job(job)
@@ -1600,7 +1613,7 @@ async def _save_checkpoint(job_id: str, completed_stage: str):
         if completed_stage not in checkpoint["completed_stages"]:
             checkpoint["completed_stages"].append(completed_stage)
         
-        checkpoint["last_updated"] = datetime.utcnow().isoformat()
+        checkpoint["last_updated"] = now_brazil().isoformat()
         
         # Salvar com TTL de 48 horas
         store.redis.setex(key, 172800, json.dumps(checkpoint))
@@ -1652,7 +1665,7 @@ async def _save_stage_checkpoint(job_id: str, stage: str, data: dict):
         checkpoint = {
             "stage": stage,
             "data": data,
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": now_brazil().isoformat()
         }
         store.redis.setex(key, 172800, json.dumps(checkpoint))
         logger.debug(f"💾 [STAGE-CP] {stage}: {len(data.get('downloaded_ids', []))} items")
@@ -1753,7 +1766,7 @@ class SimpleCircuitBreaker:
     
     def record_failure(self):
         self.failure_count += 1
-        self.last_failure_time = datetime.utcnow()
+        self.last_failure_time = now_brazil()
         
         if self.failure_count >= self.failure_threshold:
             self.is_open = True
@@ -1765,7 +1778,7 @@ class SimpleCircuitBreaker:
         
         # Auto-reset after 60s
         if self.last_failure_time:
-            elapsed = (datetime.utcnow() - self.last_failure_time).total_seconds()
+            elapsed = (now_brazil() - self.last_failure_time).total_seconds()
             if elapsed > 60:
                 self.is_open = False
                 self.failure_count = 0

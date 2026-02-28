@@ -4,6 +4,19 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 import hashlib
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
@@ -118,7 +131,7 @@ class Job(BaseModel):
     
     @property
     def is_expired(self) -> bool:
-        return datetime.now() > self.expires_at
+        return now_brazil() > self.expires_at
     
     @classmethod
     def create_new(
@@ -151,7 +164,7 @@ class Job(BaseModel):
         id_string = "|".join(id_parts)
         job_id = hashlib.sha256(id_string.encode()).hexdigest()[:16]
         
-        now = datetime.now()
+        now = now_brazil()
         return cls(
             id=job_id,
             search_type=search_type,

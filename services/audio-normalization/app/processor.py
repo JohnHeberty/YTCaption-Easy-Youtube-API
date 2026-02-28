@@ -5,6 +5,19 @@ import numpy as np
 import logging
 import subprocess
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from pathlib import Path
 from pydub import AudioSegment
 from pydub.effects import normalize, high_pass_filter
@@ -391,7 +404,7 @@ class AudioProcessor:
             job.status = JobStatus.COMPLETED
             job.progress = 100.0
             job.file_size_output = output_path.stat().st_size
-            job.completed_at = datetime.now()
+            job.completed_at = now_brazil()
             if self.job_store: self.job_store.update_job(job)
             
             logger.info(f"Job {job.id} processado com sucesso. Output: {output_path.name}")

@@ -13,6 +13,19 @@ import random
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timedelta
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 import time
 
 import httpx
@@ -74,7 +87,7 @@ class MicroserviceClient:
         
         if self._circuit_state == "OPEN":
             # Se passou o tempo de recovery, transiciona para HALF_OPEN
-            if self.last_failure_time and datetime.now() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
+            if self.last_failure_time and now_brazil() - self.last_failure_time > timedelta(seconds=self.recovery_timeout):
                 logger.warning(f"🟡 [{self.service_name}] Circuit breaker OPEN → HALF_OPEN - testing recovery after {self.recovery_timeout}s downtime")
                 self._circuit_state = "HALF_OPEN"
                 self._half_open_attempts = 0
@@ -86,7 +99,7 @@ class MicroserviceClient:
             if self._half_open_attempts >= self.half_open_max_requests:
                 logger.warning(f"⚠️ [{self.service_name}] Circuit breaker HALF_OPEN limit reached ({self._half_open_attempts}/{self.half_open_max_requests}), reopening")
                 self._circuit_state = "OPEN"
-                self.last_failure_time = datetime.now()
+                self.last_failure_time = now_brazil()
                 return True
             return False  # Permite tentativa
         
@@ -104,7 +117,7 @@ class MicroserviceClient:
     
     def _record_failure(self):
         """Registra falha - pode abrir circuit breaker"""
-        self.last_failure_time = datetime.now()
+        self.last_failure_time = now_brazil()
         
         if self._circuit_state == "HALF_OPEN":
             # Se falhar no HALF_OPEN, volta para OPEN
@@ -119,7 +132,7 @@ class MicroserviceClient:
             logger.warning(f"⚠️ [{self.service_name}] Failure {self.failure_count}/{self.max_failures} recorded")
             if self.failure_count >= self.max_failures:
                 self._circuit_state = "OPEN"
-                logger.critical(f"🚨 [{self.service_name}] Circuit breaker CLOSED → OPEN after {self.failure_count} consecutive failures - will retry in {self.recovery_timeout}s at {(datetime.now() + timedelta(seconds=self.recovery_timeout)).strftime('%H:%M:%S')}")
+                logger.critical(f"🚨 [{self.service_name}] Circuit breaker CLOSED → OPEN after {self.failure_count} consecutive failures - will retry in {self.recovery_timeout}s at {(now_brazil() + timedelta(seconds=self.recovery_timeout)).strftime('%H:%M:%S')}")
 
     async def _retry_with_backoff(self, func: Callable, *args, **kwargs) -> Any:
         """Executa função com retry exponential backoff e circuit breaker"""
@@ -377,7 +390,7 @@ class PipelineOrchestrator:
             
             # Marca quando o pipeline começou a processar
             if not job.started_at:
-                job.started_at = datetime.now()
+                job.started_at = now_brazil()
 
             # 0) Pré-checagem de saúde crítica
             health = await self.check_services_health()
