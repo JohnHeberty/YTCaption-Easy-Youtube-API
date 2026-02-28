@@ -6,9 +6,9 @@ from celery import Task
 from celery import signals
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from .models import Job, JobStatus
-from .processor import TranscriptionProcessor
-from .redis_store import RedisJobStore
+from ..domain.models import Job, JobStatus
+from ..services.processor import TranscriptionProcessor
+from ..infrastructure.redis_store import RedisJobStore
 from .celery_config import celery_app
 
 logger = logging.getLogger(__name__)

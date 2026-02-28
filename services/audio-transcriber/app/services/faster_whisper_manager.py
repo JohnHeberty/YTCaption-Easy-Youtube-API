@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from faster_whisper import WhisperModel
 
-from .interfaces import IModelManager
-from .exceptions import AudioTranscriptionException
-from .config import get_settings
+from ..domain.interfaces import IModelManager
+from ..domain.exceptions import AudioTranscriptionException
+from ..core.config import get_settings
+from ..infrastructure import get_circuit_breaker, CircuitBreakerException
 
 logger = logging.getLogger(__name__)
 
@@ -107,9 +108,9 @@ ado
                 logger.info(f"✅ Faster-Whisper {self.model_name} carregado no {self.device.upper()} ({compute_type})")
                 return
                 
-            except Exception as e:
+            except (RuntimeError, OSError, IOError) as e:
                 last_error = e
-                logger.error(f"❌ Falha na tentativa {attempt}: {e}")
+                logger.exception(f"❌ Falha na tentativa {attempt}: {e}")  # ✅ Usa exception() para stack trace
                 
                 # Registra falha no circuit breaker
                 cb.record_failure(service_name)
@@ -129,7 +130,7 @@ ado
         )
     
     def unload_model(self) -> Dict[str, Any]:
-        """Descarrega modelo da memória"""
+        """Descarrega modelo da memória com cleanup garantido"""
         result = {
             "success": False,
             "model_name": self.model_name,
@@ -145,12 +146,18 @@ ado
         try:
             logger.info(f"🔥 Descarregando Faster-Whisper {self.model_name}...")
             
+            # Cleanup garantido com finally não é necessário aqui pois já estamos no try
             del self.model
             self.model = None
             self.is_loaded = False
             
             import gc
             gc.collect()
+            
+            # Libera CUDA cache se estava usando GPU
+            if self.device == 'cuda' and torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.debug("CUDA cache limpo")
             
             # Estima RAM liberada (faster-whisper usa menos memória)
             model_sizes = {'tiny': 40, 'base': 75, 'small': 250, 'medium': 770, 'large': 1550}
@@ -164,8 +171,12 @@ ado
             
         except Exception as e:
             result["message"] = f"Erro ao descarregar: {e}"
-            logger.error(f"❌ {result['message']}")
+            logger.exception(f"❌ {result['message']}")  # ✅ Usa exception() para stack trace
             return result
+        finally:
+            # Garante que flags sejam resetadas mesmo em caso de erro
+            self.model = None
+            self.is_loaded = False
     
     def get_status(self) -> Dict[str, Any]:
         """Retorna status atual do modelo"""
@@ -179,7 +190,7 @@ ado
     
     def transcribe(self, audio_path: Path, language: str = "auto", task: str = "transcribe", **kwargs) -> Dict[str, Any]:
         """
-        Transcreve áudio usando Faster-Whisper com word timestamps.
+        Transcreve áudio usando Faster-Whisper com word timestamps e circuit breaker.
         
         Args:
             audio_path: Caminho para arquivo de áudio
@@ -192,6 +203,16 @@ ado
         """
         if not self.is_loaded:
             self.load_model()
+        
+        # Get circuit breaker
+        cb = get_circuit_breaker()
+        service_name = f"faster_whisper_transcribe_{self.model_name}"
+        
+        # Verifica circuit breaker
+        if cb.is_open(service_name):
+            raise AudioTranscriptionException(
+                f"Circuit breaker OPEN for {service_name}. Service temporarily unavailable."
+            )
         
         try:
             logger.info(f"🎤 Transcrevendo com Faster-Whisper: {audio_path.name} (lang={language}, task={task})")
@@ -255,8 +276,15 @@ ado
                 f"{result['duration']:.1f}s"
             )
             
+            # Registra sucesso no circuit breaker
+            cb.record_success(service_name)
+            
             return result
             
-        except Exception as e:
-            logger.error(f"❌ Erro na transcrição: {e}")
-            raise AudioTranscriptionException(f"Falha na transcrição: {e}")
+        except (RuntimeError, OSError, IOError) as e:
+            logger.exception(f"❌ Erro na transcrição: {e}")
+            
+            # Registra falha no circuit breaker
+            cb.record_failure(service_name)
+            
+            raise AudioTranscriptionException(f"Falha na transcrição: {e}") from e

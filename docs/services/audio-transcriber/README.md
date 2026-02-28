@@ -11,6 +11,106 @@ O **Audio Transcriber** é responsável por converter áudio em texto usando mod
 - Segmentação inteligente do texto
 - Múltiplos formatos de saída (SRT, VTT, TXT, JSON)
 
+---
+
+## 🏗️ Arquitetura Modular
+
+> **⭐ ATUALIZADO**: Estrutura reorganizada em Fevereiro 2026 seguindo **Clean Architecture**
+
+### Estrutura de Diretórios
+
+```
+services/audio-transcriber/
+├── app/
+│   ├── api/                    # 🌐 Camada de Apresentação
+│   │   └── router.py           # (Futuro) Rotas FastAPI separadas
+│   │
+│   ├── core/                   # ⚙️ Configurações
+│   │   ├── config.py           # Settings (env vars, constantes)
+│   │   └── logging_config.py   # Logging estruturado
+│   │
+│   ├── domain/                 # 🎯 Regras de Negócio
+│   │   ├── models.py           # Job, Segment, Word (Pydantic)
+│   │   ├── exceptions.py       # TranscriptionError, ValidationError
+│   │   └── interfaces.py       # Contratos (ABC): IJobStore, IProcessor
+│   │
+│   ├── services/               # 💼 Casos de Uso
+│   │   ├── processor.py        # TranscriptionProcessor (orquestração)
+│   │   ├── faster_whisper_manager.py  # Gerencia faster-whisper
+│   │   ├── model_manager.py    # (Opcional) openai-whisper
+│   │   └── device_manager.py   # (Opcional) GPU/CPU detection
+│   │
+│   ├── infrastructure/         # 🔧 Detalhes Técnicos
+│   │   ├── redis_store.py      # RedisJobStore (persistência)
+│   │   ├── storage.py          # FileStorage (filesystem)
+│   │   └── circuit_breaker.py  # Resiliência (fallback)
+│   │
+│   ├── workers/                # ⚡ Background Processing
+│   │   ├── celery_config.py    # Configuração Celery
+│   │   └── celery_tasks.py     # process_transcription_task
+│   │
+│   ├── shared/                 # 🛠️ Utilitários
+│   │   ├── health_checker.py   # Health checks (Redis, FFmpeg, Model)
+│   │   ├── progress_tracker.py # Tracking de progresso
+│   │   └── orphan_cleaner.py   # Limpeza de jobs órfãos
+│   │
+│   └── main.py                 # 🚀 FastAPI app (entry point)
+│
+├── common/                     # 📚 Biblioteca compartilhada (symlink)
+│   ├── config_utils/
+│   ├── log_utils/
+│   ├── redis_utils/
+│   └── models/
+│
+├── tests/                      # 🧪 Testes (estruturado)
+│   ├── unit/
+│   ├── integration/
+│   └── e2e/
+│
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt            # faster-whisper >=1.1.1
+├── Makefile                    # Automação (install, test, build, up)
+└── README.md                   # Este arquivo
+```
+
+### Fluxo de Dados (Clean Architecture)
+
+```
+Client Request (HTTP)
+    ↓
+main.py (FastAPI app)
+    ↓
+services/processor.py (TranscriptionProcessor)
+    ↓
+services/faster_whisper_manager.py (FasterWhisperManager)
+    ↓
+domain/models.py (Job, Segment, Word)
+    ↓
+infrastructure/redis_store.py (RedisJobStore)
+    ↓
+workers/celery_tasks.py (process_transcription_task)
+    ↓
+infrastructure/storage.py (FileStorage - save files)
+```
+
+### Benefícios da Arquitetura Modular
+
+1. **Testabilidade**: Cada módulo pode ser testado isoladamente
+2. **Manutenibilidade**: Código organizado por responsabilidade
+3. **Escalabilidade**: Fácil adicionar novos engines (whisperx, openai-whisper)
+4. **Independência de Framework**: Lógica de negócio separada de FastAPI/Celery
+5. **Reutilização**: Módulos `shared/` e `infrastructure/` reutilizáveis
+
+### Padrões Implementados
+
+- **Repository Pattern**: `redis_store.py` abstrai persistência
+- **Strategy Pattern**: Múltiplos engines (faster-whisper, whisperx)
+- **Circuit Breaker**: Resiliência em `infrastructure/circuit_breaker.py`
+- **Dependency Injection**: Through interfaces (`domain/interfaces.py`)
+
+---
+
 ## 🔧 Configuração
 
 ### Variáveis de Ambiente Principais
@@ -18,7 +118,7 @@ O **Audio Transcriber** é responsável por converter áudio em texto usando mod
 ```bash
 # Servidor
 HOST=0.0.0.0
-PORT=8002
+PORT=8004
 
 # Redis
 REDIS_URL=redis://localhost:6379/2
@@ -487,4 +587,5 @@ services/audio-transcriber/
 
 ---
 
-**Porta**: 8002 | **Versão**: 2.0.0 | **Tech**: FastAPI + Whisper + PyTorch
+**Porta**: 8004 | **Versão**: 2.0.0 | **Tech**: FastAPI + faster-whisper + PyTorch  
+**Arquitetura**: ⭐ Clean Architecture (Modular) | [Ver detalhes completos](../../ARCHITECTURE.md)

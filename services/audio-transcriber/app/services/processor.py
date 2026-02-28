@@ -4,9 +4,9 @@ from pathlib import Path
 import logging
 import torch
 from pydub import AudioSegment
-from .models import Job, JobStatus, TranscriptionSegment, WhisperEngine
-from .exceptions import AudioTranscriptionException
-from .config import get_settings
+from ..domain.models import Job, JobStatus, TranscriptionSegment, WhisperEngine
+from ..domain.exceptions import AudioTranscriptionException
+from ..core.config import get_settings
 from .faster_whisper_manager import FasterWhisperModelManager
 from .openai_whisper_manager import OpenAIWhisperManager
 from .whisperx_manager import WhisperXManager
@@ -444,14 +444,29 @@ class TranscriptionProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
-            # Converte segments para o formato com start, end, duration
+            # Converte segments para o formato com start, end, duration E words
             transcription_segments = []
             for seg in result["segments"]:
+                # Converte words se presentes
+                words_list = None
+                if "words" in seg and seg["words"]:
+                    from .models import TranscriptionWord
+                    words_list = [
+                        TranscriptionWord(
+                            word=w["word"],
+                            start=w["start"],
+                            end=w["end"],
+                            probability=w.get("probability", 1.0)
+                        )
+                        for w in seg["words"]
+                    ]
+                
                 segment = TranscriptionSegment(
                     text=seg["text"].strip(),
                     start=seg["start"],
                     end=seg["end"],
-                    duration=seg["end"] - seg["start"]
+                    duration=seg["end"] - seg["start"],
+                    words=words_list  # ✅ Preserva word-level timestamps!
                 )
                 transcription_segments.append(segment)
             
@@ -539,9 +554,10 @@ class TranscriptionProcessor:
         ##############################################################
         # CONFIGURAÇÃO DE OPÇÕES DO WHISPER
         ##############################################################
+        # NOTA: fp16 é configurado na criação do modelo, não no transcribe()
+        # Faster-Whisper usa compute_type no modelo, não fp16 no transcribe()
         base_options = {
-            "fp16": self.settings.get('whisper_fp16', False),
-            #"beam_size": self.settings.get('whisper_beam_size', 5),
+            "beam_size": self.settings.get('whisper_beam_size', 5),
             #"best_of": self.settings.get('whisper_best_of', 5),
             #"temperature": self.settings.get('whisper_temperature', 0.0)
         }

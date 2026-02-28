@@ -45,11 +45,14 @@ graph TD
 - Isolamento de vocais
 
 ### 📝 [Audio Transcriber](./services/audio-transcriber/README.md)
-**Porta: 8002** - Transcrição e tradução de áudio
-- Transcrição com Whisper
-- Tradução entre idiomas
-- Segmentação com timestamps
-- Múltiplos formatos de saída
+**Porta: 8004** - Transcrição e tradução de áudio  
+**Arquitetura**: ⭐ Clean Architecture (modular) - [Ver detalhes](./ARCHITECTURE.md#audio-transcriber)
+- Transcrição com Whisper (faster-whisper)
+- Word-level timestamps nativos
+- Múltiplos engines (faster-whisper, whisperx, openai-whisper)
+- Dropdown de engines no /docs
+- Segmentação com timestamps precisos
+- Estrutura modular: domain/services/infrastructure
 
 ## 🔧 Pipeline Completo
 
@@ -97,6 +100,7 @@ cd services/audio-transcriber && python run.py &
 
 ## 🔗 Links Rápidos
 
+- [🏗️ Arquitetura Completa](./ARCHITECTURE.md) - ⭐ **NOVO**: Estrutura modular detalhada
 - [Configuração do Orchestrator](./orchestrator/README.md#configuração)
 - [API Endpoints](./orchestrator/README.md#endpoints)
 - [Troubleshooting](./orchestrator/README.md#troubleshooting)

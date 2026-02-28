@@ -4,7 +4,7 @@ Princípio SOLID: Single Responsibility - Testa apenas modelos de dados
 """
 import pytest
 from datetime import datetime
-from app.models import Job, JobStatus, TranscriptionSegment, TranscriptionResponse
+from app.domain.models import Job, JobStatus, TranscriptionSegment, TranscriptionResponse
 
 
 class TestJobStatus:

@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from celery import Celery
 
-from .interfaces import IJobStore
-from .models import Job, JobStatus
+from ..domain.interfaces import IJobStore
+from ..domain.models import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 

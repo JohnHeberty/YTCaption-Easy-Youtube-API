@@ -57,25 +57,25 @@ pip install -r requirements-engines-extras.txt
 
 ```bash
 # Usando faster-whisper (padrão - já funciona sem instalação extra)
-curl -X POST "http://localhost:8002/jobs" \
+curl -X POST "http://localhost:8004/jobs" \
   -F "file=@audio.mp3" \
   -F "language_in=auto" \
   -F "engine=faster-whisper"
 
 # Usando openai-whisper (requer: pip install openai-whisper)
-curl -X POST "http://localhost:8002/jobs" \
+curl -X POST "http://localhost:8004/jobs" \
   -F "file=@audio.mp3" \
   -F "language_in=auto" \
   -F "engine=openai-whisper"
 
 # Usando whisperx (requer: pip install whisperx)
-curl -X POST "http://localhost:8002/jobs" \
+curl -X POST "http://localhost:8004/jobs" \
   -F "file=@audio.mp3" \
   -F "language_in=auto" \
   -F "engine=whisperx"
 ```
 
-### Swagger UI (http://localhost:8002/docs)
+### Swagger UI (http://localhost:8004/docs)
 
 1. Acesse `/docs`
 2. Vá em `POST /jobs`
@@ -96,7 +96,7 @@ data = {
     'engine': 'whisperx'  # ou 'faster-whisper' ou 'openai-whisper'
 }
 
-response = requests.post('http://localhost:8002/jobs', files=files, data=data)
+response = requests.post('http://localhost:8004/jobs', files=files, data=data)
 job = response.json()
 
 print(f"Job ID: {job['id']}")

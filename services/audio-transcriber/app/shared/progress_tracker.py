@@ -6,8 +6,8 @@ import logging
 from typing import Any, Optional
 from datetime import datetime
 
-from .interfaces import IProgressTracker, IJobStore
-from .models import Job, JobStatus
+from ..domain.interfaces import IProgressTracker, IJobStore
+from ..domain.models import Job, JobStatus
 
 logger = logging.getLogger(__name__)
 

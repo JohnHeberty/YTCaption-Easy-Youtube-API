@@ -45,7 +45,7 @@ python run.py
 celery -A app.celery_app worker --loglevel=info
 
 # 6. Test
-curl -X POST "http://localhost:8002/transcribe" \
+curl -X POST "http://localhost:8004/transcribe" \
   -F "file=@audio.mp3" \
   -F "engine=faster-whisper"
 ```
@@ -170,19 +170,19 @@ import time
 # 1. Upload
 files = {'file': open('audio.mp3', 'rb')}
 data = {'engine': 'faster-whisper', 'language': 'pt'}
-response = requests.post('http://localhost:8002/transcribe', 
+response = requests.post('http://localhost:8004/transcribe', 
                         files=files, data=data)
 job = response.json()
 
 # 2. Aguardar
 while True:
-    status = requests.get(f"http://localhost:8002/status/{job['job_id']}").json()
+    status = requests.get(f"http://localhost:8004/status/{job['job_id']}").json()
     if status['status'] == 'completed':
         break
     time.sleep(2)
 
 # 3. Resultado
-txt = requests.get(f"http://localhost:8002/result/{job['job_id']}?format=txt").text
+txt = requests.get(f"http://localhost:8004/result/{job['job_id']}?format=txt").text
 print(txt)
 ```
 

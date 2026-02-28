@@ -9,9 +9,9 @@ from typing import Dict, Any, Optional
 import torch
 import whisper
 
-from .interfaces import IModelManager
-from .exceptions import AudioTranscriptionException
-from .config import get_settings
+from ..domain.interfaces import IModelManager
+from ..domain.exceptions import AudioTranscriptionException
+from ..core.config import get_settings
 
 logger = logging.getLogger(__name__)
 

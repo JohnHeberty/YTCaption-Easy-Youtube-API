@@ -45,7 +45,7 @@ celery -A app.celery_app worker --loglevel=info
 
 ```bash
 # Upload um áudio
-curl -X POST "http://localhost:8002/transcribe" \
+curl -X POST "http://localhost:8004/transcribe" \
   -F "file=@test_audio.mp3" \
   -F "engine=faster-whisper" \
   -F "language=pt"
@@ -58,10 +58,10 @@ curl -X POST "http://localhost:8002/transcribe" \
 }
 
 # Consulte status
-curl "http://localhost:8002/status/abc123"
+curl "http://localhost:8004/status/abc123"
 
 # Download resultado
-curl "http://localhost:8002/result/abc123" > transcription.txt
+curl "http://localhost:8004/result/abc123" > transcription.txt
 ```
 
 ---
@@ -88,7 +88,7 @@ import requests
 files = {'file': open('audio.mp3', 'rb')}
 data = {'engine': 'faster-whisper', 'language': 'pt'}
 
-response = requests.post('http://localhost:8002/transcribe', 
+response = requests.post('http://localhost:8004/transcribe', 
                         files=files, data=data)
 job = response.json()
 print(f"Job ID: {job['job_id']}")
@@ -103,7 +103,7 @@ import time
 job_id = "abc123"
 
 while True:
-    status = requests.get(f'http://localhost:8002/status/{job_id}').json()
+    status = requests.get(f'http://localhost:8004/status/{job_id}').json()
     
     if status['status'] == 'completed':
         print("✅ Completed!")
@@ -124,13 +124,13 @@ import requests
 job_id = "abc123"
 
 # Texto puro
-txt = requests.get(f'http://localhost:8002/result/{job_id}?format=txt').text
+txt = requests.get(f'http://localhost:8004/result/{job_id}?format=txt').text
 
 # SRT (legendas)
-srt = requests.get(f'http://localhost:8002/result/{job_id}?format=srt').text
+srt = requests.get(f'http://localhost:8004/result/{job_id}?format=srt').text
 
 # JSON (detalhado)
-json_data = requests.get(f'http://localhost:8002/result/{job_id}?format=json').json()
+json_data = requests.get(f'http://localhost:8004/result/{job_id}?format=json').json()
 ```
 
 ---
