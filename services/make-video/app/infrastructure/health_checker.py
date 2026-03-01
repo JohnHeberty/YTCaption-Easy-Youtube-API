@@ -94,7 +94,7 @@ class HealthChecker:
             
             # Teste de set/get
             test_key = "health:check:test"
-            test_value = str(datetime.now().timestamp())
+            test_value = str(now_brazil().timestamp())
             
             await asyncio.wait_for(
                 loop.run_in_executor(

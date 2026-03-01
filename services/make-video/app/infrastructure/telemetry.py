@@ -12,6 +12,17 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
 import cv2
 import numpy as np
 
@@ -109,7 +120,7 @@ class TRSDTelemetry:
         """
         event = DetectionEvent(
             video_id=video_id,
-            timestamp=datetime.now().isoformat(),
+            timestamp=now_brazil().isoformat(),
             decision=decision,
             confidence=confidence,
             reason=reason,
@@ -136,7 +147,7 @@ class TRSDTelemetry:
         events_dir = Path('data/logs/debug/detection_events')
         events_dir.mkdir(parents=True, exist_ok=True)
         
-        filename = f"{event.video_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filename = f"{event.video_id}_{now_brazil().strftime('%Y%m%d_%H%M%S')}.json"
         filepath = events_dir / filename
         
         with open(filepath, 'w') as f:
