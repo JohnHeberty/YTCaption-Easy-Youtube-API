@@ -8,6 +8,17 @@ from typing import Callable, Any, Optional
 from datetime import datetime
 import asyncio
 import logging
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -102,7 +113,7 @@ class CircuitBreaker:
         # Se OPEN, verifica se timeout passou
         if current_state == CircuitBreakerState.OPEN:
             last_failure = self.last_failure_time.get(service, 0)
-            elapsed = datetime.now().timestamp() - last_failure
+            elapsed = now_brazil().timestamp() - last_failure
             
             if elapsed > self.timeout:
                 # Transição OPEN → HALF_OPEN
@@ -147,7 +158,7 @@ class CircuitBreaker:
         
         # Incrementar falhas
         self.failures[service] = self.failures.get(service, 0) + 1
-        self.last_failure_time[service] = datetime.now().timestamp()
+        self.last_failure_time[service] = now_brazil().timestamp()
         
         failure_count = self.failures[service]
         

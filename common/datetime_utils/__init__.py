@@ -92,10 +92,28 @@ def brazil_timestamp_str(dt: Optional[datetime] = None) -> str:
     return dt.isoformat()
 
 
+# Import helpers
+from .helpers import (
+    ensure_timezone_aware,
+    ensure_timezone_aware_utc_base,
+    safe_datetime_subtract,
+    safe_datetime_compare,
+    normalize_model_datetimes,
+    format_duration_safe,
+)
+
+
 __all__ = [
     'BRAZIL_TZ',
     'now_brazil',
     'utcnow_aware',
     'to_brazil_tz',
     'brazil_timestamp_str',
+    # Helpers
+    'ensure_timezone_aware',
+    'ensure_timezone_aware_utc_base',
+    'safe_datetime_subtract',
+    'safe_datetime_compare',
+    'normalize_model_datetimes',
+    'format_duration_safe',
 ]
