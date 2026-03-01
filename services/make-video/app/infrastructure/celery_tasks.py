@@ -317,7 +317,14 @@ async def _transform_crop_and_validate_video(
         return None
 
 
-@celery_app.task(bind=True, name='app.infrastructure.celery_tasks.process_make_video')
+@celery_app.task(
+    bind=True,
+    name='app.infrastructure.celery_tasks.process_make_video',
+    time_limit=3600,        # 1 hora hard limit (RESILIENCE FIX)
+    soft_time_limit=3300,   # 55 minutos warning
+    acks_late=True,         # ACK após completar (não antes)
+    reject_on_worker_lost=True  # Re-enfileirar se worker crashar
+)
 def process_make_video(self, job_id: str):
     """
     Task principal: Processa criação de vídeo completa
@@ -331,6 +338,12 @@ def process_make_video(self, job_id: str):
     6. Gerar legendas
     7. Composição final
     8. Trimming (ajuste de duração)
+    
+    Resilience Features:
+    - Hard timeout: 1 hora (evita tasks infinitas)
+    - Soft timeout: 55 minutos (permite cleanup graceful)
+    - ACKs late: Task re-enfileirada se worker crashar
+    - Max subtitle retries: 5 tentativas (evita loop infinito)
     
     Nota: Suporta duas implementações:
     - Legada (padrão): Processamento monolítico original
@@ -708,15 +721,16 @@ async def _process_make_video_async(job_id: str):
         # Salvar checkpoint (Sprint-01)
         await _save_checkpoint(job_id, "assembling_video_completed")
         
-        # Etapa 6: Gerar legendas (RETRY INFINITO até conseguir)
+        # Etapa 6: Gerar legendas (COM LIMITE DE RETRIES - RESILIENCE FIX)
         logger.info(f"📝 [6/7] Generating subtitles...")
         await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=80.0)
         
         segments = []
         retry_attempt = 0
         max_backoff = 300  # 5 minutos máximo entre tentativas
+        MAX_SUBTITLE_RETRIES = 5  # 🔧 RESILIENCE FIX: Limite para evitar loop infinito
         
-        while not segments:
+        while not segments and retry_attempt < MAX_SUBTITLE_RETRIES:
             retry_attempt += 1
             
             try:
@@ -803,6 +817,26 @@ async def _process_make_video_async(job_id: str):
                 
                 # Aguardar antes de tentar novamente
                 await asyncio.sleep(backoff_seconds)
+        
+        # 🔧 RESILIENCE FIX: Verificar se atingiu limite de retries
+        if not segments:
+            error_details = {
+                "retry_attempts": retry_attempt,
+                "max_retries": MAX_SUBTITLE_RETRIES,
+                "last_error": "Subtitle generation failed after maximum retries",
+                "audio_duration": audio_duration,
+                "subtitle_language": job.subtitle_language,
+                "recommendation": "Check audio-transcriber service health and logs"
+            }
+            logger.error(
+                f"❌ CRITICAL: Failed to generate subtitles after {MAX_SUBTITLE_RETRIES} attempts. "
+                f"Audio transcriber may be down or misconfigured."
+            )
+            raise SubtitleGenerationException(
+                reason=f"Failed to generate subtitles after {MAX_SUBTITLE_RETRIES} retry attempts",
+                subtitle_path="N/A",
+                details=error_details
+            )
         
         # ════════════════════════════════════════════════════════════════
         # CONVERSÃO: Segments → Word Cues (COM TIMESTAMPS PONDERADOS)
