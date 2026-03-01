@@ -450,7 +450,7 @@ class TranscriptionProcessor:
                 # Converte words se presentes
                 words_list = None
                 if "words" in seg and seg["words"]:
-                    from .models import TranscriptionWord
+                    from ..domain.models import TranscriptionWord  # 🔧 FIX: Import correto
                     words_list = [
                         TranscriptionWord(
                             word=w["word"],
