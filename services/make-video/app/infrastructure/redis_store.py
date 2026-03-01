@@ -5,7 +5,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
 try:
-    from common.datetime_utils import now_brazil
+    from common.datetime_utils import now_brazil, ensure_timezone_aware
 except ImportError:
     from datetime import timezone
     try:
@@ -16,6 +16,12 @@ except ImportError:
     BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
+    def ensure_timezone_aware(dt):
+        if dt is None:
+            return None
+        if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+            dt = dt.replace(tzinfo=BRAZIL_TZ)
+        return dt
 
 
 # Use resilient Redis from common library
@@ -82,12 +88,14 @@ class RedisJobStore:
         return json.dumps(job_dict)
     
     def _deserialize_job(self, data: str) -> Job:
-        """Deserialize Job from JSON"""
+        """Deserialize Job from JSON - normaliza timezone"""
         job_dict = json.loads(data)
-        # Convert ISO strings to datetime
+        # Convert ISO strings to datetime e garante timezone-aware
         for field in ['created_at', 'updated_at', 'completed_at', 'expires_at']:
             if job_dict.get(field):
-                job_dict[field] = datetime.fromisoformat(job_dict[field])
+                dt = datetime.fromisoformat(job_dict[field])
+                # CRITICAL: Garante que datetime tem timezone (previne erro 500)
+                job_dict[field] = ensure_timezone_aware(dt)
         return Job(**job_dict)
     
     async def start_cleanup_task(self):

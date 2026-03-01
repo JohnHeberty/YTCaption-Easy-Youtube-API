@@ -11,6 +11,17 @@ from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Optional
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
 
 
 class FileLogger:
@@ -126,7 +137,7 @@ class FileLogger:
         if not cls.LOGS_DIR.exists():
             return
         
-        cutoff_time = datetime.now().timestamp() - (days * 86400)
+        cutoff_time = now_brazil().timestamp() - (days * 86400)
         removed_count = 0
         
         for log_file in cls.LOGS_DIR.glob("job_*.log*"):

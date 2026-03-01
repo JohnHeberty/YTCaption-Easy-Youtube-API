@@ -23,6 +23,17 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import re
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import timezone
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +139,7 @@ class CleanupService:
             Relatório com estatísticas de limpeza
         """
         report = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_brazil().isoformat(),
             "orphans_found": 0,
             "orphans_cataloged": 0,
             "temp_files_cleaned": 0,
@@ -187,7 +198,7 @@ class CleanupService:
         if not directory.exists():
             return orphans
         
-        now = datetime.now().timestamp()
+        now = now_brazil().timestamp()
         threshold = now - self.orphan_retention
         
         try:
@@ -239,7 +250,7 @@ class CleanupService:
                 stage=stage,
                 retry_count=0,
                 metadata={
-                    "cleanup_timestamp": datetime.now().isoformat(),
+                    "cleanup_timestamp": now_brazil().isoformat(),
                     "file_size_mb": file_path.stat().st_size / (1024 * 1024)
                 }
             )
@@ -262,7 +273,7 @@ class CleanupService:
             return 0
         
         cleaned = 0
-        now = datetime.now().timestamp()
+        now = now_brazil().timestamp()
         threshold = now - self.temp_retention
         
         try:

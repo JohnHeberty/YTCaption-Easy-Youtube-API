@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 from datetime import datetime, timedelta
 try:
-    from common.datetime_utils import now_brazil
+    from common.datetime_utils import now_brazil, ensure_timezone_aware
 except ImportError:
     from datetime import timezone
     try:
@@ -72,7 +72,8 @@ class RedisJobStore:
         # Converte strings ISO para datetime
         for field in ['created_at', 'completed_at', 'expires_at']:
             if job_dict.get(field):
-                job_dict[field] = datetime.fromisoformat(job_dict[field])
+                dt = datetime.fromisoformat(job_dict[field])
+                job_dict[field] = ensure_timezone_aware(dt)
         return Job(**job_dict)
     
     async def start_cleanup_task(self):

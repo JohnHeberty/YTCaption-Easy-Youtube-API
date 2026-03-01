@@ -5,7 +5,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
 try:
-    from common.datetime_utils import now_brazil
+    from common.datetime_utils import now_brazil, ensure_timezone_aware
 except ImportError:
     from datetime import timezone
     try:
@@ -71,11 +71,14 @@ class RedisJobStore:
         job_dict = json.loads(data)
         # Converte strings de datetime de volta para datetime objects
         if 'created_at' in job_dict:
-            job_dict['created_at'] = datetime.fromisoformat(job_dict['created_at'])
+            dt = datetime.fromisoformat(job_dict['created_at'])
+            job_dict['created_at'] = ensure_timezone_aware(dt)
         if 'completed_at' in job_dict and job_dict['completed_at']:
-            job_dict['completed_at'] = datetime.fromisoformat(job_dict['completed_at'])
+            dt = datetime.fromisoformat(job_dict['completed_at'])
+            job_dict['completed_at'] = ensure_timezone_aware(dt)
         if 'expires_at' in job_dict:
-            job_dict['expires_at'] = datetime.fromisoformat(job_dict['expires_at'])
+            dt = datetime.fromisoformat(job_dict['expires_at'])
+            job_dict['expires_at'] = ensure_timezone_aware(dt)
         
         return Job(**job_dict)
     
