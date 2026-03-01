@@ -1,22 +1,20 @@
-# Base Ubuntu 22.04 (CPU-only, mais leve)
-FROM ubuntu:22.04
+# Base Python 3.11 slim (alinhado com outros serviços)
+FROM python:3.11-slim
 
-# Evita prompts (tzdata) e define fuso
+# Evita prompts e define fuso
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
-# Python 3.10 (padrão Ubuntu 22.04) + pip
+# Dependências do sistema (apenas essenciais para audio processing)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget git \
-      python3 python3-dev python3-pip python3-venv \
-      python3-distutils \
-   && ln -sf /usr/bin/python3 /usr/bin/python \
+      libsndfile1 \
    && rm -rf /var/lib/apt/lists/*
 
 # Metadata
 LABEL maintainer="audio-normalization-service" \
       version="2.0.0-cpu" \
-      description="Audio Normalization Microservice - CPU Only"
+      description="Audio Normalization Microservice - CPU Only - Python 3.11"
 
 # Ambiente (CPU-only)
 ENV PYTHONUNBUFFERED=1 \
