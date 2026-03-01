@@ -14,3 +14,6 @@ redis>=5.0.0
 # Optional: se quiser usar com FastAPI
 fastapi>=0.100.0
 httpx>=0.24.0
+
+# Timezone support
+backports.zoneinfo>=0.2.1;python_version<"3.9"
