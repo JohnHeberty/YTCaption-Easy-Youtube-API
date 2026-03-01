@@ -1,0 +1,251 @@
+# Pre-commit Configuration - Enterprise Best Practices
+# YTCaption-Easy-Youtube-API
+# 
+# Instalação:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Execução manual:
+#   pre-commit run --all-files
+#
+# Atualizar hooks:
+#   pre-commit autoupdate
+
+repos:
+  # ============================================================================
+  # GENERIC CHECKS - Boas práticas gerais
+  # ============================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Prevent large files from being committed
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+        
+      # Check for files that would conflict in case-insensitive filesystems
+      - id: check-case-conflict
+        
+      # Check for merge conflicts
+      - id: check-merge-conflict
+        
+      # Check YAML syntax
+      - id: check-yaml
+        args: ['--safe']
+        exclude: ^(docker-compose.*\.yml|\.github/.*\.yml)$
+        
+      # Check JSON/TOML syntax
+      - id: check-json
+      - id: check-toml
+        
+      # Prevent committing to master/main directly
+      - id: no-commit-to-branch
+        args: ['--branch', 'main', '--branch', 'master']
+        stages: [commit]
+        
+      # Check for debug statements
+      - id: debug-statements
+        
+      # Fix trailing whitespace
+      - id: trailing-whitespace
+        args: ['--markdown-linebreak-ext=md']
+        
+      # Fix end of files
+      - id: end-of-file-fixer
+        
+      # Check for private keys
+      - id: detect-private-key
+        
+      # Check executables have shebangs
+      - id: check-executables-have-shebangs
+        
+      # Check shebangs point to portable locations
+      - id: check-shebang-scripts-are-executable
+
+  # ============================================================================
+  # PYTHON CODE QUALITY - Black, isort, flake8
+  # ============================================================================
+  
+  # Black - Code formatter (opinionated)
+  - repo: https://github.com/psf/black
+    rev: 24.2.0
+    hooks:
+      - id: black
+        language_version: python3.11
+        args: ['--line-length=100']
+        
+  # isort - Import sorting
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        args: ['--profile', 'black', '--line-length=100']
+        
+  # Flake8 - Linting (PEP8, complexity, etc)
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args:
+          - '--max-line-length=100'
+          - '--extend-ignore=E203,E266,E501,W503'
+          - '--max-complexity=15'
+          - '--exclude=.git,__pycache__,.venv,venv,.trash,migrations'
+        additional_dependencies:
+          - flake8-bugbear
+          - flake8-comprehensions
+          - flake8-simplify
+
+  # ============================================================================
+  # PYTHON SECURITY - bandit, safety
+  # ============================================================================
+  
+  # Bandit - Security linting
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.7
+    hooks:
+      - id: bandit
+        args: ['-c', '.bandit.yml']
+        files: '\.py$'
+        exclude: ^(tests/|.*_test\.py$)
+
+  # ============================================================================
+  # PYTHON TYPE CHECKING - mypy
+  # ============================================================================
+  
+  # MyPy - Static type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.8.0
+    hooks:
+      - id: mypy
+        args:
+          - '--ignore-missing-imports'
+          - '--no-strict-optional'
+          - '--warn-redundant-casts'
+          - '--warn-unused-ignores'
+        additional_dependencies:
+          - types-redis
+          - types-requests
+          - pydantic
+        exclude: ^(tests/|docs/|scripts/|migrations/)
+
+  # ============================================================================
+  # PYTHON DOCUMENTATION - pydocstyle
+  # ============================================================================
+  
+  # Pydocstyle - Docstring conventions
+  - repo: https://github.com/PyCQA/pydocstyle
+    rev: 6.3.0
+    hooks:
+      - id: pydocstyle
+        args:
+          - '--convention=google'
+          - '--add-ignore=D100,D104,D105,D107'
+        exclude: ^(tests/|migrations/|scripts/)
+
+  # ============================================================================
+  # SECRETS DETECTION - detect-secrets, gitleaks
+  # ============================================================================
+  
+  # Detect Secrets - Prevent committing secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: (\.lock$|package-lock\.json$)
+
+  # ============================================================================
+  # DOCKER - hadolint
+  # ============================================================================
+  
+  # Hadolint - Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        args: ['--ignore', 'DL3008', '--ignore', 'DL3013', '--ignore', 'DL3018']
+
+  # ============================================================================
+  # CUSTOM HOOKS - Project-specific rules
+  # ============================================================================
+  
+  - repo: local
+    hooks:
+      # Prevent datetime.now() in new code
+      - id: no-datetime-now
+        name: Prevent datetime.now() usage
+        entry: 'datetime\.now\(\)|datetime\.utcnow\(\)'
+        language: pygrep
+        types: [python]
+        exclude: |
+          (?x)^(
+            .*test.*\.py$|
+            .*_test\.py$|
+            .*/tests/.*|
+            .*/\.trash/.*|
+            common/datetime_utils/.*|
+            scripts/migrate_redis_jobs\.py
+          )$
+        args: ['--negate']
+        
+      # Ensure imports from datetime_utils
+      - id: check-datetime-imports
+        name: Check datetime utils imports
+        entry: bash -c 'if grep -q "datetime\.now\(\)" "$1"; then grep -q "from.*datetime_utils import now_brazil" "$1" || exit 1; fi' --
+       language: system
+        files: \.py$
+        exclude: |
+          (?x)^(
+            .*test.*\.py$|
+            .*/tests/.*|
+            .*/\.trash/.*|
+            common/datetime_utils/.*
+          )$
+        
+      # Check for timezone-aware datetime usage in models
+      - id: check-timezone-aware-models
+        name: Ensure timezone-aware datetimes in models
+        entry: bash -c 'if echo "$1" | grep -q "models.*\.py"; then grep -E "(created_at|updated_at|expires_at).*datetime\.now\(\)" "$1" && exit 1 || exit 0; fi' --
+        language: system
+        files: models/.*\.py$
+        pass_filenames: true
+        
+      # Run pytest on changed test files
+      - id: pytest-check
+        name: pytest-quick-check
+        entry: pytest
+        language: system
+        pass_filenames: false
+        files: ^tests/.*\.py$
+        stages: [commit]
+        args: ['-x', '--tb=short', '--maxfail=3']
+        
+      # Check requirements.txt dependencies
+      - id: requirements-txt-fixer
+        name: Fix requirements.txt
+        entry: requirements-txt-fixer
+        language: python
+        files: requirements.*\.txt$
+        
+      # Validate docker-compose files
+      - id: docker-compose-check
+        name: Validate docker-compose
+        entry: bash -c 'docker-compose -f "$1" config > /dev/null' --
+        language: system
+        files: docker-compose.*\.yml$
+        pass_filenames: true
+
+# ============================================================================
+# CI CONFIGURATION
+# ============================================================================
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+    
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false

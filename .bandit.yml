@@ -1,0 +1,89 @@
+# Bandit Security Configuration
+# Configuração para análise de segurança Python
+
+# Exclude paths
+exclude_dirs:
+  - .venv
+  - venv
+  - .trash
+  - tests
+  - node_modules
+  - __pycache__
+  
+# Tests to skip
+skips:
+  # B101: Test for use of assert
+  - B101
+  
+  # B601: Parameterized shell injection
+  # Reason: docker-compose and shell scripts are expected
+  - B601
+  
+  # B603: Subprocess without shell equals true
+  # Reason: Common in deployment scripts
+  - B603
+  
+  # B607: Starting a process with a partial path
+  # Reason: docker/kubectl commands
+  - B607
+
+# Tests to run
+tests:
+  - B201  # Flask app with debug=True
+  - B301  # Pickle usage
+  - B302  # marshal usage
+  - B303  # MD5 usage
+  - B304  # Insecure cipher usage
+  - B305  # Insecure cipher mode
+  - B306  # mktemp usage
+  - B307  # eval usage
+  - B308  # mark_safe usage
+  - B310  # URL open
+  - B311  # Random usage for security
+  - B312  # Telnet usage
+  - B313  # XML vulnerabilities
+  - B314  # XML vulnerabilities
+  - B315  # XML vulnerabilities
+  - B316  # XML vulnerabilities
+  - B317  # XML vulnerabilities
+  - B318  # XML vulnerabilities
+  - B319  # XML vulnerabilities
+  - B320  # XML vulnerabilities
+  - B321  # FTP usage
+  - B322  # Input usage
+  - B323  # Unverified SSL context
+  - B324  # hashlib weak hashes
+  - B325  # tempnam usage
+  - B401  # Import of telnetlib
+  - B402  # Import of ftplib
+  - B403  # Import of pickle
+  - B404  # Import of subprocess
+  - B405  # Import of xml libs
+  - B406  # Import of xml libs
+  - B407  # Import of xml libs
+  - B408  # Import of xml libs
+  - B409  # Import of xml libs
+  - B410  # Import of xml libs
+  - B411  # Import of xml libs
+  - B412  # Import of telnetlib
+  - B501  # Request with verify=False
+  - B502  # SSL with bad version
+  - B503  # SSL with bad defaults
+  - B504  # SSL with no version
+  - B505  # Weak cryptographic key
+  - B506  # yaml.load usage
+  - B507  # SSH with no host key verification
+  - B601  # Parameterized shell injection
+  - B602  # Shell injection
+  - B603  # Subprocess without shell equals true
+  - B604  # Any shell usage
+  - B605  # Start process with shell
+  - B606  # Start process no shell
+  - B607  # Partial path process
+  - B608  # SQL injection
+  - B609  # Linux wildcard injection
+  - B610  # SQL injection
+  - B611  # SQL injection
+  - B701  # jinja2 autoescape disabled
+  - B702  # Test for mako templates
+  - B703  # Django SQL injection
