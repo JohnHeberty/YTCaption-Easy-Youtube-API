@@ -30,6 +30,9 @@ COPY requirements-docker.txt requirements.txt
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
+# Copy common module first
+COPY common/ ./common/
+
 # Copy application code (selective — avoid sending .trash/, data/, logs/)
 COPY app/ ./app/
 COPY run.py .
