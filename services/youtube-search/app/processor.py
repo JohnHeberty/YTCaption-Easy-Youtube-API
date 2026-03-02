@@ -2,6 +2,13 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 try:
     from common.datetime_utils import now_brazil
 except ImportError:
@@ -27,6 +34,24 @@ from .ytbpy import playlist as ytb_playlist
 from .ytbpy import search as ytb_search
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Tenacity retry policy for synchronous ytbpy calls
+# - 3 attempts, exponential backoff 1–10s, retries on ANY exception, reraises
+# ---------------------------------------------------------------------------
+_YTBPY_RETRY = dict(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING),
+    reraise=True,
+)
+
+
+@retry(**_YTBPY_RETRY)
+def _ytbpy_call(func, *args):
+    """Execute a synchronous ytbpy function with tenacity retry."""
+    return func(*args)
 
 
 class YouTubeSearchProcessor:
@@ -109,10 +134,11 @@ class YouTubeSearchProcessor:
         try:
             logger.info(f"📹 Fetching video info: {video_id}")
             
-            # Run in executor to avoid blocking
+            # Run in executor to avoid blocking (with tenacity retry)
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
+                _ytbpy_call,
                 ytb_video.get_video_info,
                 video_id,
                 self.timeout
@@ -135,6 +161,7 @@ class YouTubeSearchProcessor:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
+                _ytbpy_call,
                 ytb_channel.get_channel_info,
                 channel_id,
                 self.timeout
@@ -147,6 +174,7 @@ class YouTubeSearchProcessor:
             if include_videos and not result.get('error'):
                 videos_result = await loop.run_in_executor(
                     None,
+                    _ytbpy_call,
                     ytb_channel.get_channel_videos,
                     channel_id,
                     self.settings['youtube']['max_videos_per_channel'],
@@ -171,6 +199,7 @@ class YouTubeSearchProcessor:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
+                _ytbpy_call,
                 ytb_playlist.get_playlist_info,
                 playlist_id,
                 self.timeout
@@ -193,6 +222,7 @@ class YouTubeSearchProcessor:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
+                _ytbpy_call,
                 ytb_search.search_youtube,
                 query,
                 max_results,
@@ -216,6 +246,7 @@ class YouTubeSearchProcessor:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
+                _ytbpy_call,
                 ytb_video.get_related_videos,
                 video_id,
                 max_results,
@@ -252,6 +283,7 @@ class YouTubeSearchProcessor:
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
+                _ytbpy_call,
                 ytb_search.search_shorts,
                 query,
                 max_results,

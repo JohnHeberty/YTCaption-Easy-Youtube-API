@@ -3,12 +3,13 @@ FROM python:3.11-slim
 
 # Metadata para identificação
 LABEL maintainer="video-downloader-service" \
-      version="1.0.0" \
+      version="3.0.0" \
       description="Video Download Microservice with yt-dlp"
 
 # Variáveis de ambiente para otimização
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
@@ -41,20 +42,20 @@ RUN useradd -m -u 1000 appuser
 
 # Cria diretórios necessários e define permissões corretas
 # ORDEM CRÍTICA: mkdir -> chown -> chmod
-RUN mkdir -p /app/cache /app/logs /app/downloads /app/temp \
+RUN mkdir -p /app/data/cache /app/data/logs /app/data/downloads /app/data/temp \
     && chown -R appuser:appuser /app \
     && chmod -R 755 /app \
-    && chmod -R 777 /app/cache /app/logs /app/downloads /app/temp
+    && chmod -R 777 /app/data/cache /app/data/logs /app/data/downloads /app/data/temp
 
 # Muda para usuário não-root
 USER appuser
 
 # Expõe porta do serviço
-EXPOSE 8000
+EXPOSE 8002
 
 # Healthcheck para monitoramento
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8002/health || exit 1
 
 # Comando padrão
 CMD ["python", "run.py"]

@@ -20,12 +20,22 @@ except ImportError:
 
 
 from .celery_config import celery_app
+from celery import signals
 from .models import Job, JobStatus
 from .processor import YouTubeSearchProcessor
 from .redis_store import RedisJobStore
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+@signals.task_failure.connect
+def task_failure_handler(task_id, exception, args, kwargs, traceback, einfo, **kw):
+    """Log Celery worker failures with full context."""
+    logger.error(
+        "Celery task_failure | task_id=%s error=%s",
+        task_id, exception, exc_info=einfo.exc_info if einfo else None
+    )
 
 # Initialize processor and store
 settings = get_settings()

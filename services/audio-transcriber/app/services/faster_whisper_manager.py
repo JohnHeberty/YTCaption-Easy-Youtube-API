@@ -60,8 +60,20 @@ ado
                 logger.info("ℹ️  Usando CPU")
             return 'cpu'
     
+    def _is_oom_error(self, e: Exception) -> bool:
+        """Detecta se o erro é Out-of-Memory na GPU"""
+        error_msg = str(e).lower()
+        oom_keywords = ["out of memory", "outofmemory", "cuda error", "cudaerror", "not enough memory"]
+        # PyTorch >= 1.13 tem torch.cuda.OutOfMemoryError
+        try:
+            if isinstance(e, torch.cuda.OutOfMemoryError):
+                return True
+        except AttributeError:
+            pass
+        return any(kw in error_msg for kw in oom_keywords)
+
     def load_model(self) -> None:
-        """Carrega modelo Faster-Whisper com Circuit Breaker"""
+        """Carrega modelo Faster-Whisper com Circuit Breaker e fallback GPU→CPU imediato em OOM"""
         if self.is_loaded and self.model is not None:
             logger.info(f"Modelo {self.model_name} já carregado no {self.device}")
             return
@@ -84,49 +96,84 @@ ado
                 f"Circuit breaker OPEN for {service_name}. Service temporarily unavailable."
             )
         
-        # Tenta carregar com retry
+        # Tenta carregar: GPU primeiro, fallback imediato para CPU em OOM
         last_error = None
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                logger.info(f"Tentativa {attempt}/{self.max_retries} - Device: {self.device}")
-                
-                # Carrega modelo (faster-whisper usa compute_type)
-                compute_type = "float16" if self.device == "cuda" else "int8"
-                
-                self.model = WhisperModel(
-                    self.model_name,
-                    device=self.device,
-                    compute_type=compute_type,
-                    download_root=str(self.model_dir)
-                )
-                
-                self.is_loaded = True
-                
-                # Registra sucesso no circuit breaker
-                cb.record_success(service_name)
-                
-                logger.info(f"✅ Faster-Whisper {self.model_name} carregado no {self.device.upper()} ({compute_type})")
-                return
-                
-            except (RuntimeError, OSError, IOError) as e:
-                last_error = e
-                logger.exception(f"❌ Falha na tentativa {attempt}: {e}")  # ✅ Usa exception() para stack trace
-                
-                # Registra falha no circuit breaker
-                cb.record_failure(service_name)
-                
-                if attempt < self.max_retries:
-                    sleep_time = self.retry_backoff ** attempt
-                    logger.info(f"⏳ Aguardando {sleep_time}s antes de retentar...")
-                    time.sleep(sleep_time)
+        attempted_devices = []
+        
+        while True:
+            if self.device in attempted_devices:
+                break
+            attempted_devices.append(self.device)
+            
+            # compute_type: float16 na GPU para máxima qualidade, int8 na CPU
+            compute_type = "float16" if self.device == "cuda" else "int8"
+            
+            for attempt in range(1, self.max_retries + 1):
+                try:
+                    logger.info(
+                        f"Tentativa {attempt}/{self.max_retries} - "
+                        f"Device: {self.device.upper()}, compute_type: {compute_type}, "
+                        f"modelo: {self.model_name}"
+                    )
                     
-                    # Se falhou na GPU, tenta CPU
-                    if self.device == 'cuda':
-                        logger.warning("Fallback para CPU após falha na GPU")
-                        self.device = 'cpu'
+                    self.model = WhisperModel(
+                        self.model_name,
+                        device=self.device,
+                        compute_type=compute_type,
+                        download_root=str(self.model_dir)
+                    )
+                    
+                    self.is_loaded = True
+                    cb.record_success(service_name)
+                    
+                    logger.info(
+                        f"✅ Faster-Whisper '{self.model_name}' carregado em "
+                        f"{self.device.upper()} ({compute_type})"
+                    )
+                    return
+                    
+                except (RuntimeError, OSError, IOError, Exception) as e:
+                    last_error = e
+                    cb.record_failure(service_name)
+                    
+                    # OOM na GPU → fallback imediato para CPU, sem gastar mais tentativas
+                    if self.device == "cuda" and self._is_oom_error(e):
+                        fallback_enabled = str(self.settings.get('whisper_fallback_cpu', 'true')).lower() == 'true'
+                        if fallback_enabled:
+                            logger.warning(
+                                f"⚠️ OOM na GPU ao carregar '{self.model_name}' "
+                                f"({e}) — fallback imediato para CPU com int8"
+                            )
+                            # Libera CUDA cache antes de tentar CPU
+                            try:
+                                torch.cuda.empty_cache()
+                            except Exception:
+                                pass
+                            self.device = "cpu"
+                            break  # sai do loop de tentativas → vai tentar na CPU
+                        else:
+                            raise AudioTranscriptionException(
+                                f"OOM na GPU ao carregar {self.model_name} e fallback CPU desabilitado: {e}"
+                            ) from e
+                    
+                    logger.exception(f"❌ Falha na tentativa {attempt}/{self.max_retries}: {e}")
+                    
+                    if attempt < self.max_retries:
+                        sleep_time = self.retry_backoff ** attempt
+                        logger.info(f"⏳ Aguardando {sleep_time}s antes de retentar...")
+                        time.sleep(sleep_time)
+                        
+                        # Outro tipo de falha GPU → tenta CPU após esgotar retries da GPU
+                        if self.device == "cuda":
+                            logger.warning("Fallback para CPU após falha na GPU")
+                            self.device = "cpu"
+            else:
+                # Loop de tentativas esgotado sem break (OOM) → sai do while
+                break
         
         raise AudioTranscriptionException(
-            f"Falha ao carregar Faster-Whisper {self.model_name} após {self.max_retries} tentativas: {last_error}"
+            f"Falha ao carregar Faster-Whisper '{self.model_name}' em todos os dispositivos "
+            f"tentados {attempted_devices}: {last_error}"
         )
     
     def unload_model(self) -> Dict[str, Any]:
@@ -221,7 +268,9 @@ ado
             transcribe_kwargs = {
                 "word_timestamps": True,  # ✅ Timestamps palavra-por-palavra
                 "vad_filter": False,  # Desabilitar VAD interno
-                "task": task  # transcribe ou translate
+                "task": task,  # transcribe ou translate
+                "beam_size": int(self.settings.get('whisper_beam_size', 5)),
+                "best_of": int(self.settings.get('whisper_best_of', 5)),
             }
             
             if language != "auto" and language:

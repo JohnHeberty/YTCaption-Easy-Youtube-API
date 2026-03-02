@@ -33,9 +33,10 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Copy application code
 COPY app/ ./app/
+COPY run.py .
 
 # Create necessary directories
-RUN mkdir -p logs
+RUN mkdir -p /app/data/logs
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
@@ -51,5 +52,5 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8001}/health || exit 1
 
-# Run the application
-CMD ["sh", "-c", "python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+# Run via run.py — garante que SIGTERM propaga corretamente (sem sh -c intermediário)
+CMD ["python", "run.py"]

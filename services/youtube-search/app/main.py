@@ -1,5 +1,6 @@
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 try:
     from common.datetime_utils import now_brazil
@@ -25,17 +26,17 @@ import logging
 from common.log_utils import setup_structured_logging, get_logger
 from common.exception_handlers import setup_exception_handlers
 
-from .models import Job, SearchRequest, JobStatus, SearchType, JobListResponse
-from .processor import YouTubeSearchProcessor
-from .redis_store import RedisJobStore
-from .celery_tasks import youtube_search_task
-from .exceptions import (
+from .core.models import Job, SearchRequest, JobStatus, SearchType, JobListResponse
+from .domain.processor import YouTubeSearchProcessor
+from .infrastructure.redis_store import RedisJobStore
+from .infrastructure.celery_tasks import youtube_search_task
+from .shared.exceptions import (
     YouTubeSearchException, 
     ServiceException, 
     InvalidRequestError,
     exception_handler
 )
-from .config import get_settings
+from .core.config import get_settings
 
 # Configuration
 settings = get_settings()
@@ -47,11 +48,37 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
+# ============================================================================
+# LIFECYCLE
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle — replaces deprecated @app.on_event."""
+    # ---- startup ----
+    try:
+        await job_store.start_cleanup_task()
+        logger.info("YouTube Search Service started successfully")
+    except Exception as e:
+        logger.error("Error during startup: %s", e)
+        raise
+
+    yield
+
+    # ---- shutdown ----
+    try:
+        await job_store.stop_cleanup_task()
+        logger.info("YouTube Search Service stopped gracefully")
+    except Exception as e:
+        logger.error("Error during shutdown: %s", e)
+
+
 # Global instances
 app = FastAPI(
     title="YouTube Search Service",
     description="Microservice for YouTube search operations with Celery + Redis and 24h cache",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Setup exception handlers from common library
@@ -79,27 +106,6 @@ processor = YouTubeSearchProcessor()
 
 # Inject job_store reference into processor for progress updates
 processor.job_store = job_store
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize system"""
-    try:
-        await job_store.start_cleanup_task()
-        logger.info("YouTube Search Service started successfully")
-    except Exception as e:
-        logger.error(f"Error during startup: {e}")
-        raise
-
-
-@app.on_event("shutdown") 
-async def shutdown_event():
-    """Stop system"""
-    try:
-        await job_store.stop_cleanup_task()
-        logger.info("YouTube Search Service stopped gracefully")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
 
 
 def submit_celery_task(job: Job):
@@ -658,7 +664,7 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
         # 2. CLEAN CELERY QUEUE (IF REQUESTED)
         if purge_celery_queue:
             try:
-                from .celery_config import celery_app
+                from .infrastructure.celery_config import celery_app
                 
                 logger.warning("🔥 Cleaning Celery queue 'youtube_search_queue'...")
                 
@@ -746,7 +752,7 @@ async def get_stats():
     """
     Complete system statistics
     """
-    from .celery_config import celery_app
+    from .infrastructure.celery_config import celery_app
     
     stats = job_store.get_stats()
     
@@ -775,7 +781,7 @@ async def get_queue_stats():
     """
     Celery queue specific statistics
     """
-    from .celery_config import celery_app
+    from .infrastructure.celery_config import celery_app
     
     try:
         inspect = celery_app.control.inspect()
@@ -798,6 +804,35 @@ async def get_queue_stats():
             "error": str(e),
             "is_running": False
         }
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint — exposes job counts by status."""
+    from fastapi.responses import Response
+
+    svc = "youtube_search"
+    stats: dict = {}
+    try:
+        stats = job_store.get_stats()
+    except Exception as _e:
+        logger.warning("Metrics: failed to get stats: %s", _e)
+
+    by_status = stats.get("by_status", {})
+    total = stats.get("total_jobs", 0)
+
+    lines = [
+        f"# HELP {svc}_jobs_total Jobs in Redis store by status",
+        f"# TYPE {svc}_jobs_total gauge",
+    ]
+    for _status, _count in by_status.items():
+        lines.append(f'{svc}_jobs_total{{status="{_status}"}} {_count}')
+    lines += [
+        f"# HELP {svc}_jobs_store_total Total jobs in Redis store",
+        f"# TYPE {svc}_jobs_store_total gauge",
+        f"{svc}_jobs_store_total {total}",
+    ]
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @app.get("/health")
@@ -854,7 +889,7 @@ async def health_check():
     
     # 3. Check Celery workers
     try:
-        from .celery_config import celery_app
+        from .infrastructure.celery_config import celery_app
         inspect = celery_app.control.inspect()
         active_workers = inspect.active()
         
@@ -874,7 +909,7 @@ async def health_check():
     
     # 4. Check ytbpy library
     try:
-        from .ytbpy import video
+        from .services.ytbpy import video
         health_status["checks"]["ytbpy"] = {"status": "ok", "message": "Library loaded"}
     except Exception as e:
         health_status["checks"]["ytbpy"] = {"status": "error", "message": str(e)}

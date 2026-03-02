@@ -14,7 +14,7 @@ import noisereduce as nr
 import soundfile as sf
 import librosa
 
-from ..exceptions import AudioNormalizationException
+from ..shared.exceptions import AudioNormalizationException
 
 logger = logging.getLogger(__name__)
 

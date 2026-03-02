@@ -68,3 +68,6 @@ test_*.py
 *_test.py
 conftest.py
 pytest.ini
+
+# Runtime data directories (created by Dockerfile at build time)
+data/

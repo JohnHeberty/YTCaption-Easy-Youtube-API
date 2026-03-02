@@ -45,3 +45,6 @@ tests/
 htmlcov/
 .coverage
 .pytest_cache
+
+# Runtime data directories (created by Dockerfile at build time)
+data/

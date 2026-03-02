@@ -270,3 +270,7 @@ class AggregateHealthChecker:
         """Retorna se sistema geral está saudável"""
         result = self.check_all()
         return result.get("overall_healthy", False)
+
+
+# Alias para compatibilidade com imports antigos
+HealthChecker = AggregateHealthChecker

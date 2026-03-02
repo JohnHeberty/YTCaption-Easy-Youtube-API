@@ -20,12 +20,12 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 
 
-from ..models import Job, JobStatus
-from ..redis_store import RedisJobStore
+from ..core.models import Job, JobStatus
+from ..infrastructure.redis_store import RedisJobStore
 from .file_validator import FileValidator
 from .audio_extractor import AudioExtractor
 from .audio_normalizer import AudioNormalizer
-from ..exceptions import AudioNormalizationException
+from ..shared.exceptions import AudioNormalizationException
 
 logger = logging.getLogger(__name__)
 

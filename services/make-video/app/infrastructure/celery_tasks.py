@@ -28,6 +28,7 @@ except ImportError:
 from typing import List, Dict, Optional
 
 from .celery_config import celery_app
+from celery import signals
 from ..core.config import get_settings
 from ..core.models import Job, JobStatus, ShortInfo, JobResult
 from .redis_store import RedisJobStore
@@ -113,44 +114,74 @@ async def update_job_status(job_id: str, status: JobStatus,
                            progress: float = None, 
                            stage_updates: Dict = None,
                            error: Dict = None):
-    """Atualiza status do job no Redis"""
+    """Atualiza status do job no Redis com retry automático"""
     store, _, _, _, _ = get_instances()
     
-    job = await store.get_job(job_id)
-    if not job:
-        logger.error(f"Job {job_id} not found")
-        return
+    max_retries = 3
+    retry_delay = 1  # segundos
     
-    job.status = status
-    job.updated_at = now_brazil()
-    
-    if progress is not None:
-        job.progress = progress
-    
-    if stage_updates:
-        for stage_name, stage_info in stage_updates.items():
-            if stage_name not in job.stages:
-                # Criar novo StageInfo
-                from app.core.models import StageInfo
-                job.stages[stage_name] = StageInfo(**stage_info)
-            else:
-                # Atualizar campos do StageInfo existente
-                existing_stage = job.stages[stage_name]
-                for key, value in stage_info.items():
-                    if key == 'metadata' and hasattr(existing_stage, 'metadata'):
-                        # Merge metadata ao invés de substituir
-                        existing_stage.metadata.update(value)
+    for attempt in range(1, max_retries + 1):
+        try:
+            job = await store.get_job(job_id)
+            if not job:
+                logger.error(f"Job {job_id} not found for status update")
+                return
+            
+            job.status = status
+            job.updated_at = now_brazil()
+            
+            if progress is not None:
+                job.progress = progress
+            
+            if stage_updates:
+                for stage_name, stage_info in stage_updates.items():
+                    if stage_name not in job.stages:
+                        # Criar novo StageInfo
+                        from app.core.models import StageInfo
+                        job.stages[stage_name] = StageInfo(**stage_info)
                     else:
-                        setattr(existing_stage, key, value)
-    
-    if error:
-        job.error = error
-    
-    if status == JobStatus.COMPLETED:
-        job.completed_at = now_brazil()
-        job.expires_at = job.completed_at + timedelta(hours=24)
-    
-    await store.save_job(job)
+                        # Atualizar campos do StageInfo existente
+                        existing_stage = job.stages[stage_name]
+                        for key, value in stage_info.items():
+                            if key == 'metadata' and hasattr(existing_stage, 'metadata'):
+                                # Merge metadata ao invés de substituir
+                                existing_stage.metadata.update(value)
+                            else:
+                                setattr(existing_stage, key, value)
+            
+            if error:
+                job.error = error
+            
+            if status == JobStatus.COMPLETED:
+                job.completed_at = now_brazil()
+                job.expires_at = job.completed_at + timedelta(hours=24)
+            
+            await store.save_job(job)
+            
+            # Sucesso - sair do loop
+            if attempt > 1:
+                logger.info(f"✅ Status update succeeded on attempt {attempt}")
+            return
+            
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(
+                    f"⚠️ Failed to update job status (attempt {attempt}/{max_retries}): {e}",
+                    extra={"job_id": job_id, "status": status.value, "progress": progress}
+                )
+                await asyncio.sleep(retry_delay * attempt)  # Exponential backoff
+            else:
+                logger.error(
+                    f"❌ CRITICAL: Failed to update job status after {max_retries} attempts: {e}",
+                    exc_info=True,
+                    extra={
+                        "job_id": job_id,
+                        "status": status.value,
+                        "progress": progress,
+                        "error": str(e)
+                    }
+                )
+                # Não re-raise para não quebrar o pipeline, mas logamos como CRITICAL
 
 
 async def _transform_crop_and_validate_video(
@@ -315,6 +346,15 @@ async def _transform_crop_and_validate_video(
             pass
         
         return None
+
+
+@signals.task_failure.connect
+def task_failure_handler(task_id, exception, args, kwargs, traceback, einfo, **kw):
+    """Log Celery worker failures with full context."""
+    logger.error(
+        "Celery task_failure | task_id=%s error=%s",
+        task_id, exception, exc_info=einfo.exc_info if einfo else None
+    )
 
 
 @celery_app.task(
@@ -819,17 +859,20 @@ async def _process_make_video_async(job_id: str):
                 await asyncio.sleep(backoff_seconds)
         
         # 🔧 RESILIENCE FIX: Verificar se atingiu limite de retries
-        if not segments:
+        # Validação robusta: segments deve existir E ter conteúdo válido
+        if not segments or len(segments) == 0:
             error_details = {
                 "retry_attempts": retry_attempt,
                 "max_retries": MAX_SUBTITLE_RETRIES,
                 "last_error": "Subtitle generation failed after maximum retries",
+                "segments_received": len(segments) if segments else 0,
                 "audio_duration": audio_duration,
                 "subtitle_language": job.subtitle_language,
                 "recommendation": "Check audio-transcriber service health and logs"
             }
             logger.error(
                 f"❌ CRITICAL: Failed to generate subtitles after {MAX_SUBTITLE_RETRIES} attempts. "
+                f"Segments received: {len(segments) if segments else 0}. "
                 f"Audio transcriber may be down or misconfigured."
             )
             raise SubtitleGenerationException(
@@ -874,8 +917,25 @@ async def _process_make_video_async(job_id: str):
         else:
             logger.error("❌ NO SEGMENTS from transcriber!")
         
-        if not raw_cues:
-            logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
+        # VALIDAÇÃO CRÍTICA: Verificar se temos cues válidas
+        if not raw_cues or len(raw_cues) == 0:
+            error_details = {
+                "segments_count": len(segments),
+                "raw_cues_count": len(raw_cues) if raw_cues else 0,
+                "has_word_timestamps": has_word_timestamps,
+                "first_segment": segments[0] if segments else None,
+                "problem": "No valid word cues extracted from transcription segments",
+                "recommendation": "Check transcription format and word-level timestamp availability"
+            }
+            logger.error(
+                f"❌ CRITICAL: NO WORDS extracted from {len(segments)} segments! "
+                f"has_word_timestamps={has_word_timestamps}"
+            )
+            raise SubtitleGenerationException(
+                reason="No valid word cues extracted from transcription",
+                subtitle_path="N/A",
+                details=error_details
+            )
         
         # ════════════════════════════════════════════════════════════════
         # APLICAR SPEECH-GATED SUBTITLES (VAD)

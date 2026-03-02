@@ -1,7 +1,7 @@
 FROM python:3.11-slim
 
 # Install system dependencies (including build tools for webrtcvad + tesseract for OCR)
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     gcc \
@@ -17,14 +17,22 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Variáveis de ambiente
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
 # Copy requirements
 COPY requirements-docker.txt requirements.txt
 # Install PyTorch CPU + EasyOCR and other requirements
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application code (selective — avoid sending .trash/, data/, logs/)
+COPY app/ ./app/
+COPY run.py .
 
 # Create data directories (bind mount irá sobrescrever, mas cria estrutura base)
 RUN mkdir -p /app/data/raw/audio \
@@ -40,14 +48,21 @@ RUN mkdir -p /app/data/raw/audio \
              /app/data/logs/debug \
              /app/logs
 
+# Usuário não-root (segurança)
+RUN useradd -m -u 1000 appuser \
+    && chown -R appuser:appuser /app
+
 # Set permissions
 RUN chmod -R 755 /app/data /app/logs
 
-# Expose port (será definido por variável de ambiente)
-EXPOSE ${PORT:-8005}
+USER appuser
 
-# Health check (sem hardcoding)
-# O healthcheck será feito pelo docker-compose que tem acesso às ENV vars
+# Expose port
+EXPOSE 8005
 
-# Default command - usa script para expandir variáveis
+# Health check
+HEALTHCHECK --interval=30s --timeout=15s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-8005}/health || exit 1
+
+# Default command
 CMD ["python", "run.py"]

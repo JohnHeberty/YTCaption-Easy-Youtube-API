@@ -31,6 +31,7 @@ LABEL maintainer="audio-transcriber-service" \
 # Ambiente
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
     FORCE_CUDA=1 \
     LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
 
@@ -79,17 +80,17 @@ COPY run.py .
 RUN useradd -m -u 1000 appuser
 
 # Diretórios e permissões
-RUN mkdir -p /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed \
+RUN mkdir -p /app/data/uploads /app/data/transcriptions /app/data/models /app/data/temp /app/data/logs \
  && chown -R appuser:appuser /app \
  && chmod -R 755 /app \
- && chmod -R 777 /app/uploads /app/transcriptions /app/models /app/temp /app/logs /app/processed
+ && chmod -R 777 /app/data/uploads /app/data/transcriptions /app/data/models /app/data/temp /app/data/logs
 
 USER appuser
 
-EXPOSE 8003
+EXPOSE 8004
 
-# Healthcheck (usa o curl instalado)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8003/health || exit 1
+# Healthcheck — start-period=120s para aguardar warmup do modelo Whisper na GPU
+HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=3 \
+  CMD curl -f http://localhost:8004/health || exit 1
 
 CMD ["python", "run.py"]

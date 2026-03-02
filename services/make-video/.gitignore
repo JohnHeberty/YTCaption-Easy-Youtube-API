@@ -54,5 +54,13 @@ storage/output_videos/*
 .env.local
 
 # Trash folder (deprecated files)
-trash/
+.trash/
+
+# Runtime data — gerado em execução, não versionar
+data/logs/
+data/approved/output/
+data/approved/videos/
+data/raw/audio/
+data/raw/shorts/*.json
+data/database/
 # data/raw/shorts/blacklist.db

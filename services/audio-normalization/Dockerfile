@@ -5,10 +5,10 @@ FROM python:3.11-slim
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
-# Dependências do sistema (apenas essenciais para audio processing)
+# Dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl wget git \
-      libsndfile1 \
+      libsndfile1 ffmpeg \
    && rm -rf /var/lib/apt/lists/*
 
 # Metadata
@@ -19,16 +19,11 @@ LABEL maintainer="audio-normalization-service" \
 # Ambiente (CPU-only)
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     CUDA_VISIBLE_DEVICES="" \
     FORCE_CUDA=0
-
-# Dependências de sistema para áudio
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg libsndfile1 \
-   && rm -rf /var/lib/apt/lists/* \
-   && apt-get clean
 
 WORKDIR /app
 
@@ -51,10 +46,10 @@ COPY run.py .
 RUN useradd -m -u 1000 appuser
 
 # Diretórios e permissões
-RUN mkdir -p /app/uploads /app/processed /app/temp /app/logs \
+RUN mkdir -p /app/data/uploads /app/data/processed /app/data/temp /app/data/logs \
  && chown -R appuser:appuser /app \
  && chmod -R 755 /app \
- && chmod -R 777 /app/uploads /app/processed /app/temp /app/logs
+ && chmod -R 777 /app/data/uploads /app/data/processed /app/data/temp /app/data/logs
 
 USER appuser
 

@@ -1,0 +1,76 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Whisper / faster-whisper model cache (can be large — never commit)
+models/
+*.pt
+*.bin
+*.safetensors
+huggingface_cache/
+~/.cache/huggingface/
+
+# Audio artefacts (temporary processing files)
+*.wav
+*.mp3
+*.m4a
+*.flac
+*.ogg
+
+# Logs
+*.log
+logs/
+
+# Runtime uploads — never commit audio files
+uploads/
+
+# Test artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+artifacts/
+tests/artifacts/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cleanup leftovers
+.trash/
+*.bak
+
+# Runtime data directories (contents excluded; .gitkeep files tracked)
+data/**
+!data/
+!data/*/
+!data/**/
+!data/**/.gitkeep

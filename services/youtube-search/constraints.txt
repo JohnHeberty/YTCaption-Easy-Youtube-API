@@ -1,0 +1,21 @@
+# constraints.txt — upper-bound pins to prevent silent breakage from transitive upgrades
+# Install: pip install -c constraints.txt -r requirements.txt
+
+# --- Web Framework ---
+fastapi>=0.115,<0.121        # tested with 0.120.0
+starlette>=0.40,<0.47        # aligned with fastapi above
+uvicorn>=0.34,<0.40          # tested with 0.38.0
+
+# --- Pydantic v2 ---
+pydantic>=2.11,<3.0          # v2 stable; 2.12.x tested
+pydantic-settings>=2.7,<3.0
+
+# --- Celery & Redis ---
+celery>=5.3,<6.0             # v6 introduces breaking task protocol changes
+redis>=5.0,<6.0              # redis-py 6 is not yet stable
+
+# --- HTTP ---
+httpx>=0.26,<0.30            # 0.28+ breaks some async transport defaults
+
+# --- Typing helpers ---
+anyio>=3.7,<5.0              # anyio 4 breaks httpx<0.28 when mixed

@@ -4,26 +4,27 @@ services:
     build: ./services/audio-normalization
     container_name: ytcaption-audio-normalization
     ports:
-      - "8001:8001"
+      - "8003:8003"
     volumes:
-      - ./services/audio-normalization/uploads:/app/uploads
-      - ./services/audio-normalization/processed:/app/processed
-      - ./services/audio-normalization/temp:/app/temp
-      - ./services/audio-normalization/logs:/app/logs
+      - ./services/audio-normalization/data/uploads:/app/data/uploads
+      - ./services/audio-normalization/data/processed:/app/data/processed
+      - ./services/audio-normalization/data/temp:/app/data/temp
+      - ./services/audio-normalization/data/logs:/app/data/logs
     environment:
       - PYTHONPATH=/app
+      - PORT=8003
       - REDIS_URL=redis://192.168.1.110:6379/0
       - CACHE_TTL_HOURS=24
       - CLEANUP_INTERVAL_MINUTES=30
       - LOG_LEVEL=INFO
-      - UPLOAD_DIR=/app/uploads
-      - OUTPUT_DIR=/app/processed
-      - TEMP_DIR=/app/temp
+      - UPLOAD_DIR=/app/data/uploads
+      - OUTPUT_DIR=/app/data/processed
+      - TEMP_DIR=/app/data/temp
     extra_hosts:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -34,21 +35,21 @@ services:
   audio-normalization-celery:
     build: ./services/audio-normalization
     container_name: ytcaption-audio-normalization-celery
-    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
-      - ./services/audio-normalization/uploads:/app/uploads
-      - ./services/audio-normalization/processed:/app/processed
-      - ./services/audio-normalization/temp:/app/temp
-      - ./services/audio-normalization/logs:/app/logs
+      - ./services/audio-normalization/data/uploads:/app/data/uploads
+      - ./services/audio-normalization/data/processed:/app/data/processed
+      - ./services/audio-normalization/data/temp:/app/data/temp
+      - ./services/audio-normalization/data/logs:/app/data/logs
     environment:
       - PYTHONPATH=/app
       - REDIS_URL=redis://192.168.1.110:6379/0
       - CACHE_TTL_HOURS=24
       - CLEANUP_INTERVAL_MINUTES=30
       - LOG_LEVEL=INFO
-      - UPLOAD_DIR=/app/uploads
-      - OUTPUT_DIR=/app/processed
-      - TEMP_DIR=/app/temp
+      - UPLOAD_DIR=/app/data/uploads
+      - OUTPUT_DIR=/app/data/processed
+      - TEMP_DIR=/app/data/temp
     extra_hosts:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
@@ -56,7 +57,7 @@ services:
       audio-normalization:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -69,13 +70,13 @@ services:
     build: ./services/audio-transcriber
     container_name: ytcaption-audio-transcriber
     ports:
-      - "${PORT}:${PORT}"
+      - "8004:8004"
     volumes:
-      - ./services/audio-transcriber/uploads:/app/uploads
-      - ./services/audio-transcriber/transcriptions:/app/transcriptions
-      - ./services/audio-transcriber/models:/app/models
-      - ./services/audio-transcriber/temp:/app/temp
-      - ./services/audio-transcriber/logs:/app/logs
+      - ./services/audio-transcriber/data/uploads:/app/data/uploads
+      - ./services/audio-transcriber/data/transcriptions:/app/data/transcriptions
+      - ./services/audio-transcriber/data/models:/app/data/models
+      - ./services/audio-transcriber/data/temp:/app/data/temp
+      - ./services/audio-transcriber/data/logs:/app/data/logs
     devices:
       - /dev/nvidia0:/dev/nvidia0
       - /dev/nvidiactl:/dev/nvidiactl
@@ -91,7 +92,7 @@ services:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -104,11 +105,11 @@ services:
     container_name: ytcaption-audio-transcriber-celery
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
-      - ./services/audio-transcriber/uploads:/app/uploads
-      - ./services/audio-transcriber/transcriptions:/app/transcriptions
-      - ./services/audio-transcriber/models:/app/models
-      - ./services/audio-transcriber/temp:/app/temp
-      - ./services/audio-transcriber/logs:/app/logs
+      - ./services/audio-transcriber/data/uploads:/app/data/uploads
+      - ./services/audio-transcriber/data/transcriptions:/app/data/transcriptions
+      - ./services/audio-transcriber/data/models:/app/data/models
+      - ./services/audio-transcriber/data/temp:/app/data/temp
+      - ./services/audio-transcriber/data/logs:/app/data/logs
     # GPU support requer nvidia-container-toolkit no host Proxmox
     # devices:
     #   - /dev/nvidia0:/dev/nvidia0
@@ -140,27 +141,27 @@ services:
     build: ./services/video-downloader
     container_name: ytcaption-video-downloader
     ports:
-      - "8000:8001"
+      - "8002:8002"
     volumes:
-      - ./services/video-downloader/cache:/app/cache
-      - ./services/video-downloader/logs:/app/logs
+      - ./services/video-downloader/data/cache:/app/data/cache
+      - ./services/video-downloader/data/logs:/app/data/logs
       - ./services/video-downloader/user-agents.txt:/app/user-agents.txt
       - ./services/video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
-      - ./services/video-downloader/user-agents-original.txt:/app/user-agents-original.txt
     environment:
       - PYTHONPATH=/app
+      - PORT=8002
       - REDIS_URL=redis://192.168.1.110:6379/0
       - UA_QUARANTINE_HOURS=48
       - UA_MAX_ERRORS=3
       - CACHE_TTL_HOURS=24
       - CLEANUP_INTERVAL_MINUTES=30
       - LOG_LEVEL=INFO
-      - CACHE_DIR=/app/cache
+      - CACHE_DIR=/app/data/cache
     extra_hosts:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -171,13 +172,12 @@ services:
   video-downloader-celery:
     build: ./services/video-downloader
     container_name: ytcaption-video-downloader-celery
-    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
-      - ./services/video-downloader/cache:/app/cache
-      - ./services/video-downloader/logs:/app/logs
+      - ./services/video-downloader/data/cache:/app/data/cache
+      - ./services/video-downloader/data/logs:/app/data/logs
       - ./services/video-downloader/user-agents.txt:/app/user-agents.txt
       - ./services/video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
-      - ./services/video-downloader/user-agents-original.txt:/app/user-agents-original.txt
     environment:
       - PYTHONPATH=/app
       - REDIS_URL=redis://192.168.1.110:6379/0
@@ -186,7 +186,7 @@ services:
       - CACHE_TTL_HOURS=24
       - CLEANUP_INTERVAL_MINUTES=30
       - LOG_LEVEL=INFO
-      - CACHE_DIR=/app/cache
+      - CACHE_DIR=/app/data/cache
     extra_hosts:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
@@ -194,7 +194,7 @@ services:
       video-downloader:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -9,6 +9,7 @@ Serviço para criar vídeos automaticamente a partir de:
 
 import logging
 import asyncio
+from contextlib import asynccontextmanager
 import shortuuid
 from datetime import datetime, timedelta
 try:
@@ -52,18 +53,83 @@ logger = logging.getLogger(__name__)
 # Settings
 settings = get_settings()
 
+# ============================================================================
+# LIFECYCLE
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle — replaces deprecated @app.on_event."""
+    # ---- startup ----
+    logger.info("🚀 Make-Video Service starting...")
+
+    # Criar diretórios necessários
+    for dir_path in [
+        settings['audio_upload_dir'],
+        settings['shorts_cache_dir'],
+        '/tmp/make-video-temp',
+        settings['output_dir'],
+        settings['logs_dir'],
+    ]:
+        Path(dir_path).mkdir(parents=True, exist_ok=True)
+
+    # Iniciar cleanup task automático (Redis)
+    await redis_store.start_cleanup_task()
+    logger.info("🧹 Redis cleanup task started")
+
+    # Iniciar cron de limpeza de vídeos órfãos (a cada 5 minutos)
+    _scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        _scheduler = AsyncIOScheduler()
+        _scheduler.add_job(
+            cleanup_orphaned_videos_cron,
+            trigger=IntervalTrigger(minutes=5),
+            id='cleanup_orphaned_videos',
+            name='Cleanup orphaned videos every 5 minutes',
+            replace_existing=True,
+        )
+        _scheduler.start()
+        logger.info("🧹 Orphaned videos cleanup cron started (every 5 minutes)")
+    except Exception as e:
+        logger.error("❌ Failed to start APScheduler: %s", e, exc_info=True)
+        logger.warning("⚠️  Continuing without automatic cleanup cron")
+
+    logger.info("✅ Make-Video Service ready!")
+    logger.info("   ├─ Redis: %s", settings['redis_url'])
+    logger.info("   ├─ YouTube Search: %s", settings['youtube_search_url'])
+    logger.info("   ├─ Video Downloader: %s", settings['video_downloader_url'])
+    logger.info("   └─ Audio Transcriber: %s", settings['audio_transcriber_url'])
+
+    yield
+
+    # ---- shutdown ----
+    logger.info("🛑 Make-Video Service shutting down...")
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        logger.info("🧹 Scheduler stopped")
+    await redis_store.stop_cleanup_task()
+    logger.info("🧹 Redis cleanup task stopped")
+    logger.info("✅ Make-Video Service stopped cleanly")
+
+
 # FastAPI app
 app = FastAPI(
     title="Make-Video Service",
     description="Orquestra criação de vídeos a partir de áudio + shorts + legendas",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS
+# NOTA: allow_credentials=True é incompatível com allow_origins=["*"] pela spec CORS.
+# Mantido allow_origins=["*"] sem credentials (serviço interno, sem cookies cross-origin).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -195,75 +261,6 @@ async def cleanup_orphaned_videos_cron():
         logger.info("🧹 CRON: Orphaned videos cleanup completed")
     except Exception as e:
         logger.error(f"❌ CRON: Orphaned videos cleanup failed: {e}", exc_info=True)
-
-
-# ============================================================================
-# APPLICATION LIFECYCLE
-# ============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """Inicialização do serviço"""
-    logger.info("🚀 Make-Video Service starting...")
-    
-    # Criar diretórios necessários
-    for dir_path in [
-        settings['audio_upload_dir'],
-        settings['shorts_cache_dir'],
-        '/tmp/make-video-temp',
-        settings['output_dir'],
-        settings['logs_dir']
-    ]:
-        Path(dir_path).mkdir(parents=True, exist_ok=True)
-    
-    # Iniciar cleanup task automático (Redis)
-    await redis_store.start_cleanup_task()
-    logger.info("🧹 Redis cleanup task started")
-    
-    # Iniciar cron de limpeza de vídeos órfãos (a cada 5 minutos)
-    try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.interval import IntervalTrigger
-        
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            cleanup_orphaned_videos_cron,
-            trigger=IntervalTrigger(minutes=5),
-            id='cleanup_orphaned_videos',
-            name='Cleanup orphaned videos every 5 minutes',
-            replace_existing=True
-        )
-        scheduler.start()
-        logger.info("🧹 Orphaned videos cleanup cron started (every 5 minutes)")
-        
-        # Store scheduler globally for shutdown
-        app.state.scheduler = scheduler
-    except Exception as e:
-        logger.error(f"❌ Failed to start APScheduler: {e}", exc_info=True)
-        logger.warning("⚠️  Continuing without automatic cleanup cron")
-    
-    logger.info("✅ Make-Video Service ready!")
-    logger.info(f"   ├─ Redis: {settings['redis_url']}")
-    logger.info(f"   ├─ YouTube Search: {settings['youtube_search_url']}")
-    logger.info(f"   ├─ Video Downloader: {settings['video_downloader_url']}")
-    logger.info(f"   └─ Audio Transcriber: {settings['audio_transcriber_url']}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup ao desligar serviço"""
-    logger.info("🛑 Make-Video Service shutting down...")
-    
-    # Parar scheduler
-    if hasattr(app.state, 'scheduler'):
-        app.state.scheduler.shutdown(wait=False)
-        logger.info("🧹 Scheduler stopped")
-    
-    # Parar cleanup task do Redis
-    await redis_store.stop_cleanup_task()
-    logger.info("🧹 Redis cleanup task stopped")
-    
-    logger.info("✅ Make-Video Service stopped cleanly")
 
 
 # ============================================================================
@@ -932,13 +929,37 @@ async def get_job_status(job_id: str):
     - error: Detalhes do erro (se falhou)
     - health: Informações de saúde do job (heartbeat, duração, etc)
     """
+    import asyncio
+    
     try:
-        job = await redis_store.get_job(job_id)
+        # Adicionar timeout global de 3s para toda a operação
+        job = await asyncio.wait_for(
+            redis_store.get_job(job_id),
+            timeout=3.0
+        )
         
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
         
         job_dict = job.dict()
+        
+    except asyncio.TimeoutError:
+        logger.error(
+            f"⏱️ TIMEOUT ao buscar status do job {job_id} (>3s)",
+            extra={"job_id": job_id}
+        )
+        raise HTTPException(
+            status_code=504,
+            detail="Timeout fetching job status - Redis may be overloaded"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Erro ao buscar job {job_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    # Continuar com processamento normal
+    try:
         
         # Adicionar informações de saúde/diagnóstico
         now = now_brazil()
