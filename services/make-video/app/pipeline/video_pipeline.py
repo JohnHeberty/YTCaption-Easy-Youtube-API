@@ -380,244 +380,218 @@ class VideoPipeline:
         """
         1. DOWNLOAD: Buscar e baixar shorts via youtube-search + video-downloader
         
-        SMART REUSE: Verifica vídeos existentes em data/raw/shorts/ antes de baixar.
-        - Se >= max_count vídeos existem → Reutiliza todos, pula download
-        - Se < max_count vídeos existem → Baixa complemento para atingir max_count
+        **BLACKLIST-AWARE DOWNLOAD WITH AUTO-REFILL:**
+        - Pede 3× max_count ao search (ex: 150 para obter 50 válidos)
+        - Filtra vídeos já aprovados ou rejeitados (blacklist) ANTES de baixar
+        - Se após filtrar sobrar < max_count, busca mais shorts automaticamente
+        - Garante que sempre tenta baixar exatamente max_count vídeos NOVOS
         
         Args:
             query: Query de busca
-            max_count: Máximo de shorts para baixar
+            max_count: Máximo de shorts para baixar (válidos, não banidos)
             progress_callback: Callback opcional p/ atualizar progresso (async)
         
         Returns:
-            Lista de shorts baixados/reutilizados com metadados
+            Lista de shorts baixados com metadados
         """
-        logger.info(f"📥 DOWNLOAD: Buscando shorts para '{query}' (max: {max_count})")
-        
-        # SMART REUSE: Verificar vídeos existentes
-        shorts_dir = Path(self.settings['shorts_cache_dir'])
-        existing_videos = list(shorts_dir.glob("*.mp4")) if shorts_dir.exists() else []
-        existing_count = len(existing_videos)
-        
-        logger.info(f"📦 Found {existing_count} existing videos in {shorts_dir}")
-        
-        # Se já temos vídeos suficientes, reutilizar todos
-        if existing_count >= max_count:
-            logger.info(f"♻️  REUSING {existing_count} existing videos (>= {max_count} requested)")
-            logger.info(f"⏭️  SKIPPING download phase (videos already available)")
-            
-            downloaded = []
-            for video_path in existing_videos:
-                video_id = video_path.stem  # Filename without extension
-                downloaded.append({
-                    'video_id': video_id,
-                    'title': f'Reused: {video_id}',
-                    'raw_path': str(video_path),
-                    'downloaded_at': now_brazil().isoformat(),
-                    'reused': True
-                })
-            
-            # Callback de progresso (pula para 50% = download completo)
-            if progress_callback:
-                try:
-                    await progress_callback(
-                        progress=50.0,
-                        metadata={
-                            'step': 'download_skipped_reused',
-                            'downloaded': existing_count,
-                            'total': existing_count,
-                            'reused': True
-                        }
-                    )
-                except Exception as e:
-                    logger.warning(f"⚠️  Callback error: {e}")
-            
-            logger.info(f"📥 DOWNLOAD SKIPPED: {existing_count} videos reused")
-            return downloaded
-        
-        # Se temos alguns vídeos, calcular quantos faltam
-        videos_needed = max_count - existing_count
-        logger.info(f"📥 Need to download {videos_needed} more videos ({existing_count} existing + {videos_needed} new = {max_count} total)")
+        logger.info(f"📥 DOWNLOAD: Buscando {max_count} shorts VÁLIDOS para '{query}'")
         
         downloaded = []
+        search_attempts = 0
+        max_search_attempts = 5  # Limitar tentativas para evitar loop infinito
         
-        # COMPLEMENTO: Adicionar vídeos existentes à lista de downloads
-        for video_path in existing_videos:
-            video_id = video_path.stem
-            downloaded.append({
-                'video_id': video_id,
-                'title': f'Existing: {video_id}',
-                'raw_path': str(video_path),
-                'downloaded_at': now_brazil().isoformat(),
-                'reused': True
-            })
-        
-        logger.info(f"📦 Starting with {len(downloaded)} reused videos")
+        # Multiplicador para compensar vídeos banidos (3× = assume 66% rejeição)
+        search_multiplier = 3
         
         try:
-            # 1. Buscar shorts via youtube-search (ajustado para videos_needed)
             youtube_search_url = self.settings.get('youtube_search_url')
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                # 1.1. Criar job de busca
-                response = await client.post(
-                    f"{youtube_search_url}/search/shorts",
-                    params={
-                        "query": query,
-                        "max_results": videos_needed  # Buscar apenas o que falta
-                    }
-                )
-                response.raise_for_status()
-                job_data = response.json()
-                job_id = job_data.get('id')
-                
-                logger.info(f"   📋 Job criado: {job_id} (buscando {videos_needed} novos vídeos)")
-                
-                # 1.2. Aguardar job completar
-                wait_response = await client.get(
-                    f"{youtube_search_url}/jobs/{job_id}/wait",
-                    timeout=90.0
-                )
-                wait_response.raise_for_status()
-                completed_job = wait_response.json()
-                
-                # 1.3. Extrair resultados
-                shorts = completed_job.get('result', {}).get('results', [])
-            
-            logger.info(f"   ✅ {len(shorts)} novos shorts encontrados")
-
-            # 1.4. Deduplicar por video_id para evitar contagem inflada e sobrescrita
-            unique_shorts = []
-            seen_video_ids = set()
-            duplicated_count = 0
-
-            for short in shorts:
-                video_id = short.get('video_id')
-                if not video_id:
-                    continue
-
-                if video_id in seen_video_ids:
-                    duplicated_count += 1
-                    continue
-
-                seen_video_ids.add(video_id)
-                unique_shorts.append(short)
-
-            if duplicated_count > 0:
-                logger.info(
-                    f"   🔁 Duplicados removidos: {duplicated_count} "
-                    f"(únicos: {len(unique_shorts)})"
-                )
-            
-            # 2. Baixar cada short via video-downloader (assíncrono)
             video_downloader_url = self.settings.get('video_downloader_url')
             
-            for i, short in enumerate(unique_shorts, 1):
-                video_id = short.get('video_id')
-
-                # Pular vídeos já aprovados em execuções anteriores
-                approved_video_path = Path(f"data/approved/videos/{video_id}.mp4")
-                if approved_video_path.exists():
-                    logger.info(f"   🟢 [{i}/{len(unique_shorts)}] {video_id}: JÁ APROVADO (skip)")
-                    continue
+            searched_video_ids = set()  # Track IDs across multiple searches
+            
+            while len(downloaded) < max_count and search_attempts < max_search_attempts:
+                search_attempts += 1
+                videos_still_needed = max_count - len(downloaded)
+                search_count = videos_still_needed * search_multiplier
                 
-                # Verificar status ANTES de baixar (blacklist = rejected)
-                if self.status_store.is_rejected(video_id):  # Sync call
-                    logger.info(f"   ⚫ [{i}/{len(unique_shorts)}] {video_id}: REJECTED (skip)")
-                    continue
+                logger.info(f"🔍 Search attempt #{search_attempts}: requesting {search_count} shorts (need {videos_still_needed} more valid)")
                 
-                try:
-                    async with httpx.AsyncClient(timeout=120.0) as client:
-                        # 2.1. Criar job de download
-                        response = await client.post(
-                            f"{video_downloader_url}/jobs",
-                            json={
-                                "url": f"https://www.youtube.com/watch?v={video_id}",
-                                "quality": "best"
-                            }
-                        )
-                        response.raise_for_status()
-                        job = response.json()
-                        job_id = job.get('id')
-                        
-                        logger.info(f"   📦 [{i}/{len(unique_shorts)}] {video_id}: Job {job_id} criado")
-                        
-                        # 2.2. Aguardar job completar (polling)
-                        max_retries = 30  # 30 tentativas × 2s = 60s timeout 
-                        for retry in range(max_retries):
-                            await asyncio.sleep(2)
-                            status_response = await client.get(
-                                f"{video_downloader_url}/jobs/{job_id}"
-                            )
-                            status_response.raise_for_status()
-                            job_status = status_response.json()
-                            
-                            if job_status.get('status') == 'completed':
-                                file_path = job_status.get('file_path')
-                                logger.info(f"   ✅ [{i}/{len(unique_shorts)}] {video_id}: Download concluído ({file_path})")
-                                break
-                            elif job_status.get('status') == 'failed':
-                                error_msg = job_status.get('error_message', 'Unknown error')
-                                raise Exception(f"Download failed: {error_msg}")
-                        else:
-                            raise Exception("Download timeout (60s)")
-                        
-                        # 2.3. Baixar arquivo via GET /jobs/{job_id}/download
-                        download_response = await client.get(
-                            f"{video_downloader_url}/jobs/{job_id}/download",
-                            timeout=60.0
-                        )
-                        download_response.raise_for_status()
+                # 1. Buscar shorts via youtube-search
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    response = await client.post(
+                        f"{youtube_search_url}/search/shorts",
+                        params={
+                            "query": query,
+                            "max_results": search_count
+                        }
+                    )
+                    response.raise_for_status()
+                    job_data = response.json()
+                    job_id = job_data.get('id')
                     
-                    # 2.4. Salvar em data/raw/shorts/ com extensão real
-                    file_ext = ".mp4"
-                    if file_path:
-                        parsed_ext = Path(file_path).suffix
-                        if parsed_ext:
-                            file_ext = parsed_ext
-
-                    video_path = Path(f"data/raw/shorts/{video_id}{file_ext}")
-                    video_path.parent.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"   📋 Search job: {job_id}")
                     
-                    with open(video_path, 'wb') as f:
-                        f.write(download_response.content)
+                    wait_response = await client.get(
+                        f"{youtube_search_url}/jobs/{job_id}/wait",
+                        timeout=90.0
+                    )
+                    wait_response.raise_for_status()
+                    completed_job = wait_response.json()
                     
-                    logger.info(f"   💾 [{i}/{len(unique_shorts)}] {video_id}: Salvo em {video_path}")
+                    shorts = completed_job.get('result', {}).get('results', [])
+                
+                logger.info(f"   ✅ Search returned {len(shorts)} shorts")
+                
+                # 2. Deduplicar e filtrar
+                unique_shorts = []
+                seen_video_ids = set()
+                duplicated = 0
+                already_approved = 0
+                already_rejected = 0
+                already_searched = 0
+                
+                for short in shorts:
+                    video_id = short.get('video_id')
+                    if not video_id:
+                        continue
                     
-                    downloaded.append({
-                        'video_id': video_id,
-                        'title': short.get('title'),
-                        'raw_path': str(video_path),
-                        'downloaded_at': now_brazil().isoformat()
-                    })
+                    # Skip duplicates within this batch
+                    if video_id in seen_video_ids:
+                        duplicated += 1
+                        continue
+                    seen_video_ids.add(video_id)
                     
-                    logger.info(f"   ✅ [{i}/{len(unique_shorts)}] {video_id}: Downloaded")
+                    # Skip if already searched in previous rounds
+                    if video_id in searched_video_ids:
+                        already_searched += 1
+                        continue
+                    searched_video_ids.add(video_id)
                     
-                    # Chamar callback de progresso se fornecido
-                    if progress_callback:
-                        progress_pct = 10 + (i / len(unique_shorts) * 40)  # 10-50%
-                        try:
-                            await progress_callback(
-                                progress=progress_pct,
-                                metadata={
-                                    'step': 'downloading_shorts',
-                                    'downloaded': len(downloaded),
-                                    'total': len(unique_shorts),
-                                    'current_video': video_id
+                    # Skip if already approved
+                    if Path(f"data/approved/videos/{video_id}.mp4").exists():
+                        already_approved += 1
+                        logger.debug(f"   🟢 {video_id}: already approved (skip)")
+                        continue
+                    
+                    # Skip if blacklisted (rejected)
+                    if self.status_store.is_rejected(video_id):
+                        already_rejected += 1
+                        logger.debug(f"   ⚫ {video_id}: blacklisted (skip)")
+                        continue
+                    
+                    # This is a valid candidate for download
+                    unique_shorts.append(short)
+                
+                logger.info(
+                    f"   📊 Filtered: {len(unique_shorts)} valid | "
+                    f"{duplicated} dup | {already_searched} re-search | "
+                    f"{already_approved} approved | {already_rejected} blacklisted"
+                )
+                
+                if not unique_shorts:
+                    logger.warning(f"   ⚠️  No valid shorts after filtering (attempt {search_attempts}/{max_search_attempts})")
+                    if search_attempts >= max_search_attempts:
+                        logger.error("❌ Max search attempts reached, stopping")
+                        break
+                    continue  # Try next search round
+                
+                # 3. Download valid shorts (limit to videos_still_needed)
+                shorts_to_download = unique_shorts[:videos_still_needed]
+                logger.info(f"   📦 Downloading {len(shorts_to_download)} shorts...")
+                
+                for i, short in enumerate(shorts_to_download, 1):
+                    video_id = short.get('video_id')
+                    
+                    try:
+                        async with httpx.AsyncClient(timeout=120.0) as client:
+                            # Create download job
+                            response = await client.post(
+                                f"{video_downloader_url}/jobs",
+                                json={
+                                    "url": f"https://www.youtube.com/watch?v={video_id}",
+                                    "quality": "best"
                                 }
                             )
-                        except Exception as e:
-                            logger.warning(f"⚠️  Callback error: {e}")
+                            response.raise_for_status()
+                            job = response.json()
+                            job_id = job.get('id')
+                            
+                            logger.info(f"   📥 [{len(downloaded)+1}/{max_count}] {video_id}: job {job_id}")
+                            
+                            # Poll until complete
+                            max_retries = 30
+                            for retry in range(max_retries):
+                                await asyncio.sleep(2)
+                                status_response = await client.get(
+                                    f"{video_downloader_url}/jobs/{job_id}"
+                                )
+                                status_response.raise_for_status()
+                                job_status = status_response.json()
+                                
+                                if job_status.get('status') == 'completed':
+                                    file_path = job_status.get('file_path')
+                                    logger.info(f"   ✅ [{len(downloaded)+1}/{max_count}] {video_id}: downloaded ({file_path})")
+                                    break
+                                elif job_status.get('status') == 'failed':
+                                    error_msg = job_status.get('error_message', 'Unknown')
+                                    raise Exception(f"Download failed: {error_msg}")
+                            else:
+                                raise Exception("Download timeout (60s)")
+                            
+                            # Download file
+                            download_response = await client.get(
+                                f"{video_downloader_url}/jobs/{job_id}/download",
+                                timeout=60.0
+                            )
+                            download_response.raise_for_status()
+                        
+                        # Save to data/raw/shorts/
+                        file_ext = Path(file_path).suffix if file_path else ".mp4"
+                        video_path = Path(f"data/raw/shorts/{video_id}{file_ext}")
+                        video_path.parent.mkdir(parents=True, exist_ok=True)
+                        
+                        with open(video_path, 'wb') as f:
+                            f.write(download_response.content)
+                        
+                        logger.info(f"   💾 [{len(downloaded)+1}/{max_count}] {video_id}: saved")
+                        
+                        downloaded.append({
+                            'video_id': video_id,
+                            'title': short.get('title'),
+                            'raw_path': str(video_path),
+                            'downloaded_at': now_brazil().isoformat()
+                        })
+                        
+                        # Progress callback
+                        if progress_callback:
+                            progress_pct = 10 + (len(downloaded) / max_count * 40)  # 10-50%
+                            try:
+                                await progress_callback(
+                                    progress=progress_pct,
+                                    metadata={
+                                        'step': 'downloading_shorts',
+                                        'downloaded': len(downloaded),
+                                        'total': max_count,
+                                        'current_video': video_id
+                                    }
+                                )
+                            except Exception as e:
+                                logger.warning(f"⚠️  Callback error: {e}")
+                        
+                        # Stop early if we hit max_count
+                        if len(downloaded) >= max_count:
+                            break
                     
-                except Exception as e:
-                    logger.error(f"   ❌ [{i}/{len(unique_shorts)}] {video_id}: Download failed - {e}")
-                    continue
-
-                logger.info(f"📥 DOWNLOAD COMPLETO: {len(downloaded)}/{len(unique_shorts)} baixados")
+                    except Exception as e:
+                        logger.error(f"   ❌ [{len(downloaded)+1}/{max_count}] {video_id}: {e}")
+                        continue
+            
+            logger.info(f"📥 DOWNLOAD COMPLETO: {len(downloaded)}/{max_count} válidos baixados (#{search_attempts} searches)")
             return downloaded
             
         except Exception as e:
             logger.error(f"❌ Erro no download: {e}", exc_info=True)
-            return []
+            return downloaded  # Return partial results
     
     def transform_video(self, video_id: str, raw_path: str) -> Optional[str]:
         """
