@@ -41,6 +41,12 @@ services:
       - TZ=${TZ:-UTC}
       - PYTHONPATH=/app
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.infrastructure.celery_config inspect ping -d celery@$$HOSTNAME --timeout=3 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
     labels:
       - "com.example.service=youtube-search-worker"
       - "com.example.version=1.0.0"
@@ -61,6 +67,12 @@ services:
       - TZ=${TZ:-UTC}
       - PYTHONPATH=/app
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | tr -d '\\0' | grep -q celery || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
     labels:
       - "com.example.service=youtube-search-beat"
       - "com.example.version=1.0.0"

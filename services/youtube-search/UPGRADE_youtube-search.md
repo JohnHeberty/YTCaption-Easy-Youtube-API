@@ -193,7 +193,7 @@ async def search_with_retry(processor, query: str, **kwargs):
 | Item | Estado Atual | Estado Alvo | Prioridade |
 |------|-------------|-------------|------------|
 | `CMD` frágil com `sh -c` | ✅ DONE — `CMD ["python", "run.py"]` | Manter | — |
-| HEALTHCHECK com `${PORT:-8001}` | ⚠️ Variável não expandida em build time | Usar porta fixa ou `run.py` | Média |
+| HEALTHCHECK com `${PORT:-8001}` | ✅ DONE — celery-worker usa `celery inspect ping`, celery-beat usa `/proc/1/cmdline` | Manter | — |
 | `run.py` no CMD | ✅ DONE — `CMD ["python", "run.py"]` ativo | Manter | — |
 | `constraints.txt` | ✅ DONE — criado | Manter | — |
 | `PYTHONPATH` | ✅ Definido como `/app` | Manter | — |
@@ -255,7 +255,7 @@ tests/
 | Prometheus metrics | ✅ DONE — `/metrics` endpoint ativo | Manter | — |
 | `/health` endpoint | ✅ Deep check (Redis + disk + celery + ytbpy) | Manter | — |
 | Structured logging | ✅ Via `common.log_utils` | Manter | — |
-| Celery signal failure | ⚠️ Ausente em celery_tasks.py | Adicionar `@signals.task_failure.connect` | Média |
+| Celery signal failure | ✅ DONE — `@signals.task_failure.connect` presente em celery_tasks.py | Manter | — |
 
 ---
 
@@ -289,11 +289,11 @@ mv services/youtube-search/app/ytbpy/ services/youtube-search/ytbpy/
 ### Sprint 3 — Estrutura de Testes (2-3h)
 8. Reorganizar testes em unit/integration/e2e
 9. Criar testes unitários para `ytbpy/`
-10. Adicionar `@signals.task_failure.connect` no celery_tasks.py
+10. ✅ DONE Adicionar `@signals.task_failure.connect` no celery_tasks.py
 
 ### Sprint 4 — Observabilidade (1-2h)
 11. ✅ DONE Adicionar `prometheus-client` + `/metrics`
-12. Implementar rate limiting middleware configurável
+12. ✅ DONE Implementar rate limiting middleware (`RateLimiterMiddleware` em `app/middleware/rate_limiter.py`)
 
 ---
 

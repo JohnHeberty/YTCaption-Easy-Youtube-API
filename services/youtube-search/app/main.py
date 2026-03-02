@@ -37,6 +37,7 @@ from .shared.exceptions import (
     exception_handler
 )
 from .core.config import get_settings
+from .middleware.rate_limiter import RateLimiterMiddleware
 
 # Configuration
 settings = get_settings()
@@ -97,6 +98,15 @@ if settings['cors']['enabled']:
         allow_credentials=settings['cors']['credentials'],
         allow_methods=settings['cors']['methods'],
         allow_headers=settings['cors']['headers'],
+    )
+
+# Rate limiting middleware (per-IP sliding window)
+_rl = settings.get('rate_limit', {})
+if isinstance(_rl, dict) and _rl.get('enabled', True):
+    app.add_middleware(
+        RateLimiterMiddleware,
+        max_requests=_rl.get('max_requests') or _rl.get('requests_per_minute', 100),
+        window_seconds=_rl.get('window_seconds') or _rl.get('period_seconds', 60),
     )
 
 # Use Redis as shared store

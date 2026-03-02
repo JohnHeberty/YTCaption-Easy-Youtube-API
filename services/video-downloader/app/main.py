@@ -31,6 +31,7 @@ from .infrastructure.redis_store import RedisJobStore
 from .infrastructure.celery_tasks import download_video_task
 from .shared.exceptions import VideoDownloadException, ServiceException, exception_handler
 from .core.config import get_settings
+from .middleware.rate_limiter import RateLimiterMiddleware
 
 # Configuração de logging
 settings = get_settings()
@@ -81,6 +82,15 @@ setup_exception_handlers(app, debug=settings.get('debug', False))
 # Exception handlers - mantidos para compatibilidade
 app.add_exception_handler(VideoDownloadException, exception_handler)
 app.add_exception_handler(ServiceException, exception_handler)
+
+# Rate limiting middleware (per-IP sliding window)
+_rl = settings.get('rate_limit', {})
+if isinstance(_rl, dict) and _rl.get('enabled', True):
+    app.add_middleware(
+        RateLimiterMiddleware,
+        max_requests=_rl.get('max_requests', 100),
+        window_seconds=_rl.get('window_seconds', 60),
+    )
 
 # Usa Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')

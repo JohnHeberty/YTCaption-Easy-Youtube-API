@@ -37,9 +37,22 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "json"
 
+    # Rate limiting
+    rate_limit_enabled: bool = True
+    rate_limit_requests: int = 100
+    rate_limit_period: int = 60
+
     # ------------------------------------------------------------------ #
     #  Backward-compatibility helpers (callers use settings['key'] style)  #
     # ------------------------------------------------------------------ #
+    @property
+    def rate_limit(self) -> dict:
+        return {
+            "enabled": self.rate_limit_enabled,
+            "max_requests": self.rate_limit_requests,
+            "window_seconds": self.rate_limit_period,
+        }
+
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)
 
