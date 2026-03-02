@@ -25,6 +25,7 @@ from .celery_config import celery_app
 from ..core.models import Job, JobStatus
 from ..domain.downloader import SimpleDownloader
 from .redis_store import RedisJobStore
+from ..core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ class CallbackTask(Task):
     @property
     def downloader(self):
         if self._downloader is None:
-            self._downloader = SimpleDownloader()
+            self._downloader = SimpleDownloader(cache_dir=get_settings().cache_dir)
             # Injeta job_store no downloader
             if self._job_store:
                 self._downloader.job_store = self._job_store

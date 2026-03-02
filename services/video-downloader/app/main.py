@@ -95,7 +95,7 @@ if isinstance(_rl, dict) and _rl.get('enabled', True):
 # Usa Redis como store compartilhado
 redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 job_store = RedisJobStore(redis_url=redis_url)
-downloader = SimpleDownloader()
+downloader = SimpleDownloader(cache_dir=settings.cache_dir)
 
 # Injeta referência do job_store no downloader para updates de progresso
 downloader.job_store = job_store
@@ -423,7 +423,7 @@ async def _perform_basic_cleanup():
             report["errors"].append(f"Redis: {str(e)}")
         
         # 2. LIMPAR ARQUIVOS ÓRFÃOS (sem job correspondente)
-        cache_dir = Path("./cache")
+        cache_dir = Path(settings.cache_dir)
         if cache_dir.exists():
             deleted_count = 0
             for file_path in cache_dir.iterdir():
@@ -595,7 +595,7 @@ async def _perform_total_cleanup(purge_celery_queue: bool = False):
             logger.info("⏭️  Fila Celery NÃO será limpa (purge_celery_queue=false)")
         
         # 3. LIMPAR TODOS OS ARQUIVOS DE CACHE
-        cache_dir = Path("./cache")
+        cache_dir = Path(settings.cache_dir)
         if cache_dir.exists():
             deleted_count = 0
             for file_path in cache_dir.iterdir():
@@ -713,7 +713,7 @@ async def get_stats():
     stats = job_store.get_stats()
     
     # Adiciona info do cache
-    cache_path = Path("./cache")
+    cache_path = Path(settings.cache_dir)
     if cache_path.exists():
         files = list(cache_path.iterdir())
         total_size = sum(f.stat().st_size for f in files if f.is_file())
@@ -1046,7 +1046,7 @@ async def health_check():
         health["warning"] = "Não foi possível conectar ao Celery worker"
     
     # Check cache directory
-    cache_dir = Path("./cache")
+    cache_dir = Path(settings.cache_dir)
     if cache_dir.exists() and cache_dir.is_dir():
         health["checks"]["cache_dir"] = "ok"
     else:
