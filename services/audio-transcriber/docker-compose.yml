@@ -97,6 +97,12 @@ services:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=true
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | tr -d '\\0' | grep -q celery"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     depends_on:
       audio-transcriber-service:
         condition: service_healthy
