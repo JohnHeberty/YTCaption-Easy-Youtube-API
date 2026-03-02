@@ -51,7 +51,7 @@ O `audio-normalization` apresenta uma situação paradoxal: possui o **Dockerfil
 | `config.py` | ✅ DONE — `pydantic_settings.BaseSettings` implementado | Manter | — |
 | `main.py` tamanho | ❌ 1383 linhas "God file" | Extrair rotas para `app/api/routes/` | Alta |
 | `@app.on_event` lifecycle | ✅ DONE — migrado para `lifespan` | Manter | — |
-| `BodySizeMiddleware` inline | ❌ Middleware definido dentro de `main.py` | Mover para `app/middleware/` | Média |
+| `BodySizeMiddleware` inline | ✅ DONE — movido para `app/middleware/body_size.py` | Manter | — |
 
 **Detalhe — `BodySizeMiddleware` no lugar errado:**
 ```python
@@ -246,7 +246,7 @@ tests/
 |------|-------------|-------------|------------|
 | Circuit Breaker Redis | ✅ Via `common.redis_utils` | Manter | — |
 | Retry com tenacity | ✅ Presente | Manter | — |
-| Rate limiting | ❌ Ausente | Middleware de rate limit | Média |
+| Rate limiting | ✅ DONE — `RateLimiterMiddleware` em `app/middleware/rate_limiter.py`, registrado condicionalmente via `RATE_LIMIT_ENABLED` | Manter | — |
 | Prometheus metrics | ✅ DONE — `/metrics` endpoint ativo | Manter | — |
 | `/health` endpoint | ✅ Deep check (Redis + disk + ffmpeg) | Manter e expandir | — |
 | Logging estruturado | ✅ Via `common.log_utils` | Manter | — |
@@ -291,8 +291,8 @@ uploads/
 ### Sprint 2 — Modernização (2-3h)
 5. ✅ DONE Migrar `config.py` para `pydantic_settings.BaseSettings`
 6. ✅ DONE Migrar `@app.on_event` para `lifespan`
-7. Mover `BodySizeMiddleware` para `app/middleware/body_size.py`
-8. Enriquecer `exceptions.py` com HTTP status codes
+7. ✅ DONE Mover `BodySizeMiddleware` para `app/middleware/body_size.py`
+8. ✅ DONE Enriquecer `exceptions.py` com HTTP status codes e `error_code`
 
 ### Sprint 3 — Estrutura (3-5h)
 9. Reorganizar `app/` em camadas: core/, domain/, infrastructure/, services/
@@ -301,7 +301,7 @@ uploads/
 
 ### Sprint 4 — Observabilidade (2h)
 12. ✅ DONE Adicionar `prometheus-client` e endpoint `/metrics`
-13. Adicionar rate limiting
+13. ✅ DONE Adicionar rate limiting (`RateLimiterMiddleware` em `app/middleware/rate_limiter.py`, per-IP sliding window)
 
 ---
 

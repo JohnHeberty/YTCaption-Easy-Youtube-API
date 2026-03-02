@@ -301,7 +301,7 @@ async def _download_with_retry(url: str, opts: dict) -> dict:
 |------|-------------|-------------|------------|
 | Circuit Breaker Redis | ✅ Via `ResilientRedisStore` | Manter | — |
 | Retry em downloads | ✅ DONE — `tenacity` com 3 retries implementado | Manter | — |
-| Rate Limiting | ❌ Ausente (comentário no requirements: "removido slowapi") | Re-adicionar | Média |
+| Rate Limiting | ✅ DONE — `RateLimiterMiddleware` em `app/middleware/rate_limiter.py`, per-IP sliding window, configurado via `RATE_LIMIT_*` envs | Manter | — |
 | Prometheus metrics | ✅ DONE — `/metrics` endpoint ativo | Manter | — |
 | `/health` endpoint | ⚠️ Presente mas pouco estruturado (sem sub-checks organizados) | Padronizar com outros serviços | Média |
 | Celery Signal failure | ✅ `task_failure_handler` presente | Manter | — |

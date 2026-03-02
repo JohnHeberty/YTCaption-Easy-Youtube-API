@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -29,7 +30,9 @@ from .core.models import Job, AudioProcessingRequest, JobStatus
 from .domain.processor import AudioProcessor
 from .infrastructure.redis_store import RedisJobStore
 from .core.config import get_settings
-from .shared.exceptions import AudioProcessingError
+from .shared.exceptions import AudioProcessingError, AudioNormalizationException
+from .middleware.body_size import BodySizeMiddleware
+from .middleware.rate_limiter import RateLimiterMiddleware
 
 # Configuração inicial
 settings = get_settings()
@@ -71,37 +74,37 @@ app = FastAPI(
 setup_exception_handlers(app, debug=settings.get('debug', False))
 
 # Configurar limite de body size baseado no settings
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-import json
-
-class BodySizeMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, max_size: int):
-        super().__init__(app)
-        self.max_size = max_size
-
-    async def dispatch(self, request: Request, call_next):
-        # Verificar Content-Length se presente
-        content_length = request.headers.get('content-length')
-        if content_length and int(content_length) > self.max_size:
-            return JSONResponse(
-                status_code=413,
-                content={"detail": f"Request body too large. Maximum: {self.max_size // 1024 // 1024}MB"}
-            )
-        return await call_next(request)
 
 # Adicionar middleware de tamanho de body (baseado na configuração)
 max_body_size = settings['max_file_size_mb'] * 1024 * 1024
 app.add_middleware(BodySizeMiddleware, max_size=max_body_size)
 
+# Rate limiting middleware (per-IP sliding window)
+_rl = settings.get('rate_limit', {})
+if _rl.get('enabled', True):
+    app.add_middleware(
+        RateLimiterMiddleware,
+        max_requests=_rl.get('max_requests', 100),
+        window_seconds=_rl.get('window_seconds', 60),
+    )
+
 # Exception handlers
+@app.exception_handler(AudioNormalizationException)
+async def normalization_exception_handler(request, exc: AudioNormalizationException):
+    """Catch all domain exceptions and return structured JSON with the correct status."""
+    logger.error("Domain exception | error_code=%s status=%s msg=%s", exc.error_code, exc.status_code, exc.message)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict(),
+    )
+
+
 @app.exception_handler(AudioProcessingError)
 async def processing_exception_handler(request, exc):
     logger.error(f"Processing error: {exc}")
     return JSONResponse(
-        status_code=500,
-        content={"detail": str(exc), "type": "processing_error"}
+        status_code=getattr(exc, 'status_code', 500),
+        content={"detail": str(exc), "error_code": getattr(exc, 'error_code', 'AUDIO_PROCESSING_ERROR')}
     )
 
 # Usa Redis como store compartilhado

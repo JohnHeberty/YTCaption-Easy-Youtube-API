@@ -147,7 +147,14 @@ def get_settings() -> Dict[str, Any]:
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),
         'log_format': os.getenv('LOG_FORMAT', 'json'),
         'log_rotation': os.getenv('LOG_ROTATION', '1 day'),
-        'log_retention': os.getenv('LOG_RETENTION', '30 days')
+        'log_retention': os.getenv('LOG_RETENTION', '30 days'),
+
+        # ===== RATE LIMITING =====
+        'rate_limit': {
+            'enabled': os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true',
+            'max_requests': int(os.getenv('RATE_LIMIT_REQUESTS', '100')),
+            'window_seconds': int(os.getenv('RATE_LIMIT_PERIOD', '60')),
+        },
     }
 
 
