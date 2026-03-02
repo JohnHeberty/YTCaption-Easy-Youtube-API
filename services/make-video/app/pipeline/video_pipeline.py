@@ -640,7 +640,9 @@ class VideoPipeline:
                 logger.info(f"   ✅ Convertido: {transform_path}")
                 return str(transform_path)
             else:
+                stderr_output = result.stderr.decode('utf-8', errors='ignore') if result.stderr else 'No stderr'
                 logger.error(f"   ❌ Conversão falhou (code {result.returncode})")
+                logger.error(f"   📋 FFmpeg stderr: {stderr_output[-500:]}")  # Last 500 chars
                 return None
                 
         except Exception as e:
