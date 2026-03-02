@@ -6,7 +6,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from ..exceptions import AudioNormalizationException
+from ..shared.exceptions import AudioNormalizationException
 
 logger = logging.getLogger(__name__)
 

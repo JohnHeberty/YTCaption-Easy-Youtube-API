@@ -1,8 +1,47 @@
 import os
+from functools import lru_cache
+from typing import Any, Dict
 
-def get_settings():
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
+
+
+class _CoreSettings(BaseSettings):
+    """Validates critical typed settings at startup (fail-fast)."""
+
+    app_name: str = "YouTube Search Service"
+    version: str = "1.0.0"
+    environment: str = "development"
+    debug: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8001
+    redis_url: str = "redis://localhost:6379/0"
+    log_level: str = "INFO"
+
+    @field_validator("port")
+    @classmethod
+    def port_must_be_valid(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError(f"PORT must be 1-65535, got {v}")
+        return v
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore",
+    }
+
+
+# Validate critical settings at import time — raises ValidationError on bad env vars
+_core = _CoreSettings()
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> Dict[str, Any]:
     """
-    Returns all service configurations from environment variables.
+    Returns all service settings from environment variables.
+    Result is cached (singleton) — env changes after first call are ignored.
     Configurations organized by category for easy maintenance.
     """
     return {

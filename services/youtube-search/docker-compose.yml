@@ -8,7 +8,7 @@ services:
       - "${PORT}:${PORT}"
     volumes:
       - ./app:/app/app
-      - ./logs:/app/logs
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:
@@ -31,10 +31,10 @@ services:
   celery-worker:
     build: .
     container_name: youtube-search-celery-worker
-    command: celery -A app.celery_config.celery_app worker --loglevel=info --concurrency=2 -Q youtube_search_queue
+    command: celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=2 -Q youtube_search_queue
     volumes:
       - ./app:/app/app
-      - ./logs:/app/logs
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:
@@ -51,10 +51,10 @@ services:
   celery-beat:
     build: .
     container_name: youtube-search-celery-beat
-    command: celery -A app.celery_config.celery_app beat --loglevel=info
+    command: celery -A app.infrastructure.celery_config.celery_app beat --loglevel=info
     volumes:
       - ./app:/app/app
-      - ./logs:/app/logs
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:

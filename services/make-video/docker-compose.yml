@@ -27,6 +27,7 @@ services:
     build: .
     container_name: ytcaption-make-video-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
+    network_mode: "host"
     volumes:
       # Bind mount da estrutura data/ completa (inclui data/logs/)
       - ./data:/app/data
@@ -34,11 +35,6 @@ services:
       - .env
     environment:
       - PYTHONPATH=/app
-    extra_hosts:
-      - "redis-server:192.168.1.110"
-      - "youtube-search:192.168.1.110"
-      - "video-downloader:192.168.1.110"
-      - "audio-transcriber:192.168.1.110"
     restart: unless-stopped
     depends_on:
       make-video:
@@ -49,26 +45,16 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    networks:
-      - ytcaption-network
 
   make-video-celery-beat:
     build: .
     container_name: ytcaption-make-video-celery-beat
     command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
+    network_mode: "host"
     env_file:
       - .env
     environment:
       - PYTHONPATH=/app
-    extra_hosts:
-      - "redis-server:192.168.1.110"
     restart: unless-stopped
     depends_on:
       - make-video-celery
-    networks:
-      - ytcaption-network
-
-networks:
-  ytcaption-network:
-    external: true
-    name: ytcaption-network

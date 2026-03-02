@@ -1,0 +1,36 @@
+# constraints.txt — upper-bound pins to prevent silent breakage from transitive upgrades
+# Install: pip install -c constraints.txt -r requirements.txt
+
+# --- Web Framework ---
+fastapi>=0.115,<0.121        # tested with 0.120.0
+starlette>=0.40,<0.47        # aligned with fastapi above
+uvicorn>=0.34,<0.40          # tested with 0.38.0
+
+# --- Pydantic v2 ---
+pydantic>=2.11,<3.0          # v2 stable; 2.12.x tested
+pydantic-settings>=2.7,<3.0
+
+# --- Celery & Redis ---
+celery>=5.3,<6.0             # v6 introduces breaking task protocol changes
+redis>=5.0,<6.0              # redis-py 6 is not yet stable
+
+# --- HTTP ---
+httpx>=0.25,<0.30            # 0.28+ breaks some async transport defaults
+
+# --- PyTorch / vision stack (must be compatible with Torch 2.1.x wheels) ---
+torch>=2.1,<2.4              # torch 2.4+ changes model loading ABI
+torchaudio>=2.1,<2.4         # must match torch version
+numpy>=1.24,<2.0             # paddle + torch not yet numpy 2.x compatible
+opencv-python-headless>=4.5,<5.0  # 5.x has breaking API changes
+Pillow>=10.1,<11.0           # Pillow 11 drops Python 3.9 support & breaking changes
+
+# --- PaddlePaddle stack ---
+paddlepaddle>=2.6,<2.7       # 2.7 not yet tested with this OCR version
+paddleocr>=2.7,<2.9          # lock to tested minor range
+
+# --- APScheduler ---
+apscheduler>=3.10,<4.0       # v4 is a full rewrite with different API
+
+# --- Misc ---
+ffmpeg-python>=0.2,<0.3
+pydub>=0.25,<0.26

@@ -1,5 +1,6 @@
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 try:
     from common.datetime_utils import now_brazil
@@ -24,12 +25,12 @@ import logging
 from common.log_utils import setup_structured_logging, get_logger
 from common.exception_handlers import setup_exception_handlers
 
-from .models import Job, JobRequest, JobStatus
-from .downloader import SimpleDownloader
-from .redis_store import RedisJobStore
-from .celery_tasks import download_video_task
-from .exceptions import VideoDownloadException, ServiceException, exception_handler
-from .config import get_settings
+from .core.models import Job, JobRequest, JobStatus
+from .domain.downloader import SimpleDownloader
+from .infrastructure.redis_store import RedisJobStore
+from .infrastructure.celery_tasks import download_video_task
+from .shared.exceptions import VideoDownloadException, ServiceException, exception_handler
+from .core.config import get_settings
 
 # Configuração de logging
 settings = get_settings()
@@ -41,11 +42,37 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
+# ============================================================================
+# LIFECYCLE
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle — replaces deprecated @app.on_event."""
+    # ---- startup ----
+    try:
+        await job_store.start_cleanup_task()
+        logger.info("Video Download Service iniciado com sucesso")
+    except Exception as e:
+        logger.error("Erro durante inicialização: %s", e)
+        raise
+
+    yield
+
+    # ---- shutdown ----
+    try:
+        await job_store.stop_cleanup_task()
+        logger.info("Video Download Service parado graciosamente")
+    except Exception as e:
+        logger.error("Erro durante shutdown: %s", e)
+
+
 # Instâncias globais
 app = FastAPI(
     title="Video Download Service",
     description="Microserviço com Celery + Redis para download de vídeos com cache de 24h",
-    version="3.0.0"
+    version="3.0.0",
+    lifespan=lifespan,
 )
 
 # Setup exception handlers
@@ -99,27 +126,6 @@ async def root():
     }
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Inicializa sistema com Celery"""
-    try:
-        await job_store.start_cleanup_task()
-        logger.info("Video Download Service iniciado com sucesso")
-    except Exception as e:
-        logger.error("Erro durante inicialização: %s", e)
-        raise
-
-
-@app.on_event("shutdown") 
-async def shutdown_event():
-    """Para sistema"""
-    try:
-        await job_store.stop_cleanup_task()
-        logger.info("Video Download Service parado graciosamente")
-    except Exception as e:
-        logger.error("Erro durante shutdown: %s", e)
-
-
 def submit_celery_task(job: Job):
     """Submete job para o Celery"""
     # Serializa job para dict
@@ -144,7 +150,7 @@ async def create_download_job(request_obj: Request, request: JobRequest) -> Job:
     
     Se o mesmo vídeo já foi baixado, retorna o job existente.
     """
-    from .celery_config import celery_app
+    from .infrastructure.celery_config import celery_app
     
     try:
         logger.info(f"Criando job de download para URL: {request.url}")
@@ -692,7 +698,7 @@ async def get_stats():
     """
     Estatísticas completas do sistema com Celery
     """
-    from .celery_config import celery_app
+    from .infrastructure.celery_config import celery_app
     
     stats = job_store.get_stats()
     
@@ -956,12 +962,41 @@ async def cleanup_orphaned_jobs_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to cleanup orphaned jobs: {str(e)}")
 
 
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint — exposes job counts by status."""
+    from fastapi.responses import Response
+
+    svc = "video_downloader"
+    stats: dict = {}
+    try:
+        stats = job_store.get_stats()
+    except Exception as _e:
+        logger.warning("Metrics: failed to get stats: %s", _e)
+
+    by_status = stats.get("by_status", {})
+    total = stats.get("total_jobs", 0)
+
+    lines = [
+        f"# HELP {svc}_jobs_total Jobs in Redis store by status",
+        f"# TYPE {svc}_jobs_total gauge",
+    ]
+    for _status, _count in by_status.items():
+        lines.append(f'{svc}_jobs_total{{status="{_status}"}} {_count}')
+    lines += [
+        f"# HELP {svc}_jobs_store_total Total jobs in Redis store",
+        f"# TYPE {svc}_jobs_store_total gauge",
+        f"{svc}_jobs_store_total {total}",
+    ]
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
+
 @app.get("/health")
 async def health_check():
     """
     Health check profundo - valida recursos críticos
     """
-    from .celery_config import celery_app
+    from .infrastructure.celery_config import celery_app
     
     health = {
         "status": "healthy",

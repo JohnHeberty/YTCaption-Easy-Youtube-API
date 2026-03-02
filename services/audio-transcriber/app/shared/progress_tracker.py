@@ -192,3 +192,7 @@ class RedisProgressTracker(IProgressTracker):
                 self.job_store.save_job(minimal_job)
             except:
                 logger.critical(f"💀 Não foi possível salvar falha do job {job_id}")
+
+
+# Alias para compatibilidade com imports antigos
+ProgressTracker = RedisProgressTracker

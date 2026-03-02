@@ -4,10 +4,22 @@ import logging
 import yt_dlp
 from pathlib import Path
 from typing import Dict, Any, Optional
+from tenacity import retry, stop_after_attempt, wait_exponential_jitter, retry_if_exception_type
 from .models import Job, JobStatus
 from .user_agent_manager import UserAgentManager
 
 logger = logging.getLogger(__name__)
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential_jitter(initial=2, max=20),
+    retry=retry_if_exception_type((IOError, OSError, ConnectionError)),
+    reraise=True,
+)
+def _ytdlp_extract_info(ydl: yt_dlp.YoutubeDL, url: str) -> dict:
+    """Extract video metadata with tenacity retry for transient network errors."""
+    return ydl.extract_info(url, download=False)
 
 
 class SimpleDownloader:
@@ -202,7 +214,7 @@ class SimpleDownloader:
                     with yt_dlp.YoutubeDL(opts) as ydl:
                         # Extrai informações primeiro
                         logger.info(f"📥 Extraindo informações do vídeo (tentativa {attempt_global})...")
-                        info = ydl.extract_info(job.url, download=False)
+                        info = _ytdlp_extract_info(ydl, job.url)
                         
                         # Progresso após extrair info
                         job.progress = min(progress_base + 5, 25.0)

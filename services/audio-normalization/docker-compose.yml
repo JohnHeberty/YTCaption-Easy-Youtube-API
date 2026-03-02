@@ -20,10 +20,10 @@ services:
       - "${PORT}:${PORT}"
     volumes:
       - ./app:/app/app
-      - ./uploads:/app/uploads
-      - ./processed:/app/processed
-      - ./temp:/app/temp
-      - ./logs:/app/logs
+      - ./data/uploads:/app/data/uploads
+      - ./data/processed:/app/data/processed
+      - ./data/temp:/app/data/temp
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:
@@ -49,13 +49,13 @@ services:
   celery-worker:
     build: .
     container_name: audio-normalization-celery
-    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=2 --pool=prefork --queues=audio_normalization_queue
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=2 --pool=prefork --queues=audio_normalization_queue
     volumes:
       - ./app:/app/app
-      - ./uploads:/app/uploads
-      - ./processed:/app/processed
-      - ./temp:/app/temp
-      - ./logs:/app/logs
+      - ./data/uploads:/app/data/uploads
+      - ./data/processed:/app/data/processed
+      - ./data/temp:/app/data/temp
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:
@@ -70,7 +70,7 @@ services:
       audio-normalization-service:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.celery_config inspect ping --timeout=1 || exit 1"]
+      test: ["CMD-SHELL", "celery -A app.infrastructure.celery_config inspect ping --timeout=1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

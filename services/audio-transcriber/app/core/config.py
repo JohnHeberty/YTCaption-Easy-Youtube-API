@@ -1,5 +1,42 @@
 import os
-from typing import List
+from functools import lru_cache
+from typing import Any, List
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings
+
+
+class _CoreSettings(BaseSettings):
+    """Validates critical typed settings at startup (fail-fast)."""
+
+    app_name: str = "Audio Transcription Service"
+    version: str = "2.0.0"
+    environment: str = "development"
+    debug: bool = False
+    host: str = "0.0.0.0"
+    port: int = 8003
+    redis_url: str = "redis://localhost:6379/0"
+    whisper_model: str = "base"
+    whisper_device: str = "cpu"
+    log_level: str = "INFO"
+
+    @field_validator("port")
+    @classmethod
+    def port_must_be_valid(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError(f"PORT must be 1-65535, got {v}")
+        return v
+
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore",
+    }
+
+
+# Validate critical settings at import time — raises ValidationError on bad env vars
+_core = _CoreSettings()
 
 # Linguagens suportadas pelo Whisper
 # Fonte: https://github.com/openai/whisper#available-models-and-languages
@@ -18,8 +55,9 @@ SUPPORTED_LANGUAGES = [
 # Modelos Whisper disponíveis
 WHISPER_MODELS = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
 
-def get_settings():
-    """Retorna configurações da aplicação a partir de variáveis de ambiente"""
+@lru_cache(maxsize=1)
+def get_settings() -> dict:
+    """Return singleton settings dict (cached). Env changes after first call are ignored."""
     return {
         # ===== APLICAÇÃO =====
         'app_name': os.getenv('APP_NAME', 'Audio Transcription Service'),
@@ -53,7 +91,7 @@ def get_settings():
         # ===== WHISPER - MODELO =====
         'whisper_model': os.getenv('WHISPER_MODEL', 'base'),  # tiny, base, small, medium, large
         'whisper_device': os.getenv('WHISPER_DEVICE', 'cpu'),  # cpu ou cuda
-        'whisper_download_root': os.getenv('WHISPER_DOWNLOAD_ROOT', './models'),
+        'whisper_download_root': os.getenv('WHISPER_DOWNLOAD_ROOT', './data/models'),
         'whisper_language': os.getenv('WHISPER_DEFAULT_LANGUAGE', 'auto'),
         
         # ===== WHISPER - CHUNKS (ACELERAÇÃO) =====
@@ -69,11 +107,11 @@ def get_settings():
         'whisper_temperature': float(os.getenv('WHISPER_TEMPERATURE', '0.0')),  # 0.0-1.0
         
         # ===== DIRETÓRIOS =====
-        'upload_dir': os.getenv('UPLOAD_DIR', './uploads'),
-        'transcription_dir': os.getenv('TRANSCRIPTION_DIR', './transcriptions'),
-        'models_dir': os.getenv('MODELS_DIR', './models'),
-        'temp_dir': os.getenv('TEMP_DIR', './temp'),
-        'log_dir': os.getenv('LOG_DIR', './logs'),
+        'upload_dir': os.getenv('UPLOAD_DIR', './data/uploads'),
+        'transcription_dir': os.getenv('TRANSCRIPTION_DIR', './data/transcriptions'),
+        'models_dir': os.getenv('MODELS_DIR', './data/models'),
+        'temp_dir': os.getenv('TEMP_DIR', './data/temp'),
+        'log_dir': os.getenv('LOG_DIR', './data/logs'),
         
         # ===== LOGGING =====
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),

@@ -1,0 +1,54 @@
+import os
+from celery import Celery
+
+
+# Configuração do Redis/Celery via .env
+redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+celery_broker = os.getenv('CELERY_BROKER_URL', redis_url)
+celery_backend = os.getenv('CELERY_RESULT_BACKEND', redis_url)
+
+# Timeouts configuráveis
+task_time_limit = int(os.getenv('CELERY_TASK_TIME_LIMIT', '1800'))
+task_soft_time_limit = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '1500'))
+
+# TTL dos resultados (baseado em CACHE__TTL_HOURS)
+cache_ttl_hours = int(os.getenv('CACHE__TTL_HOURS', '24'))
+result_expires = cache_ttl_hours * 3600
+
+# Inicializa Celery
+celery_app = Celery(
+    'audio_normalization_tasks',
+    broker=celery_broker,
+    backend=celery_backend
+)
+
+# Configurações
+celery_app.conf.update(
+    task_serializer='json',
+    accept_content=['json'],
+    result_serializer='json',
+    timezone='UTC',
+    enable_utc=True,
+    # TTL dos resultados (configurável via CACHE__TTL_HOURS)
+    result_expires=result_expires,
+    # Timeout das tasks (configurável via .env)
+    task_time_limit=task_time_limit,
+    task_soft_time_limit=task_soft_time_limit,
+    # Worker settings otimizados para resiliência
+    worker_prefetch_multiplier=int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', '1')),
+    worker_max_tasks_per_child=int(os.getenv('CELERY_WORKER_MAX_TASKS_PER_CHILD', '50')),
+    task_acks_late=os.getenv('CELERY_TASK_ACKS_LATE', 'true').lower() == 'true',
+    task_reject_on_worker_lost=True,
+    worker_cancel_long_running_tasks_on_connection_loss=os.getenv('CELERY_WORKER_CANCEL_LONG_RUNNING_TASKS_ON_CONNECTION_LOSS', 'true').lower() == 'true',
+    broker_connection_retry_on_startup=True,
+    broker_connection_retry=True,
+    broker_connection_max_retries=10,
+    # 🔧 FILA DEDICADA para audio-normalization
+    task_default_queue='audio_normalization_queue',
+    task_routes={
+        'normalize_audio_task': {'queue': 'audio_normalization_queue'},
+        'cleanup_expired_jobs': {'queue': 'audio_normalization_queue'},
+    },
+    # Auto-discovery das tasks
+    include=['app.infrastructure.celery_tasks']
+)

@@ -1,5 +1,6 @@
 import asyncio
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 try:
     from common.datetime_utils import now_brazil
@@ -24,11 +25,11 @@ import logging
 from common.log_utils import setup_structured_logging, get_logger
 from common.exception_handlers import setup_exception_handlers
 
-from .models import Job, AudioProcessingRequest, JobStatus
-from .processor import AudioProcessor
-from .redis_store import RedisJobStore
-from .config import get_settings
-from .exceptions import AudioProcessingError
+from .core.models import Job, AudioProcessingRequest, JobStatus
+from .domain.processor import AudioProcessor
+from .infrastructure.redis_store import RedisJobStore
+from .core.config import get_settings
+from .shared.exceptions import AudioProcessingError
 
 # Configuração inicial
 settings = get_settings()
@@ -40,11 +41,30 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
+# ============================================================================
+# LIFECYCLE
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle — replaces deprecated @app.on_event."""
+    # ---- startup ----
+    await job_store.start_cleanup_task()
+    logger.info("Audio Normalization Service iniciado com sucesso")
+
+    yield
+
+    # ---- shutdown ----
+    await job_store.stop_cleanup_task()
+    logger.info("Audio Normalization Service parado graciosamente")
+
+
 # Instâncias globais
 app = FastAPI(
     title="Audio Normalization Service",
     description="Microserviço para normalização de áudio com cache de 24h",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Setup exception handlers
@@ -93,20 +113,6 @@ processor = AudioProcessor()
 processor.job_store = job_store
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Inicializa sistema"""
-    await job_store.start_cleanup_task()
-    print("✅ Serviço de normalização iniciado")
-
-
-@app.on_event("shutdown") 
-async def shutdown_event():
-    """Para sistema"""
-    await job_store.stop_cleanup_task()
-    print("🛑 Serviço parado graciosamente")
-
-
 @app.get("/")
 async def root():
     """
@@ -142,8 +148,8 @@ async def root():
 def submit_processing_task(job: Job):
     """Submete job para processamento em background via Celery"""
     try:
-        from .celery_config import celery_app
-        from .celery_tasks import normalize_audio_task
+        from .infrastructure.celery_config import celery_app
+        from .infrastructure.celery_tasks import normalize_audio_task
         
         # Envia job para o worker Celery
         task_result = normalize_audio_task.apply_async(
@@ -397,7 +403,7 @@ async def get_job_status(job_id: str):
         celery_error = None
         
         try:
-            from .celery_config import celery_app
+            from .infrastructure.celery_config import celery_app
             task_result = celery_app.AsyncResult(job_id)
             celery_status = task_result.state
             
@@ -1292,6 +1298,35 @@ async def cleanup_orphaned_jobs_endpoint(
     except Exception as e:
         logger.error(f"Error cleaning up orphaned jobs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to cleanup orphaned jobs: {str(e)}")
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint — exposes job counts by status."""
+    from fastapi.responses import Response
+
+    svc = "audio_normalization"
+    stats: dict = {}
+    try:
+        stats = job_store.get_stats()
+    except Exception as _e:
+        logger.warning("Metrics: failed to get stats: %s", _e)
+
+    by_status = stats.get("by_status", {})
+    total = stats.get("total_jobs", 0)
+
+    lines = [
+        f"# HELP {svc}_jobs_total Jobs in Redis store by status",
+        f"# TYPE {svc}_jobs_total gauge",
+    ]
+    for _status, _count in by_status.items():
+        lines.append(f'{svc}_jobs_total{{status="{_status}"}} {_count}')
+    lines += [
+        f"# HELP {svc}_jobs_store_total Total jobs in Redis store",
+        f"# TYPE {svc}_jobs_store_total gauge",
+        f"{svc}_jobs_store_total {total}",
+    ]
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
 
 @app.get("/health")

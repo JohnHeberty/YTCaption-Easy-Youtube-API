@@ -7,19 +7,18 @@ import uvicorn
 from app.main import app
 
 if __name__ == "__main__":
-    # Expandir ${DIVISOR} manualmente se necessário
-    port = os.getenv("PORT", "8005")
-    divisor = os.getenv("DIVISOR", "5")
-    
-    # Se PORT contém ${DIVISOR}, substituir
-    if "${DIVISOR}" in port:
-        port = port.replace("${DIVISOR}", divisor)
-    
-    port = int(port)
-    
+    port = int(os.getenv("PORT", "8005"))
+    reload_flag = os.getenv("UVICORN_RELOAD", "0") in ("1", "true", "True")
+    workers = int(os.getenv("UVICORN_WORKERS", "1"))
+
     uvicorn.run(
         app,
         host="0.0.0.0",
         port=port,
-        log_level="info"
+        reload=reload_flag,
+        workers=workers if not reload_flag else 1,
+        log_level="info",
+        limit_max_requests=1_000,
+        limit_concurrency=10,
+        access_log=True,
     )

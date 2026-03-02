@@ -4,6 +4,7 @@ import os
 import logging
 from typing import Optional, List
 from datetime import datetime, timedelta
+import redis.asyncio as aioredis
 try:
     from common.datetime_utils import now_brazil, ensure_timezone_aware
 except ImportError:
@@ -51,9 +52,14 @@ class RedisJobStore:
             circuit_breaker_timeout=int(os.getenv('REDIS_CIRCUIT_BREAKER_TIMEOUT', '60'))
         )
         
-        # Keep compatible interface - Redis client síncrono
+        # Keep compatible interface - Redis client síncrono (para writes/save_job)
         self.redis = self.redis_client.redis
         self._cleanup_task: Optional[asyncio.Task] = None
+
+        # Cliente async para leituras não-bloqueantes (redis.asyncio - nativo desde redis-py 4.2)
+        # Garante que GET nunca bloqueia a event loop do FastAPI
+        self._redis_url = redis_url
+        self._async_redis: Optional[aioredis.Redis] = None
         
         # Read cache configurations from environment variables
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
@@ -62,6 +68,19 @@ class RedisJobStore:
         logger.info("✅ Redis connected with resilience: %s", redis_url)
         logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
                    self.cache_ttl_hours, self.cleanup_interval_minutes)
+
+    def _get_async_redis(self) -> aioredis.Redis:
+        """Obtém (ou cria) cliente Redis async com pool de conexões compartilhado."""
+        if self._async_redis is None:
+            self._async_redis = aioredis.from_url(
+                self._redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=20,
+                socket_connect_timeout=2,
+                socket_timeout=2,
+            )
+        return self._async_redis
     
     def _job_key(self, job_id: str) -> str:
         """Generate Redis key for job"""
@@ -157,37 +176,66 @@ class RedisJobStore:
     
     async def save_job(self, job: Job) -> None:
         """
-        Save job to Redis
+        Save job to Redis with error handling
         
         Args:
             job: Job to save
+            
+        Raises:
+            Exception: If Redis operation fails after retries
         """
         key = self._job_key(job.job_id)
-        data = self._serialize_job(job)
         
-        # Calculate TTL in seconds
-        ttl_seconds = self.cache_ttl_hours * 3600
-        
-        # Save with TTL (operação síncrona)
-        self.redis.setex(key, ttl_seconds, data)
-        logger.debug(f"💾 Job saved: {job.job_id} (TTL: {self.cache_ttl_hours}h)")
+        try:
+            data = self._serialize_job(job)
+            
+            # Calculate TTL in seconds
+            ttl_seconds = self.cache_ttl_hours * 3600
+            
+            # Save with TTL (operação síncrona)
+            self.redis.setex(key, ttl_seconds, data)
+            logger.info(f"💾 Job saved: {job.job_id} status={job.status} progress={job.progress:.1f}%")
+            
+        except Exception as e:
+            logger.error(
+                f"❌ CRITICAL: Failed to save job {job.job_id} to Redis: {type(e).__name__}: {e}",
+                exc_info=True,
+                extra={
+                    "job_id": job.job_id,
+                    "status": job.status,
+                    "progress": job.progress,
+                    "error": str(e)
+                }
+            )
+            # Re-raise para que o caller saiba que falhou
+            raise
     
     async def get_job(self, job_id: str) -> Optional[Job]:
         """
-        Get job from Redis
-        
-        Args:
-            job_id: Job ID
-        
-        Returns:
-            Job or None if not found
+        Busca job do Redis usando cliente async nativo (redis.asyncio).
+        Nunca bloqueia a event loop — sem thread pool, sem risco de esgotamento.
         """
         key = self._job_key(job_id)
-        data = self.redis.get(key)  # Operação síncrona
-        
-        if data:
-            return self._deserialize_job(data)
-        return None
+        try:
+            async_redis = self._get_async_redis()
+            # await direto: redis.asyncio é 100% não-bloqueante
+            data = await asyncio.wait_for(async_redis.get(key), timeout=2.0)
+            if data:
+                return self._deserialize_job(data)
+            return None
+        except asyncio.TimeoutError:
+            logger.error(
+                f"⏱️ TIMEOUT ao buscar job {job_id} do Redis (>2s)",
+                extra={"job_id": job_id, "key": key}
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                f"❌ Erro ao buscar job {job_id}: {e}",
+                exc_info=True,
+                extra={"job_id": job_id}
+            )
+            return None
     
     async def delete_job(self, job_id: str) -> bool:
         """

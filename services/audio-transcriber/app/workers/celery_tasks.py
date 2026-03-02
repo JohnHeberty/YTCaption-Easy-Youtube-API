@@ -284,7 +284,7 @@ def cleanup_orphan_jobs_task():
     """
     logger.info("🧹 Executando limpeza de jobs órfãos")
     
-    from .orphan_cleaner import OrphanJobCleaner
+    from app.shared.orphan_cleaner import OrphanJobCleaner
     
     redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
     store = RedisJobStore(redis_url=redis_url)

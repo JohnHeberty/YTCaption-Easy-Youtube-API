@@ -1,6 +1,7 @@
 import asyncio
 import os
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 try:
     from common.datetime_utils import now_brazil
@@ -41,11 +42,53 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
+# ============================================================================
+# LIFECYCLE
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifecycle — replaces deprecated @app.on_event."""
+    # ---- startup ----
+    try:
+        await job_store.start_cleanup_task()
+        logger.info("Audio Transcription Service iniciado com sucesso")
+
+        # Pré-carrega modelo Whisper no startup se configurado (padrão: True)
+        preload_model = os.getenv('WHISPER_PRELOAD_MODEL', 'true').lower() == 'true'
+        if preload_model:
+            logger.info("🚀 Pré-carregando modelo Whisper no startup...")
+            try:
+                result = processor.load_model_explicit()
+                if result["success"]:
+                    logger.info("✅ %s", result['message'])
+                else:
+                    logger.warning("⚠️ Falha no pré-carregamento: %s", result['message'])
+            except Exception as e:
+                logger.error("❌ Erro ao pré-carregar modelo: %s", e)
+                logger.warning("⚠️ Serviço continuará funcionando. Modelo será carregado sob demanda.")
+        else:
+            logger.info("ℹ️ Pré-carregamento de modelo DESABILITADO (WHISPER_PRELOAD_MODEL=false)")
+    except Exception as e:
+        logger.error("Erro durante inicialização: %s", e)
+        raise
+
+    yield
+
+    # ---- shutdown ----
+    try:
+        await job_store.stop_cleanup_task()
+        logger.info("Audio Transcription Service parado graciosamente")
+    except Exception as e:
+        logger.error("Erro durante shutdown: %s", e)
+
+
 # Instâncias globais
 app = FastAPI(
     title="Audio Transcription Service",
     description="Microserviço para transcrição de áudio com cache de 24h",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=lifespan,
 )
 
 # Setup exception handlers
@@ -62,46 +105,6 @@ processor = TranscriptionProcessor()
 
 # Injeta referência do job_store no processor para updates de progresso
 processor.job_store = job_store
-
-
-@app.on_event("startup")
-async def startup_event():
-    """Inicializa sistema"""
-    try:
-        await job_store.start_cleanup_task()
-        logger.info("Audio Transcription Service iniciado com sucesso")
-        
-        # Carrega modelo no startup se configurado (padrão: True)
-        preload_model = os.getenv('WHISPER_PRELOAD_MODEL', 'true').lower() == 'true'
-        
-        if preload_model:
-            logger.info("🚀 Pré-carregando modelo Whisper no startup...")
-            try:
-                result = processor.load_model_explicit()
-                if result["success"]:
-                    logger.info(f"✅ {result['message']}")
-                else:
-                    logger.warning(f"⚠️ Falha no pré-carregamento: {result['message']}")
-            except Exception as e:
-                logger.error(f"❌ Erro ao pré-carregar modelo: {e}")
-                logger.warning("⚠️ Serviço continuará funcionando. Modelo será carregado sob demanda.")
-        else:
-            logger.info("ℹ️ Pré-carregamento de modelo DESABILITADO (WHISPER_PRELOAD_MODEL=false)")
-            logger.info("   Modelo será carregado apenas quando necessário (primeira task)")
-            
-    except Exception as e:
-        logger.error(f"Erro durante inicialização: {e}")
-        raise
-
-
-@app.on_event("shutdown") 
-async def shutdown_event():
-    """Para sistema"""
-    try:
-        await job_store.stop_cleanup_task()
-        logger.info("Audio Transcription Service parado graciosamente")
-    except Exception as e:
-        logger.error(f"Erro durante shutdown: {e}")
 
 
 @app.get("/")
@@ -1332,6 +1335,35 @@ async def cleanup_orphaned_jobs_endpoint(
         raise HTTPException(status_code=500, detail=f"Failed to cleanup orphaned jobs: {str(e)}")
 
 
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint — exposes job counts by status."""
+    from fastapi.responses import Response
+
+    svc = "audio_transcriber"
+    stats: dict = {}
+    try:
+        stats = job_store.get_stats()
+    except Exception as _e:
+        logger.warning("Metrics: failed to get stats: %s", _e)
+
+    by_status = stats.get("by_status", {})
+    total = stats.get("total_jobs", 0)
+
+    lines = [
+        f"# HELP {svc}_jobs_total Jobs in Redis store by status",
+        f"# TYPE {svc}_jobs_total gauge",
+    ]
+    for _status, _count in by_status.items():
+        lines.append(f'{svc}_jobs_total{{status="{_status}"}} {_count}')
+    lines += [
+        f"# HELP {svc}_jobs_store_total Total jobs in Redis store",
+        f"# TYPE {svc}_jobs_store_total gauge",
+        f"{svc}_jobs_store_total {total}",
+    ]
+    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
+
+
 @app.get("/health")
 async def health_check():
     """Health check profundo - valida recursos críticos"""
@@ -1489,7 +1521,7 @@ async def cleanup_orphan_jobs_endpoint():
     🧹 Executa limpeza manual de jobs órfãos.
     Endpoint administrativo para forçar limpeza de jobs travados.
     """
-    from .orphan_cleaner import OrphanJobCleaner
+    from app.shared.orphan_cleaner import OrphanJobCleaner
     
     try:
         cleaner = OrphanJobCleaner(job_store)

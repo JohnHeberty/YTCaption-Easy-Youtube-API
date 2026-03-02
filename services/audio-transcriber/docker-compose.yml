@@ -7,11 +7,11 @@ services:
       - "${PORT}:${PORT}"
     volumes:
       - ./app:/app/app
-      - ./uploads:/app/uploads
-      - ./transcriptions:/app/transcriptions
-      - ./models:/app/models
-      - ./temp:/app/temp
-      - ./logs:/app/logs
+      - ./data/uploads:/app/data/uploads
+      - ./data/transcriptions:/app/data/transcriptions
+      - ./data/models:/app/data/models
+      - ./data/temp:/app/data/temp
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:
@@ -24,9 +24,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 16G
         reservations:
-          memory: 4G
+          memory: 8G
           devices:
             - driver: nvidia
               count: 1
@@ -46,11 +46,11 @@ services:
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
-      - ./uploads:/app/uploads
-      - ./transcriptions:/app/transcriptions
-      - ./models:/app/models
-      - ./temp:/app/temp
-      - ./logs:/app/logs
+      - ./data/uploads:/app/data/uploads
+      - ./data/transcriptions:/app/data/transcriptions
+      - ./data/models:/app/data/models
+      - ./data/temp:/app/data/temp
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:
@@ -64,9 +64,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G
+          memory: 16G
         reservations:
-          memory: 4G
+          memory: 8G
           devices:
             - driver: nvidia
               count: 1
@@ -89,7 +89,7 @@ services:
     command: python -m celery -A app.celery_config beat --loglevel=info
     volumes:
       - ./app:/app/app
-      - ./logs:/app/logs
+      - ./data/logs:/app/data/logs
     env_file:
       - .env
     environment:

@@ -287,3 +287,7 @@ async def run_orphan_cleanup_loop(
         
         # Aguarda próxima iteração
         await asyncio.sleep(interval_minutes * 60)
+
+
+# Alias para compatibilidade com imports antigos
+OrphanCleaner = OrphanJobCleaner

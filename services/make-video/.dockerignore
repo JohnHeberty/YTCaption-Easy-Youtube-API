@@ -56,6 +56,21 @@ storage/calibration/
 .git/
 .gitignore
 
+# Obsolete / dev-only directories
+.trash/
+sprints/
+
+# Runtime data — never in Docker image
+data/logs/
+data/approved/output/
+data/approved/videos/
+data/raw/audio/
+data/raw/shorts/*.json
+data/database/
+*.mp4
+*.ogg
+*.db
+
 # Documentation
 README.md
 *.md

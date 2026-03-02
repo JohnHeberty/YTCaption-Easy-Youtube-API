@@ -4,7 +4,7 @@ Script de inicialização do serviço de normalização de áudio
 """
 import uvicorn
 from app.main import app
-from app.config import get_settings
+from app.core.config import get_settings
 
 if __name__ == "__main__":
     import os
@@ -13,7 +13,7 @@ if __name__ == "__main__":
     max_body_size = settings['max_file_size_mb'] * 1024 * 1024
     
     # Porta do .env ou 8002 como padrão
-    port = int(os.getenv('PORT', 8002))
+    port = int(os.getenv('PORT', 8003))
     
     # Workers baseado no número de CPUs disponíveis
     workers = int(os.getenv('WORKERS', 1))

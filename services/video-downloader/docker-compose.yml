@@ -7,8 +7,8 @@ services:
     volumes:
       # Monta código fonte para hot reload em desenvolvimento
       - ./app:/app/app
-      - ./cache:/app/cache
-      - ./logs:/app/logs
+      - ./data/cache:/app/data/cache
+      - ./data/logs:/app/data/logs
       - ./user-agents.txt:/app/user-agents.txt
       - ./user-agents-clean.txt:/app/user-agents-clean.txt
       - ./user-agents-original.txt:/app/user-agents-original.txt
@@ -31,12 +31,12 @@ services:
   celery-worker:
     build: .
     container_name: video-downloader-celery
-    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
       # Monta código fonte para hot reload em desenvolvimento
       - ./app:/app/app
-      - ./cache:/app/cache
-      - ./logs:/app/logs
+      - ./data/cache:/app/data/cache
+      - ./data/logs:/app/data/logs
       - ./user-agents.txt:/app/user-agents.txt
       - ./user-agents-clean.txt:/app/user-agents-clean.txt
       - ./user-agents-original.txt:/app/user-agents-original.txt
@@ -51,7 +51,7 @@ services:
       video-downloader-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
+      test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -1,8 +1,8 @@
 # YouTube Search Service - Core Dependencies
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
+fastapi==0.120.0
+uvicorn[standard]==0.38.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
 
 # === COMMON LIBRARY ===
 -e ./common
@@ -13,6 +13,12 @@ celery==5.3.4
 
 # HTTP requests
 httpx==0.26.0
+
+# Resilience
+tenacity==9.0.0  # Retry & exponential backoff for YouTube API transient errors
+
+# Observability
+prometheus-client==0.19.0
 
 # Development dependencies
 pytest==7.4.4
