@@ -395,7 +395,7 @@ async def _perform_basic_cleanup():
         # 1. LIMPAR JOBS EXPIRADOS DO REDIS (>24h)
         try:
             redis = Redis.from_url(redis_url, decode_responses=True)
-            keys = redis.keys("video_job:*")
+            keys = redis.keys("job:*")
             now = now_brazil()
             expired_count = 0
             
@@ -405,7 +405,12 @@ async def _perform_basic_cleanup():
                     import json
                     try:
                         job = json.loads(job_data)
-                        created_at = datetime.fromisoformat(job.get("created_at", ""))
+                        raw_ts = job.get("created_at", "")
+                        created_at = datetime.fromisoformat(raw_ts)
+                        # Ensure timezone-aware for comparison with now_brazil()
+                        if created_at.tzinfo is None:
+                            from datetime import timezone
+                            created_at = created_at.replace(tzinfo=timezone.utc)
                         age = now - created_at
                         
                         # Remove se > 24 horas
@@ -433,7 +438,10 @@ async def _perform_basic_cleanup():
                 # Arquivo órfão se não há job correspondente
                 # (lógica simplificada: arquivos >24h)
                 try:
-                    age = now_brazil() - datetime.fromtimestamp(file_path.stat().st_mtime)
+                    from datetime import timezone
+                    age = now_brazil() - datetime.fromtimestamp(
+                        file_path.stat().st_mtime, tz=timezone.utc
+                    )
                     if age > timedelta(hours=24):
                         size_mb = file_path.stat().st_size / (1024 * 1024)
                         await asyncio.to_thread(file_path.unlink)

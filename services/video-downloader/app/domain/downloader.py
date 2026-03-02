@@ -330,8 +330,17 @@ class SimpleDownloader:
     
     def get_file_path(self, job: Job) -> Optional[Path]:
         """Retorna caminho do arquivo se existir"""
-        if job.file_path and Path(job.file_path).exists():
-            return Path(job.file_path)
+        if not job.file_path:
+            return None
+        # Try stored path directly (absolute or relative from CWD)
+        direct = Path(job.file_path)
+        if direct.exists():
+            return direct
+        # Fallback: look in current cache_dir by filename only
+        # (handles old jobs that stored relative paths before CACHE_DIR was fixed)
+        fallback = self.cache_dir / direct.name
+        if fallback.exists():
+            return fallback
         return None
     
     def get_user_agent_stats(self) -> Dict[str, Any]:
