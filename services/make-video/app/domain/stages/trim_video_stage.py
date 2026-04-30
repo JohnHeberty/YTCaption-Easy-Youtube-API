@@ -10,15 +10,13 @@ TrimVideoStage - Trim video to target duration with validation
 
 from pathlib import Path
 from typing import Dict, Any
-import logging
 import shutil
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TrimVideoStage(JobStage):
     """Stage 8: Trim video to exact duration"""

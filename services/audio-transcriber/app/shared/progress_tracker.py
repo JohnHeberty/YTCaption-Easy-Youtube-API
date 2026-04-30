@@ -2,7 +2,6 @@
 Gerenciador de progresso de jobs (Single Responsibility Principle).
 Responsável APENAS por rastrear e atualizar progresso de jobs.
 """
-import logging
 from typing import Any, Optional
 from datetime import datetime
 try:
@@ -18,12 +17,11 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-
 from ..domain.interfaces import IProgressTracker, IJobStore
 from ..domain.models import Job, JobStatus
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class RedisProgressTracker(IProgressTracker):
     """
@@ -192,7 +190,6 @@ class RedisProgressTracker(IProgressTracker):
                 self.job_store.save_job(minimal_job)
             except:
                 logger.critical(f"💀 Não foi possível salvar falha do job {job_id}")
-
 
 # Alias para compatibilidade com imports antigos
 ProgressTracker = RedisProgressTracker

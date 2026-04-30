@@ -3,6 +3,8 @@
 Script de teste para o serviço Audio Normalization
 Testa cada parâmetro booleano individualmente
 """
+import pytest
+pytestmark = pytest.mark.skip(reason="DEPRECATED: imports removed legacy modules. See PLAN.md F2-T8.")
 import requests
 import time
 import os

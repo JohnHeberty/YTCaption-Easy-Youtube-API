@@ -10,15 +10,13 @@ AnalyzeAudioStage - Analyze audio file and calculate video duration
 
 from pathlib import Path
 from typing import Dict, Any
-import logging
 
 from ..job_stage import JobStage, StageContext
 from ...core.constants import ProcessingLimits
 from ...shared.exceptions import AudioProcessingException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class AnalyzeAudioStage(JobStage):
     """Stage 1: Analyze uploaded audio file"""

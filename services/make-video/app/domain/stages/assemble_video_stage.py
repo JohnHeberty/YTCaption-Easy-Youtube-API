@@ -10,14 +10,12 @@ AssembleVideoStage - Concatenate shorts into single video
 
 from pathlib import Path
 from typing import Dict, Any
-import logging
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class AssembleVideoStage(JobStage):
     """Stage 5: Assemble video from shorts"""

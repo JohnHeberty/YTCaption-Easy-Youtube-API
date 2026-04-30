@@ -6,7 +6,6 @@ Implementa APENAS processamento de vídeo - NÃO baixa vídeos.
 """
 
 import asyncio
-import logging
 import json
 import shutil
 from pathlib import Path
@@ -27,13 +26,13 @@ from ..shared.exceptions_v2 import (
     FFprobeFailedException,
     SubprocessTimeoutException
 )
+from common.log_utils import get_logger
 from ..infrastructure.subprocess_utils import (
     run_ffmpeg_with_timeout,
     run_ffprobe
 )
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class VideoBuilder:
     """Construtor de vídeos usando FFmpeg"""

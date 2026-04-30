@@ -5,14 +5,13 @@ Validates that videos can be safely concatenated without FFmpeg errors.
 Prevents incompatibility issues (codec, FPS, resolution) before concatenation.
 """
 
-import logging
 from typing import List, Dict, Any
 from pathlib import Path
 
 from ..shared.exceptions_v2 import VideoIncompatibleException
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class VideoCompatibilityValidator:
     """

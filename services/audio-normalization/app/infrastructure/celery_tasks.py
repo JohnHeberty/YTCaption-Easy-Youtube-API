@@ -5,17 +5,17 @@ Refatorado seguindo SOLID principles
 """
 
 import os
-import logging
 import asyncio
 from celery import Task, signals
 from .celery_config import celery_app
-from ..core.models import Job, JobStatus
+from ..core.models import AudioNormJob
+from common.job_utils.models import JobStatus
+from common.log_utils import get_logger
 from .redis_store import RedisJobStore
 from ..core.config import get_service_config
-from ..services import FileValidator, AudioExtractor, AudioNormalizer, JobManager
+from ..services import FileValidator, AudioExtractor, AudioNormalizer, JobManager, AudioProcessor
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 # ==========================================
 # SIGNAL HANDLERS PARA SINCRONIZAÇÃO REDIS
@@ -41,7 +41,7 @@ def task_failure_handler(sender=None, task_id=None, exception=None, args=None, k
             
             try:
                 # Reconstrói job e marca como FAILED
-                job = Job(**job_dict)
+                job = AudioNormJob(**job_dict)
                 job.status = JobStatus.FAILED
                 job.error_message = f"Task failed: {str(exception)}"
                 job.progress = 0.0
@@ -52,7 +52,6 @@ def task_failure_handler(sender=None, task_id=None, exception=None, args=None, k
                 logger.error(f"❌ SIGNAL: Failed to update Redis Store: {update_err}")
     except Exception as handler_err:
         logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
-
 
 @signals.task_revoked.connect
 def task_revoked_handler(sender=None, request=None, terminated=None, signum=None, expired=None, **kw):
@@ -73,7 +72,7 @@ def task_revoked_handler(sender=None, request=None, terminated=None, signum=None
                 store = RedisJobStore(redis_url=redis_url)
                 
                 try:
-                    job = Job(**job_dict)
+                    job = AudioNormJob(**job_dict)
                     job.status = JobStatus.FAILED
                     job.error_message = f"Task revoked: terminated={terminated}, signal={signum}"
                     job.progress = 0.0
@@ -85,16 +84,17 @@ def task_revoked_handler(sender=None, request=None, terminated=None, signum=None
     except Exception as handler_err:
         logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
 
-
 class CallbackTask(Task):
     """Task base com lazy initialization de serviços"""
     
     def __init__(self):
         super().__init__()
         self._job_manager = None
+        self._processor = None
+        self._job_store = None
     
     @property
-    def job_manager(self) -> JobManager:
+    def job_manager(self):
         """Lazy initialization do JobManager com todas as dependências"""
         if self._job_manager is None:
             redis_url = os.getenv('REDIS_URL', None)
@@ -121,8 +121,12 @@ class CallbackTask(Task):
     @property
     def processor(self):
         if self._processor is None:
-            self._processor = AudioProcessor()
-            if self._job_store:
+            from ..core.config import get_service_config, get_settings
+            settings = get_settings()
+            from ..services.audio_processor import AudioConfig
+            audio_config = AudioConfig(settings)
+            self._processor = AudioProcessor(config=audio_config)
+            if self._job_store is not None:
                 self._processor.job_store = self._job_store
         return self._processor
     
@@ -131,10 +135,9 @@ class CallbackTask(Task):
         if self._job_store is None:
             redis_url = os.getenv('REDIS_URL', None)
             self._job_store = RedisJobStore(redis_url=redis_url)
-            if self._processor:
+            if self._processor is not None:
                 self._processor.job_store = self._job_store
         return self._job_store
-
 
 @celery_app.task(
     bind=True, 
@@ -161,9 +164,9 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
     - Hard timeout: 30 minutos
     
     Args:
-        job_dict (dict): Job serializado como dicionário.
+        job_dict (dict): AudioNormJob serializado como dicionário.
     Returns:
-        dict: Job atualizado como dicionário com status success/failure.
+        dict: AudioNormJob atualizado como dicionário com status success/failure.
     """
     from celery.exceptions import Ignore, WorkerLostError, SoftTimeLimitExceeded
     
@@ -174,30 +177,31 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
     try:
         # 1. RECONSTITUIÇÃO DO JOB - PRIMEIRA LINHA DE DEFESA
         try:
-            job = Job(**job_dict)
+            job = AudioNormJob(**job_dict)
             logger.info(f"✅ Job {job_id} reconstitution successful")
         except Exception as ve:
             logger.error(f"❌ Job {job_id} validation error during reconstitution: {ve}")
             # Fallback: preenche campos ausentes com defaults
             fields = {}
-            for field in Job.model_fields:
+            for field in AudioNormJob.model_fields:
                 if field in job_dict:
                     fields[field] = job_dict[field]
                 else:
-                    default_val = Job.model_fields[field].default
+                    default_val = AudioNormJob.model_fields[field].default
                     fields[field] = default_val if default_val is not None else ""
-            job = Job(**fields)
-            logger.info(f"⚠️ Job {job_id} reconstitution with default values")
-        except Exception as reconst_err:
-            logger.critical(f"🔥 CRITICAL: Unable to reconstitute job {job_id}: {reconst_err}")
-            # Atualiza Celery com erro fatal
-            self.update_state(state='FAILURE', meta={
-                'status': 'failed',
-                'job_id': job_id,
-                'error': f'Job reconstitution failed: {str(reconst_err)}',
-                'progress': 0.0
-            })
-            raise Ignore()  # Evita retry automático
+            try:
+                job = AudioNormJob(**fields)
+                logger.info(f"⚠️ Job {job_id} reconstitution with default values")
+            except Exception as reconst_err:
+                logger.critical(f"🔥 CRITICAL: Unable to reconstitute job {job_id}: {reconst_err}")
+                # Atualiza Celery com erro fatal
+                self.update_state(state='FAILURE', meta={
+                    'status': 'failed',
+                    'job_id': job_id,
+                    'error': f'Job reconstitution failed: {str(reconst_err)}',
+                    'progress': 0.0
+                })
+                raise Ignore()  # Evita retry automático
         
         # 2. PROCESSAMENTO COMPLETO - SEGUNDA LINHA DE DEFESA
         try:
@@ -389,7 +393,6 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
         # NUNCA deixa exceção subir - usa Ignore()
         raise Ignore()
 
-
 @celery_app.task(name='cleanup_expired_jobs')
 def cleanup_expired_jobs_task():
     """
@@ -410,5 +413,5 @@ def cleanup_expired_jobs_task():
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    expired = loop.run_until_complete(store.cleanup_expired())
+    expired = store.cleanup_expired()
     return {"status": "completed", "expired_jobs": expired}

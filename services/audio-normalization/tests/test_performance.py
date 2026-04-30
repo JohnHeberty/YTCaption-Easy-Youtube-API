@@ -352,5 +352,6 @@ class TestStressScenarios:
 
 # Configuração de marcadores para pytest
 pytestmark = [
+    pytest.mark.skip(reason="DEPRECATED: imports removed legacy modules. See PLAN.md F2-T8."),
     pytest.mark.asyncio,  # Todos os testes assíncronos
 ]

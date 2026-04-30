@@ -4,7 +4,6 @@ Sistema inteligente de User-Agents com cache de erro e quarentena
     
 import os
 import random
-import logging
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
 try:
@@ -21,8 +20,9 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 
 from pathlib import Path
-        
-logger = logging.getLogger(__name__)
+from common.log_utils import get_logger
+         
+logger = get_logger(__name__)
             
                 
 class UserAgentManager:

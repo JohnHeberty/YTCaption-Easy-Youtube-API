@@ -23,6 +23,8 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
+from common.log_utils import get_logger
+
 
 class FileLogger:
     """Gerenciador de logging em arquivo"""
@@ -105,7 +107,7 @@ class FileLogger:
             return cls._loggers[job_id]
         
         # Criar logger específico
-        logger = logging.getLogger(f"job.{job_id}")
+        logger = get_logger(f"job.{job_id}")
         logger.setLevel(logging.DEBUG)
         logger.propagate = True  # Propagar para root logger também
         

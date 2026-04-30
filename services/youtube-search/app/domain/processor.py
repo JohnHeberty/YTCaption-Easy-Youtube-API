@@ -22,8 +22,7 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-
-from ..core.models import Job, JobStatus, SearchType
+from .models import Job, JobStatus, SearchType
 from ..shared.exceptions import YouTubeSearchException, YouTubeAPIError, ProcessingTimeoutError
 from ..core.config import get_settings
 
@@ -32,8 +31,9 @@ from ..services.ytbpy import video as ytb_video
 from ..services.ytbpy import channel as ytb_channel
 from ..services.ytbpy import playlist as ytb_playlist
 from ..services.ytbpy import search as ytb_search
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tenacity retry policy for synchronous ytbpy calls
@@ -43,16 +43,14 @@ _YTBPY_RETRY = dict(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=10),
     retry=retry_if_exception_type(Exception),
-    before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-
 
 @retry(**_YTBPY_RETRY)
 def _ytbpy_call(func, *args):
     """Execute a synchronous ytbpy function with tenacity retry."""
     return func(*args)
-
 
 class YouTubeSearchProcessor:
     """

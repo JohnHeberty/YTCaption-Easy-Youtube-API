@@ -4,14 +4,13 @@ Subtitle Generator
 Converte segmentos de transcrição para formato SRT.
 """
 
-import logging
 import re
 from typing import List, Dict
 from pathlib import Path
 from dataclasses import dataclass
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 # ═══════════════════════════════════════════════════════════════
 # DATACLASSES PARA MELHOR TIPAGEM
@@ -23,7 +22,6 @@ class WordCue:
     start: float
     end: float
     text: str
-
 
 class SubtitleGenerator:
     """Gerador de legendas em formato SRT"""
@@ -234,7 +232,6 @@ class SubtitleGenerator:
         logger.info(f"✅ Word-by-word SRT generated: {output_path} ({subtitle_index-1} captions)")
         return output_path
 
-
 # ═══════════════════════════════════════════════════════════════
 # NOVAS FUNÇÕES OTIMIZADAS (MELHORIAS DE SINCRONIZAÇÃO)
 # ═══════════════════════════════════════════════════════════════
@@ -261,7 +258,6 @@ def format_srt_timestamp(seconds: float) -> str:
     ms %= 1_000
     
     return f"{hh:02d}:{mm:02d}:{ss:02d},{ms:03d}"
-
 
 def write_srt_from_word_cues(
     word_cues: List[Dict],
@@ -346,7 +342,6 @@ def write_srt_from_word_cues(
     )
     
     return srt_path
-
 
 def segments_to_weighted_word_cues(segments: List[Dict]) -> List[Dict]:
     """

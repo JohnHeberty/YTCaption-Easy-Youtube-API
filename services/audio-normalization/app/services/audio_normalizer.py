@@ -3,7 +3,6 @@ Audio Normalizer - Responsável pelas operações de normalização de áudio
 Princípio: Single Responsibility + Open/Closed
 """
 import asyncio
-import logging
 import numpy as np
 import subprocess
 import tempfile
@@ -15,16 +14,16 @@ import soundfile as sf
 import librosa
 
 from ..shared.exceptions import AudioNormalizationException
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class AudioNormalizer:
     """Aplica operações de normalização em arquivos de áudio"""
     
     def __init__(self, config: dict):
         self.config = config
-        self.temp_dir = Path(config.get('temp_dir', './temp'))
+        self.temp_dir = Path(config.get('temp_dir', './data/temp'))
         self.noise_reduction_config = config.get('noise_reduction', {})
         self.highpass_config = config.get('highpass_filter', {})
         self.ffmpeg_config = config.get('ffmpeg', {})

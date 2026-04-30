@@ -2,7 +2,6 @@
 Sistema de Health Check para componentes do serviço.
 Implementa verificação profunda de saúde e disponibilidade.
 """
-import logging
 from typing import Dict, Any
 from datetime import datetime
 try:
@@ -22,9 +21,9 @@ import asyncio
 
 from ..domain.interfaces import IHealthChecker, IJobStore
 from ..core.config import get_settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class CeleryHealthChecker(IHealthChecker):
     """
@@ -50,7 +49,7 @@ class CeleryHealthChecker(IHealthChecker):
         result = {
             "component": "celery_worker",
             "healthy": False,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_brazil().isoformat(),
             "details": {}
         }
         
@@ -100,7 +99,6 @@ class CeleryHealthChecker(IHealthChecker):
         health = self.check_health()
         return health.get("healthy", False)
 
-
 class RedisHealthChecker(IHealthChecker):
     """
     Verifica saúde da conexão Redis.
@@ -123,7 +121,7 @@ class RedisHealthChecker(IHealthChecker):
         result = {
             "component": "redis",
             "healthy": False,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_brazil().isoformat(),
             "details": {}
         }
         
@@ -158,7 +156,6 @@ class RedisHealthChecker(IHealthChecker):
         health = self.check_health()
         return health.get("healthy", False)
 
-
 class ModelHealthChecker(IHealthChecker):
     """
     Verifica saúde do modelo Whisper.
@@ -181,7 +178,7 @@ class ModelHealthChecker(IHealthChecker):
         result = {
             "component": "whisper_model",
             "healthy": False,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_brazil().isoformat(),
             "details": {}
         }
         
@@ -217,7 +214,6 @@ class ModelHealthChecker(IHealthChecker):
         health = self.check_health()
         return health.get("healthy", False)
 
-
 class AggregateHealthChecker:
     """
     Agrega health checks de múltiplos componentes.
@@ -240,7 +236,7 @@ class AggregateHealthChecker:
         """
         results = {
             "overall_healthy": True,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_brazil().isoformat(),
             "components": {}
         }
         
@@ -270,7 +266,6 @@ class AggregateHealthChecker:
         """Retorna se sistema geral está saudável"""
         result = self.check_all()
         return result.get("overall_healthy", False)
-
 
 # Alias para compatibilidade com imports antigos
 HealthChecker = AggregateHealthChecker

@@ -10,7 +10,6 @@ Pipeline:
 """
 
 import numpy as np
-import logging
 from typing import List, Dict, Tuple, Optional
 import subprocess
 import json
@@ -18,8 +17,9 @@ import tempfile
 import os
 import wave
 from dataclasses import dataclass
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Lazy imports para torch (podem não estar disponíveis em ambiente de teste)
 try:
@@ -42,14 +42,12 @@ except ImportError:
     VAD_UTILS_AVAILABLE = False
     logger.warning("⚠️ vad_utils não disponível")
 
-
 @dataclass
 class SpeechSegment:
     """Segmento de fala detectado por VAD"""
     start: float
     end: float
     confidence: float
-
 
 @dataclass
 class SubtitleCue:
@@ -58,7 +56,6 @@ class SubtitleCue:
     start: float
     end: float
     text: str
-
 
 class SpeechGatedSubtitles:
     """
@@ -470,7 +467,6 @@ class SpeechGatedSubtitles:
             'passed': passed,  # None = não aplicável (fallback)
             'target': '0% quando VAD OK; fallback_rate < 5%'
         }
-
 
 def process_subtitles_with_vad(
     audio_path: str,

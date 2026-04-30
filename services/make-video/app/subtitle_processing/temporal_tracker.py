@@ -5,7 +5,6 @@ Sistema de tracking de texto através de frames para análise de dinâmica tempo
 Rastreia regiões de texto entre frames para determinar se é legenda dinâmica ou texto estático.
 """
 
-import logging
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 from collections import defaultdict
@@ -14,9 +13,9 @@ from Levenshtein import distance as levenshtein_distance
 
 from app.trsd_models.text_region import TextLine, ROIType
 from app.core.config import Settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 @dataclass
 class Track:
@@ -95,7 +94,6 @@ class Track:
             f"Track(id={self.track_id}, roi={self.roi_type.value}, "
             f"presence={self.presence_ratio:.2f}, change_rate={self.text_change_rate:.2f})"
         )
-
 
 class TemporalTracker:
     """

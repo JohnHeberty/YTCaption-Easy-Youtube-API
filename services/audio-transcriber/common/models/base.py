@@ -7,8 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import uuid
 
-# Timezone-aware datetime
-from ..datetime_utils import now_brazil
+from common.datetime_utils import now_brazil
 
 
 class JobStatus(str, Enum):
@@ -42,7 +41,7 @@ class BaseJob(BaseModel):
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: JobStatus = JobStatus.PENDING
-    
+
     # Timestamps
     created_at: datetime = Field(default_factory=now_brazil)
     started_at: Optional[datetime] = None
@@ -143,7 +142,7 @@ class BaseHealthResponse(BaseModel):
     status: HealthStatus
     service: str
     version: str
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=now_brazil)
     uptime_seconds: Optional[float] = None
     
     # Dependências

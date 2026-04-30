@@ -11,7 +11,6 @@ Gerencia o pipeline completo de vídeos:
 """
 
 import asyncio
-import logging
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
@@ -30,15 +29,14 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-
 from app.core.config import get_settings
 from app.video_processing.subtitle_detector_v2 import SubtitleDetectorV2
 from app.services.video_status_factory import get_video_status_store
 from app.services.video_builder import VideoBuilder
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 settings = get_settings()
-
 
 class VideoPipeline:
     """

@@ -1,0 +1,83 @@
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+exclude = '''
+/(
+    \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+    | venv
+    | \.trash
+    | migrations
+)/'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["app", "common", "core", "domain", "infrastructure", "services"]
+skip = [".venv", "venv", ".trash", "migrations"]
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "E266", "E501", "W503"]
+max-complexity = 15
+exclude = [".git", "__pycache__", ".venv", "venv", ".trash", "migrations"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+no_strict_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+exclude = [
+    "tests/",
+    "docs/",
+    "scripts/",
+    "migrations/",
+    ".trash/",
+    "venv/",
+    ".venv/",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-v --tb=short --strict-markers --disable-warnings --color=yes --html=tests/output/report.html --self-contained-html"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+timeout = 600
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+    "ignore::UserWarning",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+    "e2e: marks tests as end-to-end tests",
+    "performance: marks tests as performance tests",
+    "real: uses real external APIs/services",
+    "gpu: requires GPU",
+    "celery: requires running Celery workers",
+    "asyncio: async tests",
+    "critical: critical bugfix tests",
+    "subtitle_sync: subtitle synchronization tests",
+    "requires_video: requires real generated video",
+    "requires_audio: requires real generated audio",
+    "requires_redis: requires active Redis",
+    "requires_ffmpeg: requires FFmpeg/FFprobe installed",
+    "external: tests with real external services (may fail if DOWN)",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".trash", "venv", ".venv", "migrations"]
+skips = ["B101"]

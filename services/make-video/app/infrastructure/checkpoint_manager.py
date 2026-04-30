@@ -6,7 +6,6 @@ Permite recuperação precisa de jobs interrompidos.
 """
 
 import json
-import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 try:
@@ -24,9 +23,9 @@ except ImportError:
 
 from dataclasses import dataclass, asdict
 from enum import Enum
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class CheckpointStage(str, Enum):
     """Estágios de processamento com checkpoints"""
@@ -37,7 +36,6 @@ class CheckpointStage(str, Enum):
     SELECTING_SHORTS = "selecting_shorts"
     BUILDING_VIDEO = "building_video"
     COMPLETED = "completed"
-
 
 @dataclass
 class CheckpointData:
@@ -58,7 +56,6 @@ class CheckpointData:
     def from_dict(cls, data: Dict[str, Any]) -> "CheckpointData":
         """Cria instância a partir de dicionário"""
         return cls(**data)
-
 
 class GranularCheckpointManager:
     """
@@ -252,7 +249,6 @@ class GranularCheckpointManager:
         self.checkpoint_interval = max(1, interval)
         logger.info(f"Checkpoint interval set to {self.checkpoint_interval}")
 
-
 # Helper functions para integração com celery_tasks.py
 
 async def save_download_checkpoint(
@@ -288,7 +284,6 @@ async def save_download_checkpoint(
             }
         )
 
-
 async def recover_download_progress(
     checkpoint_manager: GranularCheckpointManager,
     job_id: str,
@@ -311,10 +306,8 @@ async def recover_download_progress(
         item_id_extractor=lambda s: s.video_id
     )
 
-
 # Singleton global (inicializado com redis_store no celery_tasks.py)
 _checkpoint_manager = None
-
 
 def get_checkpoint_manager(redis_store=None) -> Optional[GranularCheckpointManager]:
     """

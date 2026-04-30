@@ -5,7 +5,7 @@ Infrastructure components for async processing, caching, observability.
 """
 
 from .celery_config import celery_app
-from .redis_store import RedisJobStore
+from .redis_store import MakeVideoJobStore as RedisJobStore
 from .file_logger import FileLogger
 from .metrics import (
     get_metrics,

@@ -1,451 +1,86 @@
-import json
-import asyncio
+"""
+Make-video Redis store adapter using common.job_utils.
+"""
 import os
-import logging
-from typing import Optional, List
-from datetime import datetime, timedelta
-import redis.asyncio as aioredis
-try:
-    from common.datetime_utils import now_brazil, ensure_timezone_aware
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
-    def ensure_timezone_aware(dt):
-        if dt is None:
-            return None
-        if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
-            dt = dt.replace(tzinfo=BRAZIL_TZ)
-        return dt
+from typing import Optional
 
-
-# Use resilient Redis from common library
 from common.redis_utils import ResilientRedisStore
+from common.log_utils import get_logger
+from common.job_utils.store import JobRedisStore
+from common.datetime_utils import now_brazil
 
-from ..core.models import Job
+from app.core.models import MakeVideoJob
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
-
-class RedisJobStore:
-    """Shared job store using Redis (with resilience)"""
-    
+class MakeVideoJobStore:
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
-        """
-        Initialize store with resilient Redis
-        
-        Args:
-            redis_url: Redis connection URL
-        """
-        # Use ResilientRedisStore from common library
-        self.redis_client = ResilientRedisStore(
+        self._resilient = ResilientRedisStore(
             redis_url=redis_url,
             max_connections=50,
             circuit_breaker_enabled=True,
-            circuit_breaker_max_failures=int(os.getenv('REDIS_CIRCUIT_BREAKER_MAX_FAILURES', '5')),
-            circuit_breaker_timeout=int(os.getenv('REDIS_CIRCUIT_BREAKER_TIMEOUT', '60'))
         )
-        
-        # Keep compatible interface - Redis client síncrono (para writes/save_job)
-        self.redis = self.redis_client.redis
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._store = JobRedisStore(
+            redis_store=self._resilient,
+            service_name="make_video",
+            ttl_hours=int(os.getenv('CACHE_TTL_HOURS', '24')),
+        )
+        self.redis = self._resilient.redis
+        self.key_prefix = "make_video:job:"
+        self.list_key = "make_video:jobs:list"
 
-        # Cliente async para leituras não-bloqueantes (redis.asyncio - nativo desde redis-py 4.2)
-        # Garante que GET nunca bloqueia a event loop do FastAPI
-        self._redis_url = redis_url
-        self._async_redis: Optional[aioredis.Redis] = None
-        
-        # Read cache configurations from environment variables
-        self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
-        self.cleanup_interval_minutes = int(os.getenv('CACHE_CLEANUP_INTERVAL_MINUTES', '30'))
-        
-        logger.info("✅ Redis connected with resilience: %s", redis_url)
-        logger.info("⏰ Cache TTL: %sh, Cleanup: %smin", 
-                   self.cache_ttl_hours, self.cleanup_interval_minutes)
+    def save_job(self, job: MakeVideoJob) -> MakeVideoJob:
+        data = job.model_dump_json()
+        key = f"{self.key_prefix}{job.id}"
+        ttl = 24 * 3600
+        self._resilient.setex(key, ttl, data)
+        self.redis.zadd(self.list_key, {job.id: job.created_at.timestamp()})
+        return job
 
-    def _get_async_redis(self) -> aioredis.Redis:
-        """Obtém (ou cria) cliente Redis async com pool de conexões compartilhado."""
-        if self._async_redis is None:
-            self._async_redis = aioredis.from_url(
-                self._redis_url,
-                encoding="utf-8",
-                decode_responses=True,
-                max_connections=20,
-                socket_connect_timeout=2,
-                socket_timeout=2,
-            )
-        return self._async_redis
-    
-    def _job_key(self, job_id: str) -> str:
-        """Generate Redis key for job"""
-        return f"make_video:job:{job_id}"
-    
-    async def health_check(self) -> bool:
-        """
-        Check Redis connection health
-        
-        Returns:
-            True if Redis is connected and responding
-        """
+    def get_job(self, job_id: str) -> Optional[MakeVideoJob]:
+        key = f"{self.key_prefix}{job_id}"
+        data = self._resilient.get(key)
+        if not data:
+            return None
         try:
-            # Redis operations são síncronas no ResilientRedisStore
-            self.redis.ping()
-            return True
-        except Exception as e:
-            logger.error(f"Redis health check failed: {e}")
-            return False
-    
-    def _serialize_job(self, job: Job) -> str:
-        """Serialize Job to JSON"""
-        job_dict = job.model_dump(mode='json')
-        return json.dumps(job_dict)
-    
-    def _deserialize_job(self, data: str) -> Job:
-        """Deserialize Job from JSON - normaliza timezone"""
-        job_dict = json.loads(data)
-        # Convert ISO strings to datetime e garante timezone-aware
-        for field in ['created_at', 'updated_at', 'completed_at', 'expires_at']:
-            if job_dict.get(field):
-                dt = datetime.fromisoformat(job_dict[field])
-                # CRITICAL: Garante que datetime tem timezone (previne erro 500)
-                job_dict[field] = ensure_timezone_aware(dt)
-        return Job(**job_dict)
-    
-    async def start_cleanup_task(self):
-        """Start automatic cleanup task"""
-        if self._cleanup_task is None:
-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            logger.info("🧹 Cleanup task started")
-    
-    async def stop_cleanup_task(self):
-        """Stop cleanup task"""
-        if self._cleanup_task:
-            self._cleanup_task.cancel()
-            try:
-                await self._cleanup_task
-            except asyncio.CancelledError:
-                pass
-            self._cleanup_task = None
-            logger.info("🛑 Cleanup task stopped")
-    
-    async def _cleanup_loop(self):
-        """Cleanup loop with configurable interval"""
-        cleanup_interval_seconds = self.cleanup_interval_minutes * 60
-        
-        while True:
-            try:
-                await asyncio.sleep(cleanup_interval_seconds)
-                await self.cleanup_expired()
-            except asyncio.CancelledError:
-                break
-            except Exception as exc:
-                logger.error("Error in automatic cleanup: %s", exc)
-    
-    async def cleanup_expired(self) -> int:
-        """Remove expired jobs from Redis"""
-        now = now_brazil()
-        expired_count = 0
-        
-        # Search for all job keys (operação síncrona)
-        try:
-            for key in self.redis.scan_iter(match="make_video:job:*"):
-                try:
-                    data = self.redis.get(key)
-                    if data:
-                        job = self._deserialize_job(data)
-                        if job.expires_at and job.expires_at < now:
-                            self.redis.delete(key)
-                            expired_count += 1
-                            logger.info(f"🗑️ Removed expired job: {job.job_id}")
-                except Exception as e:
-                    logger.error(f"Error processing key {key}: {e}")
-            
-            if expired_count > 0:
-                logger.info(f"🧹 Cleanup: {expired_count} expired jobs removed")
-            
+            return MakeVideoJob.model_validate_json(data)
         except Exception as exc:
-            logger.error(f"Error in cleanup: {exc}")
-        
-        return expired_count
-    
-    async def save_job(self, job: Job) -> None:
-        """
-        Save job to Redis with error handling
-        
-        Args:
-            job: Job to save
-            
-        Raises:
-            Exception: If Redis operation fails after retries
-        """
-        key = self._job_key(job.job_id)
-        
-        try:
-            data = self._serialize_job(job)
-            
-            # Calculate TTL in seconds
-            ttl_seconds = self.cache_ttl_hours * 3600
-            
-            # Save with TTL (operação síncrona)
-            self.redis.setex(key, ttl_seconds, data)
-            logger.info(f"💾 Job saved: {job.job_id} status={job.status} progress={job.progress:.1f}%")
-            
-        except Exception as e:
-            logger.error(
-                f"❌ CRITICAL: Failed to save job {job.job_id} to Redis: {type(e).__name__}: {e}",
-                exc_info=True,
-                extra={
-                    "job_id": job.job_id,
-                    "status": job.status,
-                    "progress": job.progress,
-                    "error": str(e)
-                }
-            )
-            # Re-raise para que o caller saiba que falhou
-            raise
-    
-    async def get_job(self, job_id: str) -> Optional[Job]:
-        """
-        Busca job do Redis usando cliente async nativo (redis.asyncio).
-        Nunca bloqueia a event loop — sem thread pool, sem risco de esgotamento.
-        """
-        key = self._job_key(job_id)
-        try:
-            async_redis = self._get_async_redis()
-            # await direto: redis.asyncio é 100% não-bloqueante
-            data = await asyncio.wait_for(async_redis.get(key), timeout=2.0)
-            if data:
-                return self._deserialize_job(data)
+            logger.error("Error deserializing job %s: %s", job_id, exc)
             return None
-        except asyncio.TimeoutError:
-            logger.error(
-                f"⏱️ TIMEOUT ao buscar job {job_id} do Redis (>2s)",
-                extra={"job_id": job_id, "key": key}
-            )
-            return None
-        except Exception as e:
-            logger.error(
-                f"❌ Erro ao buscar job {job_id}: {e}",
-                exc_info=True,
-                extra={"job_id": job_id}
-            )
-            return None
-    
-    async def delete_job(self, job_id: str) -> bool:
-        """
-        Delete job from Redis
-        
-        Args:
-            job_id: Job ID
-        
-        Returns:
-            True if deleted, False if not found
-        """
-        key = self._job_key(job_id)
-        result = self.redis.delete(key)  # Operação síncrona
-        return result > 0
-    
-    async def list_jobs(self, status: Optional[str] = None, limit: int = 100) -> List[Job]:
-        """
-        List all jobs
-        
-        Args:
-            status: Filter by status (optional)
-            limit: Maximum number of jobs to return
-        
-        Returns:
-            List of jobs
-        """
+
+    def update_job(self, job: MakeVideoJob) -> MakeVideoJob:
+        return self.save_job(job)
+
+    def delete_job(self, job_id: str) -> bool:
+        self.redis.zrem(self.list_key, job_id)
+        return self._resilient.delete(f"{self.key_prefix}{job_id}") > 0
+
+    def list_jobs(self, limit: int = 100) -> list[MakeVideoJob]:
+        all_ids = self.redis.zrevrange(self.list_key, 0, -1)
         jobs = []
-        count = 0
-        
-        # Operações síncronas
-        for key in self.redis.scan_iter(match="make_video:job:*"):
-            if count >= limit:
-                break
-            
-            try:
-                data = self.redis.get(key)
-                if data:
-                    job = self._deserialize_job(data)
-                    if status is None or job.status == status:
-                        jobs.append(job)
-                        count += 1
-            except Exception as e:
-                logger.error(f"Error loading job from key {key}: {e}")
-        
-        # Sort by created_at descending
-        jobs.sort(key=lambda j: j.created_at, reverse=True)
-        
+        for jid in all_ids[:limit]:
+            job = self.get_job(str(jid))
+            if job:
+                jobs.append(job)
         return jobs
-    
+
     def get_stats(self) -> dict:
-        """
-        Get statistics about jobs in Redis
-        
-        Returns:
-            Dictionary with job counts by status
-        """
-        stats = {
-            "queued": 0,
-            "processing": 0,
-            "completed": 0,
-            "failed": 0,
-            "total": 0
-        }
-        
-        try:
-            for key in self.redis.scan_iter(match="make_video:job:*"):
-                try:
-                    data = self.redis.get(key)
-                    if data:
-                        job = self._deserialize_job(data)
-                        stats["total"] += 1
-                        
-                        # Count by status
-                        if job.status == "queued":
-                            stats["queued"] += 1
-                        elif job.status == "processing":
-                            stats["processing"] += 1
-                        elif job.status == "completed":
-                            stats["completed"] += 1
-                        elif job.status == "failed":
-                            stats["failed"] += 1
-                except Exception as e:
-                    logger.debug(f"Error processing key {key} for stats: {e}")
-        except Exception as e:
-            logger.error(f"Error getting stats: {e}")
-        
-        return stats
-    
-    async def cleanup_all_jobs(self) -> int:
-        """
-        Remove ALL jobs from Redis (DANGEROUS - use with caution)
-        
-        Returns:
-            Number of jobs removed
-        """
-        removed_count = 0
-        
-        try:
-            keys = list(self.redis.scan_iter(match="make_video:job:*"))
-            if keys:
-                removed_count = self.redis.delete(*keys)
-                logger.warning(f"🔥 ALL JOBS REMOVED: {removed_count} jobs deleted")
-        except Exception as e:
-            logger.error(f"Error removing all jobs: {e}")
-        
-        return removed_count
-    
-    async def find_orphaned_jobs(self, max_age_minutes: int = 30) -> List[Job]:
-        """
-        Find jobs that are stuck in processing state for too long
-        
-        Args:
-            max_age_minutes: Maximum time a job can be processing
-        
-        Returns:
-            List of orphaned jobs
-        """
-        orphaned = []
-        now = now_brazil()
-        max_age = timedelta(minutes=max_age_minutes)
-        
-        try:
-            for key in self.redis.scan_iter(match="make_video:job:*"):
-                try:
-                    data = self.redis.get(key)
-                    if data:
-                        job = self._deserialize_job(data)
-                        
-                        # Check if processing for too long
-                        if job.status == "processing":
-                            age = now - job.updated_at
-                            if age > max_age:
-                                orphaned.append(job)
-                                logger.warning(
-                                    f"⚠️ Orphaned job found: {job.job_id} "
-                                    f"(processing for {age.total_seconds()/60:.1f} minutes)"
-                                )
-                except Exception as e:
-                    logger.debug(f"Error processing key {key}: {e}")
-        except Exception as e:
-            logger.error(f"Error finding orphaned jobs: {e}")
-        
-        return orphaned
-    
-    async def get_queue_info(self) -> dict:
-        """
-        Get information about the job queue
-        
-        Returns:
-            Dictionary with queue statistics
-        """
-        queue_info = {
-            "total_jobs": 0,
-            "by_status": {
-                "queued": 0,
-                "processing": 0,
-                "completed": 0,
-                "failed": 0
-            },
-            "oldest_job": None,
-            "newest_job": None
-        }
-        
-        try:
-            jobs = await self.list_jobs(limit=10000)  # Get all jobs
-            queue_info["total_jobs"] = len(jobs)
-            
-            # Count by status
-            for job in jobs:
-                if job.status in queue_info["by_status"]:
-                    queue_info["by_status"][job.status] += 1
-            
-            # Find oldest and newest
-            if jobs:
-                # Jobs are already sorted by created_at descending
-                queue_info["newest_job"] = {
-                    "job_id": jobs[0].job_id,
-                    "created_at": jobs[0].created_at.isoformat(),
-                    "status": jobs[0].status
-                }
-                queue_info["oldest_job"] = {
-                    "job_id": jobs[-1].job_id,
-                    "created_at": jobs[-1].created_at.isoformat(),
-                    "status": jobs[-1].status
-                }
-        
-        except Exception as e:
-            logger.error(f"Error getting queue info: {e}")
-        
-        return queue_info
-    
-    async def delete_job(self, job_id: str) -> bool:
-        """
-        Delete a job from Redis
-        
-        Args:
-            job_id: Job ID to delete
-        
-        Returns:
-            True if deleted, False if not found
-        """
-        try:
-            key = self._job_key(job_id)
-            result = self.redis.delete(key)
-            if result > 0:
-                logger.info(f"Job deleted: {job_id}")
-                return True
-            else:
-                logger.warning(f"Job not found for deletion: {job_id}")
-                return False
-        except Exception as e:
-            logger.error(f"Error deleting job {job_id}: {e}")
-            return False
+        all_ids = self.redis.zrevrange(self.list_key, 0, -1)
+        total = len(all_ids)
+        by_status = {}
+        for jid in all_ids:
+            job = self.get_job(str(jid))
+            if job:
+                s = job.status.value if hasattr(job.status, 'value') else str(job.status)
+                by_status[s] = by_status.get(s, 0) + 1
+        return {"total_jobs": total, "by_status": by_status}
+
+    def cleanup_expired(self) -> int:
+        all_ids = self.redis.zrevrange(self.list_key, 0, -1)
+        removed = 0
+        for jid in all_ids:
+            job = self.get_job(str(jid))
+            if job and job.is_expired:
+                self.delete_job(job.id)
+                removed += 1
+        return removed

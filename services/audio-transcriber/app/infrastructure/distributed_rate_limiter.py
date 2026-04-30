@@ -8,10 +8,10 @@ Adaptado do padrão make-video para audio-transcriber.
 """
 
 import time
-import logging
 from typing import Optional
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default configuration
 DEFAULT_MAX_REQUESTS = 100        # Requests per window
@@ -19,7 +19,6 @@ DEFAULT_WINDOW_SECONDS = 60       # 1 minute window
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 REDIS_KEY_PREFIX = "rate_limit:audio_transcriber"
 REDIS_KEY_TTL_MULTIPLIER = 2      # TTL = window * 2 (cleanup old keys)
-
 
 class DistributedRateLimiter:
     """

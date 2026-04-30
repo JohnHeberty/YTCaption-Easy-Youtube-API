@@ -21,13 +21,12 @@ Tracking:
 """
 
 import shutil
-import logging
 from pathlib import Path
 from typing import Optional, Dict
 from datetime import datetime
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class FileOperations:
     """

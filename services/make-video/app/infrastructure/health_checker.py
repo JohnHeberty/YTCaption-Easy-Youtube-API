@@ -5,7 +5,6 @@ Sistema de health checks para todas as dependências.
 """
 
 import asyncio
-import logging
 from typing import Dict, Tuple, Optional
 from datetime import datetime
 try:
@@ -23,9 +22,9 @@ except ImportError:
 
 import shutil
 from pathlib import Path
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class HealthCheckResult:
     """Resultado de um health check"""
@@ -43,7 +42,6 @@ class HealthCheckResult:
         if self.latency_ms is not None:
             result["latency_ms"] = round(self.latency_ms, 2)
         return result
-
 
 class HealthChecker:
     """
@@ -349,10 +347,8 @@ class HealthChecker:
         
         return True
 
-
 # Singleton global
 _health_checker = None
-
 
 def get_health_checker() -> HealthChecker:
     """Retorna instância singleton do HealthChecker"""

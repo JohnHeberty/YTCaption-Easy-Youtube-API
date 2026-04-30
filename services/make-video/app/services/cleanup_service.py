@@ -17,12 +17,12 @@ Design:
 """
 
 import asyncio
-import logging
 import traceback
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 import re
+from common.log_utils import get_logger
 try:
     from common.datetime_utils import now_brazil
 except ImportError:
@@ -35,8 +35,7 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class CleanupService:
     """

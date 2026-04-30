@@ -5,12 +5,12 @@ Provides safe subprocess execution with automatic timeout and cleanup.
 Prevents FFmpeg and other processes from hanging indefinitely.
 """
 import asyncio
-import logging
 import signal
 import subprocess
 from typing import List, Optional, Tuple
 from pathlib import Path
 
+from common.log_utils import get_logger
 # Use new exception hierarchy
 from ..shared.exceptions_v2 import (
     SubprocessTimeoutException,
@@ -18,14 +18,13 @@ from ..shared.exceptions_v2 import (
     FFprobeFailedException
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Default timeout values (seconds) - following Netflix/Google standards
 DEFAULT_SUBPROCESS_TIMEOUT = 300  # 5 minutes for generic subprocess
 DEFAULT_FFMPEG_TIMEOUT = 600      # 10 minutes for FFmpeg operations
 DEFAULT_FFPROBE_TIMEOUT = 30      # 30 seconds for metadata extraction
 SIGTERM_GRACE_PERIOD = 2          # Grace period before SIGKILL
-
 
 async def run_subprocess_with_timeout(
     cmd: List[str],
@@ -122,7 +121,6 @@ async def run_subprocess_with_timeout(
         
         raise
 
-
 def run_subprocess_sync_with_timeout(
     cmd: List[str],
     timeout: int = 300,
@@ -170,7 +168,6 @@ def run_subprocess_sync_with_timeout(
         logger.warning(f"Subprocess failed (sync): {cmd_str} (exit code: {e.returncode})")
         raise
 
-
 async def run_ffmpeg_with_timeout(
     args: List[str],
     timeout: int = 600,
@@ -215,7 +212,6 @@ async def run_ffmpeg_with_timeout(
         capture_output=True
     )
 
-
 async def run_ffprobe(
     file_path: str,
     args: List[str] = None,
@@ -256,7 +252,6 @@ async def run_ffprobe(
     )
     
     return stdout.decode('utf-8')
-
 
 async def kill_process_tree(pid: int, timeout: int = 5):
     """

@@ -28,11 +28,11 @@ from paddleocr import PaddleOCR
 from pathlib import Path
 from typing import Tuple, Dict
 import os
+from common.log_utils import get_logger
 
 # 🔧 CONSTANTS: OCR Frame Limits (R-005)
 MAX_OCR_FRAMES_DEFAULT = 300  # Máximo de frames para processar (evita OOM)
 # Para 30fps, 300 frames = 10 segundos (suficiente para detectar legendas)
-
 
 class SubtitleDetectorV2:
     """
@@ -75,8 +75,7 @@ class SubtitleDetectorV2:
         self.max_frames = max_frames
         
         if max_frames is not None:
-            import logging
-            logging.getLogger(__name__).info(
+            get_logger(__name__).info(
                 f"🔧 OCR frame limit: {max_frames} frames "
                 f"(~{max_frames / 30:.1f}s @ 30fps) to prevent OOM"
             )
@@ -192,7 +191,6 @@ class SubtitleDetectorV2:
         
         return width, height, fps, total_frames
 
-
 # ============================================================================
 # MÉTODOS LEGACY (OBSOLETOS) - Mantidos apenas para compatibilidade
 # ============================================================================
@@ -226,7 +224,6 @@ class SubtitleDetectorV2:
         Multi-ROI foi descontinuado (causava baixa acurácia).
         """
         return self.detect(video_path)
-
 
 if __name__ == "__main__":
     # Teste rápido

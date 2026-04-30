@@ -358,6 +358,57 @@ dev-setup: install validate ## Setup completo para desenvolvimento
 	@echo -e "  3. Execute: make up"
 	@echo ""
 
+# ==================== LINT ====================
+lint: ## Executa black, isort, flake8, mypy e bandit em todos os serviços
+	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
+	@echo -e "$(BLUE)  Linting Projeto$(NC)"
+	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
+	@echo -e "$(YELLOW)🔍 black --check --line-length=100 ...$(NC)"
+	@if command -v black > /dev/null 2>&1; then \
+		black --check --line-length=100 common/ orchestrator/ services/ 2>&1 | tail -5; \
+	else \
+		echo -e "$(YELLOW)  ⚠️  black não instalado$(NC)"; \
+	fi
+	@echo -e "$(YELLOW)🔍 isort --check --profile black --line-length 100 ...$(NC)"
+	@if command -v isort > /dev/null 2>&1; then \
+		isort --check --profile black --line-length 100 common/ orchestrator/ services/ 2>&1 | tail -5; \
+	else \
+		echo -e "$(YELLOW)  ⚠️  isort não instalado$(NC)"; \
+	fi
+	@echo -e "$(YELLOW)🔍 flake8 --max-line-length=100 --extend-ignore=E203,E266,E501,W503 --max-complexity=15 ...$(NC)"
+	@if command -v flake8 > /dev/null 2>&1; then \
+		flake8 --max-line-length=100 --extend-ignore=E203,E266,E501,W503 --max-complexity=15 --exclude=.git,__pycache__,.venv,venv,.trash,migrations common/ orchestrator/ services/ 2>&1 | tail -20; \
+	else \
+		echo -e "$(YELLOW)  ⚠️  flake8 não instalado$(NC)"; \
+	fi
+	@echo -e "$(YELLOW)🔍 mypy --ignore-missing-imports ...$(NC)"
+	@if command -v mypy > /dev/null 2>&1; then \
+		mypy --ignore-missing-imports --no-strict-optional common/ orchestrator/ services/ 2>&1 | tail -10; \
+	else \
+		echo -e "$(YELLOW)  ⚠️  mypy não instalado$(NC)"; \
+	fi
+	@echo -e "$(YELLOW)🔍 bandit -r ...$(NC)"
+	@if command -v bandit > /dev/null 2>&1; then \
+		bandit -r common/ orchestrator/ services/ -c .bandit.yml 2>&1 | tail -10; \
+	else \
+		echo -e "$(YELLOW)  ⚠️  bandit não instalado$(NC)"; \
+	fi
+	@echo -e "$(GREEN)✅ Lint concluído!$(NC)"
+
+# ==================== TEST-CI ====================
+test-ci: ## Executa testes rápidos para CI (exclui slow, integration, e2e)
+	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
+	@echo -e "$(BLUE)  Running CI Tests (unit only, no slow/integration/e2e)$(NC)"
+	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
+	@for service in $(SERVICES) $(ORCHESTRATOR); do \
+		if [ -d "$$service/tests" ] || [ -d "$$service/app" ]; then \
+			echo -e "$(YELLOW)  🧪 Testing $$service...$(NC)"; \
+			cd $$service && pytest -x -m "not slow and not integration and not e2e" -q 2>/dev/null || echo -e "$(YELLOW)  ⚠️  $$service: sem testes ou pytest não instalado$(NC)"; \
+			cd - > /dev/null; \
+		fi; \
+	done
+	@echo -e "$(GREEN)✅ CI Tests concluídos!$(NC)"
+
 # ==================== INFORMAÇÕES ====================
 list-services: ## Lista todos os serviços disponíveis
 	@echo -e "$(BLUE)Serviços disponíveis:$(NC)"

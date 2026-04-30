@@ -8,7 +8,6 @@ Autor: Reescrito do zero para eliminar falsos positivos
 Data: 2026-02-07
 """
 
-import logging
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
@@ -18,9 +17,9 @@ from collections import Counter
 from .temporal_tracker import Track
 from app.trsd_models.text_region import ROIType
 from app.core.config import Settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TrackCategory(Enum):
     """Categorias de classificação"""
@@ -29,7 +28,6 @@ class TrackCategory(Enum):
     ANIMATED_LOGO = 'animated_logo'    # Logo com animação/mudança
     SCREENCAST = 'screencast'          # Uso de aplicativo
     NOISE = 'noise'                    # Ruído/artefato OCR
-
 
 @dataclass
 class AdvancedMetrics:
@@ -59,7 +57,6 @@ class AdvancedMetrics:
     detections_per_second: float       # Detecções por segundo
     text_changes_per_second: float     # Mudanças de texto por segundo
 
-
 @dataclass
 class ClassificationResult:
     """Resultado da classificação"""
@@ -72,7 +69,6 @@ class ClassificationResult:
     tracks_by_category: Dict[str, int]
     subtitle_tracks: List[Track]
     metrics_summary: Dict[str, any]
-
 
 class SubtitleClassifierV2:
     """

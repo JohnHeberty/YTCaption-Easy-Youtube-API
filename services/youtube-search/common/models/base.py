@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 from typing import Optional
 import uuid
 
+from common.datetime_utils import now_brazil
+
 
 class JobStatus(str, Enum):
     """Status padrão para todos os jobs do sistema"""
@@ -39,13 +41,13 @@ class BaseJob(BaseModel):
     
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     status: JobStatus = JobStatus.PENDING
-    
+
     # Timestamps
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=now_brazil)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     expires_at: datetime = Field(
-        default_factory=lambda: datetime.now() + timedelta(hours=24)
+        default_factory=lambda: now_brazil() + timedelta(hours=24)
     )
     
     # Progress tracking
@@ -71,7 +73,7 @@ class BaseJob(BaseModel):
     @property
     def is_expired(self) -> bool:
         """Verifica se o job expirou"""
-        return datetime.now() > self.expires_at
+        return now_brazil() > self.expires_at
     
     @property
     def is_terminal(self) -> bool:
@@ -87,7 +89,7 @@ class BaseJob(BaseModel):
         """Retorna duração do job em segundos"""
         if not self.started_at:
             return None
-        end_time = self.completed_at or datetime.now()
+        end_time = self.completed_at or now_brazil()
         return (end_time - self.started_at).total_seconds()
     
     def mark_as_queued(self):
@@ -98,14 +100,14 @@ class BaseJob(BaseModel):
         """Marca job como em processamento"""
         self.status = JobStatus.PROCESSING
         if not self.started_at:
-            self.started_at = datetime.now()
+            self.started_at = now_brazil()
         if message:
             self.progress_message = message
     
     def mark_as_completed(self, message: Optional[str] = None):
         """Marca job como completado"""
         self.status = JobStatus.COMPLETED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         self.progress = 100.0
         if message:
             self.progress_message = message
@@ -113,14 +115,14 @@ class BaseJob(BaseModel):
     def mark_as_failed(self, error: str, error_type: Optional[str] = None):
         """Marca job como falho"""
         self.status = JobStatus.FAILED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         self.error_message = error
         self.error_type = error_type or "UnknownError"
     
     def mark_as_cancelled(self, reason: Optional[str] = None):
         """Marca job como cancelado"""
         self.status = JobStatus.CANCELLED
-        self.completed_at = datetime.now()
+        self.completed_at = now_brazil()
         if reason:
             self.error_message = f"Cancelled: {reason}"
     
@@ -140,7 +142,7 @@ class BaseHealthResponse(BaseModel):
     status: HealthStatus
     service: str
     version: str
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=now_brazil)
     uptime_seconds: Optional[float] = None
     
     # Dependências

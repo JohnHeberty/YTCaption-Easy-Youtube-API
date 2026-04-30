@@ -5,13 +5,13 @@ Fornece funções compatíveis com silero-vad vendorizado (modelo JIT),
 sem dependência de torch.hub em runtime.
 """
 
-import logging
 from typing import List, Dict, Optional
 import subprocess
 import os
 import tempfile
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Lazy imports para torch (pode não estar disponível)
 try:
@@ -21,7 +21,6 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
     logger.warning("⚠️ torch/torchaudio não disponível, VAD silero-vad desabilitado")
-
 
 def get_speech_timestamps(
     wav: "torch.Tensor",
@@ -103,7 +102,6 @@ def get_speech_timestamps(
         # Fallback: retornar segmento completo
         return [{'start': 0, 'end': len(wav[0]) if wav.dim() > 1 else len(wav)}]
 
-
 def _probs_to_timestamps(
     speech_probs: List[Dict],
     threshold: float,
@@ -165,7 +163,6 @@ def _probs_to_timestamps(
     
     return merged
 
-
 def _merge_close_segments(
     timestamps: List[Dict[str, int]],
     min_gap_samples: int
@@ -187,7 +184,6 @@ def _merge_close_segments(
             merged.append(ts)
     
     return merged
-
 
 def load_audio_torch(
     audio_path: str,
@@ -228,7 +224,6 @@ def load_audio_torch(
     except Exception as e:
         logger.error(f"Erro ao carregar áudio com torchaudio: {e}")
         raise
-
 
 def convert_to_16k_wav(
     input_path: str,
@@ -280,7 +275,6 @@ def convert_to_16k_wav(
     except Exception as e:
         logger.error(f"Erro em convert_to_16k_wav: {e}")
         raise
-
 
 def validate_audio_format(audio_path: str) -> Dict[str, any]:
     """

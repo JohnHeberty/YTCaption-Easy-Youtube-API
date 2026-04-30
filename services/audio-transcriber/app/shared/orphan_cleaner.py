@@ -2,7 +2,6 @@
 Sistema de limpeza de jobs órfãos e gerenciamento de Dead Letter Queue.
 Implementa resiliência automática e recuperação de falhas.
 """
-import logging
 import asyncio
 from datetime import datetime, timedelta
 try:
@@ -23,9 +22,9 @@ from celery import Celery
 
 from ..domain.interfaces import IJobStore
 from ..domain.models import Job, JobStatus
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class OrphanJobCleaner:
     """
@@ -169,7 +168,6 @@ class OrphanJobCleaner:
         
         logger.error(f"❌ Job em fila órfão {job.id} marcado como FAILED (idade: {age})")
 
-
 class DeadLetterQueueManager:
     """
     Gerencia Dead Letter Queue (DLQ) para jobs que falharam permanentemente.
@@ -253,7 +251,6 @@ class DeadLetterQueueManager:
             logger.error(f"❌ Erro ao retentar job {job_id} da DLQ: {e}")
             return False
 
-
 async def run_orphan_cleanup_loop(
     job_store: IJobStore,
     interval_minutes: int = 5,
@@ -287,7 +284,6 @@ async def run_orphan_cleanup_loop(
         
         # Aguarda próxima iteração
         await asyncio.sleep(interval_minutes * 60)
-
 
 # Alias para compatibilidade com imports antigos
 OrphanCleaner = OrphanJobCleaner

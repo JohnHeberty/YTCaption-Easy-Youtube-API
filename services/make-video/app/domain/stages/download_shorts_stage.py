@@ -11,15 +11,13 @@ DownloadShortsStage - Download and validate shorts with OCR detection
 
 from pathlib import Path
 from typing import Dict, Any, List
-import logging
 import asyncio
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class DownloadShortsStage(JobStage):
     """Stage 3: Download and validate shorts"""

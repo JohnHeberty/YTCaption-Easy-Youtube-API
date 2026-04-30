@@ -18,15 +18,13 @@ JobProcessor - Chain of Responsibility pattern for job execution
 """
 
 from typing import List, Optional
-import logging
 
 from .job_stage import JobStage, StageContext, StageResult, StageStatus
 from ..shared.events import EventType
 from ..shared.exceptions import EnhancedMakeVideoException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class JobProcessor:
     """

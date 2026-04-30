@@ -7,15 +7,14 @@ Elimina necessidade de transcode completo para codecs pesados (AV1).
 
 import subprocess
 import tempfile
-import logging
 from pathlib import Path
 from typing import List, Tuple, Optional
 import cv2
 import numpy as np
 from dataclasses import dataclass
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 @dataclass
 class ExtractionResult:
@@ -23,7 +22,6 @@ class ExtractionResult:
     frames: List[Tuple[np.ndarray, float]]  # [(frame, timestamp), ...]
     extraction_time_ms: float
     method: str  # 'opencv' or 'ffmpeg'
-
 
 class FFmpegFrameExtractor:
     """

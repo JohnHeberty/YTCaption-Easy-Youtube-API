@@ -2,14 +2,13 @@
 Gerenciador de dispositivos GPU/CPU (Single Responsibility Principle).
 Responsável APENAS por detectar e validar dispositivos de computação.
 """
-import logging
 from typing import Dict, Any
 import torch
 
 from ..domain.interfaces import IDeviceManager
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TorchDeviceManager(IDeviceManager):
     """

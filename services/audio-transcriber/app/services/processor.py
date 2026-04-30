@@ -1,19 +1,24 @@
 import os
 import asyncio
 from pathlib import Path
-import logging
 import torch
 from pydub import AudioSegment
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import datetime as _dt, timezone as _tz, timedelta
+    def now_brazil():
+        return _dt.now(_tz(timedelta(hours=-3)))
 from ..domain.models import Job, JobStatus, TranscriptionSegment, WhisperEngine
-from ..domain.exceptions import AudioTranscriptionException
+from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
 from .faster_whisper_manager import FasterWhisperModelManager
 from .openai_whisper_manager import OpenAIWhisperManager
 from .whisperx_manager import WhisperXManager
 import time
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TranscriptionProcessor:
     def __init__(self, output_dir=None, model_dir=None):
@@ -31,6 +36,26 @@ class TranscriptionProcessor:
         self.model = None  # Para compatibilidade
         self.device = None
         self.model_loaded = False
+
+    def _safe_update_job(self, job: Job) -> None:
+        """Persiste estado do job sem propagar erro de store para o fluxo principal."""
+        if not self.job_store:
+            return
+        try:
+            if hasattr(job, "updated_at"):
+                job.updated_at = now_brazil()
+            self.job_store.update_job(job)
+        except Exception as store_err:
+            logger.error("❌ Falha ao persistir job %s: %s", job.id, store_err)
+
+    async def _run_with_timeout(self, awaitable, timeout_seconds: int, operation_name: str):
+        """Executa awaitable com timeout explícito para evitar jobs pendurados indefinidamente."""
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
+        except asyncio.TimeoutError as exc:
+            raise AudioTranscriptionException(
+                f"Timeout ao executar '{operation_name}' após {timeout_seconds}s"
+            ) from exc
     
     def _get_model_manager(self, engine: WhisperEngine):
         """
@@ -333,19 +358,37 @@ class TranscriptionProcessor:
         Método síncrono para Celery task processar transcrição
         Converte o processamento assíncrono em síncrono
         """
+        timeout_seconds = int(self.settings.get("job_processing_timeout_seconds", 3600))
+        coroutine = self._run_with_timeout(
+            self.process_transcription_job(job),
+            timeout_seconds,
+            "process_transcription_job",
+        )
         try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
+            asyncio.get_running_loop()
             loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        
-        loop.run_until_complete(self.process_transcription_job(job))
+            try:
+                loop.run_until_complete(coroutine)
+            finally:
+                loop.close()
+        except RuntimeError:
+            asyncio.run(coroutine)
+
         return job
     
     async def process_transcription_job(self, job: Job):
         """Processa um job de transcrição"""
+        converted_file = None
+        is_temp_file = False
+
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
+
+            if job.status != JobStatus.PROCESSING:
+                job.status = JobStatus.PROCESSING
+                if not job.started_at:
+                    job.started_at = now_brazil()
+                self._safe_update_job(job)
             
             # Define current_job_id para permitir atualizações de progresso durante chunking
             self.current_job_id = job.id
@@ -356,10 +399,10 @@ class TranscriptionProcessor:
             input_path = Path(job.input_file)
             
             # Tenta encontrar arquivo em múltiplos caminhos possíveis
+            upload_dir = Path(self.settings.get('upload_dir', './uploads'))
             possible_paths = [
                 input_path,  # Caminho original
-                Path("/app") / job.input_file if not input_path.is_absolute() else input_path,  # /app/uploads/...
-                Path("/app/uploads") / input_path.name,  # /app/uploads/filename
+                upload_dir / input_path.name,  # Usando upload_dir configurável
                 Path("./uploads") / input_path.name,  # ./uploads/filename
             ]
             
@@ -394,36 +437,46 @@ class TranscriptionProcessor:
             job.input_file = str(actual_file_path.absolute())
             job.file_size_input = file_size
             
-            # Verifica espaço em disco
-            if not self._check_disk_space(job.input_file, self.output_dir):
-                raise AudioTranscriptionException(
-                    "Espaço em disco insuficiente para transcrição. "
-                    "Libere espaço ou tente novamente mais tarde."
+            # ==========================================
+            # CONVERSÃO AUTOMÁTICA PARA WAV
+            # Converte OGG, MP3, MP4, M4A, WEBM etc. para WAV 16kHz mono
+            # Resolve bug "tuple index out of range" do faster-whisper
+            # ==========================================
+            try:
+                converted_file, is_temp_file = self._convert_to_wav(actual_file_path)
+                if is_temp_file:
+                    original_ext = actual_file_path.suffix.lower()
+                    logger.info(f"Arquivo {original_ext} convertido para WAV: {converted_file.name}")
+                    job.input_file = str(converted_file.absolute())
+            except AudioTranscriptionException as e:
+                error_msg = (
+                    f"Falha ao preparar arquivo de áudio para transcrição: {e}. "
+                    f"O arquivo '{actual_file_path.name}' não pôde ser processado. "
+                    f"Verifique se o arquivo contém um stream de áudio válido."
                 )
-            
-            # Atualiza status para processando
-            job.status = JobStatus.PROCESSING
-            if self.job_store:
-                self.job_store.update_job(job)
-            
-            logger.info(f"🎵 Processando arquivo: {job.input_file}")
+                logger.error(f"❌ {error_msg}")
+                raise AudioTranscriptionException(error_msg)
             
             # Carrega modelo do engine especificado no job
             engine = job.engine if hasattr(job, 'engine') else WhisperEngine.FASTER_WHISPER
             logger.info(f"🔧 Usando engine: {engine.value}")
-            self._load_model(engine)
+            load_timeout_seconds = int(self.settings.get("async_timeout_seconds", 1800))
+            await self._run_with_timeout(
+                asyncio.to_thread(self._load_model, engine),
+                load_timeout_seconds,
+                "load_model",
+            )
             
             # Atualiza progresso
             job.progress = 25.0
-            if self.job_store:
-                self.job_store.update_job(job)
+            self._safe_update_job(job)
             
             # Decide se usa chunking baseado nas configurações e duração do áudio
             enable_chunking = self.settings.get('enable_chunking', False)
             
             if enable_chunking:
                 # Verifica duração do áudio para decidir se vale a pena usar chunks
-                audio = AudioSegment.from_file(job.input_file)
+                audio = await asyncio.to_thread(AudioSegment.from_file, job.input_file)
                 duration_seconds = len(audio) / 1000.0
                 
                 # Usa chunking apenas para áudios longos (configurável, padrão 5 min = 300s)
@@ -431,18 +484,42 @@ class TranscriptionProcessor:
                 
                 if duration_seconds > min_duration_for_chunks:
                     logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")
-                    result = await self._transcribe_with_chunking(job.input_file, job.language_in, job.language_out, audio)
+                    transcription_timeout = int(self.settings.get("job_processing_timeout_seconds", 3600))
+                    result = await self._run_with_timeout(
+                        self._transcribe_with_chunking(job.input_file, job.language_in, job.language_out, audio),
+                        transcription_timeout,
+                        "transcribe_with_chunking",
+                    )
                 else:
                     logger.info(f"Áudio curto ({duration_seconds:.1f}s), transcrição direta")
-                    result = self._transcribe_direct(job.input_file, job.language_in, job.language_out)
+                    direct_timeout = int(self.settings.get("async_timeout_seconds", 1800))
+                    result = await self._run_with_timeout(
+                        asyncio.to_thread(
+                            self._transcribe_direct,
+                            job.input_file,
+                            job.language_in,
+                            job.language_out,
+                        ),
+                        direct_timeout,
+                        "transcribe_direct",
+                    )
             else:
                 logger.info("Chunking desabilitado, transcrição direta")
-                result = self._transcribe_direct(job.input_file, job.language_in, job.language_out)
+                direct_timeout = int(self.settings.get("async_timeout_seconds", 1800))
+                result = await self._run_with_timeout(
+                    asyncio.to_thread(
+                        self._transcribe_direct,
+                        job.input_file,
+                        job.language_in,
+                        job.language_out,
+                    ),
+                    direct_timeout,
+                    "transcribe_direct",
+                )
             
             # Atualiza progresso
             job.progress = 75.0
-            if self.job_store:
-                self.job_store.update_job(job)
+            self._safe_update_job(job)
             
             # Converte segments para o formato com start, end, duration E words
             transcription_segments = []
@@ -485,18 +562,21 @@ class TranscriptionProcessor:
             # Finaliza job
             job.output_file = str(output_path)
             job.status = JobStatus.COMPLETED
+            job.completed_at = now_brazil()
             job.progress = 100.0
             job.transcription_text = result["text"]
             job.transcription_segments = transcription_segments  # Adiciona segments ao job
             job.file_size_output = output_path.stat().st_size
+            
+            if job.started_at:
+                job.processing_time = (job.completed_at - job.started_at).total_seconds()
             
             # Armazena idioma detectado pelo Whisper (se disponível)
             if "language" in result:
                 job.language_detected = result["language"]
                 logger.info(f"Idioma detectado pelo Whisper: {result['language']}")
             
-            if self.job_store:
-                self.job_store.update_job(job)
+            self._safe_update_job(job)
             
             logger.info(f"Job {job.id} transcrito com sucesso")
             logger.info(f"Total de segmentos: {len(transcription_segments)}")
@@ -504,13 +584,27 @@ class TranscriptionProcessor:
         except Exception as e:
             # Marca job como falhou
             job.status = JobStatus.FAILED
+            job.completed_at = now_brazil()
             job.error_message = str(e)
             
-            if self.job_store:
-                self.job_store.update_job(job)
+            if job.started_at:
+                job.processing_time = (job.completed_at - job.started_at).total_seconds()
+            
+            self._safe_update_job(job)
             
             logger.error(f"Job {job.id} falhou: {e}")
             raise AudioTranscriptionException(f"Erro na transcrição: {str(e)}")
+        
+        finally:
+            # Limpa arquivo WAV temporário convertido
+            if is_temp_file and converted_file is not None:
+                try:
+                    temp_path = Path(converted_file) if not isinstance(converted_file, Path) else converted_file
+                    if temp_path.exists():
+                        temp_path.unlink()
+                        logger.info(f"Arquivo temporário removido: {temp_path.name}")
+                except Exception as cleanup_err:
+                    logger.warning(f"Falha ao remover arquivo temporário: {cleanup_err}")
     
     def _transcribe_direct(self, audio_file: str, language_in: str = "auto", language_out: str = None):
         """
@@ -812,51 +906,184 @@ class TranscriptionProcessor:
         
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
     
-    async def _extract_audio_from_video(self, video_file_path: str) -> str:
+    def _has_audio_stream(self, input_path: Path) -> tuple:
         """
-        Extrai áudio de arquivo de vídeo usando ffmpeg
+        Verifica se o arquivo contém stream de áudio usando ffprobe.
+        
+        Returns:
+            tuple: (has_audio: bool, audio_info: str)
+                - has_audio: True se o arquivo tem pelo menos um stream de áudio
+                - audio_info: Descrição dos streams encontrados (para log)
+        """
+        import subprocess as sp
+
+        cmd = [
+            'ffprobe',
+            '-v', 'quiet',
+            '-print_format', 'json',
+            '-show_streams',
+            '-select_streams', 'a',
+            str(input_path)
+        ]
+
+        try:
+            result = sp.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"ffprobe falhou para {input_path.name}: {result.stderr[:200]}")
+                return True, "ffprobe indisponível, assumindo que tem áudio"
+
+            import json
+            probe_data = json.loads(result.stdout) if result.stdout.strip() else {}
+            streams = probe_data.get('streams', [])
+
+            if not streams:
+                video_cmd = [
+                    'ffprobe', '-v', 'quiet', '-print_format', 'json',
+                    '-show_streams', '-select_streams', 'v', str(input_path)
+                ]
+                video_result = sp.run(video_cmd, capture_output=True, text=True, timeout=30)
+                has_video = False
+                if video_result.returncode == 0 and video_result.stdout.strip():
+                    video_data = json.loads(video_result.stdout)
+                    has_video = bool(video_data.get('streams', []))
+
+                detail = "vídeo" if has_video else "texto/dados"
+                return False, f"Arquivo contém apenas stream de {detail}, sem stream de áudio"
+
+            codec = streams[0].get('codec_name', 'unknown')
+            channels = streams[0].get('channels', '?')
+            sample_rate = streams[0].get('sample_rate', '?')
+            return True, f"áudio: codec={codec}, canais={channels}, taxa={sample_rate}"
+
+        except json.JSONDecodeError:
+            logger.warning(f"ffprobe retornou JSON inválido para {input_path.name}")
+            return True, "ffprobe retornou JSON inválido, assumindo que tem áudio"
+        except FileNotFoundError:
+            logger.warning("ffprobe não encontrado no sistema, pulando verificação de stream de áudio")
+            return True, "ffprobe não disponível, assumindo que tem áudio"
+        except sp.TimeoutExpired:
+            logger.warning(f"ffprobe timeout para {input_path.name}")
+            return True, "ffprobe timeout, assumindo que tem áudio"
+        except Exception as e:
+            logger.warning(f"Erro ao verificar streams com ffprobe: {e}")
+            return True, f"erro na verificação: {e}, assumindo que tem áudio"
+
+    def _convert_to_wav(self, input_path: Path) -> tuple:
+        """
+        Converte qualquer formato de áudio/vídeo para WAV 16kHz mono pcm_s16le.
+        
+        Formatos suportados na entrada: MP4, OGG, MP3, M4A, WEBM, FLAC, WAV, etc.
+        Usa ffmpeg para garantir compatibilidade com faster-whisper.
+        
+        Antes de converter, verifica se o arquivo contém stream de áudio.
+        Arquivos sem stream de áudio (ex: MP4 com apenas vídeo) geram erro claro.
         
         Args:
-            video_file_path: Caminho para o arquivo de vídeo
+            input_path: Caminho para o arquivo de entrada
             
         Returns:
-            str: Caminho para o arquivo de áudio extraído
+            tuple: (wav_path: Path, is_temp: bool)
+                - wav_path: Caminho para o arquivo WAV convertido (ou original se já for WAV)
+                - is_temp: True se o arquivo é temporário e deve ser removido após processamento
+                
+        Raises:
+            AudioTranscriptionException: Se o arquivo não contém stream de áudio,
+                                          ou se a conversão falhar.
         """
         import subprocess
-        
+
+        AUDIO_EXTENSIONS = {'.wav'}
+        AUDIO_EXTENSIONS_NEEDING_CONVERT = {
+            '.mp3', '.ogg', '.m4a', '.mp4', '.webm', '.flac', '.aac',
+            '.wma', '.opus', '.3gp', '.ts', '.mxf', '.avi', '.mkv', '.mov'
+        }
+
+        ext = input_path.suffix.lower()
+
+        if ext in AUDIO_EXTENSIONS:
+            try:
+                audio = AudioSegment.from_file(str(input_path))
+                if audio.frame_rate == 16000 and audio.channels == 1:
+                    return input_path, False
+            except Exception:
+                pass
+
+            return input_path, False
+
+        if ext not in AUDIO_EXTENSIONS_NEEDING_CONVERT and ext not in AUDIO_EXTENSIONS:
+            logger.warning(f"Formato desconhecido: {ext}, tentando converter mesmo assim")
+
+        has_audio, audio_info = self._has_audio_stream(input_path)
+        if not has_audio:
+            raise AudioTranscriptionException(
+                f"Não é possível transcrever o arquivo '{input_path.name}': "
+                f"{audio_info}. "
+                f"O arquivo precisa conter pelo menos um stream de áudio para ser transcrito. "
+                f"Verifique se o arquivo de vídeo foi gravado com áudio."
+            )
+
+        logger.info(f"Stream de áudio detectado: {audio_info}")
+
+        temp_dir = Path(self.settings.get('temp_dir', './data/temp'))
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        wav_filename = f"{input_path.stem}_converted.wav"
+        wav_path = temp_dir / wav_filename
+
+        sample_rate = str(self.settings.get('ffmpeg_sample_rate', '16000'))
+        threads = str(self.settings.get('ffmpeg_threads', '0'))
+
+        cmd = [
+            'ffmpeg',
+            '-i', str(input_path),
+            '-vn',
+            '-acodec', 'pcm_s16le',
+            '-ar', sample_rate,
+            '-ac', '1',
+            '-threads', threads,
+            '-y',
+            str(wav_path)
+        ]
+
+        logger.info(f"Convertendo {ext} para WAV: {input_path.name} -> {wav_path.name}")
+
         try:
-            # Cria arquivo temporário para o áudio extraído
-            temp_dir = Path("temp")
-            temp_dir.mkdir(exist_ok=True)
-            
-            video_path = Path(video_file_path)
-            audio_filename = f"{video_path.stem}_audio.wav"
-            audio_path = temp_dir / audio_filename
-            
-            # Comando ffmpeg para extrair áudio
-            cmd = [
-                'ffmpeg', '-i', str(video_file_path),
-                '-vn',  # Remove streams de vídeo
-                '-acodec', 'pcm_s16le',  # Codec áudio para compatibilidade
-                '-ar', '16000',  # Sample rate 16kHz (ótimo para Whisper)
-                '-ac', '1',  # Mono
-                '-y',  # Sobrescrever se existir
-                str(audio_path)
-            ]
-            
-            logger.info(f"Extraindo áudio: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-            
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300
+            )
+
             if result.returncode != 0:
-                raise AudioTranscriptionException(f"Falha ao extrair áudio: {result.stderr}")
-            
-            if not audio_path.exists():
-                raise AudioTranscriptionException("Arquivo de áudio extraído não foi criado")
-                
-            logger.info(f"Áudio extraído com sucesso: {audio_path}")
-            return str(audio_path)
-            
+                stderr_preview = result.stderr[:500] if result.stderr else "no stderr"
+                raise AudioTranscriptionException(
+                    f"Falha ao converter áudio para WAV (ffmpeg exit code {result.returncode}): {stderr_preview}"
+                )
+
+            if not wav_path.exists() or wav_path.stat().st_size < 100:
+                if wav_path.exists():
+                    wav_path.unlink(missing_ok=True)
+                raise AudioTranscriptionException(
+                    f"O arquivo '{input_path.name}' não pôde ser convertido para WAV. "
+                    f"Isso geralmente ocorre quando o arquivo não contém stream de áudio válido "
+                    f"(ex: vídeo sem áudio, arquivo corrompido, ou formato não suportado). "
+                    f"Verifique se o arquivo contém áudio antes de enviar para transcrição."
+                )
+
+            wav_size_mb = wav_path.stat().st_size / (1024 * 1024)
+            logger.info(f"Conversão concluída: {wav_path.name} ({wav_size_mb:.2f} MB)")
+
+            return wav_path, True
+
         except subprocess.TimeoutExpired:
-            raise AudioTranscriptionException("Timeout ao extrair áudio do vídeo")
+            if wav_path.exists():
+                wav_path.unlink(missing_ok=True)
+            raise AudioTranscriptionException(
+                f"Timeout ao converter áudio para WAV (limite: 300s): {input_path.name}"
+            )
+        except AudioTranscriptionException:
+            raise
         except Exception as e:
-            raise AudioTranscriptionException(f"Erro ao extrair áudio: {str(e)}")
+            if wav_path.exists():
+                wav_path.unlink(missing_ok=True)
+            raise AudioTranscriptionException(
+                f"Erro ao converter áudio para WAV: {str(e)}"
+            )

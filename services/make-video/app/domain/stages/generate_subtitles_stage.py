@@ -9,15 +9,13 @@ GenerateSubtitlesStage - Transcribe audio and generate word-by-word subtitles
 
 from pathlib import Path
 from typing import Dict, Any, List
-import logging
 import re
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import AudioProcessingException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class GenerateSubtitlesStage(JobStage):
     """Stage 6: Generate subtitles with VAD"""

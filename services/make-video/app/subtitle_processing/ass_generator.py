@@ -7,13 +7,12 @@ optimized for YouTube Shorts. Supports dual-layer rendering for neon effects.
 Sprint: S-105 to S-118
 """
 
-import logging
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from pathlib import Path
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 @dataclass
 class ASSStyle:
@@ -30,7 +29,6 @@ class ASSStyle:
     shadow: float
     alignment: int
     margin_v: int
-
 
 class ASSGenerator:
     """
@@ -335,7 +333,6 @@ PlayResY: {self.video_height}
                 return False
         
         return True
-
 
 def generate_subtitles_with_style(
     cues: List[Dict],

@@ -62,3 +62,4 @@ data/**
 
 # Stale root-level runtime dirs (superseded by data/ subdirectory)
 cache/
+.env

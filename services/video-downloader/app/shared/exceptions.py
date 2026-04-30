@@ -1,8 +1,8 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-import logging
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class VideoDownloadException(Exception):

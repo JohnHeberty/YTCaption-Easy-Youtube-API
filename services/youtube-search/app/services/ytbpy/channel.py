@@ -15,9 +15,8 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data
-
+from common.log_utils import get_logger
 
 def extract_channel_id_from_input(channel_input):
     """Extract a channel ID from various input formats (ID, username, handle, URL)"""
@@ -38,7 +37,6 @@ def extract_channel_id_from_input(channel_input):
 
     return None
 
-
 def _extract_text(data, default=""):
     """Helper to extract text from YouTube data structures"""
     if not data:
@@ -58,7 +56,6 @@ def _extract_text(data, default=""):
 
     return default
 
-
 def _extract_from_dynamic_text(dynamic_text, default=""):
     """Extract text from dynamic text view model"""
     if not dynamic_text:
@@ -68,7 +65,6 @@ def _extract_from_dynamic_text(dynamic_text, default=""):
         return dynamic_text["text"]["content"]
 
     return default
-
 
 def _parse_count(text):
     """Parse view/subscriber counts with K/M suffixes"""
@@ -86,7 +82,6 @@ def _parse_count(text):
     elif unit == "K":
         count *= 1000
     return int(count)
-
 
 def _parse_duration(duration_text):
     """
@@ -123,7 +118,6 @@ def _parse_duration(duration_text):
     
     return 0
 
-
 def _parse_time_ago(time_text):
     """Parse relative time (e.g. "3 weeks ago") into an approximate date"""
     if not time_text or "ago" not in time_text.lower():
@@ -159,7 +153,6 @@ def _parse_time_ago(time_text):
     if delta:
         return (current_time - delta).strftime("%Y-%m-%d")
     return None
-
 
 def _extract_video_info(video_renderer):
     """Extract video information from a video renderer object"""
@@ -227,7 +220,6 @@ def _extract_video_info(video_renderer):
             video_info["channel_verified"] = True
 
     return video_info
-
 
 def extract_channel_metadata(initial_data):
     """Extract metadata about the channel using the new YouTube data structure"""
@@ -607,7 +599,6 @@ def extract_channel_metadata(initial_data):
     except Exception as e:
         return {"error": f"Error extracting channel metadata: {str(e)}"}
 
-
 def extract_channel_videos(initial_data, max_videos=10):
     """
     Extract recent videos from the channel with detailed information.
@@ -790,14 +781,11 @@ def extract_channel_videos(initial_data, max_videos=10):
 
     except Exception as e:
         # Return error but don't crash
-        import logging
-        logger = logging.getLogger(__name__)
+        logger = get_logger(__name__)
         logger.error(f"Error extracting channel videos: {str(e)}", exc_info=True)
         return []
 
     return videos[:max_videos] if videos else []
-
-
 
 def get_channel_info(channel_input, include_videos=True, max_videos=10, timeout=10):
     """
@@ -859,7 +847,6 @@ def get_channel_info(channel_input, include_videos=True, max_videos=10, timeout=
             channel_info["videos"] = videos
 
     return channel_info
-
 
 def get_channel_videos(channel_input, max_results=50, timeout=10):
     """

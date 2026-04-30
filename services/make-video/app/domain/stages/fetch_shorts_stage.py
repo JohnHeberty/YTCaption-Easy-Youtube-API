@@ -8,14 +8,12 @@ FetchShortsStage - Search for YouTube shorts matching query
 """
 
 from typing import Dict, Any
-import logging
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
+from common.log_utils import get_logger
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class FetchShortsStage(JobStage):
     """Stage 2: Fetch shorts from YouTube API"""

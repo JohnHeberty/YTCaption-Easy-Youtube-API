@@ -3,7 +3,7 @@ Testes unitários para o módulo de configuração do audio-normalization
 """
 import pytest
 import os
-from app.config import get_settings
+from app.core.config import get_settings
 
 
 class TestConfigSettings:
@@ -18,8 +18,8 @@ class TestConfigSettings:
         """Configurações devem conter chaves essenciais"""
         settings = get_settings()
         required_keys = [
-            "app_name", "app_version", "redis_url", 
-            "uploads_dir", "processed_dir", "temp_dir"
+            "app_name", "version", "redis_url",
+            "upload_dir", "processed_dir", "temp_dir"
         ]
         for key in required_keys:
             assert key in settings, f"Key '{key}' missing from settings"
@@ -27,8 +27,8 @@ class TestConfigSettings:
     def test_default_values(self):
         """Testa valores padrão das configurações"""
         settings = get_settings()
-        assert settings["app_name"] == "audio-normalization"
-        assert settings["app_version"] is not None
+        assert settings["app_name"] == "Audio Normalization Service"
+        assert settings["version"] is not None
 
 
 class TestDirectoryConfiguration:
@@ -37,14 +37,14 @@ class TestDirectoryConfiguration:
     def test_directories_are_strings(self):
         """Diretórios devem ser strings"""
         settings = get_settings()
-        directories = ["uploads_dir", "processed_dir", "temp_dir"]
+        directories = ["upload_dir", "processed_dir", "temp_dir"]
         for dir_key in directories:
             assert isinstance(settings[dir_key], str)
     
     def test_directories_are_absolute_paths(self):
         """Diretórios devem ser caminhos absolutos ou relativos válidos"""
         settings = get_settings()
-        directories = ["uploads_dir", "processed_dir", "temp_dir"]
+        directories = ["upload_dir", "processed_dir", "temp_dir"]
         for dir_key in directories:
             path = settings[dir_key]
             assert len(path) > 0, f"{dir_key} is empty"

@@ -21,10 +21,9 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 import re
 from collections import Counter
-import logging
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class FeatureExtractor:
     """
@@ -545,7 +544,6 @@ class FeatureExtractor:
     def get_feature_names(self) -> List[str]:
         """Get list of feature names in order"""
         return self.feature_names.copy()
-
 
 if __name__ == "__main__":
     # Quick test

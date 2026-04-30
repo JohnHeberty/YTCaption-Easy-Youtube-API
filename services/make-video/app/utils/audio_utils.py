@@ -7,11 +7,10 @@ Helpers para extração e manipulação de áudio
 import subprocess
 import tempfile
 import os
-import logging
 from typing import Optional
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 def extract_audio(video_path: str, output_path: Optional[str] = None, 
                   sample_rate: int = 16000, timeout: int = 30) -> str:
@@ -71,7 +70,6 @@ def extract_audio(video_path: str, output_path: Optional[str] = None,
         if os.path.exists(output_path):
             os.unlink(output_path)
         raise
-
 
 def get_audio_duration(audio_path: str, timeout: int = 10) -> float:
     """

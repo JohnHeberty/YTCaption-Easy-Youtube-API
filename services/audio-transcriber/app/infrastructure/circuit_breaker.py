@@ -7,10 +7,9 @@ de falhas em cascata. Adaptado do padrão make-video.
 
 from typing import Callable, Any, Optional
 from datetime import datetime
-import logging
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class CircuitBreakerState:
     """Estados do Circuit Breaker"""
@@ -18,11 +17,9 @@ class CircuitBreakerState:
     OPEN = "open"  # Aberto: bloqueia chamadas (serviço com problemas)
     HALF_OPEN = "half_open"  # Meio-aberto: testando recuperação
 
-
 class CircuitBreakerException(Exception):
     """Exceção lançada quando circuit breaker está aberto"""
     pass
-
 
 class CircuitBreaker:
     """
@@ -101,7 +98,7 @@ class CircuitBreaker:
         # Se OPEN, verifica se timeout passou
         if current_state == CircuitBreakerState.OPEN:
             last_failure = self.last_failure_time.get(service, 0)
-            elapsed = datetime.now().timestamp() - last_failure
+            elapsed = now_brazil().timestamp() - last_failure
             
             if elapsed > self.timeout:
                 # Transição OPEN → HALF_OPEN
@@ -146,7 +143,7 @@ class CircuitBreaker:
         
         # Incrementar falhas
         self.failures[service] = self.failures.get(service, 0) + 1
-        self.last_failure_time[service] = datetime.now().timestamp()
+        self.last_failure_time[service] = now_brazil().timestamp()
         
         failure_count = self.failures[service]
         
@@ -214,14 +211,12 @@ class CircuitBreaker:
             self.record_failure(service)
             raise
 
-
 # Singleton global
 _circuit_breaker = CircuitBreaker(
     failure_threshold=5,
     timeout=60,
     half_open_max_calls=3
 )
-
 
 def get_circuit_breaker() -> CircuitBreaker:
     """Retorna instância singleton do CircuitBreaker"""

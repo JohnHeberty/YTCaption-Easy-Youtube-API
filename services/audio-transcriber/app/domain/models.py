@@ -1,246 +1,175 @@
+"""
+Audio transcriber job model extending StandardJob.
+"""
+from datetime import datetime
+from typing import Any, Optional
 from enum import Enum
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict
-from pydantic import BaseModel, Field
-import hashlib
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    # Fallback se common não estiver instalado
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
-
-
-class JobStatus(str, Enum):
-    QUEUED = "queued"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
+from common.job_utils.models import StandardJob, JobStatus
+from common.datetime_utils import now_brazil
 
 
 class WhisperEngine(str, Enum):
-    """
-    Engines de transcrição Whisper disponíveis.
-    
-    - faster-whisper: Padrão. 4x mais rápido, menos VRAM, word timestamps nativos
-    - openai-whisper: Original da OpenAI, mais lento mas compatível
-    - whisperx: Word-level timestamps com forced alignment (mais preciso)
-    """
     FASTER_WHISPER = "faster-whisper"
     OPENAI_WHISPER = "openai-whisper"
     WHISPERX = "whisperx"
 
 
-class TranscriptionWord(BaseModel):
-    """
-    Palavra individual com timestamps precisos.
-    Disponível quando engine suporta word-level timestamps (faster-whisper, whisperx).
-    """
-    word: str = Field(..., description="Palavra transcrita")
-    start: float = Field(..., description="Tempo inicial da palavra em segundos", ge=0)
-    end: float = Field(..., description="Tempo final da palavra em segundos", ge=0)
-    probability: float = Field(..., description="Confiança do modelo (0.0-1.0)", ge=0.0, le=1.0)
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "word": "welcome",
-                "start": 0.12,
-                "end": 0.58,
-                "probability": 0.95
-            }
-        }
-
-
 class TranscriptionSegment(BaseModel):
-    """
-    Segmento de transcrição com timestamps.
-    Formato compatível com projeto v1 + word-level timestamps.
-    """
-    text: str = Field(..., description="Texto do segmento transcrito")
-    start: float = Field(..., description="Tempo inicial em segundos", ge=0)
-    end: float = Field(..., description="Tempo final em segundos", ge=0)
-    duration: float = Field(..., description="Duração do segmento em segundos", ge=0)
-    words: Optional[List[TranscriptionWord]] = Field(
-        None,
-        description="Lista de palavras com timestamps precisos (disponível com faster-whisper ou whisperx)"
-    )
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "text": "Welcome to the show",
-                "start": 0.0,
-                "end": 2.5,
-                "duration": 2.5,
-                "words": [
-                    {"word": "Welcome", "start": 0.0, "end": 0.5, "probability": 0.98},
-                    {"word": "to", "start": 0.6, "end": 0.8, "probability": 0.99},
-                    {"word": "the", "start": 0.9, "end": 1.1, "probability": 0.97},
-                    {"word": "show", "start": 1.2, "end": 1.5, "probability": 0.96}
-                ]
-            }
-        }
+    text: str
+    start: float
+    end: float
+    duration: float
+    words: Optional[list["TranscriptionWord"]] = None
+
+    @field_validator("end")
+    @classmethod
+    def validate_end_after_start(cls, value: float, info):
+        start = info.data.get("start")
+        if start is not None and value < start:
+            raise ValueError("end deve ser maior ou igual a start")
+        return value
+
+    @field_validator("duration")
+    @classmethod
+    def validate_duration_non_negative(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("duration deve ser >= 0")
+        return value
+
+
+class TranscriptionWord(BaseModel):
+    word: str
+    start: float
+    end: float
+    probability: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class TranscriptionResponse(BaseModel):
-    """
-    Resposta completa de transcrição.
-    Formato compatível com projeto v1.
-    """
-    transcription_id: str = Field(..., description="ID único da transcrição")
-    filename: str = Field(..., description="Nome do arquivo original")
-    language: str = Field(..., description="Idioma detectado/especificado (entrada)")
-    language_detected: Optional[str] = Field(None, description="Idioma detectado pelo Whisper")
-    language_out: Optional[str] = Field(None, description="Idioma de saída (tradução)")
-    was_translated: bool = Field(False, description="Se o texto foi traduzido")
-    full_text: str = Field(..., description="Texto completo da transcrição")
-    segments: List[TranscriptionSegment] = Field(
-        ...,
-        description="Lista de segmentos com timestamps (start, end, duration)"
-    )
-    total_segments: int = Field(..., description="Número total de segmentos")
-    duration: float = Field(..., description="Duração total do áudio em segundos")
-    processing_time: Optional[float] = Field(
-        None,
-        description="Tempo de processamento em segundos"
-    )
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "transcription_id": "abc123def456",
-                "filename": "audio.mp3",
-                "language": "en",
-                "full_text": "Welcome to the show. Today we're going to talk about...",
-                "segments": [
-                    {
-                        "text": "Welcome to the show.",
-                        "start": 0.0,
-                        "end": 2.5,
-                        "duration": 2.5
-                    },
-                    {
-                        "text": "Today we're going to talk about...",
-                        "start": 2.5,
-                        "end": 5.8,
-                        "duration": 3.3
-                    }
-                ],
-                "total_segments": 2,
-                "duration": 5.8,
-                "processing_time": 12.5
-            }
-        }
-
-
-class JobRequest(BaseModel):
-    operation: Optional[str] = Field(
-        default="transcribe",
-        description="Operação: transcribe (transcrever) ou translate (traduzir para inglês)"
-    )
-    language_in: Optional[str] = Field(
-        default="auto",
-        description="Idioma de entrada: auto (detectar), pt, en, es, etc."
-    )
-    language_out: Optional[str] = Field(
-        default=None,
-        description="Idioma de saída para tradução: pt, en, es, etc. (None = sem tradução)"
-    )
-    engine: Optional[WhisperEngine] = Field(
-        default=WhisperEngine.FASTER_WHISPER,
-        description="Engine de transcrição: faster-whisper (padrão, 4x mais rápido), openai-whisper, whisperx"
-    )
-
-
-class Job(BaseModel):
-    id: str
-    input_file: str
-    output_file: Optional[str] = None
-    status: JobStatus
-    operation: str
-    language_in: str = "auto"  # Idioma de entrada/origem
-    language_out: Optional[str] = None  # Idioma de saída/tradução (None = mesmo que language_in)
-    language_detected: Optional[str] = None  # Idioma detectado pelo Whisper (quando language_in="auto")
-    engine: WhisperEngine = WhisperEngine.FASTER_WHISPER  # Engine de transcrição usado
+    transcription_id: Optional[str] = None
     filename: Optional[str] = None
+    language: Optional[str] = None
+    full_text: str
+    segments: list[TranscriptionSegment] = Field(default_factory=list)
+    total_segments: int = 0
+    duration: float = 0.0
+    language_detected: Optional[str] = None
+    language_out: Optional[str] = None
+    was_translated: bool = False
+    processing_time: Optional[float] = None
+
+
+class AudioTranscriptionJob(StandardJob):
+    received_at: datetime = Field(default_factory=now_brazil)
+    updated_at: datetime = Field(default_factory=now_brazil)
+    input_file: Optional[str] = None
+    output_file: Optional[str] = None
+    filename: Optional[str] = None
+    file_size: Optional[int] = None
     file_size_input: Optional[int] = None
     file_size_output: Optional[int] = None
-    received_at: datetime  # Quando foi recebido
-    created_at: datetime   # Alias para received_at (compatibilidade)
-    started_at: Optional[datetime] = None     # Quando começou a processar
-    completed_at: Optional[datetime] = None   # Quando finalizou
-    error_message: Optional[str] = None
-    expires_at: datetime
-    progress: float = 0.0  # Progresso de 0.0 a 100.0
-    transcription_text: Optional[str] = None  # Texto da transcrição
-    transcription_segments: Optional[List[TranscriptionSegment]] = None  # Segmentos com timestamps
-    
-    # Campos de resiliência
-    retry_count: int = 0  # Número de tentativas
-    status_message: Optional[str] = None  # Mensagem de status atual
-    processing_time: Optional[float] = None  # Tempo de processamento em segundos
-    dlq_at: Optional[datetime] = None  # Quando foi enviado para DLQ
-    result: Optional[Dict] = None  # Resultado completo (TranscriptionResponse serializado)
-    
-    # Propriedade de compatibilidade com código antigo
-    @property
-    def language(self) -> str:
-        """Compatibilidade: retorna language_in"""
-        return self.language_in
-    
-    @language.setter
-    def language(self, value: str):
-        """Compatibilidade: define language_in"""
-        self.language_in = value
-    
-    @property
-    def is_expired(self) -> bool:
-        return now_brazil() > self.expires_at
-    
-    @property
-    def needs_translation(self) -> bool:
-        """Verifica se precisa traduzir (language_out diferente de language_in/detectado)"""
-        return self.language_out is not None and self.language_out != self.language_in
-    
+    operation: str = "transcribe"
+    language_in: str = "auto"
+    language_out: Optional[str] = None
+    language_detected: Optional[str] = None
+    engine: WhisperEngine = WhisperEngine.FASTER_WHISPER
+    transcription_text: Optional[str] = None
+    transcription_segments: Optional[list[TranscriptionSegment]] = None
+    processing_time: Optional[float] = None
+    status_message: Optional[str] = None
+    result: Optional[dict[str, Any]] = None
+    error: Optional[str] = None
+    dlq_at: Optional[datetime] = None
+
+    class Config:
+        json_encoders = {**StandardJob.Config.json_encoders}
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_language_field(cls, data):
+        if isinstance(data, dict):
+            if "language_in" not in data and data.get("language"):
+                data["language_in"] = data["language"]
+        return data
+
+    @field_validator("transcription_segments", mode="before")
+    @classmethod
+    def normalize_segments(cls, value):
+        if value is None:
+            return value
+        if isinstance(value, list):
+            normalized = []
+            for item in value:
+                if isinstance(item, TranscriptionSegment):
+                    normalized.append(item)
+                elif isinstance(item, dict):
+                    normalized.append(TranscriptionSegment(**item))
+            return normalized
+        return value
+
+    @field_validator("language_in")
+    @classmethod
+    def normalize_language_in(cls, value: str) -> str:
+        return (value or "auto").lower()
+
+    @field_validator("language_out")
+    @classmethod
+    def normalize_language_out(cls, value: Optional[str]) -> Optional[str]:
+        return value.lower() if value else value
+
     @classmethod
     def create_new(
-        cls, 
-        filename: str, 
-        operation: str = "transcribe", 
+        cls,
+        filename: str,
+        operation: str = "transcribe",
         language_in: str = "auto",
         language_out: Optional[str] = None,
-        engine: WhisperEngine = WhisperEngine.FASTER_WHISPER
-    ) -> "Job":
-        # Calcula hash do nome do arquivo + operação + idiomas + engine para criar ID único
-        hash_input = f"{filename}_{operation}_{language_in}_{language_out or 'none'}_{engine}"
-        job_id = "{}_{}_{}".format(
-            hashlib.md5(hash_input.encode()).hexdigest()[:12], 
-            operation, 
-            language_out or language_in
-        )
-        
-        now = now_brazil()
-        cache_ttl_hours = 24
-        
-        return cls(
+        engine: WhisperEngine = WhisperEngine.FASTER_WHISPER,
+        **kwargs,
+    ) -> "AudioTranscriptionJob":
+        from common.job_utils.models import generate_job_id
+
+        normalized_engine = engine.value if isinstance(engine, WhisperEngine) else str(engine)
+        unique_str = f"{filename}_{language_in}_{normalized_engine}"
+        job_id = generate_job_id(unique_str, prefix="at_")
+        job = cls(
             id=job_id,
-            input_file="",  # será preenchido depois
-            status=JobStatus.QUEUED,
+            filename=filename,
             operation=operation,
             language_in=language_in,
             language_out=language_out,
             engine=engine,
-            filename=filename,
-            received_at=now,
-            created_at=now,
-            expires_at=now + timedelta(hours=cache_ttl_hours)
+            **kwargs,
         )
+        job.add_stage("transcription", "Audio transcription")
+        job.mark_as_queued()
+        return job
+
+    @property
+    def needs_translation(self) -> bool:
+        return self.language_out is not None and self.language_out != self.language_in
+
+    @property
+    def language(self) -> str:
+        """Compatibilidade com payload legado que usa campo `language`."""
+        return self.language_in
+
+    @language.setter
+    def language(self, value: str) -> None:
+        self.language_in = value
+
+    def model_dump(self, *args, **kwargs):
+        data = super().model_dump(*args, **kwargs)
+        data.setdefault("language", self.language_in)
+        return data
+
+
+class JobRequest(BaseModel):
+    operation: str = "transcribe"
+    language_in: str = "auto"
+    language_out: Optional[str] = None
+    engine: WhisperEngine = WhisperEngine.FASTER_WHISPER
+
+
+Job = AudioTranscriptionJob

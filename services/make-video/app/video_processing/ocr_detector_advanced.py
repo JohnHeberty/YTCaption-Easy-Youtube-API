@@ -13,10 +13,10 @@ import numpy as np
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 import threading
-import logging
 import os
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Importar PaddleOCR (ÚNICO engine permitido)
 try:
@@ -26,7 +26,6 @@ except ImportError:
     logger.error("❌ PaddleOCR not installed. Install with: pip install paddleocr")
     PADDLE_AVAILABLE = False
 
-
 @dataclass
 class OCRResult:
     """Resultado de detecção OCR"""
@@ -34,7 +33,6 @@ class OCRResult:
     confidence: float
     bbox: Tuple[int, int, int, int]  # (x, y, w, h)
     engine: str = 'paddleocr'
-
 
 class PaddleOCRDetector:
     """
@@ -201,11 +199,9 @@ class PaddleOCRDetector:
         # PaddleOCR já faz preprocessing interno otimizado
         return frame
 
-
 # Singleton instance
 _ocr_detector_instance = None
 _ocr_detector_lock = threading.Lock()
-
 
 def get_ocr_detector():
     """
@@ -248,7 +244,6 @@ def get_ocr_detector():
                     )
     
     return _ocr_detector_instance
-
 
 def _detect_gpu() -> bool:
     """

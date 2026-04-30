@@ -4,7 +4,6 @@ TRSD Telemetry System (Sprint 07)
 Sistema completo de telemetria, métricas e debug artifacts para TRSD.
 """
 
-import logging
 import time
 import json
 import os
@@ -25,9 +24,9 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 import cv2
 import numpy as np
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 @dataclass
 class PerformanceMetrics:
@@ -43,7 +42,6 @@ class PerformanceMetrics:
     
     def to_dict(self) -> dict:
         return asdict(self)
-
 
 @dataclass
 class DetectionEvent:
@@ -70,7 +68,6 @@ class DetectionEvent:
         data = asdict(self)
         data['metrics'] = self.metrics.to_dict()
         return data
-
 
 class TRSDTelemetry:
     """
@@ -154,7 +151,6 @@ class TRSDTelemetry:
             json.dump(event.to_dict(), f, indent=2)
         
         logger.debug(f"Detection event saved to {filepath}")
-
 
 class DebugArtifactSaver:
     """

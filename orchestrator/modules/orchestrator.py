@@ -8,7 +8,6 @@ Lógica de orquestração do pipeline completo (resiliente)
 """
 import os
 import asyncio
-import logging
 import random
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
@@ -30,6 +29,8 @@ import time
 
 import httpx
 
+from common.log_utils import get_logger
+
 from .models import (
     PipelineJob,
     PipelineStatus,
@@ -38,7 +39,7 @@ from .models import (
 )
 from .config import get_orchestrator_settings, get_microservice_config
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class MicroserviceClient:
     """Cliente para comunicação com microserviços com circuit breaker"""

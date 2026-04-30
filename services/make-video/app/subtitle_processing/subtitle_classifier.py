@@ -5,7 +5,6 @@ Sistema de classificação de tracks baseado em regras usando métricas temporai
 Classifica texto em: SUBTITLE, STATIC_OVERLAY, SCREENCAST, ou AMBIGUOUS.
 """
 
-import logging
 from enum import Enum
 from dataclasses import dataclass
 from typing import List, Optional, Dict
@@ -14,9 +13,9 @@ import numpy as np
 from .temporal_tracker import Track
 from app.trsd_models.text_region import ROIType
 from app.core.config import Settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TrackCategory(Enum):
     """Categorias de classificação de tracks"""
@@ -24,7 +23,6 @@ class TrackCategory(Enum):
     STATIC_OVERLAY = 'static_overlay'    # Texto estático (watermark, UI fixa)
     SCREENCAST = 'screencast'            # Uso de aplicativo (texto em app)
     AMBIGUOUS = 'ambiguous'              # Não conseguiu classificar com certeza
-
 
 @dataclass
 class ClassificationResult:
@@ -40,7 +38,6 @@ class ClassificationResult:
     static_tracks: List[Track]
     screencast_tracks: List[Track]
     ambiguous_tracks: List[Track]
-
 
 class SubtitleClassifier:
     """

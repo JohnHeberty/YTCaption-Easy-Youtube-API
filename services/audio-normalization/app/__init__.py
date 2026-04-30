@@ -2,6 +2,9 @@
 Audio Normalization Service Package
 """
 
-from .main import app
+# Lazy import to avoid circular dependencies
+def get_app():
+    from .main import app
+    return app
 
-__all__ = ['app']
+__all__ = ['get_app']
