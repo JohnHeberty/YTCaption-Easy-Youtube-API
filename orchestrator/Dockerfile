@@ -1,5 +1,9 @@
 FROM python:3.11-slim
 
+# Define o nome do serviço como variável de ambiente
+ENV SERVICE_NAME=orchestrator
+ENV PYTHONPATH=/app
+
 WORKDIR /app
 
 # Instala dependências do sistema
@@ -17,8 +21,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copia código da aplicação
 COPY . .
 
-# Cria diretório de logs
-RUN mkdir -p /app/logs
+# Cria diretórios esperados pela aplicação
+RUN mkdir -p /app/logs /app/artifacts
 
 # Expõe porta
 EXPOSE 8000
