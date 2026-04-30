@@ -11,6 +11,12 @@ import pytest
 import json
 from datetime import datetime
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    def now_brazil():
+        return datetime.now()
+
 
 class StubRedisClient:
     """Stub que simula Redis sem usar Mock"""
@@ -162,7 +168,7 @@ def test_redis_job_storage(stub_redis):
         "job_id": job_id,
         "status": "queued",
         "audio_file": "test.mp3",
-        "created_at": datetime.now().isoformat()
+        "created_at": now_brazil().isoformat()
     }
     
     key = f"job:{job_id}"

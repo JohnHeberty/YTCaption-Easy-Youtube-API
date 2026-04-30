@@ -7,7 +7,6 @@ Este módulo adapta os stages abstratos para usarem as implementações
 reais dos serviços.
 """
 
-import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 try:
@@ -37,7 +36,7 @@ from ..domain.stages.final_composition_stage import FinalCompositionStage
 from ..domain.stages.trim_video_stage import TrimVideoStage
 
 from ..core.models import Job, JobStatus, JobResult, ShortInfo
-from ..infrastructure.redis_store import RedisJobStore
+from ..infrastructure.redis_store import MakeVideoJobStore as RedisJobStore
 from ..api.api_client import MicroservicesClient
 from ..services.video_builder import VideoBuilder
 from ..services.shorts_manager import ShortsCache
@@ -48,9 +47,9 @@ from ..services.blacklist_factory import get_blacklist
 from ..infrastructure.file_logger import FileLogger
 from .events import EventPublisher, EventType
 from .exceptions import MakeVideoException
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class DomainJobProcessor:
     """
@@ -291,7 +290,6 @@ class DomainJobProcessor:
         )
         
         return result
-
 
 async def process_job_with_domain(
     job_id: str,

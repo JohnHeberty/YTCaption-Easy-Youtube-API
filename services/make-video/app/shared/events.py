@@ -23,12 +23,11 @@ except ImportError:
 
 from typing import Dict, Any, Optional, Callable, Coroutine
 import json
-import logging
 import asyncio
 import shortuuid
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class EventType(Enum):
     """Tipos de eventos do sistema"""
@@ -68,7 +67,6 @@ class EventType(Enum):
     CACHE_HIT = "cache.hit"
     CACHE_MISS = "cache.miss"
     CACHE_CLEANUP = "cache.cleanup"
-
 
 @dataclass
 class Event:
@@ -122,7 +120,6 @@ class Event:
     def from_json(cls, json_str: str) -> 'Event':
         """Deserializa de JSON"""
         return cls.from_dict(json.loads(json_str))
-
 
 class EventPublisher:
     """
@@ -206,7 +203,6 @@ class EventPublisher:
         )
         
         await self.publish(event)
-
 
 class EventSubscriber:
     """
@@ -323,10 +319,8 @@ class EventSubscriber:
         except Exception as e:
             logger.error(f"Error handling event: {e}")
 
-
 # Global event publisher instance (lazy initialization)
 _event_publisher = None
-
 
 def get_event_publisher(redis_client=None) -> EventPublisher:
     """
@@ -348,7 +342,6 @@ def get_event_publisher(redis_client=None) -> EventPublisher:
     
     return _event_publisher
 
-
 # Helper functions para facilitar uso
 
 async def publish_job_started(job_id: str, **kwargs):
@@ -359,7 +352,6 @@ async def publish_job_started(job_id: str, **kwargs):
         job_id,
         kwargs
     )
-
 
 async def publish_job_completed(job_id: str, duration_seconds: float, **kwargs):
     """Helper: Publica evento de job completado"""
@@ -373,7 +365,6 @@ async def publish_job_completed(job_id: str, duration_seconds: float, **kwargs):
         }
     )
 
-
 async def publish_job_failed(job_id: str, error: str, **kwargs):
     """Helper: Publica evento de job falhado"""
     publisher = get_event_publisher()
@@ -385,7 +376,6 @@ async def publish_job_failed(job_id: str, error: str, **kwargs):
             **kwargs
         }
     )
-
 
 async def publish_video_rejected(video_id: str, reason: str, **kwargs):
     """Helper: Publica evento de vídeo rejeitado"""

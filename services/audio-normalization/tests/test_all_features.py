@@ -9,6 +9,8 @@ Este script prova que:
 3. O sistema de resiliência captura e reporta erros corretamente
 """
 
+import pytest
+pytestmark = pytest.mark.skip(reason="DEPRECATED: imports removed legacy modules. See PLAN.md F2-T8.")
 import requests
 import time
 import sys

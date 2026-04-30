@@ -3,13 +3,11 @@ Video Status Factory
 Cria instância do VideoStatusStore (substitui blacklist_factory.py)
 """
 
-import logging
-
 from app.core.config import get_settings
 from .video_status_store import VideoStatusStore
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class VideoStatusFactory:
     """Factory para criar instância de VideoStatusStore"""
@@ -40,10 +38,8 @@ class VideoStatusFactory:
             logger.error(f"❌ Failed to create VideoStatusStore: {e}")
             raise RuntimeError(f"Failed to initialize video status store: {e}")
 
-
 # Singleton global para reutilização
 _status_store_instance = None
-
 
 def get_video_status_store() -> VideoStatusStore:
     """
@@ -58,7 +54,6 @@ def get_video_status_store() -> VideoStatusStore:
         _status_store_instance = VideoStatusFactory.create()
     
     return _status_store_instance
-
 
 # Alias para compatibilidade com código legado
 def get_blacklist() -> VideoStatusStore:

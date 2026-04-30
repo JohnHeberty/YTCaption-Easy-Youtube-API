@@ -10,10 +10,10 @@ Ele apenas ORQUESTRA chamadas HTTP para os microserviços existentes:
 
 import httpx
 import asyncio
-import logging
 from typing import Dict, List, Optional
 from pathlib import Path
 
+from common.log_utils import get_logger
 from ..shared.exceptions_v2 import (
     YouTubeSearchUnavailableException,
     VideoDownloaderUnavailableException,
@@ -25,8 +25,7 @@ from ..shared.exceptions_v2 import (
     APIRateLimitException
 )
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class MicroservicesClient:
     """Cliente HTTP para integração com microserviços existentes.

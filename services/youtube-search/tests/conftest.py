@@ -4,6 +4,10 @@ Pytest configuration for YouTube Search Service tests
 import pytest
 import asyncio
 from typing import Generator
+from unittest.mock import MagicMock
+
+from common.test_utils.mock_redis import MockRedis
+from common.test_utils.mock_celery import mock_celery_app
 
 
 @pytest.fixture(scope="session")
@@ -12,6 +16,44 @@ def event_loop() -> Generator:
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest.fixture
+def fake_redis():
+    """Fake Redis instance from common test utils."""
+    return MockRedis.create_fake_redis()
+
+
+@pytest.fixture
+def mock_job_store():
+    """Job store backed by fake Redis."""
+    from app.infrastructure.redis_store import YouTubeSearchJobStore
+    return MockRedis.create_job_store(YouTubeSearchJobStore)
+
+
+@pytest.fixture
+def mock_celery():
+    """Mock Celery app."""
+    return mock_celery_app()
+
+
+@pytest.fixture
+def app_with_overrides(mock_job_store):
+    """FastAPI app with dependency overrides for testing."""
+    from app.infrastructure.dependencies import set_job_store_override
+    from app.main import app
+
+    set_job_store_override(mock_job_store)
+    yield app
+    from app.infrastructure.dependencies import reset_overrides
+    reset_overrides()
+
+
+@pytest.fixture
+def client(app_with_overrides):
+    """Test client with dependency overrides."""
+    from fastapi.testclient import TestClient
+    return TestClient(app_with_overrides)
 
 
 @pytest.fixture

@@ -29,6 +29,12 @@ import pytest
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    def now_brazil():
+        return datetime.now()
+
 
 class RealAudioTranscriberClient:
     """Cliente para chamar audio-transcriber API REAL (sem mocks)"""
@@ -170,7 +176,7 @@ async def test_real_audio_transcription():
         result = await client.transcribe_audio(audio_path, language="pt")
         
         # Salvar resultado completo
-        result_file = results_dir / f"transcription_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        result_file = results_dir / f"transcription_{now_brazil().strftime('%Y%m%d_%H%M%S')}.json"
         with open(result_file, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
         

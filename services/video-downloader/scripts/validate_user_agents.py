@@ -6,8 +6,10 @@ import re
 import logging
 from typing import List, Tuple, Dict
 from pathlib import Path
+from common.log_utils import setup_structured_logging, get_logger
 
-logger = logging.getLogger(__name__)
+setup_structured_logging("validate_user_agents", "INFO", enable_file=False, json_format=False)
+logger = get_logger(__name__)
 
 
 class UserAgentValidator:
@@ -285,12 +287,6 @@ class UserAgentValidator:
 
 def main():
     """Script principal para validar arquivo de User-Agents"""
-    
-    # Configura logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
     
     validator = UserAgentValidator()
     

@@ -8,7 +8,7 @@ setup(
     version="1.0.0",
     description="Shared utilities and common code for YTCaption microservices",
     author="YTCaption Team",
-    packages=find_packages(),
+    packages=find_packages(include=["common", "common.*"], exclude=["common.*.tests", "common.*.tests.*"]),
     install_requires=[
         "redis>=5.0.0",
         "pydantic>=2.0.0",

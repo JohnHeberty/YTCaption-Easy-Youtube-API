@@ -16,11 +16,11 @@ except ImportError:
     logging.warning("⚠️ openai-whisper não instalado. Instale com: pip install openai-whisper")
 
 from ..domain.interfaces import IModelManager
-from ..domain.exceptions import AudioTranscriptionException
+from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class OpenAIWhisperManager(IModelManager):
     """

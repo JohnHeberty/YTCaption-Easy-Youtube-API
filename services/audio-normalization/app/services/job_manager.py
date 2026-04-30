@@ -2,7 +2,6 @@
 Job Manager - Responsável por gerenciar jobs de processamento
 Princípio: Single Responsibility + Dependency Inversion
 """
-import logging
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
@@ -19,16 +18,16 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-
-from ..core.models import Job, JobStatus
+from ..core.models import AudioNormJob
+from common.job_utils.models import JobStatus
+from common.log_utils import get_logger
 from ..infrastructure.redis_store import RedisJobStore
 from .file_validator import FileValidator
 from .audio_extractor import AudioExtractor
 from .audio_normalizer import AudioNormalizer
 from ..shared.exceptions import AudioNormalizationException
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class JobManager:
     """Gerencia processamento completo de jobs de normalização"""
@@ -54,12 +53,12 @@ class JobManager:
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir.mkdir(parents=True, exist_ok=True)
     
-    async def process_job(self, job: Job) -> Job:
+    async def process_job(self, job: AudioNormJob) -> AudioNormJob:
         """
         Processa um job de normalização de áudio
         
         Args:
-            job: Job a ser processado
+            job: AudioNormJob a ser processado
             
         Returns:
             Job atualizado com resultado do processamento
@@ -128,7 +127,7 @@ class JobManager:
             self.job_store.update_job(job)
             return job
     
-    async def _validate_input_file(self, job: Job) -> None:
+    async def _validate_input_file(self, job: AudioNormJob) -> None:
         """Valida arquivo de entrada do job"""
         if not job.input_file:
             raise AudioNormalizationException("No input file specified")
@@ -147,7 +146,7 @@ class JobManager:
         except Exception as e:
             logger.warning(f"⚠️ Could not get audio info: {e}")
     
-    async def _handle_video_extraction(self, job: Job) -> str:
+    async def _handle_video_extraction(self, job: AudioNormJob) -> str:
         """Extrai áudio de vídeo se necessário"""
         if not job.input_file:
             raise AudioNormalizationException("No input file")
@@ -171,7 +170,7 @@ class JobManager:
             logger.info("🎵 Audio file detected, proceeding with normalization")
             return job.input_file
     
-    def _prepare_output_path(self, job: Job) -> Path:
+    def _prepare_output_path(self, job: AudioNormJob) -> Path:
         """Prepara caminho do arquivo de saída"""
         # Use job ID for output filename to avoid conflicts
         output_filename = f"{job.id}.webm"
@@ -180,7 +179,7 @@ class JobManager:
         logger.info(f"📁 Output path: {output_path}")
         return output_path
     
-    def cleanup_job_files(self, job: Job) -> None:
+    def cleanup_job_files(self, job: AudioNormJob) -> None:
         """Limpa arquivos temporários do job"""
         try:
             # Clean job-specific temp directory

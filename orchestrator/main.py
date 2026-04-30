@@ -3,12 +3,12 @@ API principal do orquestrador
 """
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from contextlib import asynccontextmanager
-import logging
-from datetime import datetime, timedelta
+from datetime import datetime
+from common.log_utils import setup_structured_logging, get_logger
 try:
     from common.datetime_utils import now_brazil
 except ImportError:
@@ -23,253 +23,145 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 
 from typing import Optional
-from pathlib import Path
-import json
-import asyncio
-import sys
 
-from modules.models import (
+from domain.models import (
     PipelineRequest,
     PipelineResponse,
-    PipelineStatusResponse,
     PipelineJob,
     PipelineStatus,
-    HealthResponse
+    RootResponse,
 )
-from modules.orchestrator import PipelineOrchestrator, MicroserviceClient
-from modules.redis_store import get_store
-from modules.config import get_orchestrator_settings
+from infrastructure.dependency_injection import get_pipeline_orchestrator, get_health_checker, set_app_start_time
+from infrastructure.redis_store import RedisStore, get_store
+from services.pipeline_background import execute_pipeline_background
+from infrastructure.microservice_client import MicroserviceClient
+from core.config import get_settings
+from core.exceptions import (
+    ValidationError,
+    JobCreationError,
+    RedisConnectionError,
+)
+from core.constants import Timeouts, HealthStatus
+from api.health_routes import router as health_router
+from api.admin_routes import router as admin_router
+from api.jobs_routes import router as jobs_router
 
-# Configuração de logging estruturado
-def setup_logging():
-    """Setup de logging melhorado"""
-    logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
-    
-    # Remove handlers existentes
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-    
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    console_handler.setFormatter(console_formatter)
-    logger.addHandler(console_handler)
-    
-    # File handler
-    log_dir = Path("./orchestrator/logs")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    
-    from logging.handlers import RotatingFileHandler
-    file_handler = RotatingFileHandler(
-        log_dir / "orchestrator.log",
-        maxBytes=50*1024*1024,  # 50MB
-        backupCount=5,
-        encoding='utf-8'
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
+# Configuration
+settings = get_settings()
 
-setup_logging()
-logger = logging.getLogger(__name__)
+# Logging setup
+setup_structured_logging(
+    service_name="orchestrator",
+    log_level="INFO",
+    log_dir=settings.log_dir,
+)
+logger = get_logger(__name__)
 
-# Variáveis globais
-orchestrator: Optional[PipelineOrchestrator] = None
+# Global state
+orchestrator = None
 redis_store = None
 app_start_time = now_brazil()
 
 
 async def validate_configuration():
-    """
-    Valida configuração crítica no startup.
-    Garante que todos os serviços essenciais estão acessíveis.
-    """
-    logger.info("🔍 Validating configuration...")
-    
-    # Valida Redis
+    logger.info("Validating configuration...")
     if not redis_store:
         raise RuntimeError("Redis store not initialized")
-    
     if not redis_store.ping():
-        raise RuntimeError("❌ Redis not accessible - cannot start service")
-    
-    logger.info("✅ Redis connection validated")
-    
-    # Valida microserviços (warnings apenas, não bloqueia startup)
+        raise RuntimeError("Redis not accessible - cannot start service")
+    logger.info("Redis connection validated")
+
     services_to_check = ["video-downloader", "audio-normalization", "audio-transcriber"]
-    
     for service_name in services_to_check:
         try:
             client = MicroserviceClient(service_name)
             health = await client.check_health()
-            
             if health.get("status") == "healthy":
-                logger.info(f"✅ {service_name} is healthy")
+                logger.info(f"{service_name} is healthy")
             else:
-                logger.warning(f"⚠️  {service_name} is not healthy: {health}")
+                logger.warning(f"{service_name} is not healthy: {health}")
         except Exception as e:
-            logger.warning(f"⚠️  Failed to check {service_name} health: {e}")
-    
-    logger.info("✅ Configuration validation complete")
+            logger.warning(f"Failed to check {service_name} health: {e}")
+    logger.info("Configuration validation complete")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Lifecycle da aplicação com validação"""
     global orchestrator, redis_store, app_start_time
-    
-    # Startup
+
     logger.info("=" * 60)
-    logger.info("🚀 Starting YouTube Caption Orchestrator API")
+    logger.info("Starting YouTube Caption Orchestrator API")
     logger.info("=" * 60)
-    
+
     try:
-        # Inicializa Redis store
         redis_store = get_store()
-        logger.info("✅ Redis store initialized")
-        
-        # Inicializa orchestrator
-        orchestrator = PipelineOrchestrator(redis_store=redis_store)
-        logger.info("✅ Orchestrator initialized")
-        
-        # Valida configuração
+        logger.info("Redis store initialized")
+        orchestrator = get_pipeline_orchestrator(redis_store=redis_store)
+        logger.info("Orchestrator initialized via DI")
         await validate_configuration()
-        
         app_start_time = now_brazil()
+        set_app_start_time(app_start_time)
         logger.info("=" * 60)
-        logger.info("✅ Orchestrator API started successfully")
+        logger.info("Orchestrator API started successfully")
         logger.info("=" * 60)
-        
     except Exception as e:
-        logger.critical(f"❌ Failed to initialize orchestrator: {str(e)}", exc_info=True)
+        logger.critical(f"Failed to initialize orchestrator: {str(e)}", exc_info=True)
         raise
-    
+
     yield
-    
-    # Shutdown
-    logger.info("=" * 60)
-    logger.info("🛑 Shutting down Orchestrator API...")
-    logger.info("=" * 60)
-    
+
+    logger.info("Shutting down Orchestrator API...")
     try:
-        # Cleanup se necessário
         if redis_store:
             logger.info("Closing Redis connections...")
-        
-        logger.info("✅ Shutdown complete")
+        logger.info("Shutdown complete")
     except Exception as e:
         logger.error(f"Error during shutdown: {e}", exc_info=True)
 
 
-# Configuração da aplicação
-settings = get_orchestrator_settings()
-
 app = FastAPI(
     title="YouTube Caption Orchestrator API",
-    description="API orquestradora para processar vídeos do YouTube: download → normalização → transcrição",
+    description="API orquestradora para processar videos do YouTube: download -> normalizacao -> transcricao",
     version=settings["app_version"],
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# ==========================================
-# EXCEPTION HANDLERS GLOBAIS
-# ==========================================
-
+# Exception handlers
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handler para erros de validação do Pydantic"""
-    logger.warning(
-        f"Validation error on {request.method} {request.url.path}",
-        extra={'errors': exc.errors()}
-    )
-    
+    logger.warning(f"Validation error on {request.method} {request.url.path}", extra={'errors': exc.errors()})
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "error": "VALIDATION_ERROR",
-            "message": "Request validation failed",
-            "details": exc.errors()
-        }
+        content={"error": "VALIDATION_ERROR", "message": "Request validation failed", "details": exc.errors()},
     )
 
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-    """Handler para HTTP exceptions do Starlette"""
-    logger.warning(
-        f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}"
-    )
-    
+    logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": "HTTP_ERROR",
-            "message": exc.detail,
-            "status_code": exc.status_code
-        }
+        content={"error": "HTTP_ERROR", "message": exc.detail, "status_code": exc.status_code},
     )
 
 
 @app.exception_handler(HTTPException)
 async def fastapi_http_exception_handler(request: Request, exc: HTTPException):
-    """Handler para HTTP exceptions do FastAPI"""
-    logger.warning(
-        f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}"
-    )
-    
+    logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": "HTTP_ERROR",
-            "message": exc.detail,
-            "status_code": exc.status_code
-        }
+        content={"error": "HTTP_ERROR", "message": exc.detail, "status_code": exc.status_code},
     )
 
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """
-    Handler global para exceções não tratadas.
-    Garante que stack traces não sejam expostos em produção.
-    """
-    logger.critical(
-        f"Unhandled exception on {request.method} {request.url.path}",
-        exc_info=True,
-        extra={
-            'exception_type': type(exc).__name__,
-            'exception_message': str(exc)
-        }
-    )
-    
-    response_data = {
-        "error": "INTERNAL_ERROR",
-        "message": "An unexpected error occurred. Please contact support if the problem persists."
-    }
-    
-    # Em modo debug, inclui detalhes (APENAS DESENVOLVIMENTO)
+    logger.critical(f"Unhandled exception on {request.method} {request.url.path}", exc_info=True, extra={'exception_type': type(exc).__name__, 'exception_message': str(exc)})
+    response_data = {"error": "INTERNAL_ERROR", "message": "An unexpected error occurred. Please contact support if the problem persists."}
     if settings.get("debug", False):
-        response_data["debug_info"] = {
-            "exception_type": type(exc).__name__,
-            "exception_message": str(exc)
-        }
-    
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=response_data
-    )
+        response_data["debug_info"] = {"exception_type": type(exc).__name__, "exception_message": str(exc)}
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=response_data)
 
-
-logger.info("✅ Exception handlers configured")
 
 # CORS
 app.add_middleware(
@@ -280,10 +172,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include routers
+app.include_router(health_router)
+app.include_router(admin_router)
+app.include_router(jobs_router)
 
-@app.get("/", tags=["Root"])
+
+@app.get(
+    "/",
+    tags=["Root"],
+    summary="Service info",
+    description="Retorna a visão geral do orchestrator e os endpoints principais para iniciar e acompanhar pipelines.",
+    response_model=RootResponse,
+)
 async def root():
-    """Endpoint raiz"""
     return {
         "service": "YouTube Caption Orchestrator",
         "version": settings["app_version"],
@@ -293,737 +195,67 @@ async def root():
             "process": "/process (POST) - Inicia novo pipeline",
             "job_status": "/jobs/{job_id} (GET) - Consulta status com progresso em tempo real",
             "list_jobs": "/jobs (GET)",
-            "docs": "/docs"
-        }
+            "docs": "/docs",
+        },
     }
 
-@app.get("/health", response_model=HealthResponse, tags=["Health"])
-async def health_check():
-    """
-    Verifica saúde do orquestrador e microserviços.
-    
-    Retorna:
-    - Status geral do serviço
-    - Uptime
-    - Status do Redis
-    - Status de cada microserviço
-    """
-    try:
-        # Calcula uptime
-        uptime = (now_brazil() - app_start_time).total_seconds()
-        
-        # Verifica Redis
-        redis_ok = False
-        if redis_store:
-            try:
-                redis_ok = redis_store.ping()
-            except Exception as e:
-                logger.error(f"Redis health check failed: {e}")
-        
-        # Verifica microserviços
-        microservices_status = {}
-        if orchestrator:
-            try:
-                microservices_status = await orchestrator.check_services_health()
-            except Exception as e:
-                logger.error(f"Failed to check microservices health: {e}")
-                microservices_status = {
-                    "error": str(e)
-                }
-        
-        # Determina status geral
-        all_healthy = redis_ok and all(
-            status == "healthy" 
-            for status in microservices_status.values()
-            if isinstance(status, str)
-        )
-        
-        overall_status = "healthy" if all_healthy else "degraded"
-        
-        # Se Redis falhou, é unhealthy
-        if not redis_ok:
-            overall_status = "unhealthy"
-        
-        return HealthResponse(
-            status=overall_status,
-            service="orchestrator",
-            version=settings["app_version"],
-            timestamp=now_brazil(),
-            microservices=microservices_status,
-            uptime_seconds=uptime,
-            redis_connected=redis_ok
-        )
-        
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Health check failed: {str(e)}"
-        )
 
-@app.post("/process", response_model=PipelineResponse, tags=["Pipeline"])
-async def process_youtube_video(
-    request: PipelineRequest,
-    background_tasks: BackgroundTasks
-):
-    """
-    Inicia processamento completo de um vídeo do YouTube.
-    
-    Pipeline:
-    1. Download do vídeo (video-downloader)
-    2. Normalização de áudio (audio-normalization)
-    3. Transcrição (audio-transcriber)
-    
-    Retorna imediatamente com job_id para consulta de status.
-    """
+@app.post(
+    "/process",
+    response_model=PipelineResponse,
+    tags=["Pipeline"],
+    summary="Start pipeline processing",
+    description=(
+        "Inicia o pipeline completo para um vídeo do YouTube: download, normalização de áudio "
+        "e transcrição. Retorna imediatamente um `job_id` para polling ou streaming de progresso."
+    ),
+)
+async def process_youtube_video(request: PipelineRequest, background_tasks: BackgroundTasks):
     try:
-        # Cria job
-        job = PipelineJob.create_new(
-            youtube_url=request.youtube_url,
-            language=request.language or settings["default_language"],
-            language_out=request.language_out,  # Tradução opcional
-            remove_noise=request.remove_noise if request.remove_noise is not None else settings["default_remove_noise"],
-            convert_to_mono=request.convert_to_mono if request.convert_to_mono is not None else settings["default_convert_mono"],
-            apply_highpass_filter=request.apply_highpass_filter if request.apply_highpass_filter is not None else False,
-            set_sample_rate_16k=request.set_sample_rate_16k if request.set_sample_rate_16k is not None else settings["default_sample_rate_16k"]
-        )
-        
-        # Salva job inicial
+        job = await _create_pipeline_job(request)
         redis_store.save_job(job)
-        logger.info(f"Pipeline job {job.id} created and saved to Redis")
-        
-        # Agenda execução em background
+        logger.info(f"Pipeline job {job.id} saved to Redis")
         background_tasks.add_task(execute_pipeline_background, job.id)
         logger.info(f"Background task scheduled for job {job.id}")
-        
-        logger.info(f"Pipeline job {job.id} created for URL: {request.youtube_url}")
-        
         return PipelineResponse(
             job_id=job.id,
             status=job.status,
             message="Pipeline iniciado com sucesso. Use /jobs/{job_id} para acompanhar o progresso.",
             youtube_url=job.youtube_url,
-            overall_progress=0.0
+            overall_progress=0.0,
         )
-        
-    except Exception as e:
-        logger.error(f"Failed to create pipeline job: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao criar job: {str(e)}")
+    except ValidationError as e:
+        logger.warning(f"Validation failed: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
+    except RedisConnectionError as e:
+        logger.error(f"Redis connection failed: {e}")
+        raise HTTPException(status_code=503, detail="Service unavailable")
+    except JobCreationError as e:
+        logger.error(f"Failed to create job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
-async def execute_pipeline_background(job_id: str):
-    """Executa pipeline em background"""
-    logger.info(f"⚡ BACKGROUND TASK STARTED for job {job_id}")
-    
-    try:
-        logger.info(f"Starting background pipeline for job {job_id}")
-        
-        # Recupera job
-        job = redis_store.get_job(job_id)
-        if not job:
-            logger.error(f"❌ Job {job_id} not found in Redis!")
-            return
-        
-        logger.info(f"✅ Job {job_id} retrieved from Redis, status: {job.status}")
-        
-        # Verifica se orchestrator está disponível
-        if not orchestrator:
-            logger.error(f"❌ Orchestrator not initialized!")
-            job.mark_as_failed("Orchestrator not available")
-            redis_store.save_job(job)
-            return
-        
-        logger.info(f"🚀 Executing pipeline for job {job_id}...")
-        
-        # Executa pipeline
-        job = await orchestrator.execute_pipeline(job)
-        
-        logger.info(f"✅ Pipeline execution finished for job {job_id}, status: {job.status}")
-        
-        # Salva resultado
-        redis_store.save_job(job)
-        
-        logger.info(f"Pipeline for job {job_id} finished with status: {job.status}")
-        
-    except Exception as e:
-        logger.error(f"❌ Pipeline execution failed for job {job_id}: {str(e)}", exc_info=True)
-        
-        # Tenta recuperar e marcar como falho
-        try:
-            job = redis_store.get_job(job_id)
-            if job:
-                job.mark_as_failed(str(e))
-                redis_store.save_job(job)
-                logger.info(f"Job {job_id} marked as failed in Redis")
-        except Exception as save_error:
-            logger.error(f"Failed to save error state for job {job_id}: {save_error}")
 
-@app.get("/jobs", tags=["Jobs"])
-async def list_jobs(limit: int = 50):
-    """
-    Lista jobs recentes do pipeline.
-    
-    Retorna IDs dos últimos jobs criados (mais recentes primeiro).
-    """
-    try:
-        job_ids = redis_store.list_jobs(limit=limit)
-        
-        # Busca informações básicas de cada job
-        jobs = []
-        for job_id in job_ids:
-            job = redis_store.get_job(job_id)
-            if job:
-                jobs.append({
-                    "job_id": job.id,
-                    "youtube_url": job.youtube_url,
-                    "status": job.status.value,
-                    "progress": job.overall_progress,
-                    "created_at": job.created_at,
-                    "updated_at": job.updated_at
-                })
-        
-        return {
-            "total": len(jobs),
-            "jobs": jobs
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to list jobs: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao listar jobs: {str(e)}")
-
-@app.get("/jobs/{job_id}", response_model=PipelineStatusResponse, tags=["Jobs"])
-async def get_job_status(job_id: str):
-    """
-    Consulta status detalhado de um job do pipeline.
-    
-    Retorna informações sobre cada estágio (download, normalização, transcrição)
-    e o progresso geral.
-    """
-    try:
-        job = redis_store.get_job(job_id)
-        
-        if not job:
-            raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado")
-        
-        # Monta resposta com status dos estágios
-        stages = {
-            "download": {
-                "status": job.download_stage.status.value,
-                "job_id": job.download_stage.job_id,
-                "progress": job.download_stage.progress,
-                "started_at": job.download_stage.started_at,
-                "completed_at": job.download_stage.completed_at,
-                "error": job.download_stage.error_message
-            },
-            "normalization": {
-                "status": job.normalization_stage.status.value,
-                "job_id": job.normalization_stage.job_id,
-                "progress": job.normalization_stage.progress,
-                "started_at": job.normalization_stage.started_at,
-                "completed_at": job.normalization_stage.completed_at,
-                "error": job.normalization_stage.error_message
-            },
-            "transcription": {
-                "status": job.transcription_stage.status.value,
-                "job_id": job.transcription_stage.job_id,
-                "progress": job.transcription_stage.progress,
-                "started_at": job.transcription_stage.started_at,
-                "completed_at": job.transcription_stage.completed_at,
-                "error": job.transcription_stage.error_message
-            }
-        }
-        
-        # Converte TranscriptionSegment objects para dicts
-        segments_as_dicts = None
-        if job.transcription_segments:
-            segments_as_dicts = [
-                {
-                    "text": seg.text,
-                    "start": seg.start,
-                    "end": seg.end,
-                    "duration": seg.duration
-                }
-                for seg in job.transcription_segments
-            ]
-        
-        return PipelineStatusResponse(
-            job_id=job.id,
-            youtube_url=job.youtube_url,
-            status=job.status,
-            overall_progress=job.overall_progress,
-            created_at=job.created_at,
-            updated_at=job.updated_at,
-            completed_at=job.completed_at,
-            stages=stages,
-            transcription_text=job.transcription_text,
-            transcription_segments=segments_as_dicts,
-            transcription_file=job.transcription_file,
-            audio_file=job.audio_file,
-            error_message=job.error_message
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get job status: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao consultar job: {str(e)}")
-
-@app.get("/jobs/{job_id}/wait", response_model=PipelineStatusResponse, tags=["Jobs"])
-async def wait_for_job_completion(
-    job_id: str,
-    timeout: int = 1800  # 30 minutos padrão
-):
-    """
-    🔄 **Aguarda a conclusão do job (long polling)**
-    
-    Este endpoint mantém a conexão aberta até que:
-    - ✅ O job seja concluído com sucesso
-    - ❌ O job falhe
-    - ⏱️ O timeout seja atingido (padrão: 600s = 10min)
-    
-    **Parâmetros:**
-    - `timeout`: Tempo máximo de espera em segundos (padrão: 600)
-    
-    **Exemplo:**
-    ```
-    GET /jobs/{job_id}/wait?timeout=300
-    ```
-    
-    **Comportamento:**
-    - Verifica o status a cada 2 segundos
-    - Retorna imediatamente se o job já estiver concluído/falho
-    - Mantém conexão com keep-alive
-    
-    **Retorna:** Status completo do pipeline quando finalizado
-    """
-    import asyncio
-    from datetime import datetime, timedelta
-    
-    start_time = now_brazil()
-    max_wait = timedelta(seconds=timeout)
-    poll_interval = 5  # Verifica a cada 5 segundos
-    
-    logger.info(f"Client waiting for job {job_id} completion (timeout: {timeout}s)")
-    
-    try:
-        while now_brazil() - start_time < max_wait:
-            job = redis_store.get_job(job_id)
-            
-            if not job:
-                raise HTTPException(status_code=404, detail=f"Job {job_id} não encontrado")
-            
-            # Verifica se job finalizou (sucesso ou erro)
-            if job.status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
-                elapsed = (now_brazil() - start_time).total_seconds()
-                logger.info(f"Job {job_id} finished with status {job.status.value} after {elapsed:.1f}s")
-                
-                # Monta resposta completa
-                stages = {
-                    "download": {
-                        "status": job.download_stage.status.value,
-                        "job_id": job.download_stage.job_id,
-                        "progress": job.download_stage.progress,
-                        "started_at": job.download_stage.started_at,
-                        "completed_at": job.download_stage.completed_at,
-                        "error": job.download_stage.error_message
-                    },
-                    "normalization": {
-                        "status": job.normalization_stage.status.value,
-                        "job_id": job.normalization_stage.job_id,
-                        "progress": job.normalization_stage.progress,
-                        "started_at": job.normalization_stage.started_at,
-                        "completed_at": job.normalization_stage.completed_at,
-                        "error": job.normalization_stage.error_message
-                    },
-                    "transcription": {
-                        "status": job.transcription_stage.status.value,
-                        "job_id": job.transcription_stage.job_id,
-                        "progress": job.transcription_stage.progress,
-                        "started_at": job.transcription_stage.started_at,
-                        "completed_at": job.transcription_stage.completed_at,
-                        "error": job.transcription_stage.error_message
-                    }
-                }
-                
-                # Converte TranscriptionSegment objects para dicts
-                segments_as_dicts = None
-                if job.transcription_segments:
-                    segments_as_dicts = [
-                        {
-                            "text": seg.text,
-                            "start": seg.start,
-                            "end": seg.end,
-                            "duration": seg.duration
-                        }
-                        for seg in job.transcription_segments
-                    ]
-                
-                return PipelineStatusResponse(
-                    job_id=job.id,
-                    youtube_url=job.youtube_url,
-                    status=job.status,
-                    overall_progress=job.overall_progress,
-                    created_at=job.created_at,
-                    updated_at=job.updated_at,
-                    completed_at=job.completed_at,
-                    stages=stages,
-                    transcription_text=job.transcription_text,
-                    transcription_segments=segments_as_dicts,
-                    transcription_file=job.transcription_file,
-                    audio_file=job.audio_file,
-                    error_message=job.error_message
-                )
-            
-            # Job ainda processando - aguarda próximo poll
-            logger.debug(f"Job {job_id} still processing: {job.status.value} ({job.overall_progress:.1f}%)")
-            await asyncio.sleep(poll_interval)
-        
-        # Timeout atingido
-        elapsed = (now_brazil() - start_time).total_seconds()
-        logger.warning(f"Timeout waiting for job {job_id} after {elapsed:.1f}s")
-        raise HTTPException(
-            status_code=408,  # Request Timeout
-            detail=f"Timeout aguardando conclusão do job após {timeout}s. Use GET /jobs/{job_id} para verificar status atual."
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error waiting for job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao aguardar job: {str(e)}")
-
-@app.get("/jobs/{job_id}/stream", tags=["Jobs"])
-async def stream_job_progress(
-    job_id: str,
-    timeout: int = 600
-):
-    """
-    📡 **Stream de progresso em tempo real (Server-Sent Events)**
-    
-    Este endpoint retorna um **stream de eventos** com atualizações do progresso:
-    - Conexão permanece aberta
-    - Envia eventos SSE a cada atualização
-    - Cliente recebe progresso em tempo real
-    - Fecha automaticamente quando job finaliza ou timeout
-    
-    **Formato de eventos:**
-    ```
-    event: progress
-    data: {"status": "processing", "progress": 45.5, "stage": "transcribing"}
-    
-    event: completed
-    data: {"status": "completed", "progress": 100.0, "message": "Job finalizado!"}
-    
-    event: error
-    data: {"status": "failed", "error": "Erro na transcrição"}
-    ```
-    
-    **Uso com JavaScript:**
-    ```javascript
-    const eventSource = new EventSource('/jobs/{job_id}/stream');
-    
-    eventSource.addEventListener('progress', (e) => {
-        const data = JSON.parse(e.data);
-        console.log(`Progresso: ${data.progress}%`);
-    });
-    
-    eventSource.addEventListener('completed', (e) => {
-        const data = JSON.parse(e.data);
-        console.log('Job concluído!', data);
-        eventSource.close();
-    });
-    ```
-    
-    **Parâmetros:**
-    - `timeout`: Tempo máximo em segundos (padrão: 600)
-    """
-    async def event_generator():
-        """Gera eventos SSE com progresso do job"""
-        start_time = now_brazil()
-        max_wait = timedelta(seconds=timeout)
-        poll_interval = 1  # Atualiza a cada 1 segundo
-        last_progress = -1
-        
-        logger.info(f"Starting SSE stream for job {job_id}")
-        
-        try:
-            # Envia evento inicial
-            yield f"event: connected\ndata: {json.dumps({'message': 'Conectado ao stream', 'job_id': job_id})}\n\n"
-            
-            while now_brazil() - start_time < max_wait:
-                job = redis_store.get_job(job_id)
-                
-                if not job:
-                    yield f"event: error\ndata: {json.dumps({'error': 'Job não encontrado', 'job_id': job_id})}\n\n"
-                    break
-                
-                # Envia evento de progresso (apenas se mudou)
-                if job.overall_progress != last_progress:
-                    current_stage = job.get_current_stage()
-                    stage_name = current_stage.name if current_stage else "waiting"
-                    
-                    progress_data = {
-                        "job_id": job.id,
-                        "status": job.status.value,
-                        "progress": job.overall_progress,
-                        "stage": stage_name,
-                        "stages": {
-                            "download": job.download_stage.progress,
-                            "normalization": job.normalization_stage.progress,
-                            "transcription": job.transcription_stage.progress
-                        }
-                    }
-                    
-                    yield f"event: progress\ndata: {json.dumps(progress_data)}\n\n"
-                    last_progress = job.overall_progress
-                
-                # Verifica se finalizou
-                if job.status == PipelineStatus.COMPLETED:
-                    completed_data = {
-                        "job_id": job.id,
-                        "status": "completed",
-                        "progress": 100.0,
-                        "message": "Pipeline concluído com sucesso!",
-                        "transcription_file": job.transcription_file,
-                        "audio_file": job.audio_file,
-                        "completed_at": job.completed_at.isoformat() if job.completed_at else None
-                    }
-                    yield f"event: completed\ndata: {json.dumps(completed_data)}\n\n"
-                    logger.info(f"Job {job_id} completed - closing SSE stream")
-                    break
-                
-                elif job.status in [PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
-                    error_data = {
-                        "job_id": job.id,
-                        "status": job.status.value,
-                        "error": job.error_message or "Job falhou",
-                        "completed_at": job.completed_at.isoformat() if job.completed_at else None
-                    }
-                    yield f"event: error\ndata: {json.dumps(error_data)}\n\n"
-                    logger.warning(f"Job {job_id} failed - closing SSE stream")
-                    break
-                
-                # Aguarda próximo poll
-                await asyncio.sleep(poll_interval)
-            
-            # Timeout
-            if now_brazil() - start_time >= max_wait:
-                timeout_data = {
-                    "job_id": job_id,
-                    "error": f"Timeout após {timeout}s",
-                    "message": f"Use GET /jobs/{job_id} para verificar status"
-                }
-                yield f"event: timeout\ndata: {json.dumps(timeout_data)}\n\n"
-                logger.warning(f"SSE stream timeout for job {job_id}")
-                
-        except Exception as e:
-            logger.error(f"Error in SSE stream for job {job_id}: {e}")
-            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Nginx: desabilita buffering
-        }
+async def _create_pipeline_job(request: PipelineRequest) -> PipelineJob:
+    return PipelineJob.create_new(
+        youtube_url=request.youtube_url,
+        language=request.language or settings["default_language"],
+        language_out=request.language_out,
+        remove_noise=request.remove_noise if request.remove_noise is not None else settings["default_remove_noise"],
+        convert_to_mono=request.convert_to_mono if request.convert_to_mono is not None else settings["default_convert_mono"],
+        apply_highpass_filter=request.apply_highpass_filter if request.apply_highpass_filter is not None else False,
+        set_sample_rate_16k=request.set_sample_rate_16k if request.set_sample_rate_16k is not None else settings["default_sample_rate_16k"],
     )
 
-@app.get("/admin/stats", tags=["Admin"])
-async def get_stats():
-    """Retorna estatísticas do orquestrador"""
-    try:
-        stats = redis_store.get_stats()
-        
-        return {
-            "orchestrator": {
-                "version": settings["app_version"],
-                "environment": settings["environment"]
-            },
-            "redis": stats,
-            "settings": {
-                "cache_ttl_hours": settings["cache_ttl_hours"],
-                "job_timeout_minutes": settings["job_timeout_minutes"],
-                "poll_interval_initial": settings["poll_interval_initial"],
-                "poll_interval_max": settings["poll_interval_max"],
-                "max_poll_attempts": settings["max_poll_attempts"]
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to get stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {str(e)}")
 
-@app.post("/admin/cleanup", tags=["Admin"])
-async def cleanup_old_jobs(
-    max_age_hours: int = None,
-    deep: bool = False,
-    remove_logs: bool = False
-):
-    """
-    Remove jobs antigos do Redis.
-    
-    - max_age_hours: idade máxima dos jobs (None = usa default de 24h)
-    - deep: se True, remove também arquivos de logs
-    - remove_logs: se True, remove arquivos de log do diretório logs/
-    """
-    try:
-        result = {
-            "message": "Cleanup executado com sucesso",
-            "jobs_removed": 0,
-            "logs_cleaned": False
-        }
-        
-        # Limpa jobs do Redis
-        removed = redis_store.cleanup_old_jobs(max_age_hours)
-        result["jobs_removed"] = removed
-        
-        # Deep cleanup: limpa logs se solicitado
-        if deep or remove_logs:
-            import shutil
-            log_dir = Path(settings["log_dir"])
-            if log_dir.exists():
-                # Remove arquivos de log antigos
-                for log_file in log_dir.glob("*.log*"):
-                    try:
-                        log_file.unlink()
-                        logger.info(f"Removed log file: {log_file}")
-                    except Exception as e:
-                        logger.warning(f"Failed to remove {log_file}: {e}")
-                result["logs_cleaned"] = True
-        
-        return result
-        
-    except Exception as e:
-        logger.error(f"Cleanup failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
 
-@app.post("/admin/factory-reset", tags=["Admin"])
-async def factory_reset():
-    """
-    ⚠️ FACTORY RESET - Remove TUDO: todo o banco Redis (FLUSHDB), todos os logs,
-    e requisita cleanup de TODOS os microserviços.
-    
-    ⚠️ CRÍTICO: Execução SÍNCRONA (sem background tasks)
-    O cliente AGUARDA a conclusão completa antes de receber resposta.
-    
-    Use com cuidado! Esta ação é irreversível.
-    """
-    try:
-        from redis import Redis
-        from urllib.parse import urlparse
-        
-        result = {
-            "message": "Factory reset executado SÍNCRONAMENTE em todos os serviços",
-            "orchestrator": {
-                "jobs_removed": 0,
-                "redis_flushed": False,
-                "logs_cleaned": False
-            },
-            "microservices": {},
-            "warning": "Todos os dados foram removidos de todos os serviços"
-        }
-        
-        logger.warning("🔥 FACTORY RESET: Iniciando limpeza COMPLETA do Orchestrator")
-        
-        # 1. FLUSHDB NO REDIS (limpa TODO o banco de dados do orchestrator)
-        try:
-            # Extrai host, port e db do REDIS_URL
-            redis_url = settings["redis_url"]
-            parsed = urlparse(redis_url)
-            redis_host = parsed.hostname or 'localhost'
-            redis_port = parsed.port or 6379
-            redis_db = int(parsed.path.strip('/')) if parsed.path else 0
-            
-            logger.warning(f"🔥 Executando FLUSHDB no Redis {redis_host}:{redis_port} DB={redis_db}")
-            
-            redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
-            
-            # Conta jobs ANTES de limpar
-            keys_before = redis.keys("pipeline_job:*")
-            result["orchestrator"]["jobs_removed"] = len(keys_before)
-            
-            # FLUSHDB - Remove TODO o conteúdo do banco atual
-            redis.flushdb()
-            result["orchestrator"]["redis_flushed"] = True
-            
-            logger.info(f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs + todas as outras keys removidas")
-            
-        except Exception as e:
-            logger.error(f"❌ Erro ao limpar Redis do orchestrator: {e}")
-        
-        # 2. Limpa arquivos de log (sem remover diretório que está em uso)
-        import shutil
-        log_dir = Path(settings["log_dir"])
-        if log_dir.exists():
-            # Remove apenas os arquivos dentro do diretório, não o diretório em si
-            for log_file in log_dir.glob("*.log*"):
-                try:
-                    log_file.unlink()
-                    logger.info(f"Removed log file: {log_file}")
-                except Exception as e:
-                    logger.warning(f"Could not remove {log_file}: {e}")
-            result["orchestrator"]["logs_cleaned"] = True
-            logger.warning("Factory reset: All orchestrator logs cleaned")
-        
-        # 3. Chama cleanup de cada microserviço COM LIMPEZA DE FILA CELERY
-        import httpx
-        microservices = [
-            ("video-downloader", orchestrator.video_client),
-            ("audio-normalization", orchestrator.audio_client),
-            ("audio-transcriber", orchestrator.transcription_client)
-        ]
-        
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            for service_name, service_client in microservices:
-                try:
-                    cleanup_url = f"{service_client.base_url}/admin/cleanup"
-                    logger.warning(f"🔥 Calling FACTORY RESET for {service_name}: {cleanup_url}")
-                    
-                    response = await client.post(
-                        cleanup_url,
-                        params={
-                            "deep": True,  # Factory reset: remove TUDO
-                            "purge_celery_queue": True  # ← NOVO: Limpa fila Celery também!
-                        }
-                    )
-                    
-                    if response.status_code == 200:
-                        cleanup_data = response.json()
-                        result["microservices"][service_name] = {
-                            "status": "success",
-                            "data": cleanup_data
-                        }
-                        logger.info(f"Factory reset cleanup successful for {service_name}")
-                    else:
-                        result["microservices"][service_name] = {
-                            "status": "error",
-                            "error": f"HTTP {response.status_code}"
-                        }
-                        logger.error(f"Factory reset cleanup failed for {service_name}: {response.status_code}")
-                        
-                except Exception as e:
-                    result["microservices"][service_name] = {
-                        "status": "error",
-                        "error": str(e)
-                    }
-                    logger.error(f"Factory reset cleanup error for {service_name}: {str(e)}")
-        
-        jobs_removed = result["orchestrator"]["jobs_removed"]
-        logger.warning(f"✅ Factory reset CONCLUÍDO: orchestrator ({jobs_removed} jobs) + all microservices")
-        return result
-        
-    except Exception as e:
-        logger.error(f"Factory reset failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer factory reset: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
-    
     uvicorn.run(
         "main:app",
         host=settings["app_host"],
         port=settings["app_port"],
         reload=settings["debug"],
-        workers=settings["workers"] if not settings["debug"] else 1
+        workers=settings["workers"] if not settings["debug"] else 1,
     )

@@ -1,29 +1,23 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-import logging
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class AudioProcessingError(Exception):
     pass
 
-
 class AudioTranscriptionException(Exception):
     pass
-
 
 class ServiceException(Exception):
     pass
 
-
 class ResourceError(Exception):
     pass
 
-
 class ProcessingTimeoutError(Exception):
     pass
-
 
 async def exception_handler(request: Request, exc: Exception):
     """Global exception handler"""

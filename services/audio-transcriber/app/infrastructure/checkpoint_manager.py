@@ -8,14 +8,13 @@ Adaptado do padrão make-video para transcrições de áudio.
 """
 
 import json
-import logging
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TranscriptionStage(str, Enum):
     """Estágios de processamento de transcrição"""
@@ -24,7 +23,6 @@ class TranscriptionStage(str, Enum):
     TRANSCRIBING = "transcribing"  # Transcrição em progresso
     POSTPROCESSING = "postprocessing"  # Formatação, timestamps
     COMPLETED = "completed"  # Finalizado
-
 
 @dataclass
 class CheckpointData:
@@ -45,7 +43,6 @@ class CheckpointData:
     def from_dict(cls, data: Dict[str, Any]) -> "CheckpointData":
         """Cria instância a partir de dicionário"""
         return cls(**data)
-
 
 class CheckpointManager:
     """
@@ -108,7 +105,7 @@ class CheckpointManager:
             total_seconds=total_seconds,
             segments_completed=segments_completed,
             metadata=metadata or {},
-            timestamp=datetime.now().isoformat()
+            timestamp=now_brazil().isoformat()
         )
         
         # Salva no Redis

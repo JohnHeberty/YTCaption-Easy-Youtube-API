@@ -8,10 +8,9 @@ import cv2
 import numpy as np
 from typing import Dict, Tuple, List
 from dataclasses import dataclass
-import logging
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 @dataclass
 class VisualFeatures:
@@ -38,7 +37,6 @@ class VisualFeatures:
     
     # Score de "legenda-likeness"
 subtitle_score: float  # 0-100
-
 
 class VisualFeaturesAnalyzer:
     """

@@ -4,7 +4,6 @@ Voice Activity Detection (VAD)
 Detecta segmentos de fala em áudio usando WebRTC VAD e análise de energia
 """
 
-import logging
 import wave
 import struct
 from typing import List, Tuple, Optional
@@ -12,16 +11,15 @@ from dataclasses import dataclass
 from enum import Enum
 
 from app.infrastructure.metrics import vad_method_used_total
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class VADMethod(Enum):
     """Método VAD usado"""
     WEBRTC = "webrtc"
     ENERGY = "energy"
     NONE = "none"
-
 
 @dataclass
 class SpeechSegment:
@@ -30,7 +28,6 @@ class SpeechSegment:
     end_time: float    # Segundos
     confidence: float  # 0.0 - 1.0
     method: VADMethod
-
 
 class VoiceActivityDetector:
     """

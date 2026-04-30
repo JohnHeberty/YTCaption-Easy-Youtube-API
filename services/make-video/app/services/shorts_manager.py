@@ -6,10 +6,10 @@ NÃO baixa vídeos diretamente - apenas armazena e reutiliza.
 """
 
 import json
-import logging
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime, timedelta
+from common.log_utils import get_logger
 try:
     from common.datetime_utils import now_brazil
 except ImportError:
@@ -23,9 +23,7 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class ShortsCache:
     """Gerencia cache LOCAL de shorts já baixados via video-downloader.

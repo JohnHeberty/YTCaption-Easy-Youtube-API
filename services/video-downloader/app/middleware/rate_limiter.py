@@ -17,16 +17,16 @@ Usage (in main.py)::
         )
 """
 import asyncio
-import logging
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Dict
 
+from common.log_utils import get_logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from fastapi.responses import JSONResponse
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class _IPBucket:

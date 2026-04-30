@@ -2,7 +2,7 @@
 Tests for config module
 """
 import pytest
-from app.config import get_settings, validate_settings
+from app.core.config import get_settings, validate_settings
 
 
 def test_get_settings():

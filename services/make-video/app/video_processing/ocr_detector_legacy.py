@@ -9,13 +9,12 @@ import cv2
 import numpy as np
 import easyocr
 import re
-import logging
 from typing import Tuple, Optional, List, Set
 from dataclasses import dataclass
 from app.infrastructure.metrics import ocr_confidence_distribution
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 def _get_ocr_gpu_setting() -> bool:
     """
@@ -43,7 +42,6 @@ def _get_ocr_gpu_setting() -> bool:
     
     return False
 
-
 @dataclass
 class OCRResult:
     """Resultado de OCR em um frame"""
@@ -52,7 +50,6 @@ class OCRResult:
     word_count: int
     has_subtitle: bool
     readable_words: List[str]  # Palavras legíveis detectadas
-
 
 class OCRDetector:
     """
@@ -120,7 +117,6 @@ def get_ocr_detector() -> 'OCRDetector':
                 logger.info("✅ OCRDetector singleton created")
     
     return _global_ocr_detector
-
 
 class OCRDetector:
     """

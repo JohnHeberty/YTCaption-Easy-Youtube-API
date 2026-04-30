@@ -19,7 +19,7 @@ from app.services.faster_whisper_manager import FasterWhisperModelManager
 class StubTranscriptionProcessor:
     """Stub do processor que não precisa de Redis"""
     def __init__(self):
-        from app.config import get_settings
+        from app.core.config import get_settings
         self.settings = get_settings()
         self.model_dir = Path('./models')
         self.model_managers = {}
@@ -37,7 +37,7 @@ class StubTranscriptionProcessor:
                 from app.whisperx_manager import WhisperXManager
                 self.model_managers[engine] = WhisperXManager(model_dir=self.model_dir)
             else:
-                from app.exceptions import AudioTranscriptionException
+                from app.shared.exceptions import AudioTranscriptionException
                 raise AudioTranscriptionException(f"Engine não suportado: {engine}")
         
         return self.model_managers[engine]

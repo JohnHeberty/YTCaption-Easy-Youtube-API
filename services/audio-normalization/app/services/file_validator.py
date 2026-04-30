@@ -4,14 +4,13 @@ Princípio: Single Responsibility
 """
 import asyncio
 import json
-import logging
 from pathlib import Path
 from typing import Tuple
 
 from ..shared.exceptions import AudioNormalizationException
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class FileValidator:
     """Valida arquivos de áudio/vídeo e verifica requisitos"""

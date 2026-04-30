@@ -14,15 +14,14 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Optional
-import logging
 from dataclasses import dataclass
 
 from app.trsd_models.text_region import TextLine, ROIType
 from app.core.config import Settings
 from app.video_processing.ocr_detector_advanced import get_ocr_detector
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class TextRegionExtractor:
     """

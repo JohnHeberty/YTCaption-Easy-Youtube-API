@@ -1,64 +1,97 @@
+"""Test configuration for Video Downloader Service.
+
+Shared pytest fixtures and configuration.
 """
-Configuração do pytest e fixtures compartilhadas - Video Downloader
-"""
+
 import pytest
 import asyncio
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, MagicMock, patch
 from typing import Generator
 
-from app.models import Job, JobStatus
-from app.redis_store import RedisJobStore
-from app.config import get_settings
+from common.test_utils.mock_redis import MockRedis
+from common.test_utils.mock_celery import mock_celery_app
 
 
 @pytest.fixture(scope="session")
 def event_loop():
-    """Cria event loop para toda a sessão de testes"""
+    """Create event loop for entire test session."""
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
 
 
 @pytest.fixture
-def settings():
-    """Fixture com configurações de teste"""
-    with patch.dict('os.environ', {
-        'REDIS_URL': 'redis://localhost:6379/15',
-        'ENVIRONMENT': 'test',
-        'LOG_LEVEL': 'DEBUG',
-    }):
-        yield get_settings()
+def fake_redis():
+    """Provide a fake Redis instance."""
+    return MockRedis.create_fake_redis()
 
 
 @pytest.fixture
 def redis_mock():
-    """Mock do Redis para testes unitários"""
+    """Mock Redis for unit tests."""
     mock_redis = Mock()
     mock_redis.ping = Mock(return_value=True)
     mock_redis.set = Mock(return_value=True)
     mock_redis.get = Mock(return_value=None)
     mock_redis.delete = Mock(return_value=1)
     mock_redis.keys = Mock(return_value=[])
+    mock_redis.setex = Mock(return_value=True)
     return mock_redis
 
 
 @pytest.fixture
-def sample_job() -> Job:
-    """Fixture com job de exemplo"""
-    return Job.create_new(
-        url="https://youtube.com/watch?v=test123",
-        quality="best"
+def mock_job_store():
+    """Job store backed by fake Redis."""
+    from app.infrastructure.redis_store import VideoDownloadJobStore
+    return MockRedis.create_job_store(VideoDownloadJobStore)
+
+
+@pytest.fixture
+def mock_celery():
+    """Mock Celery app."""
+    return mock_celery_app()
+
+
+@pytest.fixture
+def mock_downloader():
+    """Mock video downloader."""
+    dl = MagicMock()
+    dl.download = MagicMock()
+    dl.get_file_path = MagicMock(return_value=None)
+    return dl
+
+
+@pytest.fixture
+def app_with_overrides(mock_job_store, mock_downloader):
+    """FastAPI app with dependency overrides for testing."""
+    from app.infrastructure.dependencies import (
+        set_job_store_override,
+        set_downloader_override,
     )
+    from app.main import app
+
+    set_job_store_override(mock_job_store)
+    set_downloader_override(mock_downloader)
+    yield app
+    from app.infrastructure.dependencies import reset_overrides
+    reset_overrides()
+
+
+@pytest.fixture
+def client(app_with_overrides):
+    """Test client with dependency overrides."""
+    from fastapi.testclient import TestClient
+    return TestClient(app_with_overrides)
 
 
 @pytest.fixture(autouse=True)
 def cleanup_temp_files():
-    """Limpa arquivos temporários após cada teste"""
+    """Clean up temporary files after each test."""
     yield
     import glob
-    for pattern in ["/tmp/test_*.mp4", "./cache/test_*"]:
+    import os
+    for pattern in ["/tmp/test_*.mp4", "./cache/test_*", "./data/cache/test_*"]:
         for file_path in glob.glob(pattern):
             try:
                 Path(file_path).unlink()
@@ -67,7 +100,7 @@ def cleanup_temp_files():
 
 
 def pytest_configure(config):
-    """Configura marcadores personalizados"""
-    config.addinivalue_line("markers", "unit: marca testes unitários")
-    config.addinivalue_line("markers", "integration: marca testes de integração")
-    config.addinivalue_line("markers", "slow: marca testes que demoram mais de 5 segundos")
+    """Configure custom markers."""
+    config.addinivalue_line("markers", "unit: marks unit tests")
+    config.addinivalue_line("markers", "integration: marks integration tests")
+    config.addinivalue_line("markers", "slow: marks slow tests (>5 seconds)")

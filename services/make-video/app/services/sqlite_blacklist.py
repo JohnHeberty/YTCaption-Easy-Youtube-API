@@ -5,14 +5,13 @@ Gerencia lista negra de vídeos com legendas embutidas usando SQLite
 
 import sqlite3
 import json
-import logging
 from pathlib import Path
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from typing import Optional, Dict, List
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class SQLiteBlacklist:
     """

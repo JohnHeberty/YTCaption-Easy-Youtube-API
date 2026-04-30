@@ -3,13 +3,12 @@ Audio Extractor - Responsável por extrair áudio de vídeos
 Princípio: Single Responsibility
 """
 import asyncio
-import logging
 from pathlib import Path
 
 from ..shared.exceptions import AudioNormalizationException
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class AudioExtractor:
     """Extrai áudio de arquivos de vídeo"""

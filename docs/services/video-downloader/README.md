@@ -56,26 +56,32 @@ Cria novo job de download.
 ```json
 {
   "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "quality": "audio"  // "best", "720p", "480p", "360p", "audio"
+  "quality": "audio"
 }
 ```
+
+Campos aceitos no request:
+- `url` (obrigatório)
+- `quality` (opcional): `best`, `worst`, `720p`, `480p`, `360p`, `audio`
+
+Campos internos que não devem ser enviados no `POST /jobs`:
+- `id`, `status`, `progress`, timestamps
+- `filename`, `file_path`, `file_size`, `error_message`, `retry_count`
 
 **Response:**
 ```json
 {
-  "id": "FtnKP8fSSdc_audio",
+  "id": "vd_0167f6c083f8f343",
+  "status": "queued",
   "url": "https://www.youtube.com/watch?v=FtnKP8fSSdc",
   "quality": "audio",
-  "status": "queued",
   "progress": 0.0,
-  "created_at": "2025-10-29T10:00:00Z",
-  "filename": null,
-  "file_path": null,
-  "file_size": null,
-  "duration": null,
-  "error_message": null
+  "created_at": "2025-10-29T10:00:00-03:00",
+  "expires_at": "2025-10-30T10:00:00-03:00"
 }
 ```
+
+Para campos detalhados de execução (erro, arquivo, timestamps adicionais, etc.), use `GET /jobs/{job_id}`.
 
 #### `GET /jobs/{job_id}`
 Consulta status de job específico.
@@ -83,20 +89,16 @@ Consulta status de job específico.
 **Response:**
 ```json
 {
-  "id": "FtnKP8fSSdc_audio",
+  "id": "vd_0167f6c083f8f343",
   "url": "https://www.youtube.com/watch?v=FtnKP8fSSdc",
   "quality": "audio",
   "status": "completed",
   "progress": 100.0,
-  "created_at": "2025-10-29T10:00:00Z",
-  "updated_at": "2025-10-29T10:02:30Z",
-  "completed_at": "2025-10-29T10:02:30Z",
+  "created_at": "2025-10-29T10:00:00-03:00",
+  "completed_at": "2025-10-29T10:02:30-03:00",
   "filename": "audio_FtnKP8fSSdc.webm",
   "file_path": "./cache/audio_FtnKP8fSSdc.webm",
   "file_size": 15720450,
-  "duration": 180.5,
-  "video_title": "Título do Vídeo",
-  "video_description": "Descrição...",
   "error_message": null
 }
 ```

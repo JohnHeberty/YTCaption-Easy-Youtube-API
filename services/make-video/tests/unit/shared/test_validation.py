@@ -12,6 +12,13 @@ from pathlib import Path
 # Garantir que app está no path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import datetime
+    def now_brazil():
+        return datetime.now()
+
 
 # ============================================================================
 # TESTES DE VALIDATION.PY
@@ -236,7 +243,7 @@ class TestEventCreation:
         
         event = {
             "type": "video.processed",
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_brazil().isoformat(),
             "data": {
                 "video_id": "test_123",
                 "status": "completed"
@@ -262,7 +269,7 @@ class TestEventCreation:
         event = VideoEvent(
             event_type="video.processed",
             video_id="test_456",
-            timestamp=datetime.now(),
+            timestamp=now_brazil(),
             metadata={"duration": 60}
         )
         

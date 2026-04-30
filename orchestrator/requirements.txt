@@ -5,6 +5,7 @@ pydantic-settings==2.1.0
 redis==5.0.1
 httpx==0.25.2
 python-multipart==0.0.6
+celery==5.3.4
 
 # Common library (local copy)
 -e ./common

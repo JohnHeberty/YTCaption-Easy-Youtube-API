@@ -19,6 +19,8 @@ except ImportError:
     BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
+
+from common.log_utils import get_logger
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -27,8 +29,7 @@ from tenacity import (
     before_sleep_log
 )
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class CircuitBreakerState:
     """Estados do Circuit Breaker"""
@@ -36,11 +37,9 @@ class CircuitBreakerState:
     OPEN = "open"  # Aberto: bloqueia chamadas (serviço com problemas)
     HALF_OPEN = "half_open"  # Meio-aberto: testando recuperação
 
-
 class CircuitBreakerException(Exception):
     """Exceção lançada quando circuit breaker está aberto"""
     pass
-
 
 class CircuitBreaker:
     """
@@ -197,7 +196,6 @@ class CircuitBreaker:
         self.half_open_calls.pop(service, None)
         logger.info(f"🔄 Circuit breaker RESET for {service}")
 
-
 # Singleton global
 _circuit_breaker = CircuitBreaker(
     failure_threshold=5,
@@ -205,11 +203,9 @@ _circuit_breaker = CircuitBreaker(
     half_open_max_calls=3
 )
 
-
 def get_circuit_breaker() -> CircuitBreaker:
     """Retorna instância singleton do CircuitBreaker"""
     return _circuit_breaker
-
 
 def with_retry_and_circuit_breaker(
     service_name: str,
@@ -269,7 +265,6 @@ def with_retry_and_circuit_breaker(
         
         return wrapper
     return decorator
-
 
 async def call_with_protection(
     service_name: str,

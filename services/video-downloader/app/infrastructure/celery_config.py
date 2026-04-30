@@ -46,10 +46,13 @@ celery_app.conf.update(
     # Reconnect to broker
     broker_connection_retry_on_startup=True,
     
-    # 🔧 FILA DEDICADA para video-downloader
+    # FILA DEDICADA para video-downloader
     task_default_queue='video_downloader_queue',
     task_routes={
         'download_video_task': {'queue': 'video_downloader_queue'},
         'cleanup_expired_jobs': {'queue': 'video_downloader_queue'},
     },
 )
+
+# Importa tasks para registro
+from . import celery_tasks

@@ -37,6 +37,7 @@ services:
     container_name: ytcaption-audio-normalization-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
+      - ./services/audio-normalization/app:/app/app
       - ./services/audio-normalization/data/uploads:/app/data/uploads
       - ./services/audio-normalization/data/processed:/app/data/processed
       - ./services/audio-normalization/data/temp:/app/data/temp
@@ -105,6 +106,7 @@ services:
     container_name: ytcaption-audio-transcriber-celery
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
+      - ./services/audio-transcriber/app:/app/app
       - ./services/audio-transcriber/data/uploads:/app/data/uploads
       - ./services/audio-transcriber/data/transcriptions:/app/data/transcriptions
       - ./services/audio-transcriber/data/models:/app/data/models
@@ -174,6 +176,7 @@ services:
     container_name: ytcaption-video-downloader-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
+      - ./services/video-downloader/app:/app/app
       - ./services/video-downloader/data/cache:/app/data/cache
       - ./services/video-downloader/data/logs:/app/data/logs
       - ./services/video-downloader/user-agents.txt:/app/user-agents.txt

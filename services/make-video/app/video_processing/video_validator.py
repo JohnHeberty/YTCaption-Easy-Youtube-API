@@ -7,7 +7,6 @@ ATUALIZADO: Multi-Engine OCR (PaddleOCR + Tesseract) + Visual Features
 
 import subprocess
 import json
-import logging
 import time
 import cv2
 import os
@@ -29,9 +28,9 @@ from app.core.config import Settings
 # PaddleOCR + Visual Features
 from .ocr_detector_advanced import get_ocr_detector, PaddleOCRDetector
 from .visual_features import VisualFeaturesAnalyzer
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 def _get_ocr_gpu_setting() -> bool:
     """
@@ -57,11 +56,9 @@ def _get_ocr_gpu_setting() -> bool:
     
     return False
 
-
 class VideoIntegrityError(Exception):
     """Exceção para vídeos corrompidos ou inválidos"""
     pass
-
 
 class VideoValidator:
     """

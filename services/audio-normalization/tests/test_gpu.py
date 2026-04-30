@@ -2,6 +2,8 @@
 """
 Script para testar suporte CUDA/GPU no container de audio-normalization
 """
+import pytest
+pytestmark = pytest.mark.skip(reason="DEPRECATED: imports removed legacy modules. See PLAN.md F2-T8.")
 import sys
 
 print("=" * 60)

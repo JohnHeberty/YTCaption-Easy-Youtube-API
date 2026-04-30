@@ -1,89 +1,130 @@
 """
-Configuração do pytest e fixtures compartilhadas - Audio Transcriber
+Fixtures e configurações compartilhadas para testes.
 """
+import os
+import sys
 import pytest
-import asyncio
-import tempfile
-import shutil
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch
-from typing import Generator
+from unittest.mock import MagicMock, AsyncMock
 
-# Importações do projeto
-from app.models import Job, JobStatus
-from app.redis_store import RedisJobStore
-from app.config import get_settings
+from common.test_utils.mock_redis import MockRedis
+from common.test_utils.mock_celery import mock_celery_app
 
+# Adiciona app ao path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-@pytest.fixture(scope="session")
-def event_loop():
-    """Cria event loop para toda a sessão de testes"""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture
-def settings():
-    """Fixture com configurações de teste"""
-    with patch.dict('os.environ', {
-        'REDIS_URL': 'redis://localhost:6379/15',
-        'ENVIRONMENT': 'test',
-        'LOG_LEVEL': 'DEBUG',
-        'MAX_FILE_SIZE_MB': '200',
-        'MAX_CONCURRENT_JOBS': '5'
-    }):
-        yield get_settings()
+# Importa now_brazil antes de usar nas fixtures
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    from datetime import datetime
+    def now_brazil():
+        return datetime.now()
 
 
 @pytest.fixture
-def redis_mock():
-    """Mock do Redis para testes unitários"""
-    mock_redis = Mock()
-    mock_redis.ping = Mock(return_value=True)
-    mock_redis.set = Mock(return_value=True)
-    mock_redis.get = Mock(return_value=None)
-    mock_redis.delete = Mock(return_value=1)
-    mock_redis.keys = Mock(return_value=[])
-    return mock_redis
+def fake_redis():
+    """Fake Redis instance from common test utils."""
+    return MockRedis.create_fake_redis()
 
 
 @pytest.fixture
-def sample_job() -> Job:
-    """Fixture com job de exemplo"""
-    return Job.create_new(
-        input_file="/tmp/test_audio.mp3"
+def mock_job_store_with_fake_redis():
+    """Job store backed by fake Redis."""
+    from app.infrastructure.redis_store import RedisJobStore
+    return MockRedis.create_job_store(RedisJobStore)
+
+
+@pytest.fixture
+def mock_processor():
+    """Mock transcription processor."""
+    processor = MagicMock()
+    processor.process = MagicMock()
+    processor.job_store = MagicMock()
+    return processor
+
+
+@pytest.fixture
+def mock_celery():
+    """Mock Celery app."""
+    return mock_celery_app()
+
+
+@pytest.fixture
+def app_with_overrides(mock_job_store, mock_processor):
+    """FastAPI app with dependency overrides for testing."""
+    from app.infrastructure.dependencies import (
+        set_job_store_override,
+        set_processor_override,
+    )
+    from app.main import app
+
+    set_job_store_override(mock_job_store)
+    set_processor_override(mock_processor)
+    yield app
+    from app.infrastructure.dependencies import reset_overrides
+    reset_overrides()
+
+
+@pytest.fixture
+def client(app_with_overrides):
+    """Test client with dependency overrides."""
+    from fastapi.testclient import TestClient
+    return TestClient(app_with_overrides)
+
+
+@pytest.fixture
+def mock_job_store():
+    """Mock do job store."""
+    store = MagicMock()
+    store.get_job = MagicMock(return_value=None)
+    store.save_job = MagicMock()
+    store.update_job = MagicMock()
+    store.delete_job = MagicMock()
+    return store
+
+
+@pytest.fixture
+def sample_job():
+    """Job de exemplo para testes."""
+    from app.domain.models import Job, JobStatus, WhisperEngine
+    
+    return Job(
+        id="test_job_123",
+        input_file="/tmp/test.mp3",
+        status=JobStatus.QUEUED,
+        operation="transcribe",
+        language_in="pt",
+        language_out=None,
+        engine=WhisperEngine.FASTER_WHISPER,
+        filename="test.mp3",
+        file_size_input=1024,
+        received_at=now_brazil(),
+        created_at=now_brazil(),
+        expires_at=now_brazil() + __import__("datetime").timedelta(hours=24),
+        progress=0.0,
     )
 
 
 @pytest.fixture
-def temp_audio_file() -> Generator[Path, None, None]:
-    """Cria arquivo de áudio temporário para testes"""
-    with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as temp_file:
-        mp3_header = b'\xff\xfb\x90\x00'
-        temp_file.write(mp3_header)
-        temp_file.write(b'\x00' * 1000)
-        temp_path = Path(temp_file.name)
-    
-    yield temp_path
-    temp_path.unlink(missing_ok=True)
+def temp_dirs(tmp_path):
+    """Diretórios temporários para testes."""
+    return {
+        "upload": tmp_path / "uploads",
+        "output": tmp_path / "transcriptions",
+        "models": tmp_path / "models",
+    }
 
 
 @pytest.fixture(autouse=True)
-def cleanup_temp_files():
-    """Limpa arquivos temporários após cada teste"""
-    yield
-    import glob
-    for pattern in ["/tmp/test_*.mp3", "/tmp/*_output.mp3"]:
-        for file_path in glob.glob(pattern):
-            try:
-                Path(file_path).unlink()
-            except (FileNotFoundError, PermissionError):
-                pass
-
-
-def pytest_configure(config):
-    """Configura marcadores personalizados"""
-    config.addinivalue_line("markers", "unit: marca testes unitários")
-    config.addinivalue_line("markers", "integration: marca testes de integração")
-    config.addinivalue_line("markers", "slow: marca testes que demoram mais de 5 segundos")
+def mock_now_brazil(monkeypatch):
+    """Mock para now_brazil() retornar datetime consistente."""
+    from datetime import datetime, timezone
+    
+    fixed_now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    
+    def mock_now():
+        return fixed_now
+    
+    monkeypatch.setattr("common.datetime_utils.now_brazil", mock_now)
+    return fixed_now

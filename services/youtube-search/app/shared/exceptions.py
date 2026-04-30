@@ -1,39 +1,32 @@
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-import logging
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class YouTubeSearchException(Exception):
     """Base exception for YouTube search service"""
     pass
 
-
 class ServiceException(Exception):
     """Service-level exception"""
     pass
-
 
 class ResourceError(Exception):
     """Resource access error"""
     pass
 
-
 class ProcessingTimeoutError(Exception):
     """Processing timeout error"""
     pass
-
 
 class InvalidRequestError(Exception):
     """Invalid request parameters"""
     pass
 
-
 class YouTubeAPIError(Exception):
     """YouTube API interaction error"""
     pass
-
 
 async def exception_handler(request: Request, exc: Exception):
     """Global exception handler"""

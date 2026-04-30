@@ -6,11 +6,10 @@ Mantido para compatibilidade com código legado.
 Redireciona para VideoStatusStore.
 """
 
-import logging
 from .video_status_factory import get_video_status_store
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 def get_blacklist():
     """

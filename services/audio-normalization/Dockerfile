@@ -27,12 +27,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Copia biblioteca common PRIMEIRO (necessária para -e ./common)
+# Copia common library primeiro
 COPY common/ ./common/
 
 # Copia requirements antes p/ cache de layers
 COPY requirements.txt .
 COPY constraints.txt .
+
+# Nota: common/ é montado como volume no docker-compose, não precisa copiar
 
 # Instala dependências Python (sem PyTorch - CPU only sem ML)
 RUN python -m pip install --no-cache-dir --upgrade pip

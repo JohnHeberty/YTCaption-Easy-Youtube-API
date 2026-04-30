@@ -6,9 +6,9 @@ import os
 import sys
 
 # Adiciona diretório atual ao path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-from app.celery_tasks import celery_app
+from app.infrastructure.celery_tasks import celery_app
 
 if __name__ == '__main__':
     # Inicia worker

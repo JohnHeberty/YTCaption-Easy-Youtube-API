@@ -3,9 +3,11 @@
 Armazenamento de jobs usando Redis (com resiliência)
 """
 import json
-import logging
 from typing import Optional, List
 from datetime import datetime
+
+from common.datetime_utils import now_brazil
+from common.log_utils import get_logger
 
 # Use resilient Redis from common library
 import sys
@@ -15,7 +17,7 @@ from common.redis_utils import ResilientRedisStore
 from .models import PipelineJob
 from .config import get_orchestrator_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RedisStore:
@@ -33,7 +35,7 @@ class RedisStore:
             max_connections=50,
             circuit_breaker_enabled=True
         )
-        
+
         # Keep compatible interface
         self.client = self.redis_client.redis
         logger.info(f"✅ Connected to Redis with resilience: {self.redis_url}")
@@ -87,7 +89,7 @@ class RedisStore:
             # Adiciona à lista de jobs
             self.client.zadd(
                 self._jobs_list_key(),
-                {job.id: datetime.now().timestamp()}
+                {job.id: now_brazil().timestamp()}
             )
 
             logger.debug(f"Job {job.id} saved to Redis")
@@ -156,7 +158,7 @@ class RedisStore:
             max_age_hours = self.ttl_hours
 
         try:
-            cutoff_timestamp = datetime.now().timestamp() - (max_age_hours * 3600)
+            cutoff_timestamp = now_brazil().timestamp() - (max_age_hours * 3600)
 
             # Remove jobs antigos da lista
             removed = self.client.zremrangebyscore(

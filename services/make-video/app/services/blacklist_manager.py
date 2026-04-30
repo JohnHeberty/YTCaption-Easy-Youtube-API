@@ -5,16 +5,15 @@ Impede reprocessamento de vídeos que foram rejeitados na validação.
 Usa VideoStatusStore (SQLite) para persistência eficiente com ACID.
 """
 
-import logging
 from pathlib import Path
 from typing import Optional, Dict, List
 from datetime import datetime
 import json
 
 from .video_status_factory import get_video_status_store
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class BlacklistManager:
     """

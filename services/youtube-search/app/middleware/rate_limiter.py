@@ -17,7 +17,6 @@ Usage (in main.py)::
         )
 """
 import asyncio
-import logging
 from collections import deque
 from datetime import datetime, timedelta
 from typing import Dict
@@ -25,9 +24,9 @@ from typing import Dict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from fastapi.responses import JSONResponse
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class _IPBucket:
     """Sliding-window counter for a single IP address."""
@@ -48,7 +47,6 @@ class _IPBucket:
                 return False
             self.timestamps.append(now)
             return True
-
 
 class RateLimiterMiddleware(BaseHTTPMiddleware):
     """Per-IP sliding-window rate limiter ASGI middleware.

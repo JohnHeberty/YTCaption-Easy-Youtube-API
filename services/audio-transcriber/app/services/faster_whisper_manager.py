@@ -2,7 +2,6 @@
 Gerenciador de modelos Whisper usando Faster-Whisper.
 Faster-Whisper é uma reimplementação do Whisper usando CTranslate2, muito mais rápida.
 """
-import logging
 import time
 import torch
 from pathlib import Path
@@ -10,12 +9,12 @@ from typing import Dict, Any, Optional
 from faster_whisper import WhisperModel
 
 from ..domain.interfaces import IModelManager
-from ..domain.exceptions import AudioTranscriptionException
+from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
 from ..infrastructure import get_circuit_breaker, CircuitBreakerException
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class FasterWhisperModelManager(IModelManager):
     """
@@ -330,10 +329,16 @@ ado
             
             return result
             
-        except (RuntimeError, OSError, IOError) as e:
+        except (RuntimeError, OSError, IOError, IndexError) as e:
             logger.exception(f"❌ Erro na transcrição: {e}")
-            
-            # Registra falha no circuit breaker
+
             cb.record_failure(service_name)
-            
+
+            if isinstance(e, IndexError):
+                raise AudioTranscriptionException(
+                    f"Erro interno do faster-whisper (tuple index out of range): "
+                    f"o arquivo de áudio pode estar corrompido, vazio, ou sem stream de áudio válido. "
+                    f"Detalhes: {e}"
+                ) from e
+
             raise AudioTranscriptionException(f"Falha na transcrição: {e}") from e

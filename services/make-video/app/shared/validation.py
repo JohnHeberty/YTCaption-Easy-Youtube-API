@@ -10,8 +10,8 @@ from typing import Optional, List
 from pathlib import Path
 from enum import Enum
 import re
-import logging
 
+from common.log_utils import get_logger
 from ..core.constants import (
     ProcessingLimits,
     FileExtensions,
@@ -19,20 +19,17 @@ from ..core.constants import (
     RegexPatterns
 )
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class ValidationError(Exception):
     """Exceção de validação"""
     pass
-
 
 class SubtitleStyle(str, Enum):
     """Estilos de legenda válidos"""
     STATIC = "static"
     DYNAMIC = "dynamic"
     MINIMAL = "minimal"
-
 
 class LanguageCode(str, Enum):
     """Códigos de idioma suportados"""
@@ -41,7 +38,6 @@ class LanguageCode(str, Enum):
     ES = "es"
     FR = "fr"
     DE = "de"
-
 
 class CreateVideoRequestValidated(BaseModel):
     """
@@ -123,7 +119,6 @@ class CreateVideoRequestValidated(BaseModel):
                 "aspect_ratio": "9:16"
             }
         }
-
 
 class AudioFileValidator:
     """
@@ -219,7 +214,6 @@ class AudioFileValidator:
                 raise
             raise ValidationError(f"Failed to validate file type: {e}")
 
-
 class VideoFileValidator:
     """Validador de arquivo de vídeo"""
     
@@ -313,7 +307,6 @@ class VideoFileValidator:
         except Exception as e:
             raise ValidationError(f"Failed to validate video: {e}")
 
-
 class JobIdValidator:
     """Validador de Job ID"""
     
@@ -338,7 +331,6 @@ class JobIdValidator:
             return True
         except ValidationError:
             return False
-
 
 class QueryValidator:
     """Validador de queries de busca"""
@@ -421,23 +413,19 @@ class QueryValidator:
         if dangerous_found:
             raise ValidationError(f"Query contains dangerous characters: {', '.join(dangerous_found)}")
 
-
 # Funções helper para uso direto
 
 def validate_audio_file(file_path: Path) -> None:
     """Helper: Valida arquivo de áudio"""
     AudioFileValidator.validate(file_path)
 
-
 def validate_video_file(file_path: Path) -> None:
     """Helper: Valida arquivo de vídeo"""
     VideoFileValidator.validate(file_path)
 
-
 def validate_job_id(job_id: str) -> None:
     """Helper: Valida Job ID"""
     JobIdValidator.validate(job_id)
-
 
 def sanitize_query(query: str) -> str:
     """Helper: Sanitiza query"""

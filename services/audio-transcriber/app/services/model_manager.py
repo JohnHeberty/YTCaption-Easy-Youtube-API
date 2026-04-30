@@ -2,7 +2,6 @@
 Gerenciador de modelos Whisper (Single Responsibility Principle).
 Responsável APENAS por carregar/descarregar/usar modelos Whisper.
 """
-import logging
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -10,11 +9,11 @@ import torch
 import whisper
 
 from ..domain.interfaces import IModelManager
-from ..domain.exceptions import AudioTranscriptionException
+from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class WhisperModelManager(IModelManager):
     """

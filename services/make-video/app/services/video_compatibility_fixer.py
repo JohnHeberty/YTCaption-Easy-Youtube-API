@@ -11,7 +11,6 @@ Corrige automaticamente:
 
 import asyncio
 import json
-import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -22,9 +21,9 @@ from app.shared.exceptions_v2 import (
     FFmpegTimeoutException
 )
 from app.core.config import get_settings
+from common.log_utils import get_logger
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 @dataclass
 class VideoSpec:
@@ -45,7 +44,6 @@ class VideoSpec:
         from math import gcd
         divisor = gcd(self.width, self.height)
         return f"{self.width // divisor}:{self.height // divisor}"
-
 
 class VideoCompatibilityFixer:
     """

@@ -10,8 +10,8 @@ from unittest.mock import patch, Mock, AsyncMock
 from pathlib import Path
 import tempfile
 
-from app.models import Job, JobStatus
-from app.exceptions import CircuitBreaker, SecurityError, ResourceError
+from app.core.models import Job, JobStatus
+from app.core.exceptions import AudioNormalizationError, ProcessingError, ResourceError
 
 
 class TestChaosEngineering:
@@ -313,7 +313,7 @@ class TestFailureRecovery:
     @pytest.mark.recovery
     async def test_partial_failure_recovery(self):
         """Testa recuperação de falhas parciais no processamento"""
-        from app.processor_new import AudioProcessor
+        from app.domain.processor import AudioProcessor
         
         processor = AudioProcessor()
         

@@ -40,7 +40,7 @@ class TestCorruptedFileshHandling:
         print(f"   Tamanho: {corrupted_audio_file.stat().st_size} bytes\n")
         
         from app.faster_whisper_manager import FasterWhisperModelManager
-        from app.exceptions import AudioTranscriptionException
+        from app.shared.exceptions import AudioTranscriptionException
         
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
         manager.load_model()
@@ -76,7 +76,7 @@ class TestCorruptedFileshHandling:
         print(f"   Tamanho: {empty_audio_file.stat().st_size} bytes\n")
         
         from app.faster_whisper_manager import FasterWhisperModelManager
-        from app.exceptions import AudioTranscriptionException
+        from app.shared.exceptions import AudioTranscriptionException
         
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
         manager.load_model()
@@ -112,7 +112,7 @@ class TestCorruptedFileshHandling:
         print(f"   Conteúdo: texto (não é áudio)\n")
         
         from app.faster_whisper_manager import FasterWhisperModelManager
-        from app.exceptions import AudioTranscriptionException
+        from app.shared.exceptions import AudioTranscriptionException
         
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
         manager.load_model()
@@ -145,7 +145,7 @@ class TestCorruptedFileshHandling:
         
         from app.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker, CircuitBreakerState
-        from app.exceptions import AudioTranscriptionException
+        from app.shared.exceptions import AudioTranscriptionException
         
         cb = get_circuit_breaker()
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
@@ -208,7 +208,7 @@ class TestCorruptedFileshHandling:
         
         from app.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker, CircuitBreakerState
-        from app.exceptions import AudioTranscriptionException
+        from app.shared.exceptions import AudioTranscriptionException
         
         cb = get_circuit_breaker()
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")

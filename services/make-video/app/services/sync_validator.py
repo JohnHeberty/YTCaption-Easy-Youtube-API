@@ -5,18 +5,17 @@ Validates sync between audio and video with automatic drift correction.
 Follows Netflix's approach to A/V sync quality (tolerance: 500ms).
 """
 
-import logging
 from typing import Tuple, Dict, Any, Optional
 from pathlib import Path
 
+from common.log_utils import get_logger
 from ..shared.exceptions_v2 import (
     SyncDriftException,
     AudioCorruptedException,
     VideoCorruptedException
 )
 
-logger = logging.getLogger(__name__)
-
+logger = get_logger(__name__)
 
 class SyncValidator:
     """

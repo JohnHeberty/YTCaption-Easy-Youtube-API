@@ -75,21 +75,36 @@ Content-Type: application/json
 
 {
   "url": "https://www.youtube.com/watch?v=VIDEO_ID",
-  "quality": "720p"  # opcional: best, 720p, 480p, 360p, audio
+  "quality": "720p"
 }
 ```
+
+Contrato do request (mínimo e intencional):
+
+| Campo | Obrigatório | Descrição |
+|-------|-------------|-----------|
+| `url` | Sim | URL do vídeo no YouTube |
+| `quality` | Não | Qualidade desejada: `best`, `worst`, `720p`, `480p`, `360p`, `audio` |
+
+Campos que **não** devem ser enviados no `POST /jobs` (são internos da pipeline):
+- `id`, `status`, `progress`, `created_at`, `started_at`, `completed_at`, `expires_at`
+- `filename`, `file_path`, `file_size`, `error_message`, `retry_count`, `current_user_agent`
 
 **Resposta:**
 ```json
 {
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+  "id": "vd_123e4567e89b12d",
   "status": "queued",
+  "url": "https://www.youtube.com/watch?v=VIDEO_ID",
   "quality": "720p",
-  "created_at": "2025-10-24T10:00:00",
-  "expires_at": "2025-10-25T10:00:00"
+  "progress": 0.0,
+  "created_at": "2025-10-24T10:00:00-03:00",
+  "expires_at": "2025-10-25T10:00:00-03:00"
 }
 ```
+
+Observação: o `POST /jobs` retorna payload compacto por design.
+Detalhes internos/completos do pipeline devem ser consultados em `GET /jobs/{job_id}`.
 
 ### 2. Consultar Status do Job
 ```bash
@@ -99,23 +114,26 @@ GET /jobs/{job_id}
 **Resposta (em andamento):**
 ```json
 {
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "status": "downloading",
+  "id": "vd_123e4567e89b12d",
+  "status": "processing",
+  "progress": 42.3,
   "url": "https://www.youtube.com/watch?v=VIDEO_ID",
   "quality": "720p",
-  "created_at": "2025-10-24T10:00:00",
-  "expires_at": "2025-10-25T10:00:00"
+  "created_at": "2025-10-24T10:00:00-03:00",
+  "started_at": "2025-10-24T10:00:01-03:00",
+  "expires_at": "2025-10-25T10:00:00-03:00"
 }
 ```
 
 **Resposta (concluído):**
 ```json
 {
-  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "id": "vd_123e4567e89b12d",
   "status": "completed",
+  "progress": 100.0,
   "filename": "123e4567_Video_Title.mp4",
   "file_size": 15728640,
-  "completed_at": "2025-10-24T10:02:30"
+  "completed_at": "2025-10-24T10:02:30-03:00"
 }
 ```
 
