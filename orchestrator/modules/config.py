@@ -34,7 +34,7 @@ def get_orchestrator_settings() -> Dict[str, Any]:
 
         # Logging
         "log_level": os.getenv("LOG_LEVEL", "INFO"),
-        "log_dir": os.getenv("LOG_DIR", "./orchestrator/logs"),
+        "log_dir": os.getenv("LOG_DIR", "./logs"),
 
         # Microserviços URLs - URLs corretas baseadas no log de erro
         "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.1.132:8000"),
