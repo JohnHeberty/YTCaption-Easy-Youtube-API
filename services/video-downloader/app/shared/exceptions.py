@@ -1,65 +1,43 @@
-from fastapi import Request, status
-from fastapi.responses import JSONResponse
-from common.log_utils import get_logger
+"""
+Service-specific exceptions for Video Downloader.
 
-logger = get_logger(__name__)
+All exceptions inherit from BaseServiceException so they are automatically
+handled by common.exception_handlers.setup_exception_handlers().
+"""
+from fastapi import status
+from common.exception_handlers import BaseServiceException
 
 
-class VideoDownloadException(Exception):
+class VideoDownloadException(BaseServiceException):
     """Base exception for video download errors."""
-    def __init__(self, message: str, status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR):
-        self.message = message
-        self.status_code = status_code
-        super().__init__(message)
+
+    def __init__(self, message: str = "Video download error", status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR):
+        super().__init__(message=message, status_code=status_code, error_code="VIDEO_DOWNLOAD_ERROR")
 
 
-class ServiceException(Exception):
+class ServiceException(BaseServiceException):
     """Service-level exception."""
-    pass
+
+    def __init__(self, message: str = "Service error"):
+        super().__init__(message=message, error_code="SERVICE_ERROR")
 
 
-class AudioProcessingError(Exception):
-    """Audio processing error (compatibility)."""
-    pass
-
-
-class ResourceError(Exception):
+class ResourceError(BaseServiceException):
     """Resource not found or unavailable."""
-    pass
+
+    def __init__(self, message: str = "Resource error"):
+        super().__init__(message=message, status_code=status.HTTP_404_NOT_FOUND, error_code="RESOURCE_ERROR")
 
 
-class ProcessingTimeoutError(Exception):
+class ProcessingTimeoutError(BaseServiceException):
     """Processing exceeded time limit."""
-    pass
+
+    def __init__(self, message: str = "Processing timeout"):
+        super().__init__(message=message, status_code=status.HTTP_408_REQUEST_TIMEOUT, error_code="PROCESSING_TIMEOUT")
 
 
-async def exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """Unified async exception handler — returns consistent JSON for all errors."""
-    logger.error(
-        "Exception in %s %s: %s",
-        request.method,
-        request.url.path,
-        exc,
-        exc_info=True,
-    )
+class AudioProcessingError(BaseServiceException):
+    """Audio processing error (compatibility)."""
 
-    if isinstance(exc, VideoDownloadException):
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"detail": exc.message, "type": exc.__class__.__name__},
-        )
-    if isinstance(exc, ResourceError):
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND,
-            content={"detail": str(exc), "type": "ResourceError"},
-        )
-    if isinstance(exc, ProcessingTimeoutError):
-        return JSONResponse(
-            status_code=status.HTTP_408_REQUEST_TIMEOUT,
-            content={"detail": str(exc), "type": "ProcessingTimeoutError"},
-        )
-
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": str(exc), "type": exc.__class__.__name__},
-    )
+    def __init__(self, message: str = "Audio processing error"):
+        super().__init__(message=message, error_code="AUDIO_PROCESSING_ERROR")

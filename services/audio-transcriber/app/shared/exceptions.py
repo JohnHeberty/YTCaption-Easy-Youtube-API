@@ -1,6 +1,9 @@
 """
 Service exceptions for the Audio Transcriber service.
 Re-exports from domain.exceptions for backward compatibility.
+
+All exceptions inherit from BaseServiceException so they are automatically
+handled by common.exception_handlers.setup_exception_handlers().
 """
 from ..domain.exceptions import (
     AudioProcessingError,
@@ -8,7 +11,6 @@ from ..domain.exceptions import (
     ServiceException,
     ResourceError,
     ProcessingTimeoutError,
-    exception_handler,
 )
 
 __all__ = [
@@ -17,5 +19,4 @@ __all__ = [
     "ServiceException",
     "ResourceError",
     "ProcessingTimeoutError",
-    "exception_handler",
 ]

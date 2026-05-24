@@ -16,7 +16,7 @@ from fastapi.responses import Response
 from app.core.config import get_settings
 from app.domain.models import CleanupResponse, QueueStatsResponse, SearchServiceStatsResponse
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
-from app.infrastructure.dependencies import get_job_store_override
+from app.infrastructure.dependencies import job_store
 from app.infrastructure.celery_config import celery_app
 from common.log_utils import get_logger
 
@@ -48,7 +48,7 @@ async def manual_cleanup(
         description="Quando true, revoga tasks ativas/agendadas e limpa a fila do Celery.",
         examples=[False, True],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ):
     """Executa limpeza do sistema, básica ou total, com opção de purge da fila Celery."""
     cleanup_type = "TOTAL" if deep else "basic"
@@ -229,7 +229,7 @@ async def _cleanup_celery(report: dict) -> None:
     description="Retorna estatísticas agregadas do Redis e do Celery para o serviço de busca.",
     response_model=SearchServiceStatsResponse,
 )
-async def get_stats(store: RedisJobStore = Depends(get_job_store_override)):
+async def get_stats(store: RedisJobStore = Depends(job_store)):
     """Retorna estatísticas do serviço de busca, incluindo Redis e Celery."""
     stats = store.get_stats()
 
@@ -279,7 +279,7 @@ async def get_queue_stats():
         return {"error": str(exc), "is_running": False}
 
 @router.get("/metrics", summary="Metricas Prometheus", response_class=Response)
-async def prometheus_metrics(store: RedisJobStore = Depends(get_job_store_override)):
+async def prometheus_metrics(store: RedisJobStore = Depends(job_store)):
     """Expõe métricas no formato Prometheus para o serviço de busca no YouTube."""
     svc = "youtube_search"
     stats = {}

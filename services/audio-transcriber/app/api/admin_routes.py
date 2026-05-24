@@ -16,7 +16,7 @@ from app.api.schemas import (
     QueueInfoResponse,
 )
 from app.core.config import get_settings
-from app.infrastructure.dependencies import get_job_store_override
+from app.infrastructure.dependencies import job_store
 from app.infrastructure.redis_store import RedisJobStore
 
 logger = get_logger(__name__)
@@ -308,7 +308,7 @@ async def manual_cleanup(
         description="Quando true, remove também tasks pendentes e resultados armazenados do Celery.",
         examples=[False, True],
     ),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ):
     """Perform system cleanup: basic (expired jobs only) or total (factory reset)."""
     cleanup_type = "TOTAL" if deep else "básica"
@@ -334,7 +334,7 @@ async def manual_cleanup(
     description="Retorna estatísticas agregadas do Redis e métricas de cache/artefatos locais do serviço.",
     response_model=AdminStatsResponse,
 )
-async def get_stats(job_store: RedisJobStore = Depends(get_job_store_override)):
+async def get_stats(job_store: RedisJobStore = Depends(job_store)):
     """Retrieve transcription service statistics including job counts and disk usage."""
     stats = job_store.get_stats()
 
@@ -365,7 +365,7 @@ async def get_stats(job_store: RedisJobStore = Depends(get_job_store_override)):
     response_model=QueueInfoResponse,
     responses={500: {"description": "Internal server error"}},
 )
-async def get_queue_info_endpoint(job_store: RedisJobStore = Depends(get_job_store_override)):
+async def get_queue_info_endpoint(job_store: RedisJobStore = Depends(job_store)):
     """Retrieve Celery queue information for the transcription service."""
     try:
         queue_info = await job_store.get_queue_info()
@@ -387,7 +387,7 @@ async def get_queue_info_endpoint(job_store: RedisJobStore = Depends(get_job_sto
     response_model=AdminOrphanCleanupResponse,
     responses={500: {"description": "Internal server error"}},
 )
-async def cleanup_orphan_jobs_endpoint(job_store: RedisJobStore = Depends(get_job_store_override)):
+async def cleanup_orphan_jobs_endpoint(job_store: RedisJobStore = Depends(job_store)):
     """Clean up orphaned transcription jobs using the OrphanJobCleaner."""
     try:
         from app.shared.orphan_cleaner import OrphanJobCleaner

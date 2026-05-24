@@ -21,7 +21,7 @@ from app.core.constants import POLL_INTERVAL_SECONDS
 from app.core.validators import ValidationError, TimeoutValidator, JobIdValidator
 from app.domain.models import Job, JobListResponse, JobStatus, DeleteJobResponse
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
-from app.infrastructure.dependencies import get_job_store_override
+from app.infrastructure.dependencies import job_store
 from app.shared.exceptions import InvalidRequestError
 from common.log_utils import get_logger
 
@@ -51,7 +51,7 @@ def _validate_job_id(job_id: str) -> str:
 @router.get("/{job_id}", summary="Get job status", response_model=Job, responses={404: {"description": "Job not found"}})
 async def get_job_status(
     job_id: str = Path(..., description="ID do job para consulta.", examples=["a1b2c3d4e5f6a7b8"]),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Retrieve the current status and results of a search job."""
     _validate_job_id(job_id)
@@ -72,7 +72,7 @@ async def list_jobs(
         description="Quantidade máxima de jobs retornados.",
         examples=[20, 50, 100],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> JobListResponse:
     """List all search jobs with optional limit."""
     jobs = store.list_jobs(limit=limit)
@@ -81,7 +81,7 @@ async def list_jobs(
 @router.delete("/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"description": "Job not found"}, 500: {"description": "Internal server error"}})
 async def delete_job(
     job_id: str = Path(..., description="ID do job a ser removido.", examples=["a1b2c3d4e5f6a7b8"]),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> DeleteJobResponse:
     """Remove a search job and its associated data from Redis."""
     _validate_job_id(job_id)
@@ -106,7 +106,7 @@ async def delete_job(
 @router.get("/{job_id}/download", summary="Download results", responses={404: {"description": "Job or results not found"}, 410: {"description": "Job expired"}, 425: {"description": "Results not ready"}, 500: {"description": "Internal server error"}})
 async def download_results(
     job_id: str = Path(..., description="ID do job para download dos resultados.", examples=["a1b2c3d4e5f6a7b8"]),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Response:
     """Download completed search results as a JSON file."""
     _validate_job_id(job_id)
@@ -155,7 +155,7 @@ async def wait_for_job_completion(
         description="Tempo máximo de espera em segundos.",
         examples=[60, 300, 600],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Long-poll endpoint that waits for a search job to complete, fail, or timeout."""
     _validate_job_id(job_id)

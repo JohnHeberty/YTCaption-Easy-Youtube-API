@@ -2,39 +2,24 @@
 YouTube Search Service - Main Application
 
 Microservice for YouTube search operations with Celery + Redis and 24h cache.
-Follows SOLID principles and clean architecture.
 """
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import List
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from common.log_utils import setup_structured_logging, get_logger
-from common.exception_handlers import setup_exception_handlers
 from common.datetime_utils import now_brazil
+from common.fastapi_utils import create_service_app
+from common.log_utils import setup_structured_logging, get_logger
 
 from app.core.config import get_settings
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
 from app.infrastructure.celery_config import celery_app
 from app.infrastructure.dependencies import get_job_store
-from app.shared.exceptions import (
-    YouTubeSearchException,
-    ServiceException,
-    InvalidRequestError,
-    exception_handler,
-)
-from app.middleware.rate_limiter import RateLimiterMiddleware
 from app.domain.models import HealthResponse, RootResponse
 
-# Import API routers
 from app.api import routes as api_routes
-from app.api import search, jobs, admin
 
-# Configuration
 settings = get_settings()
 setup_structured_logging(
     service_name="youtube-search",
@@ -44,16 +29,11 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
-
-# ============================================================================
-# LIFECYCLE
-# ============================================================================
+job_store = get_job_store()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifecycle — replaces deprecated @app.on_event."""
-    # ---- startup ----
+async def lifespan(app):
     try:
         await job_store.start_cleanup_task()
         logger.info("YouTube Search Service started successfully")
@@ -63,7 +43,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # ---- shutdown ----
     try:
         await job_store.stop_cleanup_task()
         logger.info("YouTube Search Service stopped gracefully")
@@ -71,48 +50,15 @@ async def lifespan(app: FastAPI):
         logger.error("Error during shutdown: %s", exc)
 
 
-# Global instances
-app = FastAPI(
+app = create_service_app(
+    service_name="youtube-search",
     title="YouTube Search Service",
     description="Microservice for YouTube search operations with Celery + Redis and 24h cache",
     version="1.0.0",
+    settings=settings,
     lifespan=lifespan,
+    setup_routers=lambda a: a.include_router(api_routes.router),
 )
-
-# Setup exception handlers from common library
-setup_exception_handlers(app, debug=settings.get("debug", False))
-
-# Exception handlers - mantidos para compatibilidade
-app.add_exception_handler(YouTubeSearchException, exception_handler)
-app.add_exception_handler(ServiceException, exception_handler)
-app.add_exception_handler(InvalidRequestError, exception_handler)
-
-# CORS middleware
-if settings["cors"]["enabled"]:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings["cors"]["origins"],
-        allow_credentials=settings["cors"]["credentials"],
-        allow_methods=settings["cors"]["methods"],
-        allow_headers=settings["cors"]["headers"],
-    )
-
-# Rate limiting middleware (per-IP sliding window)
-rate_limit_config = settings.get("rate_limit", {})
-if isinstance(rate_limit_config, dict) and rate_limit_config.get("enabled", True):
-    app.add_middleware(
-        RateLimiterMiddleware,
-        max_requests=rate_limit_config.get("max_requests")
-        or rate_limit_config.get("requests_per_minute", 100),
-        window_seconds=rate_limit_config.get("window_seconds")
-        or rate_limit_config.get("period_seconds", 60),
-    )
-
-# Use Redis as shared store (via DI)
-job_store = get_job_store()
-
-# Include API routers
-app.include_router(api_routes.router)
 
 
 # ============================================================================

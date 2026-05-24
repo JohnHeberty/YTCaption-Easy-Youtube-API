@@ -1,4 +1,9 @@
-# Middleware package
-from .rate_limiter import RateLimiterMiddleware
+"""
+Re-exports from shared middleware for backward compatibility.
+
+Services should import directly from common.middleware:
+    from common.middleware import RateLimiterMiddleware
+"""
+from common.middleware import RateLimiterMiddleware
 
 __all__ = ["RateLimiterMiddleware"]

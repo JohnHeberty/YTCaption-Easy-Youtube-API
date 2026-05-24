@@ -19,7 +19,7 @@ from app.api.schemas import (
     OrphanedJobsResponse,
     TextResponse,
 )
-from app.infrastructure.dependencies import get_job_store_override, get_processor_override
+from app.infrastructure.dependencies import job_store, processor
 from app.infrastructure.redis_store import RedisJobStore
 from app.shared.exceptions import AudioTranscriptionException, ServiceException
 
@@ -69,8 +69,8 @@ async def create_transcription_job(
         WhisperEngine.FASTER_WHISPER,
         description="Engine de transcricao: faster-whisper (padrao), openai-whisper ou whisperx.",
     ),
-    job_store: RedisJobStore = Depends(get_job_store_override),
-    processor: "TranscriptionProcessor" = Depends(get_processor_override),
+    job_store: RedisJobStore = Depends(job_store),
+    processor: "TranscriptionProcessor" = Depends(processor),
 ) -> Job:
 
     try:
@@ -248,7 +248,7 @@ async def create_transcription_job(
 @router.get("/jobs", summary="List jobs", response_model=List[Job])
 async def list_jobs(
     limit: int = Query(20, ge=1, le=200, description="Quantidade maxima de jobs retornados.", examples=[20, 50]),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ) -> List[Job]:
     """List recent transcription jobs."""
     return job_store.list_jobs(limit)
@@ -257,7 +257,7 @@ async def list_jobs(
 @router.get("/jobs/{job_id}", summary="Get job status", response_model=Job, responses={404: {"description": "Job not found"}, 410: {"description": "Job expired"}})
 async def get_job_status(
     job_id: str = PathParam(..., description="ID do job de transcricao (prefixo esperado: at_).", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Retrieve the current status and details of a transcription job."""
     job = job_store.get_job(job_id)
@@ -274,7 +274,7 @@ async def get_job_status(
 @router.get("/jobs/{job_id}/download", summary="Download transcription file", responses={404: {"description": "Job or file not found"}, 410: {"description": "Job expired"}, 425: {"description": "Transcription not ready"}})
 async def download_file(
     job_id: str = PathParam(..., description="ID do job concluido para download do arquivo SRT.", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ):
     """Download the transcription output file for a completed job."""
     job = job_store.get_job(job_id)
@@ -305,7 +305,7 @@ async def download_file(
 @router.get("/jobs/{job_id}/text", summary="Get transcription text", response_model=TextResponse, responses={404: {"description": "Job not found"}, 425: {"description": "Transcription not ready"}})
 async def get_transcription_text(
     job_id: str = PathParam(..., description="ID do job concluido para retorno do texto puro.", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ):
     """Retrieve the plain text transcription for a completed job."""
     job = job_store.get_job(job_id)
@@ -325,7 +325,7 @@ async def get_transcription_text(
 @router.get("/jobs/{job_id}/transcription", summary="Get full transcription", response_model=TranscriptionResponse, responses={404: {"description": "Job not found"}, 410: {"description": "Job expired"}, 425: {"description": "Transcription not ready"}, 500: {"description": "Segments not available"}})
 async def get_full_transcription(
     job_id: str = PathParam(..., description="ID do job concluido para retorno completo da transcricao.", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ) -> TranscriptionResponse:
     job = job_store.get_job(job_id)
 
@@ -373,7 +373,7 @@ async def get_full_transcription(
 @router.delete("/jobs/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"description": "Job not found"}, 500: {"description": "Internal server error"}})
 async def delete_job(
     job_id: str = PathParam(..., description="ID do job a ser removido (inclui arquivos associados).", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ):
     """Delete a transcription job and its associated files."""
     job = job_store.get_job(job_id)
@@ -424,7 +424,7 @@ async def get_orphaned_jobs(
         description="Tempo maximo (em minutos) para considerar um job de processing como orfao.",
         examples=[30, 60],
     ),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ):
     """Find transcription jobs stuck in processing beyond the specified age."""
     try:
@@ -468,7 +468,7 @@ async def cleanup_orphaned_jobs_endpoint(
         True,
         description="Se true, marca jobs orfaos como failed. Se false, remove os jobs.",
     ),
-    job_store: RedisJobStore = Depends(get_job_store_override),
+    job_store: RedisJobStore = Depends(job_store),
 ):
     try:
         orphaned = await job_store.find_orphaned_jobs(max_age_minutes=max_age_minutes)

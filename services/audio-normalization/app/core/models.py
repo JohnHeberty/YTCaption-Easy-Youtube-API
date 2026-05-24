@@ -211,7 +211,7 @@ class HealthResponse(BaseModel):
     service: str = Field(..., description="Nome técnico do serviço.", examples=["audio-normalization"])
     version: str = Field(..., description="Versão atual da API.")
     timestamp: str = Field(..., description="Timestamp ISO-8601 da verificação.")
-    checks: Dict[str, HealthCheckComponent] = Field(
+    checks: Dict[str, Any] = Field(
         default_factory=dict,
         description="Detalhamento das checagens executadas durante o health check.",
     )

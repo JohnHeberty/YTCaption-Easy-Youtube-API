@@ -19,7 +19,7 @@ from app.core.constants import SearchType, SearchLimits
 from app.core.models import Job
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
 from app.infrastructure.celery_tasks import youtube_search_task
-from app.infrastructure.dependencies import get_job_store_override
+from app.infrastructure.dependencies import job_store
 from app.shared.exceptions import InvalidRequestError
 
 from common.log_utils import get_logger
@@ -97,7 +97,7 @@ async def get_video_info(
         description="ID do vídeo no YouTube (11 caracteres) ou URL completa do vídeo.",
         examples=["dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Obtém informações de um vídeo do YouTube por ID ou URL."""
     try:
@@ -137,7 +137,7 @@ async def get_channel_info(
         description="Quando true, inclui listagem de vídeos do canal no resultado.",
         examples=[False, True],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Obtém informações de um canal do YouTube, opcionalmente incluindo seus vídeos."""
     try:
@@ -175,7 +175,7 @@ async def get_playlist_info(
         description="ID da playlist no YouTube.",
         examples=["PLrAXtmRdnEQy6nuqo2XWY5vY3w8VYl2AB"],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Obtém informações de uma playlist do YouTube por ID."""
     try:
@@ -217,7 +217,7 @@ async def search_videos(
         description="Quantidade máxima de resultados retornados.",
         examples=[10, 25, 50],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Busca vídeos do YouTube a partir de um texto de consulta."""
     try:
@@ -262,7 +262,7 @@ async def get_related_videos(
         description="Quantidade máxima de vídeos relacionados retornados.",
         examples=[10, 20],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Busca vídeos relacionados a um vídeo base do YouTube."""
     try:
@@ -307,7 +307,7 @@ async def search_shorts(
         description="Quantidade máxima de Shorts retornados.",
         examples=[10, 30],
     ),
-    store: RedisJobStore = Depends(get_job_store_override),
+    store: RedisJobStore = Depends(job_store),
 ) -> Job:
     """Busca apenas Shorts do YouTube, limitados a vídeos com até 60 segundos."""
     try:
