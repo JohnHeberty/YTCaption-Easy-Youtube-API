@@ -1,6 +1,8 @@
 services:
   video-downloader-service:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/video-downloader/Dockerfile
     container_name: video-downloader-api
     ports:
       - "${PORT}:${PORT}"
@@ -29,7 +31,9 @@ services:
       - "com.example.version=1.0.0"
 
   celery-worker:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/video-downloader/Dockerfile
     container_name: video-downloader-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:

@@ -27,12 +27,12 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Copia common library primeiro
-COPY common/ ./common/
+# Copia shared library como common/ (build context é raiz do projeto)
+COPY shared/ ./common/
 
 # Copia requirements antes p/ cache de layers
-COPY requirements.txt .
-COPY constraints.txt .
+COPY services/audio-normalization/requirements.txt .
+COPY services/audio-normalization/constraints.txt .
 
 # Nota: common/ é montado como volume no docker-compose, não precisa copiar
 
@@ -41,8 +41,8 @@ RUN python -m pip install --no-cache-dir --upgrade pip
 RUN python -m pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 # Copia código
-COPY app/ ./app/
-COPY run.py .
+COPY services/audio-normalization/app/ ./app/
+COPY services/audio-normalization/run.py .
 
 # Usuário não-root
 RUN useradd -m -u 1000 appuser

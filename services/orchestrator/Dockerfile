@@ -11,15 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copia biblioteca common (local copy in service directory)
-COPY common/ /app/common/
+# Copia shared library como common/ (build context é raiz do projeto)
+COPY shared/ /app/common/
 
 # Copia requirements e instala dependências Python
-COPY requirements.txt .
+COPY services/orchestrator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia código da aplicação
-COPY . .
+COPY services/orchestrator/ .
 
 # Cria diretórios esperados pela aplicação
 RUN mkdir -p /app/logs /app/artifacts

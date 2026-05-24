@@ -14,7 +14,9 @@ services:
 
   # 2) API
   audio-normalization-service:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/audio-normalization/Dockerfile
     container_name: audio-normalization-api
     ports:
       - "${PORT}:${PORT}"
@@ -47,7 +49,9 @@ services:
 
   # 3) Worker Celery (CPU-only)
   celery-worker:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/audio-normalization/Dockerfile
     container_name: audio-normalization-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=2 --pool=prefork --queues=audio_normalization_queue
     volumes:

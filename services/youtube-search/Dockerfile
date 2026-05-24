@@ -21,19 +21,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Copy common library FIRST (required for -e ./common)
-COPY common/ ./common/
+# Copy shared as common/ (build context é raiz do projeto)
+COPY shared/ ./common/
 
 # Copy requirements
-COPY requirements.txt .
+COPY services/youtube-search/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY app/ ./app/
-COPY run.py .
+COPY services/youtube-search/app/ ./app/
+COPY services/youtube-search/run.py .
 
 # Create necessary directories
 RUN mkdir -p /app/data/logs

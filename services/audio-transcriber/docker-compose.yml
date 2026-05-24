@@ -1,6 +1,8 @@
 services:
   audio-transcriber-service:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/audio-transcriber/Dockerfile
     container_name: audio-transcriber-api
     runtime: nvidia
     ports:
@@ -40,7 +42,9 @@ services:
       start_period: 120s
 
   celery-worker:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/audio-transcriber/Dockerfile
     container_name: audio-transcriber-celery
     runtime: nvidia
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
@@ -83,7 +87,9 @@ services:
         condition: service_healthy
 
   celery-beat:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/audio-transcriber/Dockerfile
     container_name: audio-transcriber-beat
     runtime: runc
     command: python -m celery -A app.celery_config beat --loglevel=info

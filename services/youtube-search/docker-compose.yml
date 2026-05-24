@@ -2,7 +2,9 @@ services:
   # API Service
   # Note: Redis is expected to be running externally (shared instance at ${IP_REDIS})
   youtube-search-service:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/youtube-search/Dockerfile
     container_name: youtube-search-api
     ports:
       - "${PORT}:${PORT}"
@@ -29,7 +31,9 @@ services:
 
   # Celery Worker
   celery-worker:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/youtube-search/Dockerfile
     container_name: youtube-search-celery-worker
     command: celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=2 -Q youtube_search_queue
     volumes:
@@ -55,7 +59,9 @@ services:
 
   # Celery Beat (for periodic tasks)
   celery-beat:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/youtube-search/Dockerfile
     container_name: youtube-search-celery-beat
     command: celery -A app.infrastructure.celery_config.celery_app beat --loglevel=info
     volumes:
