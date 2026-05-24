@@ -111,7 +111,7 @@ class MicroservicesClient:
                     error_msg = job.get("error", "Unknown error")
                     logger.error(f"❌ Busca falhou: {error_msg}")
                     raise YouTubeSearchUnavailableException(
-                        reason=f"Search job failed: {error_msg}",
+                        message=f"Search job failed: {error_msg}",
                         details={"job_id": job_id, "error": error_msg}
                     )
                 
@@ -120,14 +120,14 @@ class MicroservicesClient:
             
             # Timeout
             raise YouTubeSearchUnavailableException(
-                reason="Search timeout - job took too long",
+                message="Search timeout - job took too long",
                 details={"job_id": job_id, "max_wait_seconds": max_polls * poll_interval, "timeout": True}
             )
         
         except httpx.HTTPError as e:
             logger.error(f"❌ HTTP error calling youtube-search: {e}")
             raise YouTubeSearchUnavailableException(
-                reason=f"HTTP error: {str(e)}",
+                message=f"HTTP error: {str(e)}",
                 details={"error_type": type(e).__name__},
                 cause=e
             )
@@ -215,13 +215,13 @@ class MicroservicesClient:
                         
                         if duration <= 0:
                             raise ValidationException(
-                                reason=f"Invalid video duration: {duration}s",
+                                message=f"Invalid video duration: {duration}s",
                                 details={"video_id": video_id, "duration": duration}
                             )
                         
                         if codec == 'unknown':
                             raise ValidationException(
-                                reason="Unknown or unsupported video codec",
+                                message="Unknown or unsupported video codec",
                                 details={"video_id": video_id}
                             )
                         
@@ -256,7 +256,7 @@ class MicroservicesClient:
                         # Raise exception com contexto detalhado
                         raise VideoCorruptedException(
                             video_path=output_path,
-                            reason=f"Downloaded video failed integrity validation: {str(integrity_error)}",
+                            message=f"Downloaded video failed integrity validation: {str(integrity_error)}",
                             details={
                                 "video_id": video_id,
                                 "file_size": file_size,
@@ -273,7 +273,7 @@ class MicroservicesClient:
                     logger.error(f"❌ Download falhou: {error_msg}")
                     raise VideoDownloadException(
                         video_id=video_id,
-                        reason=error_msg,
+                        message=error_msg,
                         details={"job_id": job_id}
                     )
                 
@@ -288,7 +288,7 @@ class MicroservicesClient:
             # Timeout - pular este vídeo em vez de falhar tudo
             logger.warning(f"⚠️ Timeout downloading {video_id} após {max_polls * poll_interval}s - pulando")
             raise VideoDownloaderUnavailableException(
-                reason=f"Download timeout after {max_polls * poll_interval}s",
+                message=f"Download timeout after {max_polls * poll_interval}s",
                 details={"job_id": job_id, "video_id": video_id, "timeout": True}
             )
         
@@ -296,7 +296,7 @@ class MicroservicesClient:
             logger.error(f"❌ HTTP error calling video-downloader: {e}")
             logger.debug(f"   Exception type: {type(e).__name__}, details: {str(e)}")
             raise VideoDownloaderUnavailableException(
-                reason=f"HTTP error: {str(e)}",
+                message=f"HTTP error: {str(e)}",
                 details={"error_type": type(e).__name__, "video_id": video_id},
                 cause=e
             )
@@ -366,7 +366,7 @@ class MicroservicesClient:
 
             if not job_id:
                 raise TranscriberUnavailableException(
-                    reason="Failed to create transcription job - empty job_id"
+                    message="Failed to create transcription job - empty job_id"
                 )
             
             # 2. Polling do status (GET /jobs/{job_id}) - LIMITE DE 10 TENTATIVAS
@@ -421,7 +421,7 @@ class MicroservicesClient:
                         error_msg = job.get("error_message", "Unknown error")
                         logger.error(f"❌ Transcrição falhou: {error_msg}")
                         raise TranscriberUnavailableException(
-                            reason=f"Transcription job failed: {error_msg}"
+                            message=f"Transcription job failed: {error_msg}"
                         )
                     
                 except httpx.HTTPError as e:
@@ -452,6 +452,6 @@ class MicroservicesClient:
             if isinstance(e, httpx.HTTPStatusError) and e.response is not None:
                 status_code = e.response.status_code
             raise TranscriberUnavailableException(
-                reason=f"HTTP error: {str(e)}",
+                message=f"HTTP error: {str(e)}",
                 cause=e
             )

@@ -121,8 +121,8 @@ class Job(BaseModel):
     include_videos: bool = False
     status: JobStatus
     result: Optional[Dict[str, Any]] = None
-    received_at: datetime  # Quando foi recebido
-    created_at: datetime   # Alias para received_at (compatibilidade)
+    received_at: Optional[datetime] = None  # Quando foi recebido
+    created_at: datetime   # Timestamp de criação
     started_at: Optional[datetime] = None     # Quando começou a processar
     completed_at: Optional[datetime] = None   # Quando finalizou
     error_message: Optional[str] = None
