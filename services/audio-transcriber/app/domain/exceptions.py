@@ -1,28 +1,33 @@
-from fastapi import Request, status
-from fastapi.responses import JSONResponse
-from common.log_utils import get_logger
+"""
+Service-specific exceptions for Audio Transcriber.
 
-logger = get_logger(__name__)
+All exceptions inherit from BaseServiceException so they are automatically
+handled by common.exception_handlers.setup_exception_handlers().
+"""
+from fastapi import status
+from common.exception_handlers import BaseServiceException
 
-class AudioProcessingError(Exception):
-    pass
 
-class AudioTranscriptionException(Exception):
-    pass
+class AudioProcessingError(BaseServiceException):
+    def __init__(self, message: str = "Audio processing error"):
+        super().__init__(message=message, error_code="AUDIO_PROCESSING_ERROR")
 
-class ServiceException(Exception):
-    pass
 
-class ResourceError(Exception):
-    pass
+class AudioTranscriptionException(BaseServiceException):
+    def __init__(self, message: str = "Transcription error"):
+        super().__init__(message=message, error_code="AUDIO_TRANSCRIPTION_ERROR")
 
-class ProcessingTimeoutError(Exception):
-    pass
 
-async def exception_handler(request: Request, exc: Exception):
-    """Global exception handler"""
-    logger.error(f"❌ Exception in {request.url.path}: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": str(exc)}
-    )
+class ServiceException(BaseServiceException):
+    def __init__(self, message: str = "Service error"):
+        super().__init__(message=message, error_code="SERVICE_ERROR")
+
+
+class ResourceError(BaseServiceException):
+    def __init__(self, message: str = "Resource error"):
+        super().__init__(message=message, status_code=status.HTTP_404_NOT_FOUND, error_code="RESOURCE_ERROR")
+
+
+class ProcessingTimeoutError(BaseServiceException):
+    def __init__(self, message: str = "Processing timeout"):
+        super().__init__(message=message, status_code=status.HTTP_408_REQUEST_TIMEOUT, error_code="PROCESSING_TIMEOUT")

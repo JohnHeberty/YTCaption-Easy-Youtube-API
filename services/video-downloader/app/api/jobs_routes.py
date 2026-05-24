@@ -20,7 +20,7 @@ from app.core.models import (
     VideoDownloadJobCreatedResponse,
     VideoDownloadJobRequest,
 )
-from app.infrastructure.dependencies import get_job_store_override, get_downloader_override
+from app.infrastructure.dependencies import job_store, downloader
 from app.infrastructure.redis_store import VideoDownloadJobStore
 from app.services.video_downloader import YDLPVideoDownloader
 
@@ -41,7 +41,7 @@ logger = get_logger(__name__)
     response_model=VideoDownloadJobCreatedResponse,
     responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}, 500: {"description": "Internal server error"}},
 )
-async def create_download_job(request: VideoDownloadJobRequest, store: VideoDownloadJobStore = Depends(get_job_store_override)):
+async def create_download_job(request: VideoDownloadJobRequest, store: VideoDownloadJobStore = Depends(job_store)):
     """Create a new video download job.
 
     Request body intentionally accepts only:
@@ -92,7 +92,7 @@ async def create_download_job(request: VideoDownloadJobRequest, store: VideoDown
 
 
 @router.get("/jobs/{job_id}", summary="Get job status", response_model=VideoDownloadJob, responses={404: {"model": ErrorResponse}, 410: {"model": ErrorResponse}})
-async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(get_job_store_override)):
+async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(job_store)):
     """Retrieve the current status and details of a download job."""
     job = store.get_job(job_id)
     if not job:
@@ -103,7 +103,7 @@ async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(get
 
 
 @router.get("/jobs/{job_id}/download", summary="Download video file", responses={404: {"description": "Job or file not found"}, 410: {"description": "Job expired"}, 425: {"description": "Download not ready"}})
-async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(get_job_store_override), downloader: YDLPVideoDownloader = Depends(get_downloader_override)):
+async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(job_store), downloader: YDLPVideoDownloader = Depends(downloader)):
     """Download the video file for a completed job."""
     job = store.get_job(job_id)
     if not job:
@@ -121,13 +121,13 @@ async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(get_
 
 
 @router.get("/jobs", summary="List jobs", response_model=List[VideoDownloadJob])
-async def list_jobs(limit: int = Query(20, ge=1, le=200), store: VideoDownloadJobStore = Depends(get_job_store_override)):
+async def list_jobs(limit: int = Query(20, ge=1, le=200), store: VideoDownloadJobStore = Depends(job_store)):
     """List recent download jobs."""
     return store.list_jobs(limit)
 
 
 @router.delete("/jobs/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"model": ErrorResponse}})
-async def delete_job(job_id: str, store: VideoDownloadJobStore = Depends(get_job_store_override)):
+async def delete_job(job_id: str, store: VideoDownloadJobStore = Depends(job_store)):
     """Delete a download job and its associated files."""
     job = store.get_job(job_id)
     if not job:
@@ -153,7 +153,7 @@ async def get_orphaned_jobs(
         description="Idade mínima em minutos para considerar um job órfão.",
         examples=[30, 60],
     ),
-    store: VideoDownloadJobStore = Depends(get_job_store_override),
+    store: VideoDownloadJobStore = Depends(job_store),
 ):
     """Find download jobs stuck in processing beyond the specified age."""
     orphaned = await store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
@@ -186,7 +186,7 @@ async def cleanup_orphaned_jobs(
         description="Quando true marca jobs como failed; quando false remove do store.",
         examples=[True, False],
     ),
-    store: VideoDownloadJobStore = Depends(get_job_store_override),
+    store: VideoDownloadJobStore = Depends(job_store),
 ):
     """Mark or delete orphaned download jobs stuck in processing."""
     orphaned = await store.find_orphaned_jobs(max_age_minutes=max_age_minutes)

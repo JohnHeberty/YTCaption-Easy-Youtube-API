@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from common.log_utils import get_logger
 from app.api.schemas import ModelActionResponse, ModelStatusResponse
-from app.infrastructure.dependencies import get_processor_override
+from app.infrastructure.dependencies import processor
 
 if TYPE_CHECKING:
     from app.services.processor import TranscriptionProcessor
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/model", tags=["Model"])
 
 
 @router.post("/load", summary="Load Whisper model", response_model=ModelActionResponse, responses={500: {"description": "Failed to load model"}})
-async def load_whisper_model(processor: "TranscriptionProcessor" = Depends(get_processor_override)):
+async def load_whisper_model(processor: "TranscriptionProcessor" = Depends(processor)):
     """Explicitly load the Whisper model into memory for transcription."""
     try:
         logger.info("📤 Requisição para carregar modelo Whisper")
@@ -41,7 +41,7 @@ async def load_whisper_model(processor: "TranscriptionProcessor" = Depends(get_p
 
 
 @router.post("/unload", summary="Unload Whisper model", response_model=ModelActionResponse, responses={500: {"description": "Failed to unload model"}})
-async def unload_whisper_model(processor: "TranscriptionProcessor" = Depends(get_processor_override)):
+async def unload_whisper_model(processor: "TranscriptionProcessor" = Depends(processor)):
     """Unload the Whisper model from memory to free GPU/CPU resources."""
     try:
         logger.info("📥 Requisição para descarregar modelo Whisper")
@@ -67,7 +67,7 @@ async def unload_whisper_model(processor: "TranscriptionProcessor" = Depends(get
 
 
 @router.get("/status", summary="Model status", response_model=ModelStatusResponse, responses={500: {"description": "Failed to get model status"}})
-async def get_model_status(processor: "TranscriptionProcessor" = Depends(get_processor_override)):
+async def get_model_status(processor: "TranscriptionProcessor" = Depends(processor)):
     """Query the current loading status and metadata of the Whisper model."""
     try:
         status = processor.get_model_status()

@@ -2,12 +2,11 @@
 Dependency Injection for Audio Normalization service.
 
 Factory functions that create and cache service dependencies.
-Enables testability via override pattern.
 """
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
+from common.di import Dep
 from app.core.config import get_settings
 from app.infrastructure.redis_store import AudioNormJobStore
 from app.services.audio_processor import AudioProcessor, AudioConfig
@@ -28,13 +27,11 @@ def get_settings_dep():
 
 
 def get_redis_url() -> str:
-    settings = _get_settings()
-    return settings['redis_url']
+    return _get_settings()['redis_url']
 
 
 def get_upload_dir() -> Path:
-    settings = _get_settings()
-    return Path(settings.get('upload_dir', './uploads'))
+    return Path(_get_settings().get('upload_dir', './uploads'))
 
 
 @lru_cache(maxsize=1)
@@ -44,14 +41,12 @@ def get_job_store() -> AudioNormJobStore:
 
 @lru_cache(maxsize=1)
 def get_audio_config() -> AudioConfig:
-    settings = _get_settings()
-    return AudioConfig(settings)
+    return AudioConfig(_get_settings())
 
 
 @lru_cache(maxsize=1)
 def get_audio_processor() -> AudioProcessor:
-    config = get_audio_config()
-    processor = AudioProcessor(config)
+    processor = AudioProcessor(get_audio_config())
     processor.set_job_store(get_job_store())
     return processor
 
@@ -72,34 +67,6 @@ def get_job_retrieval_service() -> JobRetrievalService:
     return JobRetrievalService(job_store=get_job_store())
 
 
-# Override pattern for tests
-_job_store_override: Optional[AudioNormJobStore] = None
-_audio_processor_override: Optional[AudioProcessor] = None
-
-
-def get_job_store_override():
-    if _job_store_override is not None:
-        return _job_store_override
-    return get_job_store()
-
-
-def get_audio_processor_override():
-    if _audio_processor_override is not None:
-        return _audio_processor_override
-    return get_audio_processor()
-
-
-def set_job_store_override(store: Optional[AudioNormJobStore]):
-    global _job_store_override
-    _job_store_override = store
-
-
-def set_audio_processor_override(proc: Optional[AudioProcessor]):
-    global _audio_processor_override
-    _audio_processor_override = proc
-
-
-def reset_overrides():
-    global _job_store_override, _audio_processor_override
-    _job_store_override = None
-    _audio_processor_override = None
+# Overridable dependencies for testing
+job_store = Dep(get_job_store)
+audio_processor = Dep(get_audio_processor)

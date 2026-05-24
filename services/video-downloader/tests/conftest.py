@@ -65,17 +65,14 @@ def mock_downloader():
 @pytest.fixture
 def app_with_overrides(mock_job_store, mock_downloader):
     """FastAPI app with dependency overrides for testing."""
-    from app.infrastructure.dependencies import (
-        set_job_store_override,
-        set_downloader_override,
-    )
+    from app.infrastructure.dependencies import job_store, downloader
     from app.main import app
 
-    set_job_store_override(mock_job_store)
-    set_downloader_override(mock_downloader)
+    job_store.set(mock_job_store)
+    downloader.set(mock_downloader)
     yield app
-    from app.infrastructure.dependencies import reset_overrides
-    reset_overrides()
+    job_store.reset()
+    downloader.reset()
 
 
 @pytest.fixture

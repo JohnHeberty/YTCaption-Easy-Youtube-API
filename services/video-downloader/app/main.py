@@ -1,11 +1,8 @@
-import os
 from contextlib import asynccontextmanager
 
 from common.datetime_utils import now_brazil
+from common.fastapi_utils import create_service_app
 from common.log_utils import setup_structured_logging, get_logger
-from common.exception_handlers import setup_exception_handlers
-
-from fastapi import FastAPI
 
 from app.services.video_downloader import YDLPVideoDownloader
 from app.infrastructure.redis_store import VideoDownloadJobStore
@@ -13,33 +10,29 @@ from app.infrastructure.celery_tasks import download_video_task
 from app.infrastructure.dependencies import (
     get_job_store, get_downloader, get_settings_dep, _get_settings,
 )
-from app.shared.exceptions import VideoDownloadException, ServiceException, exception_handler
 from app.core.models import RootResponse, VideoDownloadJob
 from app.core.config import get_settings
-from app.middleware.rate_limiter import RateLimiterMiddleware
-from app.middleware.body_size import BodySizeMiddleware
 from app.api import jobs_router, admin_router, health_router
 
-# Configuração de logging
 settings = get_settings()
 setup_structured_logging(
     service_name="video-downloader",
     log_level=settings.get('log_level', 'INFO'),
     log_dir=settings.get('log_dir', './logs'),
-    json_format=True
+    json_format=True,
 )
 logger = get_logger(__name__)
 
-# ============================================================================
-# LIFECYCLE
-# ============================================================================
+job_store = get_job_store()
+downloader = get_downloader()
+redis_url = settings.redis_url
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifecycle — replaces deprecated @app.on_event."""
+async def lifespan(app):
     try:
-        job_store = get_job_store()
-        await job_store.start_cleanup_task()
+        _store = get_job_store()
+        await _store.start_cleanup_task()
         logger.info("Video Download Service iniciado com sucesso")
     except Exception as e:
         logger.error("Erro durante inicialização: %s", e)
@@ -48,52 +41,27 @@ async def lifespan(app: FastAPI):
     yield
 
     try:
-        job_store = get_job_store()
-        await job_store.stop_cleanup_task()
+        _store = get_job_store()
+        await _store.stop_cleanup_task()
         logger.info("Video Download Service parado graciosamente")
     except Exception as e:
         logger.error("Erro durante shutdown: %s", e)
 
 
-# Instâncias globais via DI module
-app = FastAPI(
+app = create_service_app(
+    service_name="video-downloader",
     title="Video Download Service",
     description="Microserviço com Celery + Redis para download de vídeos com cache de 24h",
     version="3.0.0",
+    settings=settings,
     lifespan=lifespan,
+    body_size_mb=100,
+    setup_routers=lambda a: (
+        a.include_router(jobs_router),
+        a.include_router(admin_router),
+        a.include_router(health_router),
+    ),
 )
-
-# Setup exception handlers
-setup_exception_handlers(app, debug=settings.get('debug', False))
-
-# Exception handlers - mantidos para compatibilidade
-app.add_exception_handler(VideoDownloadException, exception_handler)
-app.add_exception_handler(ServiceException, exception_handler)
-
-# Rate limiting middleware (per-IP sliding window)
-_rl = settings.get('rate_limit', {})
-if isinstance(_rl, dict) and _rl.get('enabled', True):
-    app.add_middleware(
-        RateLimiterMiddleware,
-        max_requests=_rl.get('max_requests', 100),
-        window_seconds=_rl.get('window_seconds', 60),
-    )
-
-# Body size middleware
-app.add_middleware(
-    BodySizeMiddleware,
-    max_size=100 * 1024 * 1024,  # 100MB
-)
-
-# Backward-compatible module-level names from DI
-job_store = get_job_store()
-downloader = get_downloader()
-redis_url = settings.redis_url
-
-# Include routers
-app.include_router(jobs_router)
-app.include_router(admin_router)
-app.include_router(health_router)
 
 
 @app.get(

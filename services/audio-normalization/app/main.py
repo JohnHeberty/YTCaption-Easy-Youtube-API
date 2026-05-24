@@ -28,8 +28,9 @@ except ImportError:
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query, Depends, Path as PathParam
 from fastapi.responses import FileResponse, JSONResponse
 
+from common.fastapi_utils import create_service_app
 from common.log_utils import setup_structured_logging, get_logger
-from common.exception_handlers import setup_exception_handlers
+from common.health_utils import ServiceHealthChecker
 
 from .core.models import (
     AudioNormJob,
@@ -45,18 +46,11 @@ from .core.models import (
 from common.job_utils.models import JobStatus
 from .core.config import get_settings
 from .core.validators import JobIdValidator, ValidationError
-from .core.exceptions import (
-    AudioNormalizationError,
-    JobNotFoundError,
-    JobExpiredError,
-    RedisError,
-    ProcessingError,
-)
 from .core.constants import FILE_CONSTANTS, JOB_CONSTANTS
 from .infrastructure.redis_store import AudioNormJobStore
 from .infrastructure.dependencies import (
-    get_job_store_override,
-    get_audio_processor_override,
+    job_store,
+    audio_processor,
     get_upload_dir,
     get_settings_dep,
 )
@@ -66,9 +60,6 @@ from .services.job_service import (
     JobSubmissionService,
     JobRetrievalService,
 )
-from .middleware.body_size import BodySizeMiddleware
-from .middleware.rate_limiter import RateLimiterMiddleware
-
 # Configuração inicial
 settings = get_settings()
 setup_structured_logging(
@@ -79,70 +70,28 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
-# ============================================================================
-# LIFECYCLE
-# ============================================================================
+store = job_store()
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifecycle - gerencia tarefas de background."""
-    # Startup
-    store = get_job_store_override()
+async def lifespan(app):
+    store = job_store()
     await store.start_cleanup_task()
     logger.info("Audio Normalization Service iniciado com sucesso")
-
     yield
-
-    # Shutdown
     await store.stop_cleanup_task()
     logger.info("Audio Normalization Service parado graciosamente")
 
 
-# ============================================================================
-# APP FACTORY
-# ============================================================================
-
-def create_app() -> FastAPI:
-    """Factory para criar aplicação FastAPI configurada."""
-    app = FastAPI(
-        title="Audio Normalization Service",
-        description="Microserviço para normalização de áudio com cache de 24h",
-        version="2.0.0",
-        lifespan=lifespan,
-    )
-
-    # Exception handlers
-    setup_exception_handlers(app, debug=settings.get('debug', False))
-
-    # Middleware de tamanho de body
-    max_body_size = settings['max_file_size_mb'] * 1024 * 1024
-    app.add_middleware(BodySizeMiddleware, max_size=max_body_size)
-
-    # Rate limiting
-    rate_limit = settings.get('rate_limit', {})
-    if rate_limit.get('enabled', True):
-        app.add_middleware(
-            RateLimiterMiddleware,
-            max_requests=rate_limit.get('max_requests', 100),
-            window_seconds=rate_limit.get('window_seconds', 60),
-        )
-
-    # Exception handlers específicos
-    @app.exception_handler(AudioNormalizationError)
-    async def normalization_exception_handler(request, exc: AudioNormalizationError):
-        logger.error(
-            "Domain exception | error_code=%s status=%s msg=%s",
-            exc.error_code, exc.status_code, exc.message
-        )
-        return JSONResponse(
-            status_code=exc.status_code,
-            content=exc.to_dict(),
-        )
-
-    return app
-
-
-app = create_app()
+app = create_service_app(
+    service_name="audio-normalization",
+    title="Audio Normalization Service",
+    description="Microserviço para normalização de áudio com cache de 24h",
+    version="2.0.0",
+    settings=settings,
+    lifespan=lifespan,
+    body_size_mb=settings.get("max_file_size_mb"),
+)
 
 # ============================================================================
 # ROUTES
@@ -212,8 +161,8 @@ async def create_audio_job(
         description="Ativa isolamento de voz. Aceita: true, false, 1, 0, yes, no, on, off.",
         examples=["false", "true"],
     ),
-    store: AudioNormJobStore = Depends(get_job_store_override),
-    processor: AudioProcessor = Depends(get_audio_processor_override),
+    store: AudioNormJobStore = Depends(job_store),
+    processor: AudioProcessor = Depends(audio_processor),
 ) -> Job:
     """
     Cria um novo job de processamento de áudio.
@@ -299,7 +248,7 @@ async def create_audio_job(
 @app.get("/jobs/{job_id}", response_model=Job)
 async def get_job_status(
     job_id: str = PathParam(..., description="ID do job a consultar.", examples=["an_abc123def456"]),
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> Job:
     """Consulta status de um job."""
     # Valida job_id
@@ -329,7 +278,7 @@ async def get_job_status(
 @app.get("/jobs/{job_id}/download")
 async def download_file(
     job_id: str = PathParam(..., description="ID do job para download do resultado.", examples=["an_abc123def456"]),
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> FileResponse:
     """Faz download do arquivo processado."""
     # Valida job_id
@@ -379,7 +328,7 @@ async def list_jobs(
         description="Quantidade máxima de jobs retornados.",
         examples=[20, 50],
     ),
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> List[Job]:
     """Lista jobs recentes."""
     retrieval_service = JobRetrievalService(job_store=store)
@@ -394,7 +343,7 @@ async def list_jobs(
 @app.delete("/jobs/{job_id}", response_model=DeleteJobResponse)
 async def delete_job(
     job_id: str = PathParam(..., description="ID do job a remover.", examples=["an_abc123def456"]),
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> DeleteJobResponse:
     """Remove job e arquivos associados."""
     # Valida job_id
@@ -447,7 +396,7 @@ async def delete_job(
 @app.post("/jobs/{job_id}/heartbeat")
 async def update_heartbeat(
     job_id: str = PathParam(..., description="ID do job para atualização de heartbeat."),
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> HeartbeatResponse:
     """Atualiza heartbeat do job."""
     # Valida job_id
@@ -487,7 +436,7 @@ async def update_heartbeat(
     response_model=AdminStatsResponse,
 )
 async def get_stats(
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> AdminStatsResponse:
     """Estatísticas do sistema."""
     try:
@@ -527,7 +476,7 @@ async def get_stats(
     response_model=QueueInfoResponse,
 )
 async def get_queue_info(
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> QueueInfoResponse:
     """Informações da fila de jobs."""
     try:
@@ -553,7 +502,7 @@ async def manual_cleanup(
         description="Quando true, executa limpeza profunda (inclui flush completo do Redis).",
         examples=[False, True],
     ),
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> CleanupResponse:
     """Limpeza do sistema."""
     from .services.cleanup_service import CleanupService
@@ -589,78 +538,48 @@ async def manual_cleanup(
     responses={503: {"model": HealthResponse, "description": "Service unhealthy"}},
 )
 async def health_check(
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> JSONResponse:
-    """Health check profundo."""
-    import shutil
-    import subprocess
+    """Health check profundo usando ServiceHealthChecker compartilhado."""
+    checker = ServiceHealthChecker("audio-normalization", version=settings['version'])
 
-    health_status = {
-        "status": "healthy",
-        "service": "audio-normalization",
-        "version": "2.0.0",
-        "timestamp": now_brazil().isoformat(),
-        "checks": {}
-    }
+    checker.add_check("redis", lambda: ServiceHealthChecker.check_redis(store.redis))
+    checker.add_check("disk", lambda: _check_disk_space(settings['temp_dir']))
+    checker.add_check("ffmpeg", ServiceHealthChecker.check_ffmpeg)
 
-    is_healthy = True
+    result = await checker.check_all()
 
-    # 1. Verifica Redis
-    try:
-        store.redis.ping()
-        health_status["checks"]["redis"] = {"status": "ok"}
-    except Exception as e:
-        health_status["checks"]["redis"] = {"status": "error", "message": str(e)}
-        is_healthy = False
-
-    # 2. Verifica espaço em disco
-    try:
-        temp_dir = Path(settings['temp_dir'])
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        stat = shutil.disk_usage(temp_dir)
-        free_gb = stat.free / (1024**3)
-        percent_free = (stat.free / stat.total) * 100
-
-        disk_status = "ok" if percent_free > 10 else "warning" if percent_free > 5 else "critical"
-        if percent_free <= 5:
-            is_healthy = False
-
-        health_status["checks"]["disk"] = {
-            "status": disk_status,
-            "free_gb": round(free_gb, 2),
-            "percent_free": round(percent_free, 2)
-        }
-    except Exception as e:
-        health_status["checks"]["disk"] = {"status": "error", "message": str(e)}
-        is_healthy = False
-
-    # 3. Verifica ffmpeg
-    try:
-        result = subprocess.run(
-            ["ffmpeg", "-version"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        if result.returncode == 0:
-            version = result.stdout.split('\n')[0]
-            health_status["checks"]["ffmpeg"] = {"status": "ok", "version": version}
-        else:
-            health_status["checks"]["ffmpeg"] = {"status": "error"}
-            is_healthy = False
-    except Exception as e:
-        health_status["checks"]["ffmpeg"] = {"status": "error", "message": str(e)}
-        is_healthy = False
-
-    health_status["status"] = "healthy" if is_healthy else "unhealthy"
+    is_healthy = result["status"] == "healthy"
     status_code = 200 if is_healthy else 503
 
-    return JSONResponse(content=health_status, status_code=status_code)
+    return JSONResponse(content=result, status_code=status_code)
+
+
+def _check_disk_space(path: str) -> dict:
+    import shutil
+    try:
+        Path(path).mkdir(parents=True, exist_ok=True)
+        stat = shutil.disk_usage(path)
+        free_gb = stat.free / (1024 ** 3)
+        percent_free = (stat.free / stat.total) * 100
+        if percent_free <= 5:
+            status = "error"
+        elif percent_free <= 10:
+            status = "warning"
+        else:
+            status = "ok"
+        return {
+            "status": status,
+            "free_gb": round(free_gb, 2),
+            "percent_free": round(percent_free, 2),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/metrics")
 async def prometheus_metrics(
-    store: AudioNormJobStore = Depends(get_job_store_override),
+    store: AudioNormJobStore = Depends(job_store),
 ) -> JSONResponse:
     """Prometheus metrics endpoint."""
     from fastapi.responses import Response

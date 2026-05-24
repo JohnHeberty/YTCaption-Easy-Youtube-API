@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from common.job_utils import JobStatus
 
-from app.infrastructure.dependencies import get_job_store_override, get_settings_dep
+from app.infrastructure.dependencies import job_store, get_settings_dep
 from app.infrastructure.redis_store import VideoDownloadJobStore
 from app.core.config import Settings
 from app.core.models import CleanupResponse, FixStuckJobsResponse, QueueInfoResponse, StatsResponse
@@ -326,7 +326,7 @@ async def manual_cleanup(
         description="Quando true, também limpa a fila/tarefas do Celery.",
         examples=[False, True],
     ),
-    store: VideoDownloadJobStore = Depends(get_job_store_override),
+    store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
 ):
     """Perform system cleanup: basic (expired jobs) or total (factory reset)."""
@@ -349,7 +349,7 @@ async def manual_cleanup(
 
 @router.get("/stats", summary="Get stats", response_model=StatsResponse)
 async def get_stats(
-    store: VideoDownloadJobStore = Depends(get_job_store_override),
+    store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
 ):
     """Retrieve download service statistics including Redis, cache, and Celery info."""
@@ -386,7 +386,7 @@ async def get_stats(
 
 
 @router.get("/queue", summary="Get queue info", response_model=QueueInfoResponse, responses={500: {"description": "Internal server error"}})
-async def get_queue_info_endpoint(store: VideoDownloadJobStore = Depends(get_job_store_override)):
+async def get_queue_info_endpoint(store: VideoDownloadJobStore = Depends(job_store)):
     """Retrieve Celery queue information for the download service."""
     try:
         queue_info = await store.get_queue_info()
@@ -409,7 +409,7 @@ async def fix_stuck_jobs(
         description="Idade mínima em minutos para considerar job travado em queued.",
         examples=[30, 60],
     ),
-    store: VideoDownloadJobStore = Depends(get_job_store_override),
+    store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
 ):
     """Mark download jobs stuck in QUEUED status beyond a threshold as FAILED."""

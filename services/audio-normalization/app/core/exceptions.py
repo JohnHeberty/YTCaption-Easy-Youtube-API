@@ -1,12 +1,15 @@
 """
 Exceções específicas para o serviço de normalização de áudio.
 
+Todos os erros herdam de BaseServiceException para serem tratados
+automaticamente pelo setup_exception_handlers() da lib compartilhada.
 Segue o princípio de ser específico ao invés de capturar Exception genérico.
 """
 from fastapi import status
+from common.exception_handlers import BaseServiceException
 
 
-class AudioNormalizationError(Exception):
+class AudioNormalizationError(BaseServiceException):
     """Base exception para todos os erros do serviço."""
 
     def __init__(
@@ -15,10 +18,7 @@ class AudioNormalizationError(Exception):
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         error_code: str = "AUDIO_NORMALIZATION_ERROR",
     ):
-        self.message = message
-        self.status_code = status_code
-        self.error_code = error_code
-        super().__init__(message)
+        super().__init__(message=message, status_code=status_code, error_code=error_code)
 
     def to_dict(self) -> dict:
         return {

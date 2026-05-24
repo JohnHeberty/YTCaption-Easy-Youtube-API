@@ -102,17 +102,14 @@ def mock_celery():
 @pytest.fixture
 def app_with_overrides(mock_job_store, mock_audio_processor):
     """FastAPI app with dependency overrides for testing."""
-    from app.infrastructure.dependencies import (
-        set_job_store_override,
-        set_audio_processor_override,
-    )
+    from app.infrastructure.dependencies import job_store, audio_processor
     from app.main import app
 
-    set_job_store_override(mock_job_store)
-    set_audio_processor_override(mock_audio_processor)
+    job_store.set(mock_job_store)
+    audio_processor.set(mock_audio_processor)
     yield app
-    from app.infrastructure.dependencies import reset_overrides
-    reset_overrides()
+    job_store.reset()
+    audio_processor.reset()
 
 
 @pytest.fixture

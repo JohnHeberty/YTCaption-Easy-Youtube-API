@@ -305,10 +305,9 @@ class RootResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str = Field(..., description="Status geral do serviço.", examples=["healthy", "degraded", "unhealthy"])
     service: str = Field(..., description="Nome técnico do serviço.", examples=["video-downloader"])
+    version: str = Field(..., description="Versão atual da API.")
     timestamp: str = Field(..., description="Timestamp ISO-8601 da verificação.")
-    checks: Dict[str, str] = Field(default_factory=dict, description="Resumo das checagens principais do serviço.")
-    active_workers: Optional[int] = Field(default=None, ge=0, description="Quantidade de workers Celery ativos detectados.")
-    warning: Optional[str] = Field(default=None, description="Mensagem adicional quando o serviço estiver degradado.")
+    checks: Dict[str, Any] = Field(default_factory=dict, description="Resultados individuais das checagens.")
 
 
 class UserAgentStatsResponse(BaseModel):

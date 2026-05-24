@@ -19,6 +19,7 @@ setup(
         "pydantic>=2.0.0",
         "pydantic-settings>=2.0.0",
         "fastapi>=0.100.0",
+        "celery>=5.3.0",
     ],
     python_requires=">=3.11",
     classifiers=[

@@ -40,13 +40,12 @@ def mock_celery():
 @pytest.fixture
 def app_with_overrides(mock_job_store):
     """FastAPI app with dependency overrides for testing."""
-    from app.infrastructure.dependencies import set_job_store_override
+    from app.infrastructure.dependencies import job_store
     from app.main import app
 
-    set_job_store_override(mock_job_store)
+    job_store.set(mock_job_store)
     yield app
-    from app.infrastructure.dependencies import reset_overrides
-    reset_overrides()
+    job_store.reset()
 
 
 @pytest.fixture

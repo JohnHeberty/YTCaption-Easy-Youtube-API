@@ -1,5 +1,9 @@
-# Middleware package
-from .body_size import BodySizeMiddleware
-from .rate_limiter import RateLimiterMiddleware
+"""
+Re-exports from shared middleware for backward compatibility.
+
+Services should import directly from common.middleware:
+    from common.middleware import RateLimiterMiddleware, BodySizeMiddleware
+"""
+from common.middleware import BodySizeMiddleware, RateLimiterMiddleware
 
 __all__ = ["BodySizeMiddleware", "RateLimiterMiddleware"]
