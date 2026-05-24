@@ -23,7 +23,7 @@ redis-cli ping
 
 ```bash
 # Navegar para o diretório
-cd /root/YTCaption-Easy-Youtube-API/services/make-video
+cd /root/YTCaption-Easy-Youtube-API/services/se5-make-video
 
 # Criar ambiente virtual
 python3 -m venv .venv_test
@@ -89,7 +89,7 @@ pytest tests/unit/core/test_config.py::TestGetSettings::test_get_settings_has_pi
 ## 📚 ESTRUTURA DOS ARQUIVOS
 
 ```
-/root/YTCaption-Easy-Youtube-API/services/make-video/
+/root/YTCaption-Easy-Youtube-API/services/se5-make-video/
 │
 ├── sprints/                          # 📁 GUIAS DAS SPRINTS
 │   ├── README.md                    # Índice e visão geral

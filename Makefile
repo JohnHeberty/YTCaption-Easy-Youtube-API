@@ -9,226 +9,9 @@
 # ==================== VARIÁVEIS ====================
 SHELL := /bin/bash
 PROJECT_NAME := ytcaption
-SERVICES := audio-normalization audio-transcriber make-video orchestrator video-downloader youtube-search
+SERVICES := se1-orchestrator se2-video-downloader se3-audio-normalization se4-audio-transcriber se6-make-video se5-youtube-search
 
-# Cores para output
-RED := \033[0;31m
-GREEN := \033[0;32m
-YELLOW := \033[1;33m
-BLUE := \033[0;34m
-NC := \033[0m # No Color
-
-# Diretórios
-SERVICES_DIR := services
-VENV_DIR := .venv
-PYTHON := python3
-
-# ==================== HELP ====================
-help: ## Mostra esta mensagem de ajuda
-	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	@echo -e "$(BLUE)  YTCaption-Easy-Youtube-API - Sistema de Build$(NC)"
-	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	@echo ""
-	@echo -e "$(GREEN)Comandos Disponíveis:$(NC)"
-	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-25s$(NC) %s\n", $$1, $$2}'
-	@echo ""
-	@echo -e "$(GREEN)Serviços:$(NC) $(SERVICES)"
-	@echo ""
-
-# ==================== INSTALAÇÃO ====================
-install: ## Instala todas as dependências (cria venv e instala requirements)
-	@echo -e "$(BLUE)Instalando dependências...$(NC)"
-	@$(MAKE) create-venv
-	@$(MAKE) install-requirements
-	@echo -e "$(GREEN)✅ Instalação concluída!$(NC)"
-
-create-venv: ## Cria ambiente virtual Python
-	@echo -e "$(YELLOW)Criando ambiente virtual...$(NC)"
-	@if [ ! -d "$(VENV_DIR)" ]; then \
-		$(PYTHON) -m venv $(VENV_DIR); \
-		echo -e "$(GREEN)✅ Ambiente virtual criado em $(VENV_DIR)$(NC)"; \
-	else \
-		echo -e "$(YELLOW)⚠️  Ambiente virtual já existe$(NC)"; \
-	fi
-
-install-requirements: ## Instala requirements de todos os serviços (usar venv se disponível)
-	@echo -e "$(YELLOW)Instalando requirements dos serviços...$(NC)"
-	@for service in $(SERVICES); do \
-		if [ -f "$(SERVICES_DIR)/$$service/requirements.txt" ]; then \
-			echo -e "$(BLUE)  📦 Instalando $$service...$(NC)"; \
-			if [ -d "$(VENV_DIR)" ]; then \
-				$(VENV_DIR)/bin/pip install --quiet -r $(SERVICES_DIR)/$$service/requirements.txt || echo -e "$(RED)❌ Erro em $$service$(NC)"; \
-			else \
-				pip3 install --quiet -r $(SERVICES_DIR)/$$service/requirements.txt || echo -e "$(RED)❌ Erro em $$service$(NC)"; \
-			fi; \
-		fi; \
-	done
-	@echo -e "$(GREEN)✅ Requirements instalados$(NC)"
-
-# ==================== SYMLINKS ====================
-symlinks: ## Cria/atualiza symlinks de common/ → shared/ em todos os projetos
-	@echo -e "$(BLUE)Criando symlinks common -> shared...$(NC)"
-	@if [ ! -d "shared" ]; then \
-		echo -e "$(RED)❌ shared/ não encontrado na raiz. Execute git pull ou restaure manualmente.$(NC)"; \
-		exit 1; \
-	fi
-	@for service in $(SERVICES); do \
-		link="$(SERVICES_DIR)/$$service/common"; \
-		if [ -L "$$link" ]; then \
-			current=$$(readlink "$$link"); \
-			expected="../../shared"; \
-			if [ "$$current" = "$$expected" ]; then \
-				echo -e "$(GREEN)  ✅ $$link -> $$expected (ok)$(NC)"; \
-				continue; \
-			fi; \
-			echo -e "$(YELLOW)  🔄 $$link: $$current → $$expected$(NC)"; \
-			rm "$$link"; \
-		elif [ -e "$$link" ]; then \
-			echo -e "$(YELLOW)  🔄 $$link: diretório real → symlink$(NC)"; \
-			rm -rf "$$link"; \
-		fi; \
-		ln -s ../../shared "$$link"; \
-		echo -e "$(GREEN)  ✅ $$link -> ../../shared$(NC)"; \
-	done
-	@echo -e "$(GREEN)✅ Symlinks criados/atualizados com sucesso!$(NC)"
-
-validate-symlinks: ## Valida se os symlinks de common/ existem e apontam para shared/
-	@echo -e "$(YELLOW)🔍 Validando symlinks common -> shared...$(NC)"
-	@error=0; \
-	for service in $(SERVICES); do \
-		link="$(SERVICES_DIR)/$$service/common"; \
-		if [ -L "$$link" ]; then \
-			dest=$$(readlink -f "$$link"); \
-			if [ "$$dest" = "$(shell pwd)/shared" ]; then \
-				echo -e "$(GREEN)  ✅ $$link -> shared$(NC)"; \
-			else \
-				echo -e "$(RED)  ❌ $$link -> $$dest (esperado: $(shell pwd)/shared)$(NC)"; \
-				error=1; \
-			fi; \
-		else \
-			echo -e "$(RED)  ❌ $$link: não é um symlink$(NC)"; \
-			error=1; \
-		fi; \
-	done; \
-	if [ $$error -eq 0 ]; then \
-		echo -e "$(GREEN)  ✅ Todos os symlinks válidos$(NC)"; \
-	else \
-		echo -e "$(RED)  ❌ Erros encontrados — execute 'make symlinks' para corrigir$(NC)"; \
-		exit 1; \
-	fi
-
-# ==================== VALIDAÇÃO ====================
-validate: ## Valida todos os arquivos sem iniciar serviços
-	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	@echo -e "$(BLUE)  Validando Projeto$(NC)"
-	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	@$(MAKE) test-syntax
-	@$(MAKE) validate-symlinks
-	@$(MAKE) validate-docker-compose
-	@$(MAKE) validate-dockerfiles
-	@$(MAKE) validate-env-files
-	@$(MAKE) test-requirements
-	@echo -e "$(GREEN)═══════════════════════════════════════════════════════════$(NC)"
-	@echo -e "$(GREEN)✅ Validação completa! Projeto OK$(NC)"
-	@echo -e "$(GREEN)═══════════════════════════════════════════════════════════$(NC)"
-
-test-syntax: ## Testa sintaxe do Makefile
-	@echo -e "$(YELLOW)🔍 Testando sintaxe do Makefile...$(NC)"
-	@if $(MAKE) -n help > /dev/null 2>&1; then \
-		echo -e "$(GREEN)  ✅ Makefile: OK$(NC)"; \
-	else \
-		echo -e "$(RED)  ❌ Makefile: ERRO$(NC)"; \
-		exit 1; \
-	fi
-
-validate-docker-compose: ## Valida arquivos docker-compose.yml
-	@echo -e "$(YELLOW)🔍 Validando docker-compose.yml...$(NC)"
-	@error=0; \
-	if [ -f "docker-compose.yml" ]; then \
-		if docker compose -f docker-compose.yml config > /dev/null 2>&1; then \
-			echo -e "$(GREEN)  ✅ docker-compose.yml (root): OK$(NC)"; \
-		else \
-			echo -e "$(RED)  ❌ docker-compose.yml (root): ERRO$(NC)"; \
-			error=1; \
-		fi; \
-	fi; \
-	for service in $(SERVICES); do \
-		if [ -f "$(SERVICES_DIR)/$$service/docker-compose.yml" ]; then \
-			if docker compose -f $(SERVICES_DIR)/$$service/docker-compose.yml config > /dev/null 2>&1; then \
-				echo -e "$(GREEN)  ✅ $$service/docker-compose.yml: OK$(NC)"; \
-			else \
-				echo -e "$(RED)  ❌ $$service/docker-compose.yml: ERRO$(NC)"; \
-				error=1; \
-			fi; \
-		fi; \
-	done; \
-	if [ $$error -eq 0 ]; then \
-		echo -e "$(GREEN)  ✅ Todos os docker-compose.yml válidos$(NC)"; \
-	else \
-		echo -e "$(RED)  ❌ Erros encontrados nos docker-compose.yml$(NC)"; \
-		exit 1; \
-	fi
-
-validate-dockerfiles: ## Valida Dockerfiles
-	@echo -e "$(YELLOW)🔍 Validando Dockerfiles...$(NC)"
-	@error=0; \
-	for service in $(SERVICES); do \
-		if [ -f "$(SERVICES_DIR)/$$service/Dockerfile" ]; then \
-			if docker build -f $(SERVICES_DIR)/$$service/Dockerfile $(SERVICES_DIR)/$$service --no-cache --target builder -t validate-$$service:test > /dev/null 2>&1 || \
-			   docker build -f $(SERVICES_DIR)/$$service/Dockerfile $(SERVICES_DIR)/$$service --dry-run > /dev/null 2>&1 || \
-			   grep -q "^FROM " $(SERVICES_DIR)/$$service/Dockerfile; then \
-				echo -e "$(GREEN)  ✅ $$service/Dockerfile: OK$(NC)"; \
-			else \
-				echo -e "$(RED)  ❌ $$service/Dockerfile: ERRO$(NC)"; \
-				error=1; \
-			fi; \
-		fi; \
-	done; \
-	if [ $$error -eq 0 ]; then \
-		echo -e "$(GREEN)  ✅ Todos os Dockerfiles válidos$(NC)"; \
-	else \
-		echo -e "$(RED)  ❌ Erros encontrados nos Dockerfiles$(NC)"; \
-		exit 1; \
-	fi
-
-validate-env-files: ## Valida arquivos .env
-	@echo -e "$(YELLOW)🔍 Validando arquivos .env...$(NC)"
-	@error=0; \
-	for service in $(SERVICES); do \
-		if [ -f "$(SERVICES_DIR)/$$service/.env.example" ]; then \
-			if [ -f "$(SERVICES_DIR)/$$service/.env" ]; then \
-				echo -e "$(GREEN)  ✅ $$service/.env: Existe$(NC)"; \
-			else \
-				echo -e "$(YELLOW)  ⚠️  $$service/.env: Não encontrado (copiar de .env.example)$(NC)"; \
-			fi; \
-		fi; \
-	done; \
-	echo -e "$(GREEN)  ✅ Validação de .env completa$(NC)"
-
-test-requirements: ## Testa se os requirements.txt são válidos
-	@echo -e "$(YELLOW)🔍 Testando requirements.txt...$(NC)"
-	@error=0; \
-	for service in $(SERVICES); do \
-		if [ -f "$(SERVICES_DIR)/$$service/requirements.txt" ]; then \
-			if grep -q "^[a-zA-Z]" $(SERVICES_DIR)/$$service/requirements.txt 2>/dev/null; then \
-				echo -e "$(GREEN)  ✅ $$service/requirements.txt: OK$(NC)"; \
-			else \
-				echo -e "$(RED)  ❌ $$service/requirements.txt: Vazio ou inválido$(NC)"; \
-				error=1; \
-			fi; \
-		else \
-			echo -e "$(YELLOW)  ⚠️  $$service/requirements.txt: Não encontrado$(NC)"; \
-		fi; \
-	done; \
-	if [ $$error -eq 0 ]; then \
-		echo -e "$(GREEN)  ✅ Todos os requirements.txt válidos$(NC)"; \
-	else \
-		echo -e "$(RED)  ❌ Erros encontrados nos requirements.txt$(NC)"; \
-		exit 1; \
-	fi
-
-# ==================== BUILD ====================
+# Build
 build: ## Build de todos os serviços
 	@echo -e "$(BLUE)Building todos os serviços...$(NC)"
 	@docker compose build
@@ -240,7 +23,7 @@ build: ## Build de todos os serviços
 	done
 	@echo -e "$(GREEN)✅ Build concluído!$(NC)"
 
-build-%: ## Build de um serviço específico (ex: make build-youtube-search)
+build-%: ## Build de um serviço específico (ex: make build-se5-youtube-search)
 	@service_name=$(subst build-,,$@); \
 	if [ -f "$(SERVICES_DIR)/$$service_name/docker-compose.yml" ]; then \
 		echo -e "$(YELLOW)🔨 Building $$service_name...$(NC)"; \
@@ -251,7 +34,7 @@ build-%: ## Build de um serviço específico (ex: make build-youtube-search)
 		exit 1; \
 	fi
 
-build-only-%: ## Build isolado sem subir (ex: make build-only-audio-normalization)
+build-only-%: ## Build isolado sem subir (ex: make build-only-se3-audio-normalization)
 	@service_name=$(subst build-only-,,$@); \
 	if [ -f "$(SERVICES_DIR)/$$service_name/docker-compose.yml" ]; then \
 		echo -e "$(YELLOW)🔨 Building $$service_name (isolated)...$(NC)"; \
@@ -276,7 +59,7 @@ up: ## Inicia todos os serviços
 	@echo -e "$(GREEN)✅ Serviços iniciados!$(NC)"
 	@$(MAKE) status
 
-up-%: ## Inicia um serviço específico (ex: make up-youtube-search)
+up-%: ## Inicia um serviço específico (ex: make up-se5-youtube-search)
 	@service_name=$(subst up-,,$@); \
 	if [ -f "$(SERVICES_DIR)/$$service_name/docker-compose.yml" ]; then \
 		echo -e "$(YELLOW)🚀 Iniciando $$service_name...$(NC)"; \
@@ -298,7 +81,7 @@ down: ## Para todos os serviços
 	@docker compose down
 	@echo -e "$(GREEN)✅ Serviços parados!$(NC)"
 
-down-%: ## Para um serviço específico (ex: make down-youtube-search)
+down-%: ## Para um serviço específico (ex: make down-se5-youtube-search)
 	@service_name=$(subst down-,,$@); \
 	if [ -f "$(SERVICES_DIR)/$$service_name/docker-compose.yml" ]; then \
 		echo -e "$(YELLOW)🛑 Parando $$service_name...$(NC)"; \
@@ -311,7 +94,7 @@ down-%: ## Para um serviço específico (ex: make down-youtube-search)
 
 restart: down up ## Reinicia todos os serviços
 
-restart-%: ## Reinicia um serviço específico (ex: make restart-youtube-search)
+restart-%: ## Reinicia um serviço específico (ex: make restart-se5-youtube-search)
 	@service_name=$(subst restart-,,$@); \
 	$(MAKE) down-$$service_name; \
 	$(MAKE) up-$$service_name
@@ -321,7 +104,7 @@ logs: ## Mostra logs de todos os serviços
 	@echo -e "$(BLUE)Logs dos serviços:$(NC)"
 	@docker compose logs -f
 
-logs-%: ## Mostra logs de um serviço específico (ex: make logs-youtube-search)
+logs-%: ## Mostra logs de um serviço específico (ex: make logs-se5-youtube-search)
 	@service_name=$(subst logs-,,$@); \
 	if [ -f "$(SERVICES_DIR)/$$service_name/docker-compose.yml" ]; then \
 		echo -e "$(BLUE)Logs de $$service_name:$(NC)"; \
@@ -336,10 +119,10 @@ status: ## Mostra status de todos os containers
 	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
 	@echo -e "$(BLUE)  Status dos Containers$(NC)"
 	@echo -e "$(BLUE)═══════════════════════════════════════════════════════════$(NC)"
-	@docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "NAME|ytcaption|youtube-search" || echo "Nenhum container encontrado"
+	@docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "NAME|ytcaption|se5-youtube-search" || echo "Nenhum container encontrado"
 	@echo ""
 
-status-%: ## Mostra status de um serviço específico (ex: make status-youtube-search)
+status-%: ## Mostra status de um serviço específico (ex: make status-se5-youtube-search)
 	@service_name=$(subst status-,,$@); \
 	echo -e "$(BLUE)Status de $$service_name:$(NC)"; \
 	docker ps -a --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep -E "NAME|$$service_name" || echo "Serviço não encontrado"

@@ -61,7 +61,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edite .env conforme necessário
 
-cd ../services/video-downloader
+cd ../services/se2-video-downloader
 pip install -r requirements.txt
 cp .env.example .env
 

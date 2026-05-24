@@ -97,7 +97,7 @@
 | `constraints.txt` added | ✅ DONE |
 | CORS `allow_credentials=True` removed | ✅ DONE |
 | `PYTHONPATH=/app` + `PYTHONUNBUFFERED` + `PYTHONDONTWRITEBYTECODE` in Dockerfile | ✅ DONE |
-| `sprints/` moved to `docs/services/make-video/sprints/` | ✅ DONE |
+| `sprints/` moved to `docs/services/se5-make-video/sprints/` | ✅ DONE |
 | `pytest-cov` duplicate removed | ✅ DONE |
 | `.dockerignore` updated | ✅ DONE |
 | Runtime data (logs, mp4, ogg, db) moved to `.trash/` | ✅ DONE |
@@ -580,21 +580,21 @@ Todos os serviços devem retornar a mesma estrutura:
 ### Fase 0 — Limpeza Imediata (sem risco de regressão)
 ```bash
 # 1. Deletar .trash/ dos 2 serviços
-rm -rf services/audio-transcriber/.trash/
-rm -rf services/make-video/.trash/
+rm -rf services/se4-audio-transcriber/.trash/
+rm -rf services/se5-make-video/.trash/
 
 # 2. Deletar arquivos .bak (backups no repositório)
-rm services/audio-transcriber/tests/conftest.py.bak
-rm services/audio-normalization/conftest.py.bak
-rm services/make-video/app/video_processing/frame_preprocessor_OLD_SPRINTS.py.bak
-rm services/make-video/app/video_processing/subtitle_detector_v2_OLD_SPRINTS.py.bak
+rm services/se4-audio-transcriber/tests/conftest.py.bak
+rm services/se3-audio-normalization/conftest.py.bak
+rm services/se5-make-video/app/video_processing/frame_preprocessor_OLD_SPRINTS.py.bak
+rm services/se5-make-video/app/video_processing/subtitle_detector_v2_OLD_SPRINTS.py.bak
 
 # 3. Deletar relatório ad-hoc commitado
-rm services/make-video/tests/RELATORIO_EXECUCAO.md
+rm services/se5-make-video/tests/RELATORIO_EXECUCAO.md
 
 # 4. Remover proxies.txt do controle de versão
-git rm --cached services/youtube-search/app/ytbpy/proxies.txt
-echo "app/ytbpy/proxies.txt" >> services/youtube-search/.gitignore
+git rm --cached services/se6-youtube-search/app/ytbpy/proxies.txt
+echo "app/ytbpy/proxies.txt" >> services/se6-youtube-search/.gitignore
 
 # 5. Adicionar .gitignore nos 2 serviços sem: audio-transcriber e audio-normalization
 # Incluir: logs/, temp/, uploads/, processed/, __pycache__, .env

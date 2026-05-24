@@ -21,10 +21,10 @@ COMMON_SOURCE="$ROOT_DIR/common"
 
 # Lista de serviços (exceto transcriber)
 SERVICES=(
-    "orchestrator"
-    "services/audio-normalization"
-    "services/video-downloader"
-    "services/youtube-search"
+    "services/se1-orchestrator"
+    "services/se3-audio-normalization"
+    "services/se2-video-downloader"
+    "services/se6-youtube-search"
 )
 
 # Verifica se common existe

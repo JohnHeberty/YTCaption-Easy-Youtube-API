@@ -121,7 +121,7 @@ async def get_job(job_id: str, store: RedisJobStore = Depends(get_store)):
 
 **Validação por item:**
 - [ ] `grep -r "from modules\." orchestrator/` retorna 0 resultados
-- [ ] `grep -r "from app\.domain\.processor import" services/audio-normalization/` retorna 0
+- [ ] `grep -r "from app\.domain\.processor import" services/se3-audio-normalization/` retorna 0
 - [ ] `python3 -c "import ast; ast.parse(open('main.py').read())"` passa em cada serviço
 - [ ] Testes unitários existentes ainda passam
 
@@ -453,7 +453,7 @@ docs/adr/
 ### F4-T17: Eliminar pytest.ini duplicados
 
 **Ações:**
-- [ ] Eliminar `services/audio-transcriber/tests/pytest.ini` (conflita com `services/audio-transcriber/pytest.ini`)
+- [ ] Eliminar `services/se4-audio-transcriber/tests/pytest.ini` (conflita com `services/se4-audio-transcriber/pytest.ini`)
 - [ ] Mover config única do `tests/pytest.ini` para o `pytest.ini` do serviço
 - [ ] Eliminar `orchestrator/common/datetime_utils/pytest.ini` (duplica `common/datetime_utils/pytest.ini`)
 

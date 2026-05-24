@@ -67,20 +67,20 @@ test_build() {
 
 cd /root/YTCaption-Easy-Youtube-API
 
-echo "Testando builds dos serviços (exceto audio-transcriber que requer GPU)..."
+echo "Testando builds dos serviços (exceto se4-audio-transcriber que requer GPU)..."
 echo ""
 
-# Teste 1: orchestrator
-test_build "orchestrator" "/root/YTCaption-Easy-Youtube-API/orchestrator"
+# Teste 1: se1-orchestrator
+test_build "se1-orchestrator" "/root/YTCaption-Easy-Youtube-API/se1-orchestrator"
 
-# Teste 2: audio-normalization
-test_build "audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/audio-normalization"
+# Teste 2: se3-audio-normalization
+test_build "se3-audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/se3-audio-normalization"
 
-# Teste 3: video-downloader
-test_build "video-downloader" "/root/YTCaption-Easy-Youtube-API/services/video-downloader"
+# Teste 3: se2-video-downloader
+test_build "se2-video-downloader" "/root/YTCaption-Easy-Youtube-API/services/se2-video-downloader"
 
-# Teste 4: youtube-search
-test_build "youtube-search" "/root/YTCaption-Easy-Youtube-API/services/youtube-search"
+# Teste 4: se6-youtube-search
+test_build "se6-youtube-search" "/root/YTCaption-Easy-Youtube-API/services/se6-youtube-search"
 
 echo "================================================================================"
 echo "📊 RESUMO DOS TESTES DE BUILD"

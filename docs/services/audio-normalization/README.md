@@ -36,7 +36,7 @@ CACHE_TTL_HOURS=24
 ### Inicialização
 
 ```bash
-cd services/audio-normalization
+cd services/se3-audio-normalization
 
 # Instalar dependências (FFmpeg necessário)
 pip install -r requirements.txt
@@ -390,7 +390,7 @@ FFMPEG_MAX_MEMORY = "512M"
 ## 📂 Estrutura de Arquivos
 
 ```
-services/audio-normalization/
+services/se3-audio-normalization/
 ├── app/
 │   ├── main.py           # API endpoints
 │   ├── processor.py      # Lógica de processamento

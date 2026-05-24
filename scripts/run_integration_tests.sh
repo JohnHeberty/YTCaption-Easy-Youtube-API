@@ -76,56 +76,56 @@ run_test "Sintaxe comum/exceptions/handlers.py" \
     "python3 -m py_compile common/exceptions/handlers.py" \
     ""
 
-run_test "Sintaxe orchestrator/main.py" \
-    "python3 -m py_compile orchestrator/main.py" \
+run_test "Sintaxe se1-orchestrator/main.py" \
+    "python3 -m py_compile se1-orchestrator/main.py" \
     ""
 
 echo ""
 echo "📦 Fase 2: Validação de Arquivos Docker"
 echo ""
 
-run_test "Dockerfile existe (orchestrator)" \
-    "test -f orchestrator/Dockerfile" \
+run_test "Dockerfile existe (se1-orchestrator)" \
+    "test -f se1-orchestrator/Dockerfile" \
     ""
 
-run_test "Dockerfile existe (audio-normalization)" \
-    "test -f services/audio-normalization/Dockerfile" \
+run_test "Dockerfile existe (se3-audio-normalization)" \
+    "test -f services/se3-audio-normalization/Dockerfile" \
     ""
 
-run_test "Dockerfile existe (audio-transcriber)" \
-    "test -f services/audio-transcriber/Dockerfile" \
+run_test "Dockerfile existe (se4-audio-transcriber)" \
+    "test -f services/se4-audio-transcriber/Dockerfile" \
     ""
 
-run_test "Dockerfile existe (video-downloader)" \
-    "test -f services/video-downloader/Dockerfile" \
+run_test "Dockerfile existe (se2-video-downloader)" \
+    "test -f services/se2-video-downloader/Dockerfile" \
     ""
 
-run_test "Dockerfile existe (youtube-search)" \
-    "test -f services/youtube-search/Dockerfile" \
+run_test "Dockerfile existe (se6-youtube-search)" \
+    "test -f services/se6-youtube-search/Dockerfile" \
     ""
 
 echo ""
 echo "📦 Fase 3: Verificação de Dependências"
 echo ""
 
-run_test "Requirements.txt existe (orchestrator)" \
-    "test -f orchestrator/requirements.txt" \
+run_test "Requirements.txt existe (se1-orchestrator)" \
+    "test -f se1-orchestrator/requirements.txt" \
     ""
 
-run_test "Requirements.txt existe (audio-normalization)" \
-    "test -f services/audio-normalization/requirements.txt" \
+run_test "Requirements.txt existe (se3-audio-normalization)" \
+    "test -f services/se3-audio-normalization/requirements.txt" \
     ""
 
-run_test "Requirements.txt existe (audio-transcriber)" \
-    "test -f services/audio-transcriber/requirements.txt" \
+run_test "Requirements.txt existe (se4-audio-transcriber)" \
+    "test -f services/se4-audio-transcriber/requirements.txt" \
     ""
 
-run_test "Requirements.txt existe (video-downloader)" \
-    "test -f services/video-downloader/requirements.txt" \
+run_test "Requirements.txt existe (se2-video-downloader)" \
+    "test -f services/se2-video-downloader/requirements.txt" \
     ""
 
-run_test "Requirements.txt existe (youtube-search)" \
-    "test -f services/youtube-search/requirements.txt" \
+run_test "Requirements.txt existe (se6-youtube-search)" \
+    "test -f services/se6-youtube-search/requirements.txt" \
     ""
 
 echo ""
@@ -133,64 +133,64 @@ echo "📦 Fase 4: Verificação de Logs Estruturados"
 echo ""
 
 # Verifica se o logger está configurado corretamente
-run_test "Logger estruturado em audio-normalization" \
-    "grep -q 'from common.logging import' services/audio-normalization/app/main.py" \
+run_test "Logger estruturado em se3-audio-normalization" \
+    "grep -q 'from common.logging import' services/se3-audio-normalization/app/main.py" \
     ""
 
-run_test "Logger estruturado em audio-transcriber" \
-    "grep -q 'from common.logging import' services/audio-transcriber/app/main.py" \
+run_test "Logger estruturado em se4-audio-transcriber" \
+    "grep -q 'from common.logging import' services/se4-audio-transcriber/app/main.py" \
     ""
 
-run_test "Logger estruturado em video-downloader" \
-    "grep -q 'from common.logging import' services/video-downloader/app/main.py" \
+run_test "Logger estruturado em se2-video-downloader" \
+    "grep -q 'from common.logging import' services/se2-video-downloader/app/main.py" \
     ""
 
-run_test "Logger estruturado em youtube-search" \
-    "grep -q 'from common.logging import' services/youtube-search/app/main.py" \
+run_test "Logger estruturado em se6-youtube-search" \
+    "grep -q 'from common.logging import' services/se6-youtube-search/app/main.py" \
     ""
 
 echo ""
 echo "📦 Fase 5: Verificação de Circuit Breaker"
 echo ""
 
-run_test "Circuit breaker em audio-normalization" \
-    "grep -q 'ResilientRedisStore' services/audio-normalization/app/redis_store.py" \
+run_test "Circuit breaker em se3-audio-normalization" \
+    "grep -q 'ResilientRedisStore' services/se3-audio-normalization/app/redis_store.py" \
     ""
 
-run_test "Circuit breaker em audio-transcriber" \
-    "grep -q 'ResilientRedisStore' services/audio-transcriber/app/redis_store.py" \
+run_test "Circuit breaker em se4-audio-transcriber" \
+    "grep -q 'ResilientRedisStore' services/se4-audio-transcriber/app/redis_store.py" \
     ""
 
-run_test "Circuit breaker em video-downloader" \
-    "grep -q 'ResilientRedisStore' services/video-downloader/app/redis_store.py" \
+run_test "Circuit breaker em se2-video-downloader" \
+    "grep -q 'ResilientRedisStore' services/se2-video-downloader/app/redis_store.py" \
     ""
 
-run_test "Circuit breaker em youtube-search" \
-    "grep -q 'ResilientRedisStore' services/youtube-search/app/redis_store.py" \
+run_test "Circuit breaker em se6-youtube-search" \
+    "grep -q 'ResilientRedisStore' services/se6-youtube-search/app/redis_store.py" \
     ""
 
-run_test "Circuit breaker em orchestrator" \
-    "grep -q 'ResilientRedisStore' orchestrator/modules/redis_store.py" \
+run_test "Circuit breaker em se1-orchestrator" \
+    "grep -q 'ResilientRedisStore' se1-orchestrator/modules/redis_store.py" \
     ""
 
 echo ""
 echo "📦 Fase 6: Verificação de Exception Handlers"
 echo ""
 
-run_test "Exception handlers em audio-normalization" \
-    "grep -q 'setup_exception_handlers' services/audio-normalization/app/main.py" \
+run_test "Exception handlers em se3-audio-normalization" \
+    "grep -q 'setup_exception_handlers' services/se3-audio-normalization/app/main.py" \
     ""
 
-run_test "Exception handlers em audio-transcriber" \
-    "grep -q 'setup_exception_handlers' services/audio-transcriber/app/main.py" \
+run_test "Exception handlers em se4-audio-transcriber" \
+    "grep -q 'setup_exception_handlers' services/se4-audio-transcriber/app/main.py" \
     ""
 
-run_test "Exception handlers em video-downloader" \
-    "grep -q 'setup_exception_handlers' services/video-downloader/app/main.py" \
+run_test "Exception handlers em se2-video-downloader" \
+    "grep -q 'setup_exception_handlers' services/se2-video-downloader/app/main.py" \
     ""
 
-run_test "Exception handlers em youtube-search" \
-    "grep -q 'setup_exception_handlers' services/youtube-search/app/main.py" \
+run_test "Exception handlers em se6-youtube-search" \
+    "grep -q 'setup_exception_handlers' services/se6-youtube-search/app/main.py" \
     ""
 
 echo ""

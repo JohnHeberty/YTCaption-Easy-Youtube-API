@@ -67,7 +67,7 @@ make-video/
 ### **PASSO 1: Criar Estrutura de Diretórios**
 
 ```bash
-cd /root/YTCaption-Easy-Youtube-API/services/make-video
+cd /root/YTCaption-Easy-Youtube-API/services/se5-make-video
 
 # Criar estrutura
 mkdir -p tests/{unit,integration,e2e}

@@ -10,10 +10,10 @@ from pathlib import Path
 
 # Adiciona paths
 sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API')
-sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/audio-normalization')
-sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/audio-transcriber')
-sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/video-downloader')
-sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/youtube-search')
+sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/se3-audio-normalization')
+sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/se4-audio-transcriber')
+sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/se2-video-downloader')
+sys.path.insert(0, '/root/YTCaption-Easy-Youtube-API/services/se6-youtube-search')
 
 print("="* 80)
 print("VALIDAÇÃO DAS MIGRAÇÕES - BIBLIOTECA COMMON")
@@ -40,10 +40,10 @@ print()
 
 # Test 2: Test each service
 services = [
-    ('audio-normalization', 'app.main'),
-    ('audio-transcriber', 'app.main'),
-    ('video-downloader', 'app.main'),
-    ('youtube-search', 'app.main'),
+    ('se3-audio-normalization', 'app.main'),
+    ('se4-audio-transcriber', 'app.main'),
+    ('se2-video-downloader', 'app.main'),
+    ('se6-youtube-search', 'app.main'),
 ]
 
 print("📦 Teste 2: Validando importações dos serviços...")

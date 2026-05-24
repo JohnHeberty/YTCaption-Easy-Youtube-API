@@ -18,16 +18,16 @@ jobs:
       - name: Install linting tools
         run: pip install black isort flake8 mypy bandit
       - name: Black check
-        run: black --check --line-length=100 common/ orchestrator/ services/
+        run: black --check --line-length=100 common/ services/
       - name: isort check
-        run: isort --check --profile black --line-length 100 common/ orchestrator/ services/
+        run: isort --check --profile black --line-length 100 common/ services/
       - name: Flake8 check
-        run: flake8 --max-line-length=100 --extend-ignore=E203,E266,E501,W503 --max-complexity=15 --exclude=.git,__pycache__,.venv,venv,.trash,migrations common/ orchestrator/ services/
+        run: flake8 --max-line-length=100 --extend-ignore=E203,E266,E501,W503 --max-complexity=15 --exclude=.git,__pycache__,.venv,venv,.trash,migrations common/ services/
       - name: MyPy check
-        run: mypy --ignore-missing-imports --no-strict-optional common/ orchestrator/ services/ || true
+        run: mypy --ignore-missing-imports --no-strict-optional common/ services/ || true
         continue-on-error: true
       - name: Bandit security check
-        run: bandit -r common/ orchestrator/ services/ -c .bandit.yml || true
+        run: bandit -r common/ services/ -c .bandit.yml || true
         continue-on-error: true
 
   test:
@@ -38,12 +38,12 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          - orchestrator
-          - video-downloader
-          - audio-normalization
-          - audio-transcriber
-          - make-video
-          - youtube-search
+          - se1-orchestrator
+          - se2-video-downloader
+          - se3-audio-normalization
+          - se4-audio-transcriber
+          - se5-make-video
+          - se6-youtube-search
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,7 +51,7 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: |
-          cd services/${{ matrix.service }} || cd ${{ matrix.service }}
+          cd services/${{ matrix.service }}
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-timeout fakeredis
       - name: Run unit tests

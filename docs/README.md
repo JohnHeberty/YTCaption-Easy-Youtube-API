@@ -34,10 +34,10 @@ Use este hub para encontrar rapidamente:
 
 - [Services index](./services/README.md)
 - [Orchestrator](./orchestrator/README.md)
-- [Audio Normalization](./services/audio-normalization/README.md)
-- [Audio Transcriber](./services/audio-transcriber/README.md)
-- [Make Video](./services/make-video/README.md)
-- [Video Downloader](./services/video-downloader/README.md)
+- [Audio Normalization](./services/se3-audio-normalization/README.md)
+- [Audio Transcriber](./services/se4-audio-transcriber/README.md)
+- [Make Video](./services/se5-make-video/README.md)
+- [Video Downloader](./services/se2-video-downloader/README.md)
 
 ### Architecture Decisions
 

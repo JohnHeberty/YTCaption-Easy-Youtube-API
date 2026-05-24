@@ -21,14 +21,14 @@
 - Python não permite operações (subtração, comparação) entre naive e aware datetimes
 
 **Localização dos Erros**:
-1. ❌ `services/make-video/app/main.py:945` - `(now - job.created_at).total_seconds()`
-2. ❌ `services/make-video/app/main.py:946` - `(now - job.updated_at).total_seconds()`
-3. ❌ `services/make-video/app/main.py:2089` - `(now_brazil() - job.updated_at).total_seconds() / 60`
-4. ❌ `services/make-video/app/main.py:2156` - `(now_brazil() - job.updated_at).total_seconds() / 60`
-5. ❌ `services/make-video/app/shared/domain_integration.py:290` - `(now_brazil() - job.created_at).total_seconds()`
-6. ❌ `services/make-video/app/infrastructure/celery_tasks.py:1125` - `(now_brazil() - job.created_at).total_seconds()`
-7. ❌ `services/make-video/app/infrastructure/celery_tasks.py:1297` - `(now_brazil() - job.updated_at).total_seconds() / 60`
-8. ❌ `services/make-video/app/infrastructure/redis_store.py:313` - `age = now - job.updated_at`
+1. ❌ `services/se5-make-video/app/main.py:945` - `(now - job.created_at).total_seconds()`
+2. ❌ `services/se5-make-video/app/main.py:946` - `(now - job.updated_at).total_seconds()`
+3. ❌ `services/se5-make-video/app/main.py:2089` - `(now_brazil() - job.updated_at).total_seconds() / 60`
+4. ❌ `services/se5-make-video/app/main.py:2156` - `(now_brazil() - job.updated_at).total_seconds() / 60`
+5. ❌ `services/se5-make-video/app/shared/domain_integration.py:290` - `(now_brazil() - job.created_at).total_seconds()`
+6. ❌ `services/se5-make-video/app/infrastructure/celery_tasks.py:1125` - `(now_brazil() - job.created_at).total_seconds()`
+7. ❌ `services/se5-make-video/app/infrastructure/celery_tasks.py:1297` - `(now_brazil() - job.updated_at).total_seconds() / 60`
+8. ❌ `services/se5-make-video/app/infrastructure/redis_store.py:313` - `age = now - job.updated_at`
 
 ---
 
@@ -454,11 +454,11 @@ Tasks lançadas com tempo X, mas processadas com tempo Y em timezone diferente
 - ✅ common/datetime_utils/helpers.py (NEW - 200+ linhas)
 - ✅ common/datetime_utils/__init__.py
 - ✅ 5× services/*/redis_store.py
-- ✅ services/make-video/app/services/cleanup_service.py
-- ✅ services/make-video/app/infrastructure/circuit_breaker.py
-- ✅ services/make-video/app/infrastructure/file_logger.py
-- ✅ services/make-video/app/infrastructure/telemetry.py
-- ✅ services/make-video/app/infrastructure/health_checker.py
+- ✅ services/se5-make-video/app/services/cleanup_service.py
+- ✅ services/se5-make-video/app/infrastructure/circuit_breaker.py
+- ✅ services/se5-make-video/app/infrastructure/file_logger.py
+- ✅ services/se5-make-video/app/infrastructure/telemetry.py
+- ✅ services/se5-make-video/app/infrastructure/health_checker.py
 
 **Documentação** (4 arquivos):
 - ✅ CHECK.md (420+ linhas - este arquivo)
