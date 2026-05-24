@@ -22,20 +22,20 @@ RUN apt-get update && \
 # Diretório de trabalho
 WORKDIR /app
 
-# Copia biblioteca common PRIMEIRO (necessária para -e ./common)
-COPY common/ ./common/
+# Copia shared como common/ (build context é raiz do projeto)
+COPY shared/ ./common/
 
 # Copia requirements primeiro (aproveita cache de layers)
-COPY requirements.txt .
+COPY services/video-downloader/requirements.txt .
 
 # Instala dependências Python sem cache
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
 # Copia código da aplicação e arquivos necessários
-COPY app/ ./app/
-COPY run.py .
-COPY user-agents*.txt ./
+COPY services/video-downloader/app/ ./app/
+COPY services/video-downloader/run.py .
+COPY services/video-downloader/user-agents*.txt ./
 
 # Cria usuário não-root ANTES de criar diretórios
 RUN useradd -m -u 1000 appuser

@@ -1,6 +1,8 @@
 services:
   orchestrator:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/orchestrator/Dockerfile
     container_name: ytcaption-orchestrator
     working_dir: /app
     env_file:

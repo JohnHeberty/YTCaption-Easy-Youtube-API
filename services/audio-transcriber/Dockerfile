@@ -48,12 +48,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# 🔥 COPY common FIRST (required by requirements.txt)
-COPY common/ ./common/
+# 🔥 COPY shared as common/ (build context é raiz do projeto)
+COPY shared/ ./common/
 
 # Copia requirements antes p/ cache de layers
-COPY requirements.txt .
-COPY constraints.txt .
+COPY services/audio-transcriber/requirements.txt .
+COPY services/audio-transcriber/constraints.txt .
 
 # 🔥 Upgrade pip
 RUN python -m pip install --no-cache-dir --upgrade pip
@@ -73,8 +73,8 @@ RUN python -m pip install --no-cache-dir --force-reinstall \
 # (ffmpeg precisa das bibliotecas libav* que foram instaladas com os pacotes -dev)
 
 # Copia código
-COPY app/ ./app/
-COPY run.py .
+COPY services/audio-transcriber/app/ ./app/
+COPY services/audio-transcriber/run.py .
 
 # Usuário não-root
 RUN useradd -m -u 1000 appuser
