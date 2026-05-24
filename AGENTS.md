@@ -1,5 +1,14 @@
 # AGENTS.md
 
+### Controle de Thinking do Qwen
+
+Quando usar Qwen com OpenCode:
+
+- Usar `<|think_off|>` apenas para respostas simples, leitura curta, explicações diretas e tarefas sem edição de arquivos.
+- Usar `<|think_on|>` para qualquer tarefa com tool calling, edição de arquivos, debugging, refatoração, patch, análise de erro, validação ou múltiplas etapas.
+- Nunca manter `<|think_off|>` como regra global permanente no `AGENTS.md`.
+- Se ocorrer erro de ferramenta como `JSON Parse error`, `Unterminated string`, `Invalid input for tool edit` ou `oldString not found`, alternar para `<|think_on|>` e dividir a alteração em partes menores.
+
 ## 1. Papel do Agente
 
 Você é um agente de engenharia sênior trabalhando no monorepo **PetCare**.
@@ -92,6 +101,50 @@ Ordem de uso: busca nativa (glob/grep) → ferramentas de code intelligence (se 
 Quando o contexto ficar grande ou após muitas chamadas de ferramenta, resumir o estado atual antes de continuar. Se houver ferramenta de compactação disponível, usá-la.
 
 **Fallback:** se uma ferramenta mencionada não estiver disponível, usar busca nativa (glob/grep/read) como alternativa.
+
+### 7.1 Edição Segura com OpenCode, Qwen e Tool Calling
+
+Modelos locais ou menos estáveis em tool calling, especialmente Qwen, podem gerar argumentos JSON inválidos ao usar ferramentas de edição com blocos grandes. O agente deve reduzir esse risco escolhendo o método de alteração mais seguro para o tamanho e tipo da mudança.
+
+#### Regras obrigatórias para edição de arquivos
+
+1. **Não usar `edit` para inserir ou substituir blocos grandes de texto.**
+   - Evitar `edit` quando o `newString` tiver mais de 40 linhas.
+   - Evitar `edit` para Markdown com tabelas extensas, muitos pipes (`|`), crases, aspas, emojis, JSON embutido ou code fences.
+   - Evitar `edit` para checklists longos, relatórios, documentação extensa ou conteúdo gerado automaticamente.
+
+2. **Preferir a ferramenta mais segura conforme o tipo de mudança:**
+   - Usar `edit` apenas para alterações pequenas, localizadas e com `oldString` único.
+   - Usar `apply_patch` para alterações médias, inserções por contexto e múltiplos trechos pequenos.
+   - Usar `write` para criar arquivo novo ou substituir arquivo inteiro quando a alteração for grande e controlada.
+   - Para documentação longa, preferir criar um arquivo dedicado em vez de injetar tudo em um arquivo existente.
+
+3. **Dividir mudanças grandes em partes pequenas.**
+   - Cada chamada de edição deve modificar um bloco lógico pequeno.
+   - Nunca tentar inserir um relatório completo, checklist completo ou tabela grande em uma única chamada de `edit`.
+   - Após cada parte, verificar o trecho alterado antes de continuar.
+
+4. **Manter argumentos de ferramenta estritamente válidos.**
+   - Nunca envolver argumentos da ferramenta em bloco ```json```.
+   - Nunca misturar explicação em texto junto com o JSON da chamada de ferramenta.
+   - Garantir que strings multiline estejam corretamente escapadas quando a ferramenta exigir JSON.
+   - Se houver risco de escaping complexo, trocar de estratégia para `apply_patch`, `write` ou arquivo separado.
+
+5. **Ao encontrar erro de tool calling, não repetir a mesma chamada.**
+   - Se aparecer `JSON Parse error`, `Unterminated string`, `Invalid input for tool edit`, `oldString not found` ou erro semelhante, parar e reduzir o tamanho da alteração.
+   - Replanejar usando patch menor, arquivo novo ou substituição controlada.
+   - Registrar o erro e a estratégia de correção em `/root/PetCare/MEMORY.md` se for relevante para o projeto.
+
+#### Estratégia padrão para conteúdo grande
+
+Quando o usuário pedir para adicionar conteúdo grande, usar esta ordem:
+
+```text
+1. Criar arquivo dedicado com `write` quando o conteúdo for independente.
+2. Usar `apply_patch` para inserir referência/link no arquivo principal.
+3. Se precisar editar o arquivo principal, dividir a mudança em blocos pequenos.
+4. Validar lendo apenas o trecho alterado.
+```
 
 ## 8. Validação Mínima
 

@@ -18,8 +18,16 @@ COPY shared/ /app/common/
 COPY services/orchestrator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia código da aplicação
-COPY services/orchestrator/ .
+# Copia código da aplicação (exceto common/ que é symlink, já copiado acima)
+COPY services/orchestrator/run.py .
+COPY services/orchestrator/main.py .
+COPY services/orchestrator/core/ ./core/
+COPY services/orchestrator/domain/ ./domain/
+COPY services/orchestrator/infrastructure/ ./infrastructure/
+COPY services/orchestrator/modules/ ./modules/
+COPY services/orchestrator/services/ ./services/
+COPY services/orchestrator/orchestrator/ ./orchestrator/
+COPY services/orchestrator/api/ ./api/
 
 # Cria diretórios esperados pela aplicação
 RUN mkdir -p /app/logs /app/artifacts

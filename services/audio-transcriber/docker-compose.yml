@@ -4,7 +4,7 @@ services:
       context: ../../
       dockerfile: services/audio-transcriber/Dockerfile
     container_name: audio-transcriber-api
-    runtime: nvidia
+    runtime: runc
     ports:
       - "${PORT}:${PORT}"
     volumes:
@@ -19,20 +19,14 @@ services:
     environment:
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
-      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
-      - WHISPER_DEVICE=${WHISPER_DEVICE}
-      - WHISPER_FALLBACK_CPU=${WHISPER_FALLBACK_CPU}
+      - WHISPER_DEVICE=cpu
+      - WHISPER_FALLBACK_CPU=true
     deploy:
       resources:
         limits:
           memory: 16G
         reservations:
           memory: 8G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health", "-H", "accept: application/json"]
@@ -46,7 +40,7 @@ services:
       context: ../../
       dockerfile: services/audio-transcriber/Dockerfile
     container_name: audio-transcriber-celery
-    runtime: nvidia
+    runtime: runc
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
@@ -61,20 +55,14 @@ services:
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}
       - C_FORCE_ROOT=${C_FORCE_ROOT}
-      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES}
-      - NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES}
-      - WHISPER_DEVICE=${WHISPER_DEVICE}
-      - WHISPER_FALLBACK_CPU=${WHISPER_FALLBACK_CPU}
+      - WHISPER_DEVICE=cpu
+      - WHISPER_FALLBACK_CPU=true
     deploy:
       resources:
         limits:
           memory: 16G
         reservations:
           memory: 8G
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "python -c 'from app.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
