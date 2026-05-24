@@ -1,5 +1,7 @@
 # 📚 Make-Video Service - Documentação
 
+> Entrada canonica na documentacao global: [docs/services/make-video/README.md](../../../docs/services/make-video/README.md)
+
 **Versão**: 2.1.0  
 **Status**: ✅ Produção  
 **Última Atualização**: 2026-02-20

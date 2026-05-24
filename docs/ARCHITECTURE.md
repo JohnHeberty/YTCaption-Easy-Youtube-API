@@ -21,9 +21,9 @@ O YTCaption utiliza uma **arquitetura de microserviços** com **Clean Architectu
 
 ```
 YTCaption-Easy-Youtube-API/
-├── orchestrator/           # Coordenador central (porta 8080)
+├── orchestrator/           # Coordenador central (porta 8000 interno / 8006 externo)
 ├── services/
-│   ├── video-downloader/   # Download YouTube (porta 8000)
+│   ├── video-downloader/   # Download YouTube (porta 8002)
 │   ├── audio-normalization/ # Processamento áudio (porta 8003)
 │   ├── audio-transcriber/  # Transcrição (porta 8004) ⭐ REORGANIZADO
 │   ├── youtube-search/     # Busca vídeos (porta 8001)
@@ -329,14 +329,14 @@ make calibrate        # Otimização de parâmetros
 
 ### Documentação por Serviço
 - [Audio Transcriber](./services/audio-transcriber/README.md) - ⭐ Estrutura modular
-- [Make Video](../services/make-video/docs/README.md) - ⭐ Referência arquitetural
+- [Make Video](./services/make-video/README.md) - ⭐ Referência arquitetural
 - [Video Downloader](./services/video-downloader/README.md)
 - [Audio Normalization](./services/audio-normalization/README.md)
 - [YouTube Search](./services/youtube-search/README.md)
 
 ### Guias Técnicos
-- [FINAL_REPORT.md](../FINAL_REPORT.md) - Relatório completo da reorganização
-- [REORGANIZATION_STATUS.md](../services/audio-transcriber/REORGANIZATION_STATUS.md) - Detalhes técnicos
+- [stack-standardization.md](./reference/stack-standardization.md) - Padrões de stack e estrutura de serviços
+- [quality-governance.md](./reference/quality-governance.md) - Governança de qualidade e padrões arquiteturais
 
 ### Padrões e Convenções
 - Clean Architecture (Uncle Bob)
