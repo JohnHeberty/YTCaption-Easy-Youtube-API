@@ -2,7 +2,9 @@
 services:
 
   make-video:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/make-video/Dockerfile
     container_name: ytcaption-make-video
     network_mode: "host"
     mem_limit: 6g
@@ -24,7 +26,9 @@ services:
       start_period: 60s
 
   make-video-celery:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/make-video/Dockerfile
     container_name: ytcaption-make-video-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
     network_mode: "host"
@@ -47,7 +51,9 @@ services:
       start_period: 60s
 
   make-video-celery-beat:
-    build: .
+    build:
+      context: ../../
+      dockerfile: services/make-video/Dockerfile
     container_name: ytcaption-make-video-celery-beat
     command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
     network_mode: "host"
