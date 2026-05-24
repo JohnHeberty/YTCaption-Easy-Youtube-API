@@ -6,10 +6,11 @@ inheriting the standard lifecycle methods and stage tracking from
 StandardJob.
 """
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator
 
+from common.datetime_utils import now_brazil
 from common.job_utils.models import StandardJob, JobStatus, StageInfo
 from app.core.constants import DEFAULT_QUALITY, QUALITY_FORMATS
 
@@ -45,10 +46,10 @@ class VideoDownloadJob(StandardJob):
         default=None,
         description="Mensagem de progresso para acompanhamento do estágio atual.",
     )
-    created_at: datetime = Field(..., description="Data/hora de criação do job.")
+    created_at: datetime = Field(default_factory=now_brazil, description="Data/hora de criação do job.")
     started_at: Optional[datetime] = Field(default=None, description="Data/hora de início do processamento.")
     completed_at: Optional[datetime] = Field(default=None, description="Data/hora de conclusão do processamento.")
-    expires_at: datetime = Field(..., description="Data/hora de expiração do job e artefatos em cache.")
+    expires_at: datetime = Field(default_factory=lambda: now_brazil() + timedelta(hours=24), description="Data/hora de expiração do job e artefatos em cache.")
     error_message: Optional[str] = Field(default=None, description="Mensagem de erro quando o job falha.")
     error_type: Optional[str] = Field(default=None, description="Tipo técnico do erro para troubleshooting.")
     correlation_id: Optional[str] = Field(default=None, description="ID opcional de correlação entre serviços da pipeline.")

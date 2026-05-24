@@ -328,10 +328,10 @@ async def get_job_status(
             "status": job.status.value if hasattr(job.status, 'value') else str(job.status),
             "progress": job.progress,
             "stages": {k: v.model_dump() if hasattr(v, 'model_dump') else v for k, v in job.stages.items()},
-            "result": job.result.model_dump() if hasattr(job, 'result') and job.result and hasattr(job.result, 'model_dump') else (job.result if isinstance(job.result, dict) else None),
-            "error": job.error if hasattr(job, 'error') else None,
+            "result": (getattr(job, 'result', None) or None),
+            "error": getattr(job, 'error', None),
             "created_at": job.created_at.isoformat() if hasattr(job.created_at, 'isoformat') else str(job.created_at),
-            "updated_at": job.updated_at.isoformat() if hasattr(job.updated_at, 'isoformat') else str(job.updated_at),
+            "updated_at": getattr(job, 'updated_at', None).isoformat() if hasattr(job, 'updated_at') and getattr(job, 'updated_at', None) and hasattr(getattr(job, 'updated_at'), 'isoformat') else str(getattr(job, 'updated_at', '')),
         }
     except HTTPException:
         raise
