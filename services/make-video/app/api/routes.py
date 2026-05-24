@@ -6,9 +6,12 @@ Segue princípios SOLID:
 - Separation of Concerns: Rotas apenas recebem requests e delegam
 """
 
+import json
 from pathlib import Path
 from datetime import timedelta
 from typing import Optional
+
+import shortuuid
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
 from fastapi.responses import FileResponse, JSONResponse
@@ -44,6 +47,7 @@ from ..infrastructure.dependencies import (
     get_api_client_override,
 )
 from ..infrastructure.redis_store import MakeVideoJobStore as RedisJobStore
+from ..infrastructure.celery_tasks import process_make_video, process_download_pipeline
 from ..services.job_manager import JobManager
 from ..services.cache_manager import CacheManager
 from ..infrastructure.lock_manager import DistributedLockManager
@@ -112,9 +116,6 @@ async def download_and_validate_shorts(
     **Retorna:** job_id para monitoramento
     """
     try:
-        # Rate limiting é verificado no main.py
-
-        # Sanitizar query
         sanitized_query = QueryValidator.sanitize(query)
         if not QueryValidator.is_valid(sanitized_query):
             raise HTTPException(
@@ -124,14 +125,24 @@ async def download_and_validate_shorts(
 
         logger.info(f"🚀 DOWNLOAD PIPELINE: '{sanitized_query}' (max: {max_shorts})")
 
-        # Criar job - delegado ao main.py para ter acesso às dependências
-        # Retorna apenas info de que precisa ser processado
+        job = Job.create_new(
+            query=sanitized_query,
+            max_shorts=max_shorts,
+            subtitle_language="pt",
+            subtitle_style="static",
+            aspect_ratio="9:16",
+            crop_position="center",
+        )
+        store.save_job(job)
+
+        process_download_pipeline.delay(job_id=job.id)
+
         return {
             "status": "accepted",
-            "message": "Use POST /download/start para iniciar o pipeline",
+            "message": "Pipeline de download iniciado",
+            "job_id": job.id,
             "query": sanitized_query,
             "max_shorts": max_shorts,
-            "note": "This endpoint is handled by the main application"
         }
 
     except HTTPException:
@@ -202,10 +213,7 @@ async def create_video(
     3. Monta vídeo final com legendas
     """
     try:
-        # Rate limiting é verificado no main.py
-
-        # Validar áudio
-        MAX_AUDIO_SIZE = 100 * 1024 * 1024  # 100MB
+        MAX_AUDIO_SIZE = 100 * 1024 * 1024
 
         content = await audio_file.read()
 
@@ -223,21 +231,18 @@ async def create_video(
 
         file_ext = Path(audio_file.filename).suffix.lower()
 
-        # Validar extensão
         if not AudioFileValidator.is_valid_extension(audio_file.filename):
             raise HTTPException(
                 status_code=HttpStatusCodes.BAD_REQUEST,
                 detail=f"Formato de áudio não suportado. Use: {', '.join(AudioFileValidator.ALLOWED_EXTENSIONS)}"
             )
 
-        # Validar magic bytes
         if not AudioFileValidator.is_valid_content(content, audio_file.filename):
             raise HTTPException(
                 status_code=HttpStatusCodes.BAD_REQUEST,
                 detail=f"Invalid audio file. Not a valid {file_ext} audio file."
             )
 
-        # Validar parâmetros
         if not JobParamsValidator.validate_max_shorts(max_shorts):
             raise HTTPException(
                 status_code=HttpStatusCodes.BAD_REQUEST,
@@ -262,17 +267,35 @@ async def create_video(
                 detail="subtitle_style inválido"
             )
 
-        # Retornar info - processamento real é delegado ao main.py
+        job_id = f"mv_{shortuuid.ShortUUID().random(length=10)}"
+
+        audio_path = Path(settings['audio_upload_dir']) / f"{job_id}{file_ext}"
+        audio_path.parent.mkdir(parents=True, exist_ok=True)
+        audio_path.write_bytes(content)
+
+        job = Job.create_new(
+            audio_file=str(audio_path),
+            max_shorts=max_shorts,
+            subtitle_language=subtitle_language,
+            subtitle_style=subtitle_style,
+            aspect_ratio=aspect_ratio,
+            crop_position=crop_position,
+        )
+        job.id = job_id
+        store.save_job(job)
+
+        process_make_video.delay(job_id=job.id)
+
         return {
             "status": "accepted",
-            "message": "Use POST /make-video/start para iniciar o processamento",
+            "message": "Processamento de vídeo iniciado",
+            "job_id": job.id,
             "audio_filename": audio_file.filename,
             "max_shorts": max_shorts,
             "aspect_ratio": aspect_ratio,
             "subtitle_language": subtitle_language,
             "subtitle_style": subtitle_style,
             "crop_position": crop_position,
-            "note": "This endpoint is handled by the main application"
         }
 
     except HTTPException:
@@ -286,8 +309,8 @@ async def create_video(
 
 @router.get(
     "/jobs/{job_id}",
-    summary="Compatibility job status",
-    description="Rota de compatibilidade que orienta a consulta do status real do job.",
+    summary="Get job status",
+    description="Retorna o status atual de um job de processamento.",
     response_model=JobStatusHintResponse,
 )
 async def get_job_status(
@@ -295,15 +318,20 @@ async def get_job_status(
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
 ):
-    """
-    Verificar status de um job (com diagnóstico de saúde).
-    """
     try:
-        # Delegado ao main.py
+        job = store.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
         return {
-            "job_id": job_id,
-            "status": "unknown",
-            "note": "Use GET /jobs/{job_id}/status para obter status real"
+            "job_id": job.id,
+            "status": job.status.value if hasattr(job.status, 'value') else str(job.status),
+            "progress": job.progress,
+            "stages": {k: v.model_dump() if hasattr(v, 'model_dump') else v for k, v in job.stages.items()},
+            "result": job.result.model_dump() if hasattr(job, 'result') and job.result and hasattr(job.result, 'model_dump') else (job.result if isinstance(job.result, dict) else None),
+            "error": job.error if hasattr(job, 'error') else None,
+            "created_at": job.created_at.isoformat() if hasattr(job.created_at, 'isoformat') else str(job.created_at),
+            "updated_at": job.updated_at.isoformat() if hasattr(job.updated_at, 'isoformat') else str(job.updated_at),
         }
     except HTTPException:
         raise
@@ -313,22 +341,33 @@ async def get_job_status(
 
 @router.get(
     "/download/{job_id}",
-    summary="Compatibility download route",
-    description="Rota de compatibilidade que informa qual endpoint deve ser usado para baixar o arquivo real.",
+    summary="Download video file",
+    description="Faz o download do arquivo de vídeo final de um job completo.",
 )
 async def download_video(
     job_id: str,
     store: RedisJobStore = Depends(get_redis_store_override),
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
 ):
-    """
-    Fazer download do vídeo final.
-    """
     try:
-        # Delegado ao main.py
-        raise HTTPException(
-            status_code=400,
-            detail="Use GET /download/{job_id}/file para baixar o arquivo"
+        job = store.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        if job.status != JobStatus.COMPLETED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job is not completed yet. Status: {job.status.value if hasattr(job.status, 'value') else job.status}"
+            )
+
+        output_path = Path(settings['output_dir']) / f"{job_id}_final.mp4"
+        if not output_path.exists():
+            raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+        return FileResponse(
+            path=str(output_path),
+            media_type="video/mp4",
+            filename=f"{job_id}_final.mp4",
         )
     except HTTPException:
         raise
@@ -338,14 +377,14 @@ async def download_video(
 
 @router.get(
     "/jobs",
-    summary="Compatibility jobs listing",
-    description="Rota de compatibilidade que explica qual endpoint expõe a listagem operacional de jobs.",
+    summary="List jobs",
+    description="Lista todos os jobs de processamento.",
     response_model=JobListHintResponse,
 )
 async def list_jobs(
     status: Optional[str] = Query(
         None,
-        description="Filtrar por status do job. Opções comuns: queued, processing, completed, failed.",
+        description="Filtrar por status do job.",
         examples=["queued", "processing", "completed", "failed"],
     ),
     limit: int = Query(
@@ -358,16 +397,16 @@ async def list_jobs(
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
 ):
-    """
-    Listar todos os jobs.
-    """
     try:
-        # Delegado ao main.py
+        jobs = store.list_jobs(limit=limit)
+
+        if status:
+            jobs = [j for j in jobs if hasattr(j.status, 'value') and j.status.value == status]
+
         return {
             "status": "success",
-            "total": 0,
-            "jobs": [],
-            "note": "Use GET /jobs/list para listagem real"
+            "total": len(jobs),
+            "jobs": [j.model_dump() for j in jobs],
         }
     except HTTPException:
         raise
@@ -377,8 +416,8 @@ async def list_jobs(
 
 @router.delete(
     "/jobs/{job_id}",
-    summary="Compatibility delete route",
-    description="Rota de compatibilidade que orienta a chamada de exclusão efetiva do job.",
+    summary="Delete job",
+    description="Deleta um job e seus arquivos associados.",
     response_model=DeleteJobHintResponse,
 )
 async def delete_job(
@@ -386,16 +425,21 @@ async def delete_job(
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
 ):
-    """
-    Deletar um job e seus arquivos associados.
-    """
     try:
-        # Delegado ao main.py
+        job = store.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        store.delete_job(job_id)
+
+        output_path = Path(settings['output_dir']) / f"{job_id}_final.mp4"
+        if output_path.exists():
+            output_path.unlink()
+
         return {
-            "status": "accepted",
+            "status": "deleted",
             "job_id": job_id,
-            "message": "Job deletion request received",
-            "note": "Use DELETE /jobs/{job_id}/confirm para deletar"
+            "message": "Job e arquivos associados removidos com sucesso",
         }
     except HTTPException:
         raise
@@ -405,23 +449,19 @@ async def delete_job(
 
 @router.get(
     "/cache/stats",
-    summary="Compatibility cache stats",
-    description="Retorna um schema estável para estatísticas de cache e orienta como obter a leitura real atualizada.",
+    summary="Cache statistics",
+    description="Retorna estatísticas reais do cache de shorts e vídeos aprovados.",
     response_model=CacheStatsResponse,
 )
 async def get_cache_stats(
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
 ):
-    """
-    Estatísticas do cache de shorts.
-    """
     try:
-        # Delegado ao main.py
+        stats = cache_mgr.get_stats()
         return {
-            "total_shorts": 0,
-            "total_size_mb": 0.0,
-            "approved_videos": 0,
-            "note": "Use GET /cache/stats/refresh para obter estatísticas reais"
+            "total_shorts": stats.get("total_shorts", 0),
+            "total_size_mb": stats.get("total_size_mb", 0.0),
+            "approved_videos": stats.get("approved_videos", 0),
         }
     except Exception as e:
         logger.error(f"❌ Error getting cache stats: {e}", exc_info=True)

@@ -25,17 +25,18 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Copy requirements
-COPY requirements-docker.txt requirements.txt
+COPY services/make-video/requirements-docker.txt requirements.txt
+
 # Install PyTorch CPU + EasyOCR and other requirements
 RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy common module first
-COPY common/ ./common/
+# Copy shared library (renamed as common/ for Python imports)
+COPY shared/ ./common/
 
-# Copy application code (selective — avoid sending .trash/, data/, logs/)
-COPY app/ ./app/
-COPY run.py .
+# Copy application code
+COPY services/make-video/app/ ./app/
+COPY services/make-video/run.py .
 
 # Create data directories (bind mount irá sobrescrever, mas cria estrutura base)
 RUN mkdir -p /app/data/raw/audio \

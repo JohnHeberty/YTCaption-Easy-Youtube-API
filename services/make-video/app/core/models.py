@@ -119,52 +119,57 @@ class CreateVideoRequest(BaseModel):
 
 class DownloadPipelineAcceptedResponse(BaseModel):
     status: str = Field(..., description="Status imediato da requisição.", examples=["accepted"])
-    message: str = Field(..., description="Orientação sobre o próximo endpoint a ser chamado.")
+    message: str = Field(..., description="Mensagem de confirmação do pipeline.")
+    job_id: str = Field(..., description="ID do job criado para monitoramento.")
     query: str = Field(..., description="Query sanitizada que será usada no pipeline.")
     max_shorts: int = Field(..., description="Quantidade máxima de shorts considerada no pipeline.")
-    note: str = Field(..., description="Observação indicando que a execução real ocorre na aplicação principal.")
 
 
 class CreateVideoAcceptedResponse(BaseModel):
     status: str = Field(..., description="Status imediato da requisição.", examples=["accepted"])
-    message: str = Field(..., description="Orientação sobre o próximo endpoint a ser chamado.")
+    message: str = Field(..., description="Mensagem de confirmação do processamento.")
+    job_id: str = Field(..., description="ID do job criado para monitoramento.")
     audio_filename: str = Field(..., description="Nome do arquivo de áudio validado na entrada.")
     max_shorts: int = Field(..., description="Quantidade máxima de shorts usada na composição final.")
     subtitle_language: str = Field(..., description="Idioma selecionado para as legendas.")
     subtitle_style: SubtitleStyleOption = Field(..., description="Estilo selecionado para a legenda.")
     aspect_ratio: AspectRatioOption = Field(..., description="Aspect ratio informado para o vídeo final.")
     crop_position: CropPositionOption = Field(..., description="Posição do crop aplicada no enquadramento.")
-    note: str = Field(..., description="Observação indicando que a execução real ocorre na aplicação principal.")
 
 
-class JobStatusHintResponse(BaseModel):
+class JobStatusResponse(BaseModel):
     job_id: str = Field(..., description="ID do job consultado.")
-    status: str = Field(..., description="Status retornado pela rota de compatibilidade.")
-    note: str = Field(..., description="Orientação para a rota que devolve o status real.")
+    status: str = Field(..., description="Status atual do job.")
+    progress: float = Field(default=0.0, description="Progresso do job (0-100).")
+    stages: dict = Field(default_factory=dict, description="Estágios do processamento.")
+    result: Optional[dict] = Field(default=None, description="Resultado do job quando completo.")
+    error: Optional[dict] = Field(default=None, description="Erro do job quando falhou.")
+    created_at: str = Field(default="", description="Timestamp de criação.")
+    updated_at: str = Field(default="", description="Timestamp da última atualização.")
+
+
+JobStatusHintResponse = JobStatusResponse
 
 
 class JobListHintResponse(BaseModel):
     status: str = Field(..., description="Resultado resumido da consulta.")
-    total: int = Field(..., ge=0, description="Quantidade de jobs retornados pela rota de compatibilidade.")
-    jobs: List[MakeVideoJob] = Field(
+    total: int = Field(..., ge=0, description="Quantidade de jobs retornados.")
+    jobs: List[Dict[str, Any]] = Field(
         default_factory=list,
-        description="Lista de jobs retornados pela rota de compatibilidade.",
+        description="Lista de jobs retornados.",
     )
-    note: str = Field(..., description="Orientação para a rota de listagem real.")
 
 
 class DeleteJobHintResponse(BaseModel):
     status: str = Field(..., description="Status imediato da solicitação de exclusão.")
     job_id: str = Field(..., description="ID do job alvo da exclusão.")
     message: str = Field(..., description="Mensagem resumindo a ação aceita.")
-    note: str = Field(..., description="Orientação para a rota que executa a exclusão real.")
 
 
 class CacheStatsResponse(BaseModel):
     total_shorts: int = Field(..., ge=0, description="Quantidade de shorts presentes no cache.")
     total_size_mb: float = Field(..., ge=0.0, description="Tamanho total do cache, em MB.")
     approved_videos: int = Field(..., ge=0, description="Quantidade de vídeos aprovados disponíveis.")
-    note: str = Field(..., description="Orientação para obter estatísticas completas e atualizadas.")
 
 
 class RootArchitectureResponse(BaseModel):

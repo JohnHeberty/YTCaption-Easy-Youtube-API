@@ -70,7 +70,7 @@ tmp/
 .env.local
 .env.*.local
 
-# Docker
-docker-compose.yml
-Dockerfile
-.dockerignore
+# Docker (apenas raiz — não excluir Dockerfiles de services/)
+/docker-compose.yml
+/Dockerfile
+/.dockerignore
