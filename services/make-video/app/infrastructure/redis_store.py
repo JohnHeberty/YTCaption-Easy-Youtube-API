@@ -75,6 +75,22 @@ class MakeVideoJobStore:
                 by_status[s] = by_status.get(s, 0) + 1
         return {"total_jobs": total, "by_status": by_status}
 
+    def find_orphaned_jobs(self, max_age_minutes: int = 10) -> list[MakeVideoJob]:
+        all_jobs = self.list_jobs(limit=1000)
+        orphaned = []
+        for job in all_jobs:
+            if job is None or job.is_terminal:
+                continue
+            if job.started_at:
+                elapsed = (now_brazil() - job.started_at).total_seconds() / 60
+                if elapsed > max_age_minutes:
+                    orphaned.append(job)
+            elif job.created_at:
+                elapsed = (now_brazil() - job.created_at).total_seconds() / 60
+                if elapsed > max_age_minutes:
+                    orphaned.append(job)
+        return orphaned
+
     def cleanup_expired(self) -> int:
         all_ids = self.redis.zrevrange(self.list_key, 0, -1)
         removed = 0

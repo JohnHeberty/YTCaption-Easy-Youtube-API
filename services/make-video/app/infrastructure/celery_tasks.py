@@ -39,8 +39,10 @@ from ..services.subtitle_postprocessor import process_subtitles_with_vad
 from ..video_processing.video_validator import VideoValidator
 from ..services.blacklist_factory import get_blacklist
 from .file_logger import FileLogger
+from ..shared.exceptions import (
+    MakeVideoException,
+)
 from ..shared.exceptions_v2 import (
-    MakeVideoBaseException as MakeVideoException,
     AudioException as AudioProcessingException,
     VideoException as VideoProcessingException,
     SubtitleGenerationException,
@@ -98,8 +100,8 @@ def get_instances():
         # Inicializar validador e blacklist (usando factory)
         video_validator = VideoValidator(
             min_confidence=ValidationThresholds.OCR_MIN_CONFIDENCE,
-            frames_per_second=None,  # 🚨 FORÇA BRUTA: processar 100% frames
-            max_frames=None,  # 🚨 FORÇA BRUTA: sem limites
+            frames_per_second=settings.get('ocr_frames_per_second', 3),
+            max_frames=settings.get('ocr_max_frames', 240),
             redis_store=redis_store
         )
         blacklist = get_blacklist()  # Factory cria instância baseada em config
@@ -120,13 +122,12 @@ async def update_job_status(job_id: str, status: JobStatus,
     
     for attempt in range(1, max_retries + 1):
         try:
-            job = await store.get_job(job_id)
+            job = store.get_job(job_id)
             if not job:
                 logger.error(f"Job {job_id} not found for status update")
                 return
             
             job.status = status
-            job.updated_at = now_brazil()
             
             if progress is not None:
                 job.progress = progress
@@ -154,7 +155,7 @@ async def update_job_status(job_id: str, status: JobStatus,
                 job.completed_at = now_brazil()
                 job.expires_at = job.completed_at + timedelta(hours=24)
             
-            await store.save_job(job)
+            store.save_job(job)
             
             # Sucesso - sair do loop
             if attempt > 1:
@@ -1318,7 +1319,7 @@ def process_download_pipeline(self, job_id: str):
         logger.error(f"❌ Download pipeline {job_id} failed: {e}", exc_info=True)
         try:
             store, _, _, _, _ = get_instances()
-            existing_job = loop.run_until_complete(store.get_job(job_id))
+            existing_job = store.get_job(job_id)
             if existing_job and existing_job.status == JobStatus.FAILED and existing_job.error:
                 return
             loop.run_until_complete(update_job_status(
@@ -1335,7 +1336,7 @@ async def _process_download_pipeline_async(job_id: str):
     settings = get_settings()
     job_logger = FileLogger.get_job_logger(job_id)
 
-    job = await store.get_job(job_id)
+    job = store.get_job(job_id)
     if not job:
         raise MakeVideoException(f"Job {job_id} not found")
 
@@ -1472,7 +1473,7 @@ async def _process_download_pipeline_async(job_id: str):
         "approved_videos": approved_ids,
         "rejected_videos": rejected_ids,
     }
-    await store.save_job(job)
+    store.save_job(job)
 
     await _delete_checkpoint(job_id)
 
@@ -1556,10 +1557,7 @@ def recover_orphaned_jobs():
     max_age_minutes = int(settings.get('orphan_detection_threshold_minutes', 5))
     
     try:
-        # Detectar jobs órfãos
-        # CORREÇÃO: Não usar asyncio.run() - usar run_until_complete com loop existente
-        loop = asyncio.get_event_loop()
-        orphaned_jobs = loop.run_until_complete(store.find_orphaned_jobs(max_age_minutes=max_age_minutes))
+        orphaned_jobs = store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
         
         # Metrics (Sprint-05)
         _metrics.orphans_detected += len(orphaned_jobs)

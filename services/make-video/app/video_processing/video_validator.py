@@ -85,8 +85,8 @@ class VideoValidator:
             redis_store: Optional RedisJobStore for cache
         """
         self.min_confidence = min_confidence
-        self.frames_per_second = None  # FORÇA BRUTA: processar TODOS
-        self.max_frames = None  # FORÇA BRUTA: processar TODOS
+        self.frames_per_second = frames_per_second
+        self.max_frames = max_frames
         self.redis_store = redis_store
         
         # P2 Optimization: Lock para thread-safe operations
@@ -493,20 +493,32 @@ class VideoValidator:
             fps = cap.get(cv2.CAP_PROP_FPS)
             duration = total_frames / fps if fps > 0 else 0
             
+            # Calcular step e limite baseado na config
+            frame_step = max(1, int(fps / self.frames_per_second)) if self.frames_per_second else 1
+            max_frames_to_process = self.max_frames if self.max_frames else total_frames
+            
             logger.info(
-                f"🚨 FORÇA BRUTA: Processando 100% dos frames: {total_frames} frames "
-                f"({fps:.2f} fps, {duration:.1f}s) - ZERO tolerância"
+                f"🔍 OCR: processando até {max_frames_to_process} frames "
+                f"(step={frame_step}, {fps:.2f} fps, {duration:.1f}s vídeo)"
             )
             
             frames_analyzed = 0
             all_detections = []
             first_text_detected = None
+            frame_count = 0
             
-            # 🚨 PROCESSAR TODOS OS FRAMES SEQUENCIALMENTE
+            # 🚨 PROCESSAR FRAMES COM SAMPLING
             while True:
                 ret, frame = cap.read()
                 if not ret:
-                    break  # Fim do vídeo
+                    break
+                
+                frame_count += 1
+                if frame_count % frame_step != 0:
+                    continue
+                
+                if frames_analyzed >= max_frames_to_process:
+                    break
                 
                 frames_analyzed += 1
                 
@@ -552,12 +564,12 @@ class VideoValidator:
             
             elapsed_ms = (time.time() - start_time) * 1000
             
-            # 🚨 ZERO TOLERÂNCIA: SE DETECTOU QUALQUER TEXTO ACIMA DO THRESHOLD = BAN
+            # ZERO TOLERÂNCIA: SE DETECTOU QUALQUER TEXTO ACIMA DO THRESHOLD = BAN
             if first_text_detected:
                 text, conf, ts = first_text_detected
                 logger.error(
                     f"🚨 EMBEDDED SUBTITLES DETECTED - BAN IMEDIATO!\n"
-                    f"   Frames analisados: {frames_analyzed}/{total_frames} (100%)\n"
+                    f"   Frames analisados: {frames_analyzed}/{total_frames}\n"
                     f"   Total detecções: {len(all_detections)}\n"
                     f"   Primeira detecção: frame @ {ts:.1f}s (conf={conf:.2f})\n"
                     f"   Texto: {text[:100]}\n"
@@ -568,7 +580,7 @@ class VideoValidator:
             # Se não encontrou texto acima do threshold
             logger.info(
                 f"✅ Vídeo APROVADO - Nenhum texto detectado\n"
-                f"   Frames analisados: {frames_analyzed}/{total_frames} (100%)\n"
+                f"   Frames analisados: {frames_analyzed}/{total_frames}\n"
                 f"   Detecções baixa confiança: {len(all_detections)}\n"
                 f"   Tempo: {elapsed_ms:.0f}ms"
             )

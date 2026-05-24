@@ -59,9 +59,11 @@ class Job(BaseModel):
     channel_id: Optional[str] = None
     playlist_id: Optional[str] = None
     max_results: int = 10
+    include_videos: bool = False
     result: Optional[Dict[str, Any]] = None
     progress: float = 0.0
     error_message: Optional[str] = None
+    received_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=now_brazil)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None

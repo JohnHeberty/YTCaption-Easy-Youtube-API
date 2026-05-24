@@ -29,7 +29,11 @@ class MakeVideoJob(StandardJob):
     # Video processing stages with detailed tracking
     # Stages are defined in StandardJob.stages dict
 
+    # Error tracking
+    error: Optional[dict] = None
+
     # Results
+    result: Optional[dict] = None
     output_file: Optional[str] = None
     output_url: Optional[str] = None
 
