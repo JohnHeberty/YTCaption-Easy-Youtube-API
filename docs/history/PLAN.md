@@ -1,5 +1,7 @@
 # PLAN.md — Plano de Qualidade YTCaption-Easy-Youtube-API
 
+> Nota editorial: os padroes duraveis extraidos deste plano foram promovidos para [docs/reference/quality-governance.md](../reference/quality-governance.md). Este arquivo permanece como registro historico de execucao, sequenciamento e validacao da iniciativa.
+
 ## Status: ✅ COMPLETO (2026-04-30)
 
 ---

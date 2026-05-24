@@ -446,8 +446,7 @@ async def health_check():
             content={
                 "status": "healthy",
                 "service": "make-video",
-                "timestamp": now_brazil().isoformat(),
-                "note": "Use GET /health/full para health check completo"
+                "timestamp": now_brazil().isoformat()
             }
         )
     except Exception as e:

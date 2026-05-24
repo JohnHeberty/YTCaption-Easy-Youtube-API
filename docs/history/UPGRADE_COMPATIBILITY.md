@@ -3,6 +3,8 @@
 > Autor: Senior Python Engineer Review  
 > Escopo: Todos os 5 microserviços do projeto YTCaption-Easy-Youtube-API
 
+> Nota editorial: os padroes estaveis extraidos desta auditoria foram promovidos para [docs/reference/stack-standardization.md](../reference/stack-standardization.md). Este arquivo permanece como registro historico da iniciativa e de sua matriz de conformidade.
+
 ---
 
 ## 1. VISÃO GERAL DA STACK

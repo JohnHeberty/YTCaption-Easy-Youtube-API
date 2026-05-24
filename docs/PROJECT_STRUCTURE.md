@@ -1,223 +1,140 @@
-# 📁 Estrutura de Organização - Padrão Enterprise
+# Estrutura do Projeto
 
 **YTCaption-Easy-Youtube-API**  
-**Última atualização**: 2026-02-28
+**Última atualização**: 2026-04-30
 
 ---
 
-## 🎯 Objetivo
+## Objetivo
 
-Este documento define o **padrão de organização enterprise** aplicado em todo o projeto para garantir:
-- ✅ Consistência entre microserviços
-- ✅ Manutenibilidade e escalabilidade
-- ✅ Facilidade de navegação
-- ✅ Conformidade com DevOps best practices
+Este documento descreve a organizacao atual do repositório e como navegar entre codigo, documentacao, scripts e artefatos operacionais.
+
+Ele complementa a arquitetura documental definida em `docs/reference/documentation-architecture.md` e deve refletir o estado real do repositório, nao um modelo idealizado ou historico.
 
 ---
 
-## 📦 Estrutura Raiz do Projeto
+## Estrutura raiz do repositório
 
 ```
 YTCaption-Easy-Youtube-API/
-├── README.md                    # ✅ Único .md na raiz
-├── LICENSE
-├── .gitignore
-├── .pre-commit-config.yaml
-├── docker-compose.yml
-├── Makefile
-├── pytest.ini
-│
-├── docs/                        # 📚 Toda documentação centralizada
-│   ├── CHECK.md
-│   ├── VALIDATION.md
-│   ├── IMPLEMENTATION_COMPLETE.md
-│   ├── EXECUTIVE_SUMMARY.md
-│   ├── PRACTICAL_VALIDATION_CHECKLIST.md
-│   ├── FINAL_VALIDATION_REPORT.md
-│   ├── TIMEZONE_PADRONIZATION_REPORT.md
-│   ├── MAKEFILES-SUMMARY.md
-│   ├── PRE_COMMIT_HOOKS.md
-│   ├── DEVELOPMENT.md
-│   └── README.md
-│
-├── scripts/                     # 🔧 Todos os scripts
-│   ├── deploy.sh
-│   ├── auto-resize-root.sh
-│   ├── distribute_common.sh
-│   ├── docker-cleanup-*.sh
-│   ├── migrate_redis_jobs.py
-│   └── ...
-│
-├── common/                      # 📦 Biblioteca compartilhada
-│   ├── datetime_utils/
-│   ├── config_utils/
-│   ├── log_utils/
-│   └── ...
-│
-├── services/                    # 🐳 Microserviços
-│   ├── make-video/
+├── common/                      # Biblioteca compartilhada entre servicos
+├── data/                        # Dados temporarios, logs e transcricoes locais
+├── docs/                        # Navegacao oficial da documentacao
+│   ├── reference/               # Estrutura, arquitetura documental, referencias
+│   ├── operations/              # Operacao, desenvolvimento, comandos
+│   ├── services/                # Entrada canonica por servico
+│   ├── architecture/            # Trilhas arquiteturais e ADR index
+│   ├── history/                 # Relatorios e iniciativas concluidas
+│   ├── orchestrator/            # Documentacao canonica do orchestrator
+│   └── README.md                # Hub principal da documentacao
+├── orchestrator/                # Servico coordenador do pipeline
+├── scripts/                     # Scripts operacionais e utilitarios
+├── services/                    # Microservicos de dominio
+│   ├── audio-normalization/
 │   ├── audio-transcriber/
+│   ├── make-video/
 │   ├── video-downloader/
-│   ├── youtube-search/
-│   └── audio-normalization/
-│
-└── orchestrator/               # 🎭 Orchestrator service
+│   └── youtube-search/
+├── tests/                       # Artefatos de teste no nivel do repositorio
+├── Makefile
+├── docker-compose.yml
+└── pyproject.toml
 ```
 
 ---
 
-## 🐳 Estrutura Padrão de Microserviço
+## Arquitetura documental
 
-Cada serviço segue a mesma estrutura:
+`docs/` e a fonte oficial de navegacao da documentacao.
+
+### Trilha por intencao
+
+- `docs/reference/`: material estavel para entender estrutura e regras do repositório
+- `docs/operations/`: guias para subir, operar, validar e manter o ambiente
+- `docs/services/`: porta de entrada canonica para documentacao de servico
+- `docs/architecture/`: indices arquiteturais e ADRs
+- `docs/history/`: relatorios de iniciativas concluidas e registros historicos
+
+### Regra pratica
+
+- Documentacao viva deve ser descoberta por `docs/`
+- Documentacao local em `services/*/docs/` pode continuar existindo
+- Quando houver duplicacao, `docs/` define a navegacao oficial e a classificacao correta
+
+---
+
+## Estrutura padrao de microservico
+
+Cada servico tende a seguir esta base, com pequenas variacoes conforme maturidade e necessidades tecnicas:
 
 ```
 services/{service-name}/
-├── README.md                    # ✅ Único .md na raiz
-├── run.py                       # 🚀 Entry point principal
-│
+├── README.md                    # Entrada local do servico
+├── run.py                       # Entry point principal
+├── app/                         # Codigo da aplicacao
+├── tests/                       # Testes do servico
+├── docs/                        # Documentacao local detalhada
+├── scripts/                     # Scripts e utilitarios do servico
 ├── requirements.txt
-├── requirements-docker.txt
-├── constraints.txt
 ├── Dockerfile
 ├── docker-compose.yml
-├── pytest.ini
-├── Makefile
-│
-├── app/                         # 📱 Código da aplicação
-│   ├── __init__.py
-│   ├── main.py
-│   ├── api/
-│   ├── core/
-│   ├── models/
-│   ├── services/
-│   └── infrastructure/
-│
-├── tests/                       # 🧪 Todos os testes
-│   ├── __init__.py
-│   ├── conftest.py             # Moved from root
-│   ├── test_*.py               # Moved from root
-│   ├── unit/
-│   ├── integration/
-│   └── e2e/
-│
-├── docs/                        # 📚 Documentação do serviço
-│   ├── README.md
-│   ├── API.md
-│   ├── ARCHITECTURE.md
-│   ├── DEPLOYMENT.md
-│   └── ...                     # All .md files (except root README)
-│
-├── scripts/                     # 🔧 Scripts do serviço
-│   ├── run_*.py                # Moved from root
-│   ├── test_*.sh               # Moved from root
-│   ├── validate_*.py           # Moved from root
-│   └── ...                     # All .sh files
-│
-├── common/                      # 📦 Common library (copied)
-│   ├── datetime_utils/
-│   ├── config_utils/
-│   └── ...
-│
-├── data/                        # 💾 Data directory
-├── logs/                        # 📝 Logs directory
-├── temp/                        # 🗃️ Temporary files
-└── uploads/                     # 📤 Upload directory
+└── Makefile
 ```
 
 ---
 
-## 📋 Regras de Organização
+## Regras de organizacao
 
-### ✅ Arquivos Permitidos na Raiz
+### Raiz do repositório
 
-#### Raiz do Projeto
-- ✅ `README.md` (único .md permitido)
-- ✅ `LICENSE`
-- ✅ `.gitignore`, `.pre-commit-config.yaml`, `.bandit.yml`
-- ✅ `docker-compose.yml`, `Makefile`, `pytest.ini`
-- ✅ `package.json`, `pyproject.toml` (se aplicável)
+- Deve manter `README.md` como documento humano principal.
+- `AGENTS.md` pode permanecer como excecao tecnica de tooling.
+- Documentacao navegavel e classificavel deve preferencialmente viver em `docs/`.
+- Scripts operacionais devem ir para `scripts/` sempre que fizer sentido.
 
-#### Raiz de Cada Serviço
-- ✅ `README.md` (único .md permitido)
-- ✅ `run.py` (único entry point)
-- ✅ `requirements*.txt`, `constraints.txt`
-- ✅ `Dockerfile`, `docker-compose.yml`
-- ✅ `Makefile`, `pytest.ini`
+### Raiz de cada servico
 
-### ❌ Arquivos NÃO Permitidos na Raiz
+- `README.md` pode existir como entrada local.
+- `run.py`, `requirements.txt`, `Dockerfile`, `docker-compose.yml` e `Makefile` costumam permanecer na raiz do servico.
+- Documentos adicionais devem preferir `services/*/docs/`.
 
-- ❌ Qualquer `.md` adicional → **mover para `docs/`**
-- ❌ Scripts `.sh` → **mover para `scripts/`**
-- ❌ Arquivos `test_*.py` → **mover para `tests/`**
-- ❌ Arquivos `run_*.py` (exceto `run.py`) → **mover para `scripts/`**
-- ❌ `conftest.py` → **mover para `tests/`**
-- ❌ Scripts `validate_*.py` → **mover para `scripts/`**
+### Documentacao
+
+- Documentacao global: `docs/`
+- Documentacao local e aprofundada por servico: `services/*/docs/`
+- Relatorios de iniciativas concluidas: `docs/history/`
+- Entradas canonicas por servico: `docs/services/`
 
 ---
 
-## 🔍 Mapeamento de Arquivos Reorganizados
+## Mapeamento de reorganizacao documental
 
-### Raiz do Projeto
+### Reclassificacoes recentes
 
 | Origem (antes) | Destino (depois) | Tipo |
 |----------------|------------------|------|
-| `CHECK.md` | `docs/CHECK.md` | Documentação |
-| `VALIDATION.md` | `docs/VALIDATION.md` | Documentação |
-| `IMPLEMENTATION_COMPLETE.md` | `docs/IMPLEMENTATION_COMPLETE.md` | Documentação |
-| `EXECUTIVE_SUMMARY.md` | `docs/EXECUTIVE_SUMMARY.md` | Documentação |
-| `deploy.sh` | `scripts/deploy.sh` | Script |
-| `auto-resize-root.sh` | `scripts/auto-resize-root.sh` | Script |
+| `CHECK.md` | `docs/history/CHECK.md` | Documentação histórica |
+| `VALIDATION.md` | `docs/history/VALIDATION.md` | Documentação histórica |
+| `IMPLEMENTATION_COMPLETE.md` | `docs/history/IMPLEMENTATION_COMPLETE.md` | Documentação histórica |
+| `EXECUTIVE_SUMMARY.md` | `docs/history/EXECUTIVE_SUMMARY.md` | Documentação histórica |
+| `FINAL_VALIDATION_REPORT.md` | `docs/history/FINAL_VALIDATION_REPORT.md` | Documentação histórica |
+| `PRACTICAL_VALIDATION_CHECKLIST.md` | `docs/history/PRACTICAL_VALIDATION_CHECKLIST.md` | Documentação histórica |
+| `TIMEZONE_PADRONIZATION_REPORT.md` | `docs/history/TIMEZONE_PADRONIZATION_REPORT.md` | Documentação histórica |
+| `REBUILD_VALIDATION_REPORT.md` | `docs/history/REBUILD_VALIDATION_REPORT.md` | Documentação histórica |
+| `DOCUMENTATION_UPDATE.md` | `docs/history/DOCUMENTATION_UPDATE.md` | Documentação histórica |
+| `docs/MAKEFILES-SUMMARY.md` | `docs/operations/makefiles-summary.md` | Documentação operacional |
+| `docs/RESILIENCE_ANALYSIS_MAKE_VIDEO.md` | `docs/services/make-video/resilience-analysis.md` | Documentação de serviço |
 
-### services/audio-transcriber/
-
-| Origem | Destino | Tipo |
-|--------|---------|------|
-| `GUIA_DE_USO.md` | `docs/GUIA_DE_USO.md` | Documentação |
-| `conftest.py` | `tests/conftest.py` | Config de testes |
-
-### services/make-video/
-
-| Origem | Destino | Tipo |
-|--------|---------|------|
-| `AUDIO_LEGEND_SYNC.md` | `docs/AUDIO_LEGEND_SYNC.md` | Documentação |
-| `MELHORIAS_SINCRONIZACAO.md` | `docs/MELHORIAS_SINCRONIZACAO.md` | Documentação |
-| `NEXT_STEPS.md` | `docs/NEXT_STEPS.md` | Documentação |
-
-### services/video-downloader/
-
-| Origem | Destino | Tipo |
-|--------|---------|------|
-| `conftest.py` | `tests/conftest.py` | Config de testes |
-| `run_celery.py` | `scripts/run_celery.py` | Script runner |
-| `run_tests.py` | `scripts/run_tests.py` | Script de teste |
-| `validate_user_agents.py` | `scripts/validate_user_agents.py` | Validador |
-
-### services/youtube-search/
-
-| Origem | Destino | Tipo |
-|--------|---------|------|
-| `CHANGELOG.md` | `docs/CHANGELOG.md` | Documentação |
-| `conftest.py` | `tests/conftest.py` | Config de testes |
-| `test_all_endpoints.sh` | `scripts/test_all_endpoints.sh` | Script de teste |
-| `test_shorts_feature.sh` | `scripts/test_shorts_feature.sh` | Script de teste |
-
-### services/audio-normalization/
-
-| Origem | Destino | Tipo |
-|--------|---------|------|
-| `test_gpu.py` | `tests/test_gpu.py` | Teste |
+Esses movimentos nao esgotam a organizacao do repositório. Eles registram apenas a passada recente de reclassificacao da documentacao global.
 
 ---
 
-## 🎨 Convenções de Nomenclatura
+## Convencoes de nomenclatura
 
-### Arquivos de Documentação (`.md`)
-- `README.md` - Overview principal
-- `API.md` - Documentação de API
-- `ARCHITECTURE.md` - Arquitetura do sistema
-- `DEPLOYMENT.md` - Guia de deploy
-- `CHANGELOG.md` - Histórico de mudanças
-- `CONTRIBUTING.md` - Guia de contribuição
+### Documentacao (`.md`)
+- `README.md` - indice ou ponto de entrada de area
+- `kebab-case.md` - preferencia para novos arquivos em `docs/`
+- nomes historicos existentes podem ser preservados quando o custo de renomear for alto
 
 ### Scripts (`.sh`, `.py`)
 - `run_*.py` - Scripts runners

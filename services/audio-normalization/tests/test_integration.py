@@ -2,7 +2,7 @@
 Testes de integração para o sistema completo
 """
 import pytest
-pytestmark = pytest.mark.skip(reason="DEPRECATED: imports removed legacy modules. See PLAN.md F2-T8.")
+pytestmark = pytest.mark.skip(reason="DEPRECATED: imports removed legacy modules. See docs/history/PLAN.md F2-T8.")
 import asyncio
 import tempfile
 import json

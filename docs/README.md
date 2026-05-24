@@ -1,111 +1,68 @@
-# 🎥 YTCaption - Easy YouTube API
+# Documentation Hub
 
-Sistema completo de microserviços para processamento de vídeos do YouTube com pipeline automatizado de download, normalização de áudio e transcrição.
+Este arquivo e o ponto de entrada oficial da documentacao do repositorio.
 
-## 🏗️ Arquitetura
+## Objetivo
 
-```mermaid
-graph TD
-    A[Client] --> B[Orchestrator]
-    B --> C[Video Downloader]
-    B --> D[Audio Normalization]  
-    B --> E[Audio Transcriber]
-    
-    C --> F[Redis Cache]
-    D --> F
-    E --> F
-    B --> F
-    
-    C --> G[YouTube API]
-    D --> H[FFmpeg/Audio Processing]
-    E --> I[Whisper/OpenAI]
-```
+Use este hub para encontrar rapidamente:
 
-## 🚀 Serviços
+- o que o sistema faz
+- como ele e estruturado
+- como subir e operar o ambiente
+- onde esta a documentacao de cada servico
+- onde estao as decisoes arquiteturais
+- onde consultar historico e relatorios antigos
 
-### 📋 [Orchestrator](./orchestrator/README.md)
-**Porta: 8080** - Coordena todo o pipeline e gerencia os microserviços
-- Submissão de jobs
-- Gerenciamento de pipeline
-- Circuit breaker e retry inteligente
-- Health checks dos microserviços
+## Mapa da documentacao
 
-### 📥 [Video Downloader](./services/video-downloader/README.md)
-**Porta: 8000** - Download de vídeos do YouTube
-- Download em múltiplas qualidades
-- Cache inteligente de 24h
-- Sistema de User-Agents rotativos
-- Background processing com Celery
+### Reference
 
-### 🔊 [Audio Normalization](./services/audio-normalization/README.md)
-**Porta: 8001** - Processamento e normalização de áudio
-- Remoção de ruído
-- Conversão para mono
-- Filtragem high-pass
-- Isolamento de vocais
+- [Reference index](./reference/README.md)
+- [Arquitetura geral](./ARCHITECTURE.md)
+- [Estrutura do projeto](./PROJECT_STRUCTURE.md)
+- [Arquitetura documental](./reference/documentation-architecture.md)
 
-### 📝 [Audio Transcriber](./services/audio-transcriber/README.md)
-**Porta: 8004** - Transcrição e tradução de áudio  
-**Arquitetura**: ⭐ Clean Architecture (modular) - [Ver detalhes](./ARCHITECTURE.md#audio-transcriber)
-- Transcrição com Whisper (faster-whisper)
-- Word-level timestamps nativos
-- Múltiplos engines (faster-whisper, whisperx, openai-whisper)
-- Dropdown de engines no /docs
-- Segmentação com timestamps precisos
-- Estrutura modular: domain/services/infrastructure
+### Operations
 
-## 🔧 Pipeline Completo
+- [Operations index](./operations/README.md)
+- [Development](./DEVELOPMENT.md)
+- [Pre-commit hooks](./PRE_COMMIT_HOOKS.md)
+- [Resumo de makefiles](./operations/makefiles-summary.md)
+- [Portas e servicos](./operations/ports.md)
 
-1. **Submissão**: Cliente envia URL do YouTube para o Orchestrator
-2. **Download**: Video Downloader extrai áudio do vídeo
-3. **Normalização**: Audio Normalization processa e limpa o áudio
-4. **Transcrição**: Audio Transcriber gera texto e timestamps
-5. **Entrega**: Cliente recebe texto, segments e arquivos processados
+### Services
 
-## ⚡ Características
+- [Services index](./services/README.md)
+- [Orchestrator](./orchestrator/README.md)
+- [Audio Normalization](./services/audio-normalization/README.md)
+- [Audio Transcriber](./services/audio-transcriber/README.md)
+- [Make Video](./services/make-video/README.md)
+- [Video Downloader](./services/video-downloader/README.md)
 
-- **Resiliência Total**: Circuit breaker, retry exponencial, health checks
-- **Polling Adaptativo**: 2s inicial → 30s para jobs longos
-- **Cache Inteligente**: 24h de cache para evitar reprocessamento
-- **Background Processing**: Celery + Redis para performance
-- **Monitoramento**: Logs estruturados e métricas detalhadas
-- **Escalabilidade**: Arquitetura de microserviços independentes
+### Architecture Decisions
 
-## 🛠️ Configuração Rápida
+- [Architecture index](./architecture/README.md)
+- [ADR index](./architecture/adr/README.md)
+- [ADRs atuais](./adr/)
 
-```bash
-# Clone o repositório
-git clone https://github.com/JohnHeberty/YTCaption-Easy-Youtube-API.git
-cd YTCaption-Easy-Youtube-API
+### History
 
-# Configure variáveis de ambiente
-cp orchestrator/.env.example orchestrator/.env
-# Edite orchestrator/.env com suas configurações
+- [History index](./history/README.md)
+- [Resumo da padronizacao de datetime](./history/datetime-standardization-summary.md)
+- [Validation](./history/VALIDATION.md)
+- [Final validation report](./history/FINAL_VALIDATION_REPORT.md)
 
-# Inicie com Docker Compose
-docker-compose up -d
+## Fluxo recomendado para leitura
 
-# Ou inicie cada serviço individualmente
-cd orchestrator && python main.py &
-cd services/video-downloader && python run.py &
-cd services/audio-normalization && python run.py &
-cd services/audio-transcriber && python run.py &
-```
+1. Comece por este hub para escolher a trilha correta.
+2. Use `reference/` para entender o sistema e seus padroes.
+3. Use `operations/` para subir, operar e manter o ambiente.
+4. Use `services/` para aprofundar em um servico especifico.
+5. Use `architecture/adr/` quando precisar entender decisoes de longo prazo.
+6. Use `history/` apenas para contexto historico ou rastreabilidade de iniciativas concluidas.
 
-## 📊 Monitoramento
+## Regra editorial
 
-- **Orchestrator Health**: `GET http://localhost:8080/health`
-- **Pipeline Status**: `GET http://localhost:8080/jobs/{job_id}`
-- **Stats Gerais**: `GET http://localhost:8080/admin/stats`
-
-## 🔗 Links Rápidos
-
-- [🏗️ Arquitetura Completa](./ARCHITECTURE.md) - ⭐ **NOVO**: Estrutura modular detalhada
-- [Configuração do Orchestrator](./orchestrator/README.md#configuração)
-- [API Endpoints](./orchestrator/README.md#endpoints)
-- [Troubleshooting](./orchestrator/README.md#troubleshooting)
-- [Desenvolvimento](./DEVELOPMENT.md)
-
----
-
-**Versão**: 2.0.0 | **Atualizado**: Outubro 2025
+- Documentacao viva deve ser facil de descobrir e nao competir com relatorios antigos.
+- Novos documentos devem entrar ja classificados dentro da arquitetura documental.
+- Quando houver duplicacao entre raiz, `docs/` e `services/*/docs/`, `docs/` deve ser tratado como fonte de navegacao oficial.

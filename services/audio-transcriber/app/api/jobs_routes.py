@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Path as PathParam, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from common.datetime_utils import now_brazil
@@ -256,7 +256,7 @@ async def list_jobs(
 
 @router.get("/jobs/{job_id}", summary="Get job status", response_model=Job, responses={404: {"description": "Job not found"}, 410: {"description": "Job expired"}})
 async def get_job_status(
-    job_id: str = Path(..., description="ID do job de transcricao (prefixo esperado: at_).", examples=["at_abc123"]),
+    job_id: str = PathParam(..., description="ID do job de transcricao (prefixo esperado: at_).", examples=["at_abc123"]),
     job_store: RedisJobStore = Depends(get_job_store_override),
 ) -> Job:
     """Retrieve the current status and details of a transcription job."""
@@ -273,7 +273,7 @@ async def get_job_status(
 
 @router.get("/jobs/{job_id}/download", summary="Download transcription file", responses={404: {"description": "Job or file not found"}, 410: {"description": "Job expired"}, 425: {"description": "Transcription not ready"}})
 async def download_file(
-    job_id: str = Path(..., description="ID do job concluido para download do arquivo SRT.", examples=["at_abc123"]),
+    job_id: str = PathParam(..., description="ID do job concluido para download do arquivo SRT.", examples=["at_abc123"]),
     job_store: RedisJobStore = Depends(get_job_store_override),
 ):
     """Download the transcription output file for a completed job."""
@@ -304,7 +304,7 @@ async def download_file(
 
 @router.get("/jobs/{job_id}/text", summary="Get transcription text", response_model=TextResponse, responses={404: {"description": "Job not found"}, 425: {"description": "Transcription not ready"}})
 async def get_transcription_text(
-    job_id: str = Path(..., description="ID do job concluido para retorno do texto puro.", examples=["at_abc123"]),
+    job_id: str = PathParam(..., description="ID do job concluido para retorno do texto puro.", examples=["at_abc123"]),
     job_store: RedisJobStore = Depends(get_job_store_override),
 ):
     """Retrieve the plain text transcription for a completed job."""
@@ -324,7 +324,7 @@ async def get_transcription_text(
 
 @router.get("/jobs/{job_id}/transcription", summary="Get full transcription", response_model=TranscriptionResponse, responses={404: {"description": "Job not found"}, 410: {"description": "Job expired"}, 425: {"description": "Transcription not ready"}, 500: {"description": "Segments not available"}})
 async def get_full_transcription(
-    job_id: str = Path(..., description="ID do job concluido para retorno completo da transcricao.", examples=["at_abc123"]),
+    job_id: str = PathParam(..., description="ID do job concluido para retorno completo da transcricao.", examples=["at_abc123"]),
     job_store: RedisJobStore = Depends(get_job_store_override),
 ) -> TranscriptionResponse:
     job = job_store.get_job(job_id)
@@ -372,7 +372,7 @@ async def get_full_transcription(
 
 @router.delete("/jobs/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"description": "Job not found"}, 500: {"description": "Internal server error"}})
 async def delete_job(
-    job_id: str = Path(..., description="ID do job a ser removido (inclui arquivos associados).", examples=["at_abc123"]),
+    job_id: str = PathParam(..., description="ID do job a ser removido (inclui arquivos associados).", examples=["at_abc123"]),
     job_store: RedisJobStore = Depends(get_job_store_override),
 ):
     """Delete a transcription job and its associated files."""
