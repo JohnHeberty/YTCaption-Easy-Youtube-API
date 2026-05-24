@@ -9,11 +9,11 @@ O projeto e organizado em torno de um `orchestrator/` e de servicos especializad
 Principais componentes:
 
 - `orchestrator/` para coordenacao do pipeline
-- `services/youtube-search/` para busca e consulta de dados do YouTube
-- `services/video-downloader/` para download de video e extracao de audio
-- `services/audio-normalization/` para processamento de audio
-- `services/audio-transcriber/` para transcricao
-- `services/make-video/` para composicao do video final
+- `services/se6-youtube-search/` para busca e consulta de dados do YouTube
+- `services/se2-video-downloader/` para download de video e extracao de audio
+- `services/se3-audio-normalization/` para processamento de audio
+- `services/se4-audio-transcriber/` para transcricao
+- `services/se5-make-video/` para composicao do video final
 - `common/` para codigo compartilhado
 
 ## Documentacao

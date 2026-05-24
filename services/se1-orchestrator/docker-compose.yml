@@ -1,0 +1,41 @@
+services:
+  orchestrator:
+    build:
+      context: ../../
+      dockerfile: services/se1-orchestrator/Dockerfile
+    container_name: ytcaption-se1-orchestrator
+    working_dir: /app
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - APP_HOST=0.0.0.0
+      - APP_PORT=${CONTAINER_PORT:-8000}
+    ports:
+      - "${HOST_PORT:-8005}:${CONTAINER_PORT:-8000}"  # host:container
+    volumes:
+      # Monta diretórios de código para hot-reload (sem sobrescrever common/ da imagem)
+      - ./api:/app/api
+      - ./core:/app/core
+      - ./domain:/app/domain
+      - ./infrastructure:/app/infrastructure
+      - ./modules:/app/modules
+      - ./orchestrator:/app/orchestrator
+      - ./services:/app/services
+      - ./run.py:/app/run.py
+      - ./main.py:/app/main.py
+    networks:
+      - ytcaption-network
+    restart: unless-stopped
+    healthcheck:
+      # usa a porta interna do container (CONTAINER_PORT)
+      test: ["CMD-SHELL", "python -c \"import os,sys,httpx; p=os.getenv('APP_PORT', os.getenv('CONTAINER_PORT','8000')); r=httpx.get(f'http://localhost:{p}/health'); sys.exit(0 if r.status_code==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  ytcaption-network:
+    external: true
+    name: ytcaption-network

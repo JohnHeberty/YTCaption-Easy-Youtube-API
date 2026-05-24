@@ -25,7 +25,7 @@ Esta area concentra documentos historicos do projeto.
 ## Ja reclassificados
 
 - `docs/operations/makefiles-summary.md` agora vive em `operations/`
-- `docs/services/make-video/resilience-analysis.md` agora vive em `services/make-video/`
+- `docs/services/se5-make-video/resilience-analysis.md` agora vive em `services/se5-make-video/`
 
 ## Arquivos historicos vindos da raiz
 

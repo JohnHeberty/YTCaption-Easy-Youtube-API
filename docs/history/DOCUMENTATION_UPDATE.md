@@ -23,7 +23,7 @@
    - Added "Clean Architecture (modular)" badge
 
 ### Audio Transcriber Documentation
-3. **[docs/services/audio-transcriber/README.md](./services/audio-transcriber/README.md)** - **MAJOR UPDATE**
+3. **[docs/services/se4-audio-transcriber/README.md](./services/se4-audio-transcriber/README.md)** - **MAJOR UPDATE**
    - Added complete "🏗️ Arquitetura Modular" section
    - Fixed port references: 8002 → 8004
    - Detailed folder structure with descriptions
@@ -32,7 +32,7 @@
    - Design patterns documentation
    - Updated footer with architecture link
 
-4. **[services/audio-transcriber/docs/*.md](../services/audio-transcriber/docs/)** - **BULK UPDATE**
+4. **[services/se4-audio-transcriber/docs/*.md](../services/se4-audio-transcriber/docs/)** - **BULK UPDATE**
    - API_REFERENCE.md: All port references updated (8002 → 8004)
    - QUICKSTART.md: All port references updated (8002 → 8004)
    - WHISPER_ENGINES.md: All port references updated (8002 → 8004)
@@ -123,7 +123,7 @@ docs/
     └── video-downloader/
         └── README.md
 
-services/audio-transcriber/docs/
+services/se4-audio-transcriber/docs/
 ├── README.md                 ← Port updated (8002 → 8004)
 ├── API_REFERENCE.md          ← Port updated (8002 → 8004)
 ├── QUICKSTART.md             ← Port updated (8002 → 8004)

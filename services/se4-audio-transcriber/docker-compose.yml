@@ -1,0 +1,103 @@
+services:
+  audio-transcriber-service:
+    build:
+      context: ../../
+      dockerfile: services/se4-audio-transcriber/Dockerfile
+    container_name: audio-transcriber-api
+    runtime: runc
+    ports:
+      - "${PORT}:${PORT}"
+    volumes:
+      - ./app:/app/app
+      - ./data/uploads:/app/data/uploads
+      - ./data/transcriptions:/app/data/transcriptions
+      - ./data/models:/app/data/models
+      - ./data/temp:/app/data/temp
+      - ./data/logs:/app/data/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ}
+      - PYTHONPATH=${PYTHONPATH}
+      - WHISPER_DEVICE=cpu
+      - WHISPER_FALLBACK_CPU=true
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health", "-H", "accept: application/json"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+
+  celery-worker:
+    build:
+      context: ../../
+      dockerfile: services/se4-audio-transcriber/Dockerfile
+    container_name: audio-transcriber-celery
+    runtime: runc
+    command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
+    volumes:
+      - ./app:/app/app
+      - ./data/uploads:/app/data/uploads
+      - ./data/transcriptions:/app/data/transcriptions
+      - ./data/models:/app/data/models
+      - ./data/temp:/app/data/temp
+      - ./data/logs:/app/data/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ}
+      - PYTHONPATH=${PYTHONPATH}
+      - C_FORCE_ROOT=${C_FORCE_ROOT}
+      - WHISPER_DEVICE=cpu
+      - WHISPER_FALLBACK_CPU=true
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'from app.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 180s
+    depends_on:
+      audio-transcriber-service:
+        condition: service_healthy
+
+  celery-beat:
+    build:
+      context: ../../
+      dockerfile: services/se4-audio-transcriber/Dockerfile
+    container_name: audio-transcriber-beat
+    runtime: runc
+    command: python -m celery -A app.celery_config beat --loglevel=info
+    volumes:
+      - ./app:/app/app
+      - ./data/logs:/app/data/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ}
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | tr -d '\\0' | grep -q celery"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      audio-transcriber-service:
+        condition: service_healthy
+

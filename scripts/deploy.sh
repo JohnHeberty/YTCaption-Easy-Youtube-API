@@ -94,10 +94,10 @@ echo "🔍 Verificando status dos serviços..."
 echo ""
 
 SERVICES=(
-    "orchestrator:http://localhost:8000/health"
-    "video-downloader:http://localhost:8001/health"
-    "audio-normalization:http://localhost:8002/health"
-    "audio-transcriber:http://localhost:8003/health"
+    "se1-orchestrator:http://localhost:8000/health"
+    "se2-video-downloader:http://localhost:8001/health"
+    "se3-audio-normalization:http://localhost:8002/health"
+    "se4-audio-transcriber:http://localhost:8003/health"
 )
 
 ALL_HEALTHY=true

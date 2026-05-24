@@ -60,7 +60,7 @@ All inherit from `common.exception_handlers.BaseServiceException`:
 Each service extends `StandardJob` with service-specific fields:
 
 ```python
-# services/video-downloader/app/core/models_v2.py
+# services/se2-video-downloader/app/core/models_v2.py
 from common.job_utils.models import StandardJob, JobStatus
 
 class VideoDownloadJob(StandardJob):
@@ -74,7 +74,7 @@ class VideoDownloadJob(StandardJob):
 Each service creates a store adapter that wraps `JobRedisStore`:
 
 ```python
-# services/video-downloader/app/infrastructure/redis_store_v2.py
+# services/se2-video-downloader/app/infrastructure/redis_store_v2.py
 from common.job_utils.store import JobRedisStore
 
 class VideoDownloadJobStore:

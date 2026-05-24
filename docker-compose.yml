@@ -1,15 +1,15 @@
 services:
   # Audio Normalization Service
-  audio-normalization:
-    build: ./services/audio-normalization
-    container_name: ytcaption-audio-normalization
+  se3-audio-normalization:
+    build: ./services/se3-audio-normalization
+    container_name: ytcaption-se3-audio-normalization
     ports:
       - "8003:8003"
     volumes:
-      - ./services/audio-normalization/data/uploads:/app/data/uploads
-      - ./services/audio-normalization/data/processed:/app/data/processed
-      - ./services/audio-normalization/data/temp:/app/data/temp
-      - ./services/audio-normalization/data/logs:/app/data/logs
+      - ./services/se3-audio-normalization/data/uploads:/app/data/uploads
+      - ./services/se3-audio-normalization/data/processed:/app/data/processed
+      - ./services/se3-audio-normalization/data/temp:/app/data/temp
+      - ./services/se3-audio-normalization/data/logs:/app/data/logs
     environment:
       - PYTHONPATH=/app
       - PORT=8003
@@ -32,16 +32,16 @@ services:
     networks:
       - ytcaption-network
 
-  audio-normalization-celery:
-    build: ./services/audio-normalization
-    container_name: ytcaption-audio-normalization-celery
+  se3-audio-normalization-celery:
+    build: ./services/se3-audio-normalization
+    container_name: ytcaption-se3-audio-normalization-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_normalization_queue
     volumes:
-      - ./services/audio-normalization/app:/app/app
-      - ./services/audio-normalization/data/uploads:/app/data/uploads
-      - ./services/audio-normalization/data/processed:/app/data/processed
-      - ./services/audio-normalization/data/temp:/app/data/temp
-      - ./services/audio-normalization/data/logs:/app/data/logs
+      - ./services/se3-audio-normalization/app:/app/app
+      - ./services/se3-audio-normalization/data/uploads:/app/data/uploads
+      - ./services/se3-audio-normalization/data/processed:/app/data/processed
+      - ./services/se3-audio-normalization/data/temp:/app/data/temp
+      - ./services/se3-audio-normalization/data/logs:/app/data/logs
     environment:
       - PYTHONPATH=/app
       - REDIS_URL=redis://192.168.1.110:6379/0
@@ -55,7 +55,7 @@ services:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
     depends_on:
-      audio-normalization:
+      se3-audio-normalization:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
@@ -67,24 +67,24 @@ services:
       - ytcaption-network
 
   # Audio Transcriber Service
-  audio-transcriber:
-    build: ./services/audio-transcriber
-    container_name: ytcaption-audio-transcriber
+  se4-audio-transcriber:
+    build: ./services/se4-audio-transcriber
+    container_name: ytcaption-se4-audio-transcriber
     ports:
       - "8004:8004"
     volumes:
-      - ./services/audio-transcriber/data/uploads:/app/data/uploads
-      - ./services/audio-transcriber/data/transcriptions:/app/data/transcriptions
-      - ./services/audio-transcriber/data/models:/app/data/models
-      - ./services/audio-transcriber/data/temp:/app/data/temp
-      - ./services/audio-transcriber/data/logs:/app/data/logs
+      - ./services/se4-audio-transcriber/data/uploads:/app/data/uploads
+      - ./services/se4-audio-transcriber/data/transcriptions:/app/data/transcriptions
+      - ./services/se4-audio-transcriber/data/models:/app/data/models
+      - ./services/se4-audio-transcriber/data/temp:/app/data/temp
+      - ./services/se4-audio-transcriber/data/logs:/app/data/logs
     devices:
       - /dev/nvidia0:/dev/nvidia0
       - /dev/nvidiactl:/dev/nvidiactl
       - /dev/nvidia-uvm:/dev/nvidia-uvm
       - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
     env_file:
-      - ./services/audio-transcriber/.env
+      - ./services/se4-audio-transcriber/.env
     environment:
       - TZ=America/Sao_Paulo
       - PYTHONPATH=/app
@@ -101,24 +101,24 @@ services:
     networks:
       - ytcaption-network
 
-  audio-transcriber-celery:
-    build: ./services/audio-transcriber
-    container_name: ytcaption-audio-transcriber-celery
+  se4-audio-transcriber-celery:
+    build: ./services/se4-audio-transcriber
+    container_name: ytcaption-se4-audio-transcriber-celery
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
-      - ./services/audio-transcriber/app:/app/app
-      - ./services/audio-transcriber/data/uploads:/app/data/uploads
-      - ./services/audio-transcriber/data/transcriptions:/app/data/transcriptions
-      - ./services/audio-transcriber/data/models:/app/data/models
-      - ./services/audio-transcriber/data/temp:/app/data/temp
-      - ./services/audio-transcriber/data/logs:/app/data/logs
+      - ./services/se4-audio-transcriber/app:/app/app
+      - ./services/se4-audio-transcriber/data/uploads:/app/data/uploads
+      - ./services/se4-audio-transcriber/data/transcriptions:/app/data/transcriptions
+      - ./services/se4-audio-transcriber/data/models:/app/data/models
+      - ./services/se4-audio-transcriber/data/temp:/app/data/temp
+      - ./services/se4-audio-transcriber/data/logs:/app/data/logs
     # GPU support requer nvidia-container-toolkit no host Proxmox
     # devices:
     #   - /dev/nvidia0:/dev/nvidia0
     #   - /dev/nvidiactl:/dev/nvidiactl
     #   - /dev/nvidia-uvm:/dev/nvidia-uvm
     env_file:
-      - ./services/audio-transcriber/.env
+      - ./services/se4-audio-transcriber/.env
     environment:
       - TZ=America/Sao_Paulo
       - PYTHONPATH=/app
@@ -127,7 +127,7 @@ services:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
     depends_on:
-      audio-transcriber:
+      se4-audio-transcriber:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -m celery -A app.celery_config inspect ping || exit 1"]
@@ -139,16 +139,16 @@ services:
       - ytcaption-network
 
   # Video Downloader Service
-  video-downloader:
-    build: ./services/video-downloader
-    container_name: ytcaption-video-downloader
+  se2-video-downloader:
+    build: ./services/se2-video-downloader
+    container_name: ytcaption-se2-video-downloader
     ports:
       - "8002:8002"
     volumes:
-      - ./services/video-downloader/data/cache:/app/data/cache
-      - ./services/video-downloader/data/logs:/app/data/logs
-      - ./services/video-downloader/user-agents.txt:/app/user-agents.txt
-      - ./services/video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
+      - ./services/se2-video-downloader/data/cache:/app/data/cache
+      - ./services/se2-video-downloader/data/logs:/app/data/logs
+      - ./services/se2-video-downloader/user-agents.txt:/app/user-agents.txt
+      - ./services/se2-video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
     environment:
       - PYTHONPATH=/app
       - PORT=8002
@@ -171,16 +171,16 @@ services:
     networks:
       - ytcaption-network
 
-  video-downloader-celery:
-    build: ./services/video-downloader
-    container_name: ytcaption-video-downloader-celery
+  se2-video-downloader-celery:
+    build: ./services/se2-video-downloader
+    container_name: ytcaption-se2-video-downloader-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
-      - ./services/video-downloader/app:/app/app
-      - ./services/video-downloader/data/cache:/app/data/cache
-      - ./services/video-downloader/data/logs:/app/data/logs
-      - ./services/video-downloader/user-agents.txt:/app/user-agents.txt
-      - ./services/video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
+      - ./services/se2-video-downloader/app:/app/app
+      - ./services/se2-video-downloader/data/cache:/app/data/cache
+      - ./services/se2-video-downloader/data/logs:/app/data/logs
+      - ./services/se2-video-downloader/user-agents.txt:/app/user-agents.txt
+      - ./services/se2-video-downloader/user-agents-clean.txt:/app/user-agents-clean.txt
     environment:
       - PYTHONPATH=/app
       - REDIS_URL=redis://192.168.1.110:6379/0
@@ -194,7 +194,7 @@ services:
       - "redis-server:192.168.1.110"
     restart: unless-stopped
     depends_on:
-      video-downloader:
+      se2-video-downloader:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]

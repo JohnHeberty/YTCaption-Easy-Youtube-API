@@ -91,11 +91,11 @@ Resultado: 0 errors found ✅
 
 Arquivos validados:
 ✅ common/datetime_utils/helpers.py
-✅ services/make-video/app/services/cleanup_service.py
-✅ services/make-video/app/infrastructure/circuit_breaker.py
-✅ services/make-video/app/infrastructure/file_logger.py
-✅ services/make-video/app/infrastructure/telemetry.py
-✅ services/make-video/app/infrastructure/health_checker.py
+✅ services/se5-make-video/app/services/cleanup_service.py
+✅ services/se5-make-video/app/infrastructure/circuit_breaker.py
+✅ services/se5-make-video/app/infrastructure/file_logger.py
+✅ services/se5-make-video/app/infrastructure/telemetry.py
+✅ services/se5-make-video/app/infrastructure/health_checker.py
 ✅ 5× redis_store.py
 ```
 

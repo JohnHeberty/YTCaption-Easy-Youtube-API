@@ -279,7 +279,7 @@ logger.info("Transcription completed", extra={
 ```yaml
 services:
   audio-transcriber-api:
-    build: ./services/audio-transcriber
+    build: ./services/se4-audio-transcriber
     ports:
       - "8004:8004"
     environment:
@@ -289,7 +289,7 @@ services:
       - redis
     
   audio-transcriber-celery:
-    build: ./services/audio-transcriber
+    build: ./services/se4-audio-transcriber
     command: celery -A app.celery_config worker --loglevel=info
     depends_on:
       - redis
@@ -328,11 +328,11 @@ make calibrate        # Otimização de parâmetros
 ## 📚 Referências
 
 ### Documentação por Serviço
-- [Audio Transcriber](./services/audio-transcriber/README.md) - ⭐ Estrutura modular
-- [Make Video](./services/make-video/README.md) - ⭐ Referência arquitetural
-- [Video Downloader](./services/video-downloader/README.md)
-- [Audio Normalization](./services/audio-normalization/README.md)
-- [YouTube Search](./services/youtube-search/README.md)
+- [Audio Transcriber](./services/se4-audio-transcriber/README.md) - ⭐ Estrutura modular
+- [Make Video](./services/se5-make-video/README.md) - ⭐ Referência arquitetural
+- [Video Downloader](./services/se2-video-downloader/README.md)
+- [Audio Normalization](./services/se3-audio-normalization/README.md)
+- [YouTube Search](./services/se6-youtube-search/README.md)
 
 ### Guias Técnicos
 - [stack-standardization.md](./reference/stack-standardization.md) - Padrões de stack e estrutura de serviços

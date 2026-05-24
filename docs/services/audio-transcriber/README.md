@@ -20,7 +20,7 @@ O **Audio Transcriber** é responsável por converter áudio em texto usando mod
 ### Estrutura de Diretórios
 
 ```
-services/audio-transcriber/
+services/se4-audio-transcriber/
 ├── app/
 │   ├── api/                    # 🌐 Camada de Apresentação
 │   │   └── router.py           # (Futuro) Rotas FastAPI separadas
@@ -141,7 +141,7 @@ CACHE_TTL_HOURS=24
 ### Inicialização
 
 ```bash
-cd services/audio-transcriber
+cd services/se4-audio-transcriber
 
 # Instalar dependências
 pip install -r requirements.txt
@@ -570,7 +570,7 @@ INFO - Job trans_xyz789 finalizado em 330.2s
 ## 📁 Estrutura de Arquivos
 
 ```
-services/audio-transcriber/
+services/se4-audio-transcriber/
 ├── app/
 │   ├── main.py           # API endpoints
 │   ├── processor.py      # Lógica de transcrição

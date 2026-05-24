@@ -71,7 +71,7 @@ Substituído `datetime.now()` e `datetime.utcnow()` por `now_brazil()` em:
 
 #### Audio Transcriber
 ```python
-# services/audio-transcriber/app/domain/models.py
+# services/se4-audio-transcriber/app/domain/models.py
 from common.datetime_utils import now_brazil
 
 class Job(BaseModel):
@@ -85,7 +85,7 @@ class Job(BaseModel):
 
 #### Make Video
 ```python
-# services/make-video/app/core/models.py
+# services/se5-make-video/app/core/models.py
 class Job(BaseModel):
     created_at: datetime = Field(default_factory=now_brazil)  # Antes: datetime.utcnow
     updated_at: datetime = Field(default_factory=now_brazil)
@@ -108,19 +108,19 @@ job = Job(
 Adicionado `TZ=America/Sao_Paulo` em todos os `.env.example`:
 
 ```bash
-# services/audio-transcriber/.env.example
+# services/se4-audio-transcriber/.env.example
 TZ=America/Sao_Paulo
 
-# services/video-downloader/.env.example
+# services/se2-video-downloader/.env.example
 TZ=America/Sao_Paulo
 
-# services/audio-normalization/.env.example
+# services/se3-audio-normalization/.env.example
 TZ=America/Sao_Paulo
 
-# services/youtube-search/.env.example
+# services/se6-youtube-search/.env.example
 TZ=America/Sao_Paulo
 
-# services/make-video/.env.example
+# services/se5-make-video/.env.example
 TZ=America/Sao_Paulo
 
 # orchestrator/.env.example
@@ -155,11 +155,11 @@ done
 
 ### 2. Rebuild de Containers
 ```bash
-cd services/audio-transcriber && docker compose down && docker compose build --no-cache && docker compose up -d
-cd services/video-downloader && docker compose down && docker compose build --no-cache && docker compose up -d
-cd services/audio-normalization && docker compose down && docker compose build --no-cache && docker compose up -d
-cd services/youtube-search && docker compose down && docker compose build --no-cache && docker compose up -d
-cd services/make-video && docker compose down && docker compose build --no-cache && docker compose up -d
+cd services/se4-audio-transcriber && docker compose down && docker compose build --no-cache && docker compose up -d
+cd services/se2-video-downloader && docker compose down && docker compose build --no-cache && docker compose up -d
+cd services/se3-audio-normalization && docker compose down && docker compose build --no-cache && docker compose up -d
+cd services/se6-youtube-search && docker compose down && docker compose build --no-cache && docker compose up -d
+cd services/se5-make-video && docker compose down && docker compose build --no-cache && docker compose up -d
 cd orchestrator && docker compose down && docker compose build --no-cache && docker compose up -d
 ```
 
@@ -207,24 +207,24 @@ curl http://localhost:8001/health  # YouTube Search
 - `services/*/env.example` (6 arquivos)
 
 #### Modificados - Modelos
-- `services/audio-transcriber/app/domain/models.py`
-- `services/audio-normalization/app/models.py`
-- `services/video-downloader/app/models.py`
-- `services/youtube-search/app/models.py`
-- `services/make-video/app/core/models.py`
+- `services/se4-audio-transcriber/app/domain/models.py`
+- `services/se3-audio-normalization/app/models.py`
+- `services/se2-video-downloader/app/models.py`
+- `services/se6-youtube-search/app/models.py`
+- `services/se5-make-video/app/core/models.py`
 - `orchestrator/modules/models.py`
 
 #### Modificados - Aplicação
-- `services/audio-transcriber/app/main.py`
-- `services/audio-normalization/app/main.py`
-- `services/video-downloader/app/main.py`
-- `services/youtube-search/app/main.py`
-- `services/make-video/app/main.py`
+- `services/se4-audio-transcriber/app/main.py`
+- `services/se3-audio-normalization/app/main.py`
+- `services/se2-video-downloader/app/main.py`
+- `services/se6-youtube-search/app/main.py`
+- `services/se5-make-video/app/main.py`
 - `orchestrator/main.py`
 
 #### Modificados - Workers/Tasks
-- `services/audio-transcriber/app/workers/celery_tasks.py`
-- `services/make-video/app/infrastructure/celery_tasks.py`
+- `services/se4-audio-transcriber/app/workers/celery_tasks.py`
+- `services/se5-make-video/app/infrastructure/celery_tasks.py`
 - `services/*/app/redis_store.py` (múltiplos)
 
 ---

@@ -96,11 +96,11 @@ python3 migrate_redis_jobs.py --stats      # Estatísticas
 
 ### Distribuição datetime_utils
 ```
-✅ services/audio-transcriber/common/datetime_utils/
-✅ services/make-video/common/datetime_utils/
-✅ services/video-downloader/common/datetime_utils/
-✅ services/youtube-search/common/datetime_utils/
-✅ services/audio-normalization/common/datetime_utils/
+✅ services/se4-audio-transcriber/common/datetime_utils/
+✅ services/se5-make-video/common/datetime_utils/
+✅ services/se2-video-downloader/common/datetime_utils/
+✅ services/se6-youtube-search/common/datetime_utils/
+✅ services/se3-audio-normalization/common/datetime_utils/
 ```
 
 Cada serviço agora tem:

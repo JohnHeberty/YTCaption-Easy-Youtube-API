@@ -490,7 +490,7 @@ class TestCoreInit:
 ### **PASSO 1: Aplicar os Fixes**
 
 ```bash
-cd /root/YTCaption-Easy-Youtube-API/services/make-video
+cd /root/YTCaption-Easy-Youtube-API/services/se5-make-video
 
 # Fazer backup do arquivo original
 cp app/core/config.py app/core/config.py.backup

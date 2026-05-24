@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script de teste REAL - Tenta subir cada serviço e verificar se inicia corretamente
-# Testa todos os serviços EXCETO audio-transcriber (que precisa de GPU)
+# Testa todos os serviços EXCETO se4-audio-transcriber (que precisa de GPU)
 
 set -e
 
@@ -125,12 +125,12 @@ failed_tests=0
 partial_tests=0
 
 echo ""
-echo "Testando serviços (exceto audio-transcriber que requer GPU)..."
+echo "Testando serviços (exceto se4-audio-transcriber que requer GPU)..."
 echo ""
 
-# Teste 1: orchestrator
+# Teste 1: se1-orchestrator
 total_tests=$((total_tests + 1))
-if test_service_docker "orchestrator" "/root/YTCaption-Easy-Youtube-API/orchestrator" "8000"; then
+if test_service_docker "se1-orchestrator" "/root/YTCaption-Easy-Youtube-API/se1-orchestrator" "8000"; then
     passed_tests=$((passed_tests + 1))
 elif [ $? -eq 2 ]; then
     partial_tests=$((partial_tests + 1))
@@ -138,9 +138,9 @@ else
     failed_tests=$((failed_tests + 1))
 fi
 
-# Teste 2: audio-normalization
+# Teste 2: se3-audio-normalization
 total_tests=$((total_tests + 1))
-if test_service_docker "audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/audio-normalization" "8001"; then
+if test_service_docker "se3-audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/se3-audio-normalization" "8001"; then
     passed_tests=$((passed_tests + 1))
 elif [ $? -eq 2 ]; then
     partial_tests=$((partial_tests + 1))
@@ -148,9 +148,9 @@ else
     failed_tests=$((failed_tests + 1))
 fi
 
-# Teste 3: video-downloader
+# Teste 3: se2-video-downloader
 total_tests=$((total_tests + 1))
-if test_service_docker "video-downloader" "/root/YTCaption-Easy-Youtube-API/services/video-downloader" "8003"; then
+if test_service_docker "se2-video-downloader" "/root/YTCaption-Easy-Youtube-API/services/se2-video-downloader" "8003"; then
     passed_tests=$((passed_tests + 1))
 elif [ $? -eq 2 ]; then
     partial_tests=$((partial_tests + 1))
@@ -158,9 +158,9 @@ else
     failed_tests=$((failed_tests + 1))
 fi
 
-# Teste 4: youtube-search
+# Teste 4: se6-youtube-search
 total_tests=$((total_tests + 1))
-if test_service_docker "youtube-search" "/root/YTCaption-Easy-Youtube-API/services/youtube-search" "8004"; then
+if test_service_docker "se6-youtube-search" "/root/YTCaption-Easy-Youtube-API/services/se6-youtube-search" "8004"; then
     passed_tests=$((passed_tests + 1))
 elif [ $? -eq 2 ]; then
     partial_tests=$((partial_tests + 1))

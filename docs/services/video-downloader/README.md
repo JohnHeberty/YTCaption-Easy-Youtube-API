@@ -33,7 +33,7 @@ MAX_QUARANTINE_HOURS=24
 ### Inicialização
 
 ```bash
-cd services/video-downloader
+cd services/se2-video-downloader
 
 # Instalar dependências
 pip install -r requirements.txt
@@ -351,7 +351,7 @@ RETRY_DELAY = 5  # segundos
 ## 📁 Estrutura de Arquivos
 
 ```
-services/video-downloader/
+services/se2-video-downloader/
 ├── app/
 │   ├── main.py           # API endpoints
 │   ├── downloader.py     # Lógica de download

@@ -58,7 +58,7 @@ echo "📦 Fase 1: Teste de Sintaxe (sem Docker)"
 echo ""
 
 # Testes de sintaxe Python (não precisa de dependências)
-for service in services/audio-normalization services/video-downloader services/youtube-search orchestrator; do
+for service in services/se3-audio-normalization services/se2-video-downloader services/se6-youtube-search se1-orchestrator; do
     service_name=$(basename $service)
     echo -e "${BLUE}▶${NC} Validando sintaxe: $service_name"
     
@@ -77,7 +77,7 @@ echo "📦 Fase 2: Teste de Imports em Python"
 echo ""
 
 # Verifica se os imports estão corretos
-for service in services/audio-normalization services/video-downloader services/youtube-search; do
+for service in services/se3-audio-normalization services/se2-video-downloader services/se6-youtube-search; do
     service_name=$(basename $service)
     echo -e "${BLUE}▶${NC} Validando imports: $service_name"
     
@@ -143,7 +143,7 @@ echo ""
 echo "📦 Fase 4: Verificação de Requirements.txt"
 echo ""
 
-for service in services/audio-normalization services/video-downloader services/youtube-search orchestrator; do
+for service in services/se3-audio-normalization services/se2-video-downloader services/se6-youtube-search se1-orchestrator; do
     service_name=$(basename $service)
     test_count=$((test_count + 1))
     

@@ -186,10 +186,10 @@ def main():
     
     # Serviços para testar (excluindo transcriber)
     services = {
-        "audio-normalization": root_path / "services" / "audio-normalization",
-        "video-downloader": root_path / "services" / "video-downloader",
-        "youtube-search": root_path / "services" / "youtube-search",
-        "orchestrator": root_path / "orchestrator"
+        "se3-audio-normalization": root_path / "services" / "se3-audio-normalization",
+        "se2-video-downloader": root_path / "services" / "se2-video-downloader",
+        "se6-youtube-search": root_path / "services" / "se6-youtube-search",
+        "se1-orchestrator": root_path / "se1-orchestrator"
     }
     
     results = {}
