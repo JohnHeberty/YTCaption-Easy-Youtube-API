@@ -120,17 +120,10 @@ class EnhancedMakeVideoException(Exception):
         details: Optional[Dict[str, Any]] = None,
         cause: Optional[Exception] = None,
         job_id: Optional[str] = None,
-        recoverable: bool = False
+        recoverable: bool = False,
+        reason: Optional[str] = None,
+        subtitle_path: Optional[str] = None
     ):
-        """
-        Args:
-            message: Mensagem descritiva do erro
-            error_code: Código de erro padronizado
-            details: Detalhes adicionais (dados, valores, paths)
-            cause: Exceção original (root cause)
-            job_id: ID do job afetado (para tracking)
-            recoverable: Se o erro permite retry/recovery
-        """
         super().__init__(message)
         self.message = message
         self.error_code = error_code
@@ -138,6 +131,8 @@ class EnhancedMakeVideoException(Exception):
         self.cause = cause
         self.job_id = job_id
         self.recoverable = recoverable
+        self.reason = reason
+        self.subtitle_path = subtitle_path
         self.timestamp = now_brazil()
         
         # Preservar stack trace da exceção original
@@ -165,6 +160,7 @@ class EnhancedMakeVideoException(Exception):
             "details": self.details,
             "job_id": self.job_id,
             "recoverable": self.recoverable,
+            "reason": self.reason,
             "timestamp": self.timestamp.isoformat(),
             "cause": str(self.cause) if self.cause else None,
             "cause_type": type(self.cause).__name__ if self.cause else None
