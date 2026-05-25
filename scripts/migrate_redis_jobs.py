@@ -17,7 +17,7 @@ import argparse
 import json
 import sys
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 try:
@@ -33,7 +33,16 @@ BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_DB = 0
-REDIS_PATTERN = "job:*"  # Pattern para buscar jobs
+REDIS_PATTERN = "job:*"  # Pattern antigo (legacy)
+# Todos os patterns de chave de job por serviço
+JOB_KEY_PATTERNS = [
+    "job:*",                        # se2-video-downloader (legacy)
+    "orchestrator:job:*",           # se1-orchestrator
+    "audio_normalization:job:*",    # se3-audio-normalization
+    "audio_transcriber:job:*",      # se4-audio-transcriber
+    "make_video:job:*",             # se5-make-video
+    "youtube_search:job:*",         # se6-youtube-search
+]
 
 # Campos datetime que precisam ser normalizados
 DATETIME_FIELDS = [
@@ -42,7 +51,10 @@ DATETIME_FIELDS = [
     "completed_at",
     "started_at",
     "expires_at",
-    "failed_at"
+    "failed_at",
+    "received_at",
+    "dlq_at",
+    "last_heartbeat",
 ]
 
 
@@ -74,14 +86,29 @@ class JobMigrator:
     
     def get_all_jobs(self) -> List[str]:
         """
-        Busca todas as chaves de jobs no Redis
+        Busca todas as chaves de jobs no Redis usando todos os patterns conhecidos.
         
         Returns:
-            Lista de chaves de jobs
+            Lista de chaves de jobs (deduplicada)
         """
-        return self.client.keys(REDIS_PATTERN)
+        keys = set()
+        for pattern in JOB_KEY_PATTERNS:
+            found = self.client.keys(pattern)
+            for k in found:
+                keys.add(k)
+        # Também busca pattern legado (caso haja keys soltas)
+        return sorted(keys)
     
-    def parse_datetime(self, dt_str: str) -> datetime:
+    def is_datetime_string(self, value: str) -> bool:
+        """Verifica se uma string parece um ISO datetime"""
+        if not isinstance(value, str) or len(value) < 10:
+            return False
+        # ISO datetime patterns: "2026-..." or "2026-...T...:..."
+        return ('-' in value and value[0:4].isdigit() and value[4] == '-') or \
+               (value.endswith('Z')) or \
+               ('T' in value and ':' in value)
+
+    def parse_datetime(self, dt_str: str) -> Optional[datetime]:
         """
         Converte string ISO para datetime
         
@@ -89,19 +116,26 @@ class JobMigrator:
             dt_str: String datetime em formato ISO
             
         Returns:
-            Datetime object
+            Datetime object ou None se não conseguir parsear
         """
+        if not self.is_datetime_string(dt_str):
+            return None
         # Remove timezone info se presente (para detectar naive/aware)
         if dt_str.endswith('Z'):
             dt_str = dt_str[:-1] + '+00:00'
         
+        for fmt in ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z",
+                     "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S",
+                     "%Y-%m-%d %H:%M:%S.%f%z", "%Y-%m-%d %H:%M:%S%z",
+                     "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"]:
+            try:
+                return datetime.strptime(dt_str, fmt)
+            except ValueError:
+                continue
         try:
-            dt = datetime.fromisoformat(dt_str)
-        except ValueError:
-            # Fallback: tenta formatos alternativos
-            dt = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S.%f")
-        
-        return dt
+            return datetime.fromisoformat(dt_str)
+        except (ValueError, AttributeError):
+            return None
     
     def is_naive(self, dt: datetime) -> bool:
         """
@@ -130,6 +164,51 @@ class JobMigrator:
             return dt.replace(tzinfo=BRAZIL_TZ)
         return dt
     
+    def _normalize_value(self, value, path: str = "") -> Tuple[bool, int]:
+        """
+        Normaliza datetimes recursivamente em dicts e listas.
+        
+        Returns:
+            (modificado, quantidade de campos normalizados)
+        """
+        modified = False
+        count = 0
+        
+        if isinstance(value, dict):
+            for k, v in list(value.items()):
+                new_path = f"{path}.{k}" if path else k
+                if isinstance(v, (dict, list)):
+                    sub_mod, sub_cnt = self._normalize_value(v, new_path)
+                    if sub_mod:
+                        value[k] = v
+                        modified = True
+                        count += sub_cnt
+                elif isinstance(v, str):
+                    dt = self.parse_datetime(v)
+                    if dt is not None and self.is_naive(dt):
+                        normalized_dt = self.normalize_datetime(dt)
+                        value[k] = normalized_dt.isoformat()
+                        modified = True
+                        count += 1
+        
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                new_path = f"{path}[{i}]"
+                if isinstance(item, (dict, list)):
+                    sub_mod, sub_cnt = self._normalize_value(item, new_path)
+                    if sub_mod:
+                        modified = True
+                        count += sub_cnt
+                elif isinstance(item, str):
+                    dt = self.parse_datetime(item)
+                    if dt is not None and self.is_naive(dt):
+                        normalized_dt = self.normalize_datetime(dt)
+                        value[i] = normalized_dt.isoformat()
+                        modified = True
+                        count += 1
+        
+        return modified, count
+
     def migrate_job(self, key: str, dry_run: bool = True) -> Tuple[bool, int]:
         """
         Migra um job específico
@@ -148,28 +227,14 @@ class JobMigrator:
                 return False, 0
             
             job_data = json.loads(job_str)
-            fields_normalized = 0
             
-            # Normaliza cada campo datetime
-            for field in DATETIME_FIELDS:
-                if field in job_data and job_data[field]:
-                    try:
-                        dt = self.parse_datetime(job_data[field])
-                        
-                        if self.is_naive(dt):
-                            # Normaliza para timezone-aware
-                            normalized_dt = self.normalize_datetime(dt)
-                            job_data[field] = normalized_dt.isoformat()
-                            fields_normalized += 1
-                    
-                    except (ValueError, AttributeError) as e:
-                        print(f"⚠️  Erro parseando {field} em {key}: {e}")
-                        continue
+            # Normaliza recursivamente todo o job
+            modified, fields_normalized = self._normalize_value(job_data)
             
             # Se encontrou campos para normalizar, salva de volta
             if fields_normalized > 0:
                 if not dry_run:
-                    self.client.set(key, json.dumps(job_data))
+                    self.client.set(key, json.dumps(job_data, ensure_ascii=False))
                 return True, fields_normalized
             
             return False, 0

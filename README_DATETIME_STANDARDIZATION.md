@@ -4,7 +4,7 @@
 - [ ] Métricas Prometheus (datetime errors)
 
 ### P2 — Média
-- [ ] Migration script (jobs antigos no Redis)
+- [x] Migration script (jobs antigos no Redis) — scripts/migrate_redis_jobs.py
 - [ ] Pydantic validator (bloquear naive datetime)
 - [ ] CI/CD lint rule (bloquear datetime.now())
 
