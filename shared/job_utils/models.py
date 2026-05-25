@@ -17,6 +17,13 @@ class JobStatus(str, Enum):
     PENDING = "pending"
     QUEUED = "queued"
     PROCESSING = "processing"
+    ANALYZING_AUDIO = "analyzing_audio"
+    FETCHING_SHORTS = "fetching_shorts"
+    DOWNLOADING_SHORTS = "downloading_shorts"
+    SELECTING_SHORTS = "selecting_shorts"
+    ASSEMBLING_VIDEO = "assembling_video"
+    GENERATING_SUBTITLES = "generating_subtitles"
+    FINAL_COMPOSITION = "final_composition"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -28,6 +35,7 @@ class StageStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+    WAITING_RETRY = "waiting_retry"
 
 
 class StageInfo(BaseModel):

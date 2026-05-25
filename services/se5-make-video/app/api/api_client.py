@@ -17,7 +17,7 @@ from common.log_utils import get_logger
 from ..shared.exceptions_v2 import (
     YouTubeSearchUnavailableException,
     VideoDownloaderUnavailableException,
-    TranscriberUnavailableException,
+    AudioTranscriberUnavailableException as TranscriberUnavailableException,
     TranscriptionTimeoutException,
     VideoDownloadException,
     VideoCorruptedException,

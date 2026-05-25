@@ -29,6 +29,10 @@ class MakeVideoJob(StandardJob):
     # Video processing stages with detailed tracking
     # Stages are defined in StandardJob.stages dict
 
+    # Audio analysis
+    audio_duration: Optional[float] = None
+    target_video_duration: Optional[float] = None
+
     # Error tracking
     error: Optional[dict] = None
 

@@ -426,7 +426,7 @@ def process_make_video(self, job_id: str):
 
         # Não sobrescrever erro detalhado já salvo pelo fluxo interno
         store, _, _, _, _ = get_instances()
-        existing_job = loop.run_until_complete(store.get_job(job_id))
+        existing_job = store.get_job(job_id)
 
         if existing_job and existing_job.status == JobStatus.FAILED and existing_job.error:
             logger.info(
@@ -495,7 +495,7 @@ async def _process_make_video_async(job_id: str):
     job_logger.debug(f"Settings loaded: {list(settings.keys())}")
     
     # Carregar job
-    job = await store.get_job(job_id)
+    job = store.get_job(job_id)
     if not job:
         job_logger.error(f"❌ Job {job_id} not found in Redis")
         raise MakeVideoException(f"Job {job_id} not found")
@@ -552,7 +552,7 @@ async def _process_make_video_async(job_id: str):
         # Atualizar job com duração do áudio
         job.audio_duration = audio_duration
         job.target_video_duration = target_duration
-        await store.save_job(job)
+        store.save_job(job)
         
         logger.info(f"🎵 Audio: {audio_duration:.1f}s + {padding_seconds:.2f}s padding → Target: {target_duration:.1f}s")
         
@@ -1219,7 +1219,7 @@ async def _process_make_video_async(job_id: str):
         job.progress = 100.0
         job.completed_at = now_brazil()
         job.expires_at = job.completed_at + timedelta(hours=24)
-        await store.save_job(job)
+        store.save_job(job)
         
         # Deletar checkpoint após sucesso (Sprint-01)
         await _delete_checkpoint(job_id)
@@ -1504,7 +1504,7 @@ def cleanup_temp_files():
                 store, _, _, _, _ = get_instances()
                 # CORREÇÃO: Não usar asyncio.run() - usar await em loop já existente
                 loop = asyncio.get_event_loop()
-                job = loop.run_until_complete(store.get_job(job_id))
+                job = store.get_job(job_id)
 
                 if job and job.status not in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
                     logger.info(f"⏭️ Skipping active job: {job_id}")
@@ -1714,7 +1714,7 @@ async def _recover_single_job(job: Job) -> bool:
             "age_minutes": (now_brazil() - job.updated_at).total_seconds() / 60
         }
         
-        await store.save_job(job)
+        store.save_job(job)
         
         # Re-submeter job para Celery
         process_make_video.apply_async(

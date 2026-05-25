@@ -28,7 +28,7 @@ VALIDATE_DIR := $(DATA_DIR)/validate
 APPROVED_DIR := $(DATA_DIR)/approved
 CALIBRATION_DIR := $(DATA_DIR)/calibration
 LOG_DIR := /tmp
-API_BASE_URL := http://localhost:8004
+API_BASE_URL := http://localhost:8005
 API_QUERY ?= Videos Satisfatorios
 API_MAX_SHORTS ?= 20
 API_LIMIT ?= 50
@@ -780,3 +780,58 @@ full-test: test-imports test-validate test-coverage ## Executar bateria completa
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 	@echo "🎉 BATERIA COMPLETA DE TESTES CONCLUÍDA!"
 	@echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# ============================================================================
+# TARGETS ADICIONAIS (logs de containers, shells, celery/beat, rebuild)
+# ============================================================================
+
+build-nc: network ## Build da imagem Docker sem cache
+	@echo "🔨 Building make-video (no cache)..."
+	$(DOCKER_COMPOSE) build --no-cache
+
+rebuild: build-nc up ## Rebuild completo sem cache + iniciar
+
+logs-api: ## Ver logs do container da API
+	@docker logs -f ytcaption-make-video
+
+logs-celery: ## Ver logs do container Celery
+	@docker logs -f ytcaption-make-video-celery
+
+logs-beat: ## Ver logs do container Celery Beat
+	@docker logs -f ytcaption-make-video-celery-beat
+
+celery-restart: ## Reiniciar Celery worker
+	@echo "🔄 Reiniciando Celery worker..."
+	@docker restart ytcaption-make-video-celery
+	@echo "✅ Celery reiniciado!"
+
+beat-restart: ## Reiniciar Celery Beat
+	@echo "🔄 Reiniciando Celery Beat..."
+	@docker restart ytcaption-make-video-celery-beat
+	@echo "✅ Beat reiniciado!"
+
+purge: ## Limpar fila do Celery
+	@echo "🧹 Limpando fila do Celery..."
+	@docker exec ytcaption-make-video-celery python -m celery -A app.infrastructure.celery_config purge -f 2>/dev/null || \
+		echo "⚠️  Nao foi possivel limpar fila"
+
+shell-api: ## Shell no container da API
+	@docker exec -it ytcaption-make-video /bin/bash
+
+shell-celery: ## Shell no container do Celery
+	@docker exec -it ytcaption-make-video-celery /bin/bash
+
+shell-beat: ## Shell no container do Beat
+	@docker exec -it ytcaption-make-video-celery-beat /bin/bash
+
+clean-docker: ## Limpar imagens Docker
+	@echo "🧹 Limpando imagens Docker..."
+	-docker rmi -f ytcaption-make-video ytcaption-make-video-celery ytcaption-make-video-celery-beat 2>/dev/null
+	@echo "✅ Imagens removidas!"
+
+fix-permissions: ## Corrigir permissoes dos diretorios data/
+	@echo "🔧 Corrigindo permissoes..."
+	@mkdir -p $(DATA_DIR)/logs $(DATA_DIR)/raw $(DATA_DIR)/transform $(DATA_DIR)/validate $(DATA_DIR)/approved $(DATA_DIR)/calibration
+	-sudo chown -R 1000:1000 $(DATA_DIR) 2>/dev/null
+	chmod -R 777 $(DATA_DIR)
+	@echo "✅ Permissoes corrigidas!"
