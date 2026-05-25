@@ -3,8 +3,8 @@
 ## PENDENTES
 
 ### PRIORIDADE 2 — ALTO
-- [ ] 2.3. Migration script para converter jobs antigos no Redis (naive → aware)
-      Executar uma vez em produção
+- [x] 2.3. Migration script para converter jobs antigos no Redis (naive → aware)
+      Executar: python scripts/migrate_redis_jobs.py --execute --host <host>
 
 ### PRIORIDADE 3 — MÉDIO
 - [ ] 3.1. Error handling robusto em operações de datetime
@@ -17,6 +17,5 @@
 - [ ] 4.3. Script de validação CI/CD (detecta datetime.now() / utcnow())
 
 ### PRÓXIMOS PASSOS (Backlog)
-- [ ] P2: Migration script para normalizar jobs antigos no Redis
 - [ ] P2: CI/CD lint rule para bloquear datetime.now()
 - [ ] P3: Monitoring de datetime errors no Grafana
