@@ -1,223 +1,58 @@
-# Audio Transcriber Service - Enterprise Grade
+# Audio Transcription Service
 
-Serviço de transcrição de áudio de alta resiliência usando **Faster-Whisper** com arquitetura empresarial completa.
+Microservico de transcricao de audio baseado em Whisper (faster-whisper), com suporte a filas Celery, cache Redis de 24h e tres engines de transcricao (faster-whisper, openai-whisper, whisperx).
 
-## 🚀 Características Principais
+## Quick Start
 
-### Core Features
-- ✅ **Transcrição AI** - Faster-Whisper (4x mais rápido que OpenAI Whisper)
-- ✅ **Word-Level Timestamps** - Sincronização perfeita palavra-por-palavra
-- ✅ **Múltiplos Formatos** - WAV, MP3, M4A, FLAC, OGG com conversão automática
-- ✅ **Saídas Flexíveis** - SRT, VTT, TXT, JSON com formatação precisa
-- ✅ **Processamento Assíncrono** - Jobs em background com monitoramento em tempo real
-- ✅ **Cache Inteligente** - Hash-based caching (arquivo + configurações)
-- ✅ **Detecção Automática** - Idioma, formato, qualidade de áudio
-
-### Enterprise Features  
-- ✅ **Alta Resiliência** - Circuit breakers, retry automático, failover graceful
-- ✅ **Observabilidade Completa** - Prometheus metrics, OpenTelemetry distributed tracing
-- ✅ **Segurança Avançada** - Validação magic bytes, rate limiting, análise de entropia
-- ✅ **Monitoramento Proativo** - Health checks, resource monitoring, alertas automáticos
-- ✅ **Configuração Hierárquica** - Pydantic settings com validação de tipos
-- ✅ **Logging Estruturado** - JSON logging com correlation IDs e performance metrics
-
-### Performance & Scalability
-- ✅ **Processamento Concorrente** - Multiple job processing com resource management
-- ✅ **CPU Otimizado** - Faster-Whisper com CTranslate2 (int8 compute)
-- ✅ **GPU Acceleration** - Auto-detecção CUDA com fallback para CPU
-- ✅ **Resource Management** - Monitoramento CPU/GPU/memória com auto-scaling
-- ✅ **Cleanup Automático** - Gestão de arquivos temporários e jobs expirados
-
-## 🚀 Quick Start
-
-### Usando Makefile (Recomendado)
 ```bash
+# Docker
+make up          # Sobe API + Celery worker + Celery beat
+make logs        # Logs dos 3 containers
+make api-health  # Health check
+
 # Desenvolvimento local
-make install          # Instalar dependências
-make model-download   # Baixar modelo Whisper
-make dev              # Rodar localmente
-
-# Produção
-make prod-up          # Deploy em produção
-make api-health       # Verificar saúde
-make prod-logs        # Ver logs
-
-# Ver todos os comandos
-make help
+make venv install
+make dev         # Porta 8004
 ```
 
-### Docker Compose
+### Variaveis essenciais
+
+| Variavel | Default | Descricao |
+|---|---|---|
+| `PORT` | `8004` | Porta da API |
+| `REDIS_URL` | `redis://localhost:6379/4` | Conexao Redis |
+| `WHISPER_MODEL` | `small` | Modelo (tiny/base/small/medium/large) |
+| `WHISPER_DEVICE` | `cpu` | Dispositivo (cpu/cuda) |
+| `CACHE_TTL_HOURS` | `24` | TTL dos jobs |
+| `ENABLE_CHUNKING` | `false` | Chunking para audios longos |
+
+## Key Endpoints
+
+| Metodo | Caminho | Descricao |
+|---|---|---|
+| POST | `/jobs` | Criar job (multipart upload) |
+| GET | `/jobs` | Listar jobs |
+| GET | `/jobs/{id}` | Status e resultado |
+| GET | `/jobs/{id}/text` | Texto puro |
+| GET | `/jobs/{id}/transcription` | Transcricao completa com segments |
+| GET | `/jobs/{id}/download` | Download SRT |
+| POST | `/model/load` | Pre-carregar modelo Whisper |
+| POST | `/model/unload` | Liberar modelo da memoria |
+| GET | `/health` | Health check |
+| GET | `/metrics` | Metricas Prometheus |
+
+### Exemplo
+
 ```bash
-# Desenvolvimento
-docker compose up -d
-
-# Produção (CPU otimizado)
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### Ver logs
-```bash
-make logs
-# OU
-docker compose logs -f
-```
-
-## 📖 Documentação
-
-- **[PRODUCTION.md](./PRODUCTION.md)** - Guia completo de produção
-- **[MODEL-MANAGEMENT.md](./MODEL-MANAGEMENT.md)** - Gerenciamento de modelos
-- **[ADMIN_ENDPOINTS_STANDARDIZATION.md](../../docs/ADMIN_ENDPOINTS_STANDARDIZATION.md)** - Endpoints administrativos
-
-## 📊 Endpoints
-
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| POST | `/jobs` | Cria job de transcrição/tradução |
-| GET | `/jobs/{job_id}` | Consulta status e progresso |
-| GET | `/jobs/{job_id}/transcription` | Obtém resultado da transcrição |
-| GET | `/jobs/{job_id}/download` | Download da transcrição em SRT |
-| DELETE | `/jobs/{job_id}` | Cancela job em andamento |
-| GET | `/jobs` | Lista jobs com filtros |
-| GET | `/languages` | Lista idiomas suportados |
-
-### 🆕 Gerenciamento de Modelo (v2.0+)
-
-| Método | Endpoint | Descrição |
-|--------|----------|-----------|
-| POST | `/model/unload` | 🔋 Descarrega modelo (economia de recursos) |
-| POST | `/model/load` | 🚀 Carrega modelo explicitamente |
-| GET | `/model/status` | 📊 Status atual do modelo |
-
-**Ver documentação completa**: [MODEL-MANAGEMENT.md](./MODEL-MANAGEMENT.md)
-| GET | `/health` | Health check completo |
-| GET | `/metrics` | Prometheus metrics |
-| GET | `/system/info` | Informações do sistema |
-
-### 🔧 Endpoints Administrativos
-
-| Método | Endpoint | Descrição |
-|--------|----------|--------|
-| POST | `/admin/cleanup` | Limpeza do sistema (básica ou profunda) |
-| GET | `/admin/stats` | Estatísticas completas do sistema |
-| POST | `/admin/cleanup-orphans` | Remove jobs e arquivos órfãos |
-| GET | `/admin/queue` | Informações detalhadas da fila |
-| GET | `/jobs/orphaned` | Lista jobs órfãos (stuck) |
-| POST | `/jobs/orphaned/cleanup` | Cleanup granular de órfãos |
-
-**Ver documentação completa**: [ADMIN_ENDPOINTS_STANDARDIZATION.md](../../docs/ADMIN_ENDPOINTS_STANDARDIZATION.md)
-
-## 🧪 Testar
-
-### Upload de áudio para transcrição
-```bash
-# Criar job de transcrição
-curl -X POST http://localhost:8005/jobs \
+curl -X POST http://localhost:8004/jobs \
   -F "file=@audio.mp3" \
-  -F "language_in=pt" \
-  -F "language_out=en"
-
-# Verificar status (substitua JOB_ID)
-curl http://localhost:8005/jobs/JOB_ID
-
-# Obter transcrição
-curl http://localhost:8005/jobs/JOB_ID/transcription
-
-# Ver progresso
-Invoke-RestMethod -Uri "http://localhost:8002/jobs/$jobId"
-
-# Download do resultado
-Invoke-WebRequest -Uri "http://localhost:8002/jobs/$jobId/download" -OutFile "audio_normalized.mp3"
+  -F "language=pt"
 ```
 
-### Testar Sistema de Cache
-```powershell
-# Executa script de teste automatizado
-.\test_cache.ps1
+## Architecture Notes
 
-# Resultado esperado:
-# - Upload 1: Cria job novo
-# - Upload 2 (mesmo arquivo): CACHE HIT (retorna job existente)
-# - Upload 3 (operações diferentes): Cria job novo
-```
-
-## 🔑 Sistema de Cache
-
-O serviço implementa cache inteligente baseado no **hash do arquivo + operações**:
-
-### Como Funciona
-1. **Upload** → Calcula SHA256 do arquivo
-2. **Job ID** = `hash_operações` (ex: `a1b2c3_nvm`)
-3. **Verifica Cache** → Se já existe, retorna job existente
-4. **Economia** → Não reprocessa arquivos idênticos
-
-### Códigos de Operação
-- `n` = Noise reduction
-- `v` = Volume normalize
-- `m` = Mono conversion
-
-**Exemplos de Job IDs:**
-- `abc123_nvm` - Todas operações
-- `abc123_n` - Apenas ruído
-- `abc123_vm` - Volume + Mono
-
-📖 **Documentação completa**: Ver [CACHE_SYSTEM.md](./CACHE_SYSTEM.md)
-
-## 🔧 Configuração
-
-### Variáveis de Ambiente
-```env
-REDIS_URL=redis://localhost:6379/0
-```
-
-## 📦 Dependências
-
-- **FastAPI** - API REST
-- **Celery + Redis** - Fila de jobs
-- **pydub** - Manipulação de áudio
-- **noisereduce** - Remoção de ruído
-- **librosa** - Processamento de áudio
-- **soundfile** - I/O de arquivos de áudio
-
-## 🏗️ Arquitetura
-
-```
-┌─────────────┐
-│   FastAPI   │ ─── Submete jobs ───┐
-│   (8001)    │                      │
-└─────────────┘                      ▼
-                              ┌─────────────┐
-                              │    Redis    │
-                              │   (6380)    │
-                              └─────────────┘
-                                     ▲
-┌─────────────┐                     │
-│   Celery    │ ─── Processa audio ─┘
-│   Worker    │
-└─────────────┘
-```
-
-## 🎵 Processo de Normalização
-
-1. **Upload** - Cliente envia arquivo de áudio
-2. **Job Creation** - Cria job no Redis
-3. **Queue** - Celery worker pega o job
-4. **Processing**:
-   - Remove ruído (noisereduce)
-   - Normaliza volume (pydub)
-   - Converte para mono
-5. **Complete** - Arquivo disponível para download
-6. **Expire** - Arquivo removido após 24h
-
-## 📈 Performance
-
-| Operação | Tempo Médio | Redução |
-|----------|-------------|---------|
-| Remove Ruído | 5-10s | N/A |
-| Normaliza Volume | 1-2s | N/A |
-| Converte Mono | 1s | ~50% tamanho |
-| **Total (5min áudio)** | **7-13s** | **~50%** |
-
-## 🔐 Portas
-
-- **8001** - API REST
-- **6380** - Redis (mapeado do 6379 interno)
+- **Entry point**: `run.py` inicia uvicorn na porta 8004. FastAPI app registra 4 routers: jobs, admin, model, health.
+- **Domain**: `AudioTranscriptionJob` extends `StandardJob` com `language`, `engine`, `segments`. Tres engines: faster-whisper (padrao, 4x mais rapido), openai-whisper, whisperx.
+- **Processing flow**: `POST /jobs` salva arquivo, cria job no Redis, submete task Celery (`transcribe_audio_task`). O `TranscriptionProcessor` valida, converte para WAV 16kHz mono via ffmpeg, transcreve com engine selecionado, gera SRT, atualiza Redis.
+- **Infraestrutura**: 3 containers Docker — API (FastAPI + uvicorn), Celery worker (pool solo), Celery beat (cleanup periodico). Todos compartilham volumes para uploads, transcricoes, modelos, temp e logs.
+- **Model management**: `FasterWhisperModelManager` gerencia lazy loading, deteccao GPU com fallback CPU em OOM, circuit breaker e word-level timestamps. Modelos cacheados em `./data/models/`.
