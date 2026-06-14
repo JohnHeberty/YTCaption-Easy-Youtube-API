@@ -15,9 +15,18 @@ def test_audio_real() -> Path:
     Este é um arquivo de áudio válido usado para validação end-to-end.
     Tamanho: ~75KB
     """
-    audio_path = Path(__file__).parent.parent / "TEST-.ogg"
-    assert audio_path.exists(), f"Arquivo TEST-.ogg não encontrado em {audio_path}"
-    assert audio_path.stat().st_size > 0, "Arquivo TEST-.ogg está vazio"
+    # Search for test audio file: tests/, then repo root (4 levels up from resilience/)
+    import glob as _glob
+
+    # resilience/ → tests/ → se4-audio-transcriber/ → services/ → YTCaption-Easy-Youtube-API (repo root)
+    candidates = [Path(__file__).parent.parent / "TEST5.ogg"]
+    repo_root = Path(__file__).resolve().parents[4]
+    ogg_files = _glob.glob(str(repo_root / "*.ogg"))
+    candidates.extend(Path(p) for p in ogg_files)
+
+    audio_path = next((c for c in candidates if c.exists()), None)
+    assert audio_path is not None, "Arquivo de áudio de teste não encontrado"
+    assert audio_path.stat().st_size > 0, f"Arquivo {audio_path} está vazio"
     return audio_path
 
 
