@@ -7,6 +7,7 @@ de falhas em cascata. Adaptado do padrão make-video.
 
 from typing import Callable, Any, Optional
 from datetime import datetime
+from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)

@@ -36,11 +36,12 @@ def mock_job_store_with_fake_redis():
 
 
 @pytest.fixture
-def mock_processor():
+def mock_processor(mock_job_store):
     """Mock transcription processor."""
     processor = MagicMock()
     processor.process = MagicMock()
-    processor.job_store = MagicMock()
+    processor.job_store = mock_job_store
+    processor.model = None  # Required by check_whisper_model health checker
     return processor
 
 
@@ -53,14 +54,16 @@ def mock_celery():
 @pytest.fixture
 def app_with_overrides(mock_job_store, mock_processor):
     """FastAPI app with dependency overrides for testing."""
-    from app.infrastructure.dependencies import job_store, processor
+    from app.infrastructure.dependencies import job_store, processor as proc_dep
     from app.main import app
 
     job_store.set(mock_job_store)
-    processor.set(mock_processor)
-    yield app
-    job_store.reset()
-    processor.reset()
+    proc_dep.set(mock_processor)
+    try:
+        yield app
+    finally:
+        job_store.reset()
+        proc_dep.reset()
 
 
 @pytest.fixture
@@ -71,13 +74,36 @@ def client(app_with_overrides):
 
 
 @pytest.fixture
-def mock_job_store():
-    """Mock do job store."""
+def mock_redis():
+    """Mock Redis client for health checks."""
+    redis_mock = MagicMock()
+    redis_mock.ping.return_value = True
+    return redis_mock
+
+
+@pytest.fixture
+def mock_job_store(mock_redis):
+    """Mock do job store implementando IJobStore completo (IJobRepository + IJobQuery)."""
+
+    async def find_orphaned_jobs(max_age_minutes=30):
+        return []
+
+    async def get_queue_info():
+        return {"queued": 0, "processing": 0}
+
     store = MagicMock()
+    # IJobRepository (CRUD)
     store.get_job = MagicMock(return_value=None)
     store.save_job = MagicMock()
     store.update_job = MagicMock()
-    store.delete_job = MagicMock()
+    store.delete_job = MagicMock(return_value=False)
+    # IJobQuery (read-only queries + aggregation)
+    store.list_jobs = MagicMock(return_value=[])
+    store.get_stats = MagicMock(return_value={"total_jobs": 0, "by_status": {}})
+    store.find_orphaned_jobs = find_orphaned_jobs
+    store.get_queue_info = get_queue_info
+    # IJobStore (.redis escape hatch — required by health check)
+    store.redis = mock_redis
     return store
 
 

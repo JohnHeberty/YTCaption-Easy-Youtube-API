@@ -12,6 +12,11 @@ from faster_whisper import WhisperModel
 from ..domain.interfaces import IModelManager
 from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
+try:
+    from av.error import FFmpegError as AvFFmpegError, EOFError as AvEOFError  # noqa: F401
+except ImportError:
+    pass
+
 from ..infrastructure import get_circuit_breaker, CircuitBreakerException
 from .device_manager import TorchDeviceManager
 from common.log_utils import get_logger
@@ -321,7 +326,7 @@ ado
             
             return result
             
-        except (RuntimeError, OSError, IOError, IndexError) as e:
+        except Exception as e:  # noqa: BLE001 - catch all to record circuit breaker failure for corrupted files (FFmpegError, EOFError, etc.)
             logger.exception(f"❌ Erro na transcrição: {e}")
 
             cb.record_failure(service_name)

@@ -80,6 +80,11 @@ def convert_to_wav(
     except ImportError:
         raise AudioTranscriptionException("pydub não está instalado")
 
+    if not input_path.exists():
+        raise AudioTranscriptionException(
+            f"Arquivo de entrada não encontrado: '{input_path}'"
+        )
+
     if settings is None:
         settings = {}
 

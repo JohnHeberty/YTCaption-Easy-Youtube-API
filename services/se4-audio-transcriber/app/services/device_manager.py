@@ -26,6 +26,7 @@ class TorchDeviceManager(IDeviceManager):
             preferred_device: Dispositivo preferido ('auto', 'cuda', 'cpu')
         """
         self.preferred_device = TorchDeviceManager.normalize_preferred_device(preferred_device)
+        self._cached_device: str | None = None
 
     @staticmethod
     def normalize_preferred_device(device: str) -> str:
@@ -36,7 +37,6 @@ class TorchDeviceManager(IDeviceManager):
         elif normalized != "cuda":
             return "auto"
         return "cuda"
-        self._cached_device: str = None
     
     def detect_device(self) -> str:
         """

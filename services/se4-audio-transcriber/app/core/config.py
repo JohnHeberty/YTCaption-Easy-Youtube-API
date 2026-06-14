@@ -171,9 +171,11 @@ def get_supported_languages() -> List[str]:
     return SUPPORTED_LANGUAGES
 
 
-def is_language_supported(language: str) -> bool:
-    """Verifica se uma linguagem é suportada"""
-    return language.lower() in [lang.lower() for lang in SUPPORTED_LANGUAGES]
+def is_language_supported(language: Optional[str]) -> bool:
+    """Verifica se uma linguagem é suportada (case-sensitive)"""
+    if not isinstance(language, str):
+        return False
+    return language in SUPPORTED_LANGUAGES
 
 
 def get_whisper_models() -> List[str]:

@@ -39,8 +39,14 @@ class TestCorruptedFileshHandling:
         print(f"   Arquivo: {corrupted_audio_file.name}")
         print(f"   Tamanho: {corrupted_audio_file.stat().st_size} bytes\n")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.shared.exceptions import AudioTranscriptionException
+        
+        try:
+            import av.error as _av_error
+            AV_ERRORS = (_av_error.FFmpegError, _av_error.EOFError)
+        except ImportError:
+            AV_ERRORS = ()
         
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
         manager.load_model()
@@ -49,7 +55,7 @@ class TestCorruptedFileshHandling:
         print(f"   Tentando transcrever arquivo corrompido...\n")
         
         # Deve lançar exceção (não travar!)
-        with pytest.raises((AudioTranscriptionException, RuntimeError, OSError)) as exc_info:
+        with pytest.raises((AudioTranscriptionException, RuntimeError, OSError) + AV_ERRORS) as exc_info:
             manager.transcribe(corrupted_audio_file, language="auto")
         
         print(f"   ✓ Exceção capturada: {type(exc_info.value).__name__}")
@@ -75,8 +81,14 @@ class TestCorruptedFileshHandling:
         print(f"   Arquivo: {empty_audio_file.name}")
         print(f"   Tamanho: {empty_audio_file.stat().st_size} bytes\n")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.shared.exceptions import AudioTranscriptionException
+        
+        try:
+            import av.error as _av_error2
+            AV_ERRORS2 = (_av_error2.FFmpegError, _av_error2.EOFError)
+        except ImportError:
+            AV_ERRORS2 = ()
         
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
         manager.load_model()
@@ -85,7 +97,7 @@ class TestCorruptedFileshHandling:
         print(f"   Tentando transcrever arquivo vazio...\n")
         
         # Deve lançar exceção
-        with pytest.raises((AudioTranscriptionException, RuntimeError, OSError, ValueError)) as exc_info:
+        with pytest.raises((AudioTranscriptionException, RuntimeError, OSError, ValueError) + AV_ERRORS2) as exc_info:
             manager.transcribe(empty_audio_file, language="auto")
         
         print(f"   ✓ Exceção capturada: {type(exc_info.value).__name__}")
@@ -111,8 +123,14 @@ class TestCorruptedFileshHandling:
         print(f"   Arquivo: {fake_audio.name}")
         print(f"   Conteúdo: texto (não é áudio)\n")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.shared.exceptions import AudioTranscriptionException
+        
+        try:
+            import av.error as _av_error3
+            AV_ERRORS3 = (_av_error3.FFmpegError, _av_error3.EOFError)
+        except ImportError:
+            AV_ERRORS3 = ()
         
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
         manager.load_model()
@@ -121,7 +139,7 @@ class TestCorruptedFileshHandling:
         print(f"   Tentando transcrever arquivo não-áudio...\n")
         
         # Deve lançar exceção
-        with pytest.raises((AudioTranscriptionException, RuntimeError, OSError)) as exc_info:
+        with pytest.raises((AudioTranscriptionException, RuntimeError, OSError) + AV_ERRORS3) as exc_info:
             manager.transcribe(fake_audio, language="auto")
         
         print(f"   ✓ Exceção capturada: {type(exc_info.value).__name__}")
@@ -143,9 +161,15 @@ class TestCorruptedFileshHandling:
         print("🔌 TESTE: Circuit Breaker + Arquivos Corrompidos")
         print(f"{'='*70}")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker, CircuitBreakerState
         from app.shared.exceptions import AudioTranscriptionException
+        
+        try:
+            import av.error as _av_error4
+            AV_ERRORS4 = (_av_error4.FFmpegError, _av_error4.EOFError)
+        except ImportError:
+            AV_ERRORS4 = ()
         
         cb = get_circuit_breaker()
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
@@ -167,7 +191,7 @@ class TestCorruptedFileshHandling:
             try:
                 print(f"   Tentativa {i}...")
                 manager.transcribe(corrupted_audio_file, language="auto")
-            except (AudioTranscriptionException, RuntimeError, OSError):
+            except (AudioTranscriptionException, RuntimeError, OSError) + AV_ERRORS4:
                 failure_count += 1
                 current_failures = cb.failures.get(service_name, 0)
                 current_state = cb.state.get(service_name, CircuitBreakerState.CLOSED)
@@ -206,9 +230,15 @@ class TestCorruptedFileshHandling:
         print("♻️  TESTE: Recuperação Após Arquivo Corrompido")
         print(f"{'='*70}")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker, CircuitBreakerState
         from app.shared.exceptions import AudioTranscriptionException
+        
+        try:
+            import av.error as _av_error5
+            AV_ERRORS5 = (_av_error5.FFmpegError, _av_error5.EOFError)
+        except ImportError:
+            AV_ERRORS5 = ()
         
         cb = get_circuit_breaker()
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
