@@ -2,6 +2,7 @@
 Gerenciador de modelos Whisper (Single Responsibility Principle).
 Responsável APENAS por carregar/descarregar/usar modelos Whisper.
 """
+import gc
 import time
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -42,9 +43,11 @@ class WhisperModelManager(IModelManager):
         self.device: Optional[str] = None
         self.is_loaded = False
         
+        from ..core.constants import DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BACKOFF_BASE
+
         # Configurações de retry
-        self.max_retries = int(self.settings.get('model_load_retries', 3))
-        self.retry_backoff = float(self.settings.get('model_load_backoff', 2.0))
+        self.max_retries = int(self.settings.get('model_load_retries', DEFAULT_MAX_RETRIES))
+        self.retry_backoff = float(self.settings.get('model_load_backoff', DEFAULT_RETRY_BACKOFF_BASE))
     
     def load_model(self) -> None:
         """Carrega modelo Whisper com retry automático"""
@@ -129,7 +132,6 @@ class WhisperModelManager(IModelManager):
             self.is_loaded = False
             
             # Força garbage collection
-            import gc
             gc.collect()
             
             # Limpa cache CUDA se necessário

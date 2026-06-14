@@ -1,7 +1,3 @@
-import asyncio
-import os
-import time
-from datetime import timedelta
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 
@@ -11,7 +7,7 @@ from fastapi.responses import FileResponse
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
-from app.core.config import get_settings, get_supported_languages, is_language_supported
+from app.core.config import get_core, get_supported_languages, is_language_supported
 from app.domain.models import Job, JobStatus, TranscriptionResponse, WhisperEngine
 from app.api.schemas import (
     DeleteJobResponse,
@@ -19,22 +15,24 @@ from app.api.schemas import (
     OrphanedJobsResponse,
     TextResponse,
 )
-from app.infrastructure.dependencies import job_store, processor
-from app.infrastructure.redis_store import RedisJobStore
+from app.domain.interfaces import IJobStore
+from app.infrastructure.dependencies import get_job_store as _get_job_store_dep, job_store, processor
 from app.shared.exceptions import AudioTranscriptionException, ServiceException
+from app.shared.file_upload_handler import FileUploadHandler, FileUploadError
+from app.shared.job_creation_service import JobCreationService
 
 if TYPE_CHECKING:
     from app.services.processor import TranscriptionProcessor
 
 logger = get_logger(__name__)
-settings = get_settings()
+settings = get_core()
 
 router = APIRouter(tags=["Jobs"])
 
 
-def submit_processing_task(job: Job, store: RedisJobStore, proc: "TranscriptionProcessor"):
+def submit_processing_task(job: Job, store):
+    """Submit job to Celery with asyncio fallback."""
     try:
-        from app.celery_config import celery_app
         from app.infrastructure.celery_tasks import transcribe_audio_task
 
         task_result = transcribe_audio_task.apply_async(
@@ -44,211 +42,58 @@ def submit_processing_task(job: Job, store: RedisJobStore, proc: "TranscriptionP
         logger.info(f"📤 Job {job.id} enviado para Celery worker: {task_result.id}")
 
     except Exception as e:
-        logger.error(f"❌ Erro ao enviar job {job.id} para Celery: {e}")
-        logger.error(f"❌ Fallback: processando diretamente job {job.id}")
-        asyncio.create_task(proc.process_transcription_job(job))
+        logger.error(f"❌ Erro ao enviar job {job.id} para Celery, fallback direto")
 
 
 @router.post("/jobs", summary="Create transcription job", response_model=Job, responses={400: {"description": "Invalid input or language not supported"}, 500: {"description": "Internal server error"}})
 async def create_transcription_job(
     request: Request,
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(
-        ...,
-        description="Arquivo de audio ou video para transcricao (mp3, wav, m4a, ogg, mp4, webm).",
-    ),
-    language_in: str = Form(
-        "auto",
-        description="Idioma de entrada (ISO 639-1) ou 'auto' para deteccao automatica.",
-    ),
-    language_out: Optional[str] = Form(
-        None,
-        description="Idioma de saida (ISO 639-1). Para traducao nativa do Whisper, use 'en'.",
-    ),
-    engine: WhisperEngine = Form(
-        WhisperEngine.FASTER_WHISPER,
-        description="Engine de transcricao: faster-whisper (padrao), openai-whisper ou whisperx.",
-    ),
-    job_store: RedisJobStore = Depends(job_store),
-    processor: "TranscriptionProcessor" = Depends(processor),
+    file: UploadFile = File(...),
+    language_in: str = Form("auto"),
+    language_out: Optional[str] = Form(None),
+    engine: WhisperEngine = Form(WhisperEngine.FASTER_WHISPER),
 ) -> Job:
 
-    try:
-        engine_enum = engine
+    if not is_language_supported(language_in):
+        supported = get_supported_languages()
+        raise HTTPException(status_code=400, detail={"error": "Linguagem de entrada não suportada", "language_provided": language_in, "supported_languages": supported[:10], "total_supported": len(supported), "note": "Use GET /languages para ver todas as linguagens suportadas"})
 
-        if not is_language_supported(language_in):
+    if language_out is not None:
+        if not is_language_supported(language_out):
             supported = get_supported_languages()
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "Linguagem de entrada não suportada",
-                    "language_provided": language_in,
-                    "supported_languages": supported[:10],
-                    "total_supported": len(supported),
-                    "note": "Use GET /languages para ver todas as linguagens suportadas"
-                }
-            )
+            raise HTTPException(status_code=400, detail={"error": "Linguagem de saída não suportada", "language_provided": language_out, "supported_languages": supported[:10], "total_supported": len(supported), "note": "Use GET /languages para ver todas as linguagens suportadas"})
+        if language_out == language_in and language_in != "auto":
+            logger.warning(f"language_out='{language_out}' igual a language_in='{language_in}', tradução não será aplicada")
 
-        if language_out is not None:
-            if not is_language_supported(language_out):
-                supported = get_supported_languages()
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "Linguagem de saída não suportada",
-                        "language_provided": language_out,
-                        "supported_languages": supported[:10],
-                        "total_supported": len(supported),
-                        "note": "Use GET /languages para ver todas as linguagens suportadas"
-                    }
-                )
+    content = await file.read()
 
-            if language_out == language_in and language_in != "auto":
-                logger.warning(f"language_out='{language_out}' igual a language_in='{language_in}', tradução não será aplicada")
+    upload_handler = FileUploadHandler(settings['upload_dir'])
+    creation_service = JobCreationService(
+        job_store=_get_job_store_dep(),
+        upload_handler=upload_handler,
+        submit_task_fn=submit_processing_task,
+    )
 
-        logger.info(f"Criando job: arquivo={file.filename}, language_in={language_in}, language_out={language_out or 'same'}, engine={engine}")
-
-        new_job = Job.create_new(
-            file.filename,
-            operation="transcribe",
+    try:
+        created_job = await creation_service.create_or_resume_job(
+            file_content=content,
+            original_filename=file.filename,
             language_in=language_in,
             language_out=language_out,
-            engine=engine_enum,
+            engine=engine,
         )
+        logger.info(f"Job de transcrição criado ou retomado: {created_job.id}")
+        return created_job
 
-        existing_job = job_store.get_job(new_job.id)
-
-        if existing_job:
-            if existing_job.status == JobStatus.COMPLETED:
-                logger.info(f"Job {new_job.id} já completado")
-                return existing_job
-            elif existing_job.status in [JobStatus.QUEUED, JobStatus.PROCESSING]:
-                processing_timeout = timedelta(minutes=30)
-                job_age = now_brazil() - existing_job.created_at
-
-                if job_age > processing_timeout:
-                    logger.warning(f"⚠️ Job {new_job.id} órfão detectado (processando há {job_age}), reprocessando...")
-                    existing_job.status = JobStatus.QUEUED
-                    existing_job.error_message = f"Job órfão detectado após {job_age}, reiniciando processamento"
-                    existing_job.progress = 0.0
-                    job_store.update_job(existing_job)
-
-                    submit_processing_task(existing_job, job_store, processor)
-                    return existing_job
-                else:
-                    logger.info(f"Job {new_job.id} já em processamento (idade: {job_age})")
-                    return existing_job
-            elif existing_job.status == JobStatus.FAILED:
-                logger.info(f"Reprocessando job falhado: {new_job.id} - salvando arquivo novamente")
-
-                upload_dir = Path(settings['upload_dir'])
-                upload_dir.mkdir(parents=True, exist_ok=True)
-                original_extension = Path(file.filename).suffix if file.filename else ""
-                file_path = upload_dir / f"{existing_job.id}{original_extension}"
-
-                content = await file.read()
-                if not content:
-                    logger.error(f"❌ ERRO: Arquivo enviado está vazio")
-                    raise HTTPException(status_code=400, detail="Arquivo enviado está vazio")
-
-                max_retries = 3
-                saved_successfully = False
-                for retry in range(max_retries):
-                    try:
-                        with open(file_path, "wb") as f:
-                            f.write(content)
-                            f.flush()
-                            os.fsync(f.fileno())
-
-                        if file_path.exists() and file_path.stat().st_size > 0:
-                            saved_successfully = True
-                            break
-                        else:
-                            logger.warning(f"⚠️ Tentativa {retry+1}/{max_retries}: Arquivo não foi salvo corretamente")
-                    except Exception as e:
-                        logger.error(f"❌ Tentativa {retry+1}/{max_retries} falhou ao salvar: {e}")
-                        if retry == max_retries - 1:
-                            raise
-                        time.sleep(0.5 * (retry + 1))
-
-                if not saved_successfully:
-                    logger.error(f"❌ ERRO: Falha ao salvar arquivo após {max_retries} tentativas")
-                    raise HTTPException(status_code=500, detail="Erro ao salvar arquivo no servidor")
-
-                file_size = file_path.stat().st_size
-                logger.info(f"✅ Arquivo salvo com sucesso: {file_path} ({file_size / (1024*1024):.2f} MB)")
-
-                existing_job.input_file = str(file_path.absolute())
-                existing_job.file_size_input = file_size
-                existing_job.status = JobStatus.QUEUED
-                existing_job.error_message = None
-                existing_job.progress = 0.0
-                job_store.update_job(existing_job)
-
-                submit_processing_task(existing_job, job_store, processor)
-                logger.info(f"🚀 Job {existing_job.id} submetido para reprocessamento")
-                return existing_job
-
-        upload_dir = Path(settings['upload_dir'])
-        upload_dir.mkdir(parents=True, exist_ok=True)
-
-        original_extension = Path(file.filename).suffix if file.filename else ""
-        file_path = upload_dir / f"{new_job.id}{original_extension}"
-
-        content = await file.read()
-        if not content:
-            logger.error(f"❌ ERRO: Arquivo enviado está vazio")
-            raise HTTPException(status_code=400, detail="Arquivo enviado está vazio")
-
-        max_retries = 3
-        saved_successfully = False
-        for retry in range(max_retries):
-            try:
-                with open(file_path, "wb") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-
-                if file_path.exists() and file_path.stat().st_size > 0:
-                    saved_successfully = True
-                    break
-                else:
-                    logger.warning(f"⚠️ Tentativa {retry+1}/{max_retries}: Arquivo não foi salvo corretamente")
-            except Exception as e:
-                logger.error(f"❌ Tentativa {retry+1}/{max_retries} falhou ao salvar: {e}")
-                if retry == max_retries - 1:
-                    raise
-                time.sleep(0.5 * (retry + 1))
-
-        if not saved_successfully:
-            logger.error(f"❌ ERRO: Falha ao salvar arquivo após {max_retries} tentativas")
-            raise HTTPException(status_code=500, detail="Erro ao salvar arquivo no servidor")
-
-        file_size = file_path.stat().st_size
-        logger.info(f"✅ Arquivo salvo com sucesso: {file_path} ({file_size / (1024*1024):.2f} MB)")
-
-        new_job.input_file = str(file_path.absolute())
-        new_job.file_size_input = file_size
-
-        job_store.save_job(new_job)
-        submit_processing_task(new_job, job_store, processor)
-
-        logger.info(f"Job de transcrição criado: {new_job.id}")
-        return new_job
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Erro ao criar job de transcrição: {e}")
-        if isinstance(e, (AudioTranscriptionException, ServiceException)):
-            raise
-        raise ServiceException(f"Erro interno ao processar arquivo: {str(e)}")
+    except FileUploadError as e:
+        raise HTTPException(status_code=400 if not content else 500, detail=str(e))
 
 
 @router.get("/jobs", summary="List jobs", response_model=List[Job])
 async def list_jobs(
     limit: int = Query(20, ge=1, le=200, description="Quantidade maxima de jobs retornados.", examples=[20, 50]),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ) -> List[Job]:
     """List recent transcription jobs."""
     return job_store.list_jobs(limit)
@@ -257,7 +102,7 @@ async def list_jobs(
 @router.get("/jobs/{job_id}", summary="Get job status", response_model=Job, responses={404: {"description": "Job not found"}, 410: {"description": "Job expired"}})
 async def get_job_status(
     job_id: str = PathParam(..., description="ID do job de transcricao (prefixo esperado: at_).", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ) -> Job:
     """Retrieve the current status and details of a transcription job."""
     job = job_store.get_job(job_id)
@@ -274,7 +119,7 @@ async def get_job_status(
 @router.get("/jobs/{job_id}/download", summary="Download transcription file", responses={404: {"description": "Job or file not found"}, 410: {"description": "Job expired"}, 425: {"description": "Transcription not ready"}})
 async def download_file(
     job_id: str = PathParam(..., description="ID do job concluido para download do arquivo SRT.", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ):
     """Download the transcription output file for a completed job."""
     job = job_store.get_job(job_id)
@@ -305,7 +150,7 @@ async def download_file(
 @router.get("/jobs/{job_id}/text", summary="Get transcription text", response_model=TextResponse, responses={404: {"description": "Job not found"}, 425: {"description": "Transcription not ready"}})
 async def get_transcription_text(
     job_id: str = PathParam(..., description="ID do job concluido para retorno do texto puro.", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ):
     """Retrieve the plain text transcription for a completed job."""
     job = job_store.get_job(job_id)
@@ -325,7 +170,7 @@ async def get_transcription_text(
 @router.get("/jobs/{job_id}/transcription", summary="Get full transcription", response_model=TranscriptionResponse, responses={404: {"description": "Job not found"}, 410: {"description": "Job expired"}, 425: {"description": "Transcription not ready"}, 500: {"description": "Segments not available"}})
 async def get_full_transcription(
     job_id: str = PathParam(..., description="ID do job concluido para retorno completo da transcricao.", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ) -> TranscriptionResponse:
     job = job_store.get_job(job_id)
 
@@ -373,7 +218,7 @@ async def get_full_transcription(
 @router.delete("/jobs/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"description": "Job not found"}, 500: {"description": "Internal server error"}})
 async def delete_job(
     job_id: str = PathParam(..., description="ID do job a ser removido (inclui arquivos associados).", examples=["at_abc123"]),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ):
     """Delete a transcription job and its associated files."""
     job = job_store.get_job(job_id)
@@ -424,7 +269,7 @@ async def get_orphaned_jobs(
         description="Tempo maximo (em minutos) para considerar um job de processing como orfao.",
         examples=[30, 60],
     ),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ):
     """Find transcription jobs stuck in processing beyond the specified age."""
     try:
@@ -468,7 +313,7 @@ async def cleanup_orphaned_jobs_endpoint(
         True,
         description="Se true, marca jobs orfaos como failed. Se false, remove os jobs.",
     ),
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
 ):
     try:
         orphaned = await job_store.find_orphaned_jobs(max_age_minutes=max_age_minutes)

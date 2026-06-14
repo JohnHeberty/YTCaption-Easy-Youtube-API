@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 try:
     from common.datetime_utils import now_brazil
 except ImportError:
-    from datetime import timezone
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
@@ -16,8 +15,6 @@ except ImportError:
 
 from celery import Task
 from celery import signals
-from tenacity import retry, stop_after_attempt, wait_exponential
-
 from ..domain.models import Job, JobStatus
 from ..services.processor import TranscriptionProcessor
 from ..infrastructure.redis_store import RedisJobStore
@@ -26,74 +23,54 @@ from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
+
+def _update_job_failed(job_dict: dict, error_message: str) -> None:
+    """Helper shared by signal handlers to mark a job as FAILED in Redis."""
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    store = RedisJobStore(redis_url=redis_url)
+
+    try:
+        job_id = job_dict.get('id', 'unknown')
+        job = Job(**job_dict)
+        job.status = JobStatus.FAILED
+        job.error_message = error_message
+        job.completed_at = now_brazil()
+        job.updated_at = now_brazil()
+        job.progress = 0.0
+
+        store.update_job(job)
+        logger.info(f"✅ SIGNAL: Updated Redis Store for failed job {job_id}")
+    except Exception as update_err:
+        logger.error(f"❌ SIGNAL: Failed to update Redis Store: {update_err}")
+
+
 # ==========================================
 # SIGNAL HANDLERS PARA SINCRONIZAÇÃO REDIS
 # ==========================================
 
 @signals.task_failure.connect
 def task_failure_handler(sender=None, task_id=None, exception=None, args=None, kwargs=None, traceback=None, einfo=None, **kw):
-    """
-    Signal handler disparado quando uma task falha
-    Garante que o Redis Store seja atualizado mesmo em falhas inesperadas
-    """
+    """Signal handler disparado quando uma task falha."""
     logger.error(f"🔴 SIGNAL: Task failure detected for task_id={task_id}, exception={exception}")
-    
+
     try:
-        # Extrai job_dict dos args
         if args and len(args) > 0 and isinstance(args[0], dict):
-            job_dict = args[0]
-            job_id = job_dict.get('id', 'unknown')
-            
-            # Atualiza Redis Store
-            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-            store = RedisJobStore(redis_url=redis_url)
-            
-            try:
-                # Reconstrói job e marca como FAILED
-                job = Job(**job_dict)
-                job.status = JobStatus.FAILED
-                job.error_message = f"Task failed: {str(exception)}"
-                job.completed_at = now_brazil()
-                job.updated_at = now_brazil()
-                job.progress = 0.0
-                
-                store.update_job(job)
-                logger.info(f"✅ SIGNAL: Updated Redis Store for failed job {job_id}")
-            except Exception as update_err:
-                logger.error(f"❌ SIGNAL: Failed to update Redis Store: {update_err}")
+            _update_job_failed(args[0], f"Task failed: {str(exception)}")
     except Exception as handler_err:
         logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
 
+
 @signals.task_revoked.connect
 def task_revoked_handler(sender=None, request=None, terminated=None, signum=None, expired=None, **kw):
-    """
-    Signal handler disparado quando uma task é revogada (killed, canceled)
-    """
+    """Signal handler disparado quando uma task é revogada (killed, canceled)."""
     task_id = request.id if request else 'unknown'
     logger.error(f"🔴 SIGNAL: Task revoked task_id={task_id}, terminated={terminated}, signum={signum}")
-    
+
     try:
-        # Tenta extrair job_dict do request
         if request and hasattr(request, 'args') and request.args and len(request.args) > 0:
             job_dict = request.args[0]
             if isinstance(job_dict, dict):
-                job_id = job_dict.get('id', 'unknown')
-                
-                redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-                store = RedisJobStore(redis_url=redis_url)
-                
-                try:
-                    job = Job(**job_dict)
-                    job.status = JobStatus.FAILED
-                    job.error_message = f"Task revoked: terminated={terminated}, signal={signum}"
-                    job.completed_at = now_brazil()
-                    job.updated_at = now_brazil()
-                    job.progress = 0.0
-                    
-                    store.update_job(job)
-                    logger.info(f"✅ SIGNAL: Updated Redis Store for revoked job {job_id}")
-                except Exception as update_err:
-                    logger.error(f"❌ SIGNAL: Failed to update Redis Store: {update_err}")
+                _update_job_failed(job_dict, f"Task revoked: terminated={terminated}, signal={signum}")
     except Exception as handler_err:
         logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
 

@@ -9,7 +9,16 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 from dataclasses import dataclass
 
-from .models import Job, TranscriptionSegment
+from typing import Union
+
+from .models import (
+    AudioTranscriptionJob as Job,
+    TranscriptionSegment,
+    WhisperEngine as WhisperEngineEnum,
+)
+
+# Re-export focused job interfaces (ISP split) for backward compatibility.
+from .job_interfaces import IJobRepository, IJobQuery, IJobStore  # noqa: F401
 
 
 @dataclass
@@ -22,19 +31,16 @@ class TranscriptionResult:
     word_timestamps: bool = False
 
 
-class TranscriptionEngine(ABC):
+class ITranscriber(ABC):
     """
-    Interface abstrata para engines de transcrição.
-    
-    Implementa o Dependency Inversion Principle (DIP) do SOLID,
-    permitindo trocar implementações de Whisper (faster-whisper,
-    openai-whisper, whisperx) sem alterar o código que usa a interface.
-    
-    Example:
-        engine = WhisperEngine(model_size="base")
-        engine.load_model()
-        result = await engine.transcribe("/path/to/audio.mp3")
-        await engine.unload_model()
+    Interface mínima para qualquer serviço de transcrição.
+
+    Satisfaz ISP (Interface Segregation Principle): clientes que só precisam
+    transcrever áudio não são forçados a implementar métodos de lifecycle
+    (load_model, unload_model, device) que fazem sentido apenas para engines
+    locais com modelos ML carregados em memória.
+
+    Cloud APIs e serviços HTTP implementam apenas esta interface.
     """
 
     @abstractmethod
@@ -46,19 +52,29 @@ class TranscriptionEngine(ABC):
     ) -> TranscriptionResult:
         """
         Transcreve um arquivo de áudio.
-        
+
         Args:
             audio_path: Caminho completo para o arquivo de áudio
             language: Código do idioma (ex: 'pt', 'en'). None para detecção automática.
             task: 'transcribe' para transcrever, 'translate' para traduzir para inglês
-            
+
         Returns:
             TranscriptionResult com texto, segmentos e metadados
-            
+
         Raises:
             AudioTranscriptionException: Se transcrição falhar
         """
         pass
+
+
+class ILifecycleManaged(ABC):
+    """
+    Interface opcional para engines que gerenciam ciclo de vida de modelos ML.
+
+    Aplica-se a implementações locais (faster-whisper, openai-whisper) que
+    precisam carregar/descarregar pesos em memória/GPU. Cloud APIs e serviços
+    HTTP NÃO devem implementar esta interface.
+    """
 
     @abstractmethod
     def load_model(self) -> None:
@@ -87,30 +103,107 @@ class TranscriptionEngine(ABC):
         pass
 
 
+class TranscriptionEngine(ITranscriber, ILifecycleManaged):
+    """
+    Interface combinada para engines de transcrição com gestão de ciclo de vida.
+
+    Herda de ITranscriber (transcrever áudio) e ILifecycleManaged (carregar/
+    descarregar modelo). Mantida por conveniência: implementações que precisam
+    dos dois conjuntos de métodos podem herdar desta classe em vez de listar
+    ambas as interfaces separadamente.
+
+    Implementa o Dependency Inversion Principle (DIP) do SOLID,
+    permitindo trocar implementações de Whisper (faster-whisper,
+    openai-whisper, whisperx) sem alterar o código que usa a interface.
+
+    Example:
+        engine = WhisperEngine(model_size="base")
+        await engine.load_model()
+        result = await engine.transcribe("/path/to/audio.mp3")
+        await engine.unload_model()
+    """
+    pass
+
+
 class IModelManager(ABC):
     """
-    Interface para gerenciamento de modelos de ML (Whisper).
-    @deprecated Use TranscriptionEngine em vez disso.
+    DEPRECATED — Remover em próxima versão.
+
+    Esta interface foi marcada como deprecated porque:
+
+      1) Viola ISP ao misturar transcrição com lifecycle management.
+      2) Tem assinaturas incompatíveis com TranscriptionEngine:
+         - unload_model() retorna Dict[str, Any] aqui vs async -> None em TranscriptionEngine.
+         - transcribe() recebe Path + str e retorna dict genérico, enquanto ITranscriber
+           usa str para audio_path e retorna TranscriptionResult tipado.
+
+    A funcionalidade de lifecycle management foi absorvida pela classe concreta
+    ModelManager (em app/services/model_manager.py), que agora é responsável
+    apenas por carregar/descarregar o modelo openai-whisper sem expor uma
+    interface genérica duplicada.
+
+    Use TranscriptionEngine (ou ITranscriber + ILifecycleManaged) para novas implementações.
     """
 
     @abstractmethod
     def load_model(self) -> None:
-        """Carrega modelo na memória/GPU."""
-        pass
+        pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
     @abstractmethod
     def unload_model(self) -> Dict[str, Any]:
-        """Descarrega modelo da memória/GPU."""
-        pass
+        pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
     @abstractmethod
     def get_status(self) -> Dict[str, Any]:
-        """Retorna status atual do modelo."""
-        pass
+        pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
     @abstractmethod
     def transcribe(self, audio_path: Path, language: str = "auto") -> Dict[str, Any]:
-        """Transcreve áudio usando o modelo."""
+        pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
+
+
+class ITranscriptionService(ABC):
+    """
+    Interface abstrata para o serviço de orquestração de transcrições.
+
+    Satisfaz DIP: a camada API depende desta interface, não da classe concreta
+    TranscriptionService. Permite trocar implementações (ex: mock em testes) sem
+    alterar rotas ou controladores.
+
+    Métodos espelham o público API de TranscriptionService — nenhum método novo
+    foi adicionado para manter compatibilidade retroativa.
+    """
+
+    @abstractmethod
+    async def create_job(
+        self,
+        filename: str,
+        language_in: str = "auto",
+        language_out: Optional[str] = None,
+        engine: WhisperEngineEnum | None = None,
+        file_content: Optional[bytes] = None,
+    ) -> Job:
+        """Cria um novo job de transcrição."""
+        pass
+
+    @abstractmethod
+    async def process_job(self, job: Job) -> Job:
+        """Processa um job de transcrição (validação → engine → save)."""
+        pass
+
+    @abstractmethod
+    async def get_job_status(self, job_id: str) -> Optional[Job]:
+        """Obtém status de um job pelo ID."""
+        pass
+
+    @abstractmethod
+    async def list_jobs(self, limit: int = 20) -> List[Job]:
+        """Lista jobs recentes."""
+        pass
+
+    @abstractmethod
+    async def delete_job(self, job_id: str) -> bool:
+        """Remove um job e seus arquivos associados."""
         pass
 
 
@@ -210,35 +303,6 @@ class IDeviceManager(ABC):
         pass
 
 
-class IJobStore(ABC):
-    """Interface para armazenamento de jobs."""
-
-    @abstractmethod
-    def save_job(self, job: Job) -> None:
-        """Salva job no store."""
-        pass
-
-    @abstractmethod
-    def get_job(self, job_id: str) -> Optional[Job]:
-        """Recupera job do store."""
-        pass
-
-    @abstractmethod
-    def update_job(self, job: Job) -> None:
-        """Atualiza job no store."""
-        pass
-
-    @abstractmethod
-    def delete_job(self, job_id: str) -> None:
-        """Remove job do store."""
-        pass
-
-    @abstractmethod
-    def list_jobs(self, status: Optional[str] = None) -> list[Job]:
-        """Lista jobs por status."""
-        pass
-
-
 class IHealthChecker(ABC):
     """Interface para health checks de componentes."""
 
@@ -255,12 +319,17 @@ class IHealthChecker(ABC):
 
 __all__ = [
     "TranscriptionResult",
+    "ITranscriber",
+    "ILifecycleManaged",
     "TranscriptionEngine",
     "IModelManager",
+    "ITranscriptionService",
     "IAudioProcessor",
     "IProgressTracker",
     "IStorageManager",
     "IDeviceManager",
+    "IJobRepository",
+    "IJobQuery",
     "IJobStore",
     "IHealthChecker",
 ]

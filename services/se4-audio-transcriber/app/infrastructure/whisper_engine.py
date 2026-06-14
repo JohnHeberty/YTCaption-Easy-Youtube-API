@@ -13,28 +13,35 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 import gc
 
-import torch
 from faster_whisper import WhisperModel
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
-from ..domain.interfaces import TranscriptionEngine, TranscriptionResult
-from ..domain.models import WhisperEngine
+from typing import Callable, Type
+
+from ..domain.interfaces import (
+    IDeviceManager,
+    TranscriptionEngine,
+    TranscriptionResult,
+)
+from ..domain.models import WhisperEngine as _WhisperEngineEnum
+from ..shared.device_manager import TorchDeviceManager
 from ..shared.exceptions import AudioTranscriptionException
 
 logger = get_logger(__name__)
 
+
 class WhisperEngine(TranscriptionEngine):
     """
     Engine de transcrição usando Whisper via faster-whisper.
-    
+
     Esta implementação:
     - Usa faster-whisper (4x mais rápido que whisper original)
     - Suporta word-level timestamps nativamente
     - Gerencia automaticamente dispositivo (CUDA > CPU)
     - Implementa lazy loading do modelo
-    
+
     Example:
         engine = WhisperEngine(model_size="base")
         await engine.transcribe("/path/to/audio.mp3", language="pt")
@@ -43,7 +50,7 @@ class WhisperEngine(TranscriptionEngine):
     def __init__(
         self,
         model_size: str = "base",
-        device: Optional[str] = None,
+        device_manager: IDeviceManager | None = None,
         compute_type: str = "float16",
         download_root: Optional[str] = None,
         cpu_threads: int = 0,
@@ -54,42 +61,37 @@ class WhisperEngine(TranscriptionEngine):
         
         Args:
             model_size: Tamanho do modelo (tiny, base, small, medium, large-v1, large-v2, large-v3)
-            device: Dispositivo ('cuda', 'cpu', ou None para auto-detect)
+            device_manager: IDeviceManager (opcional, fallback interno se não injetado)
             compute_type: Tipo de computação ('float16', 'int8', 'int8_float16')
             download_root: Diretório para download de modelos
             cpu_threads: Threads para CPU (0 = auto)
             num_workers: Workers para processamento
         """
         self.model_size = model_size
-        self.device = device or self._detect_device()
-        self.compute_type = compute_type if self.device == "cuda" else "int8"
+        self.device_manager = device_manager or TorchDeviceManager()
+        self.compute_type_raw = compute_type
         self.download_root = download_root or os.getenv("WHISPER_MODEL_DIR", "./models")
         self.cpu_threads = cpu_threads
         self.num_workers = num_workers
-        
+
+        self._device: str = self.device_manager.detect_device()
+        self.compute_type = (
+            self.compute_type_raw if self._device == "cuda" else "int8"
+        )
         self._model: Optional[WhisperModel] = None
         self._loaded_at: Optional[Any] = None
         self._last_used_at: Optional[Any] = None
         self._load_count: int = 0
-        
+
         logger.info(
-            f"WhisperEngine criado: model={model_size}, device={self.device}, "
+            f"WhisperEngine criado: model={model_size}, device={self._device}, "
             f"compute_type={self.compute_type}"
         )
 
-    def _detect_device(self) -> str:
-        """Detecta automaticamente o melhor dispositivo disponível."""
-        if torch.cuda.is_available():
-            try:
-                # Testa se CUDA realmente funciona
-                torch.cuda.init()
-                device_name = torch.cuda.get_device_name(0)
-                logger.info(f"CUDA detectado: {device_name}")
-                return "cuda"
-            except Exception as e:
-                logger.warning(f"CUDA detectado mas não funcional: {e}, usando CPU")
-                return "cpu"
-        return "cpu"
+    @property
+    def device(self) -> str:
+        """Retorna dispositivo atual ('cpu' ou 'cuda')."""
+        return self._device
 
     def load_model(self) -> None:
         """
@@ -162,10 +164,15 @@ class WhisperEngine(TranscriptionEngine):
             # Força garbage collection
             gc.collect()
             
-            # Limpa cache CUDA se estava na GPU
-            if device == "cuda" and torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
+            # Limpa cache CUDA se estava na GPU (DIP: delega validação ao manager)
+            if device == "cuda":
+                try:
+                    import torch as _torch
+                    if _torch.cuda.is_available():
+                        _torch.cuda.empty_cache()
+                        _torch.cuda.synchronize()
+                except Exception:
+                    pass
                 logger.info("Cache CUDA limpo")
             
             self._loaded_at = None
@@ -197,13 +204,17 @@ class WhisperEngine(TranscriptionEngine):
         if self._last_used_at:
             status["last_used_at"] = self._last_used_at.isoformat()
         
-        # Informações de GPU
-        if self.device == "cuda" and torch.cuda.is_available():
-            status["gpu"] = {
-                "name": torch.cuda.get_device_name(0),
-                "memory_allocated_mb": round(torch.cuda.memory_allocated(0) / 1024**2, 2),
-                "memory_reserved_mb": round(torch.cuda.memory_reserved(0) / 1024**2, 2),
-            }
+        # Informações de GPU via device_manager (DIP compliance)
+        if self.device == "cuda":
+            info = self.device_manager.get_device_info()
+            gpu_data = info.get("gpu", {})
+            devices = gpu_data.get("devices", [])
+            if devices:
+                status["gpu"] = {
+                    "name": devices[0].get("name"),
+                    "memory_allocated_mb": devices[0].get("memory_allocated_mb"),
+                    "memory_reserved_mb": devices[0].get("memory_reserved_mb"),
+                }
         
         return status
 
@@ -309,88 +320,62 @@ class WhisperEngine(TranscriptionEngine):
             if self._model is not None:
                 self._model = None
                 gc.collect()
-                if self.device == "cuda" and torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                if self.device == "cuda":
+                    import torch as _torch
+                    if _torch.cuda.is_available():
+                        _torch.cuda.empty_cache()
         except Exception:
             pass  # Ignora erros no destructor
 
+import datetime
+
+
 class ModelManager:
-    """
-    Gerenciador de ciclo de vida do modelo Whisper.
-    
-    Implementa o pattern Singleton para garantir que apenas
-    uma instância do modelo exista, com gerenciamento automático
-    de recursos.
-    
+    """Gerenciador de ciclo de vida do modelo Whisper.
+
+    Classe regular — cada chamada a ModelManager() retorna uma nova instância,
+    permitindo injeção de dependência e testes isolados.
+
     Features:
     - Lazy loading (carrega sob demanda)
     - Auto-unload após timeout de inatividade
     - Cache de engines para múltiplos modelos
-    - Thread-safe (para uso com Celery workers)
-    
-    Example:
-        manager = ModelManager()
-        engine = manager.get_or_create_engine("base")
-        result = await engine.transcribe("audio.mp3")
     """
 
-    _instance: Optional["ModelManager"] = None
-    _engines: Dict[str, WhisperEngine] = {}
-    _last_accessed: Dict[str, Any] = {}
-    
-    DEFAULT_IDLE_TIMEOUT_MINUTES: int = 30
-    
-    def __new__(cls):
-        """Singleton pattern."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._engines = {}
-            cls._instance._last_accessed = {}
-        return cls._instance
-    
+    DEFAULT_IDLE_TIMEOUT_MINUTES = 30
+
+    def __init__(self, device_manager=None):
+        self._device_manager = device_manager or TorchDeviceManager()
+        self._engines: Dict[str, WhisperEngine] = {}
+        self._last_accessed: Dict[str, Any] = {}
+
+    @property
+    def device_manager(self) -> IDeviceManager:
+        return self._device_manager
+
     def get_or_create_engine(
         self,
         model_size: str = "base",
-        device: Optional[str] = None,
         **kwargs
     ) -> WhisperEngine:
-        """
-        Obtém ou cria um engine para o modelo especificado.
-        
-        Args:
-            model_size: Tamanho do modelo
-            device: Dispositivo (auto-detect se None)
-            **kwargs: Configurações adicionais
-            
-        Returns:
-            WhisperEngine configurado
-        """
-        cache_key = f"{model_size}_{device or 'auto'}"
-        
+        """Obtém ou cria um engine para o modelo especificado."""
+        cache_key = f"{model_size}"
         if cache_key not in self._engines:
             logger.info(f"Criando novo engine para {cache_key}")
             self._engines[cache_key] = WhisperEngine(
                 model_size=model_size,
-                device=device,
+                device_manager=self.device_manager,
                 **kwargs
             )
-        
+
         self._last_accessed[cache_key] = now_brazil()
         return self._engines[cache_key]
-    
-    async def unload_idle_engines(self, timeout_minutes: int = None) -> int:
-        """
-        Descarrega engines inativos.
-        
-        Args:
-            timeout_minutes: Minutos de inatividade (padrão: 30)
-            
-        Returns:
-            int: Número de engines descarregados
-        """
+
+    async def unload_idle_engines(self, timeout_minutes: int | None = None) -> int:
+        """Descarrega engines inativos."""
         timeout = timeout_minutes or self.DEFAULT_IDLE_TIMEOUT_MINUTES
-        cutoff = now_brazil() - __import__("datetime").timedelta(minutes=timeout)
-        
+        cutoff = now_brazil() - datetime.timedelta(minutes=timeout)
+
         unloaded = 0
         for key, last_access in list(self._last_accessed.items()):
             if last_access < cutoff:
@@ -399,16 +384,13 @@ class ModelManager:
                     await engine.unload_model()
                     unloaded += 1
                     logger.info(f"Engine {key} descarregado por inatividade")
-        
+
         return unloaded
-    
+
     def get_loaded_engines(self) -> List[str]:
         """Retorna lista de engines carregados."""
-        return [
-            key for key, engine in self._engines.items()
-            if engine.is_loaded()
-        ]
-    
+        return [k for k, e in self._engines.items() if e.is_loaded()]
+
     async def unload_all(self) -> None:
         """Descarrega todos os engines."""
         for engine in self._engines.values():
@@ -418,34 +400,64 @@ class ModelManager:
         self._last_accessed.clear()
         logger.info("Todos os engines descarregados")
 
+
+class EngineRegistry:
+    """Registro de factories para criação de engines (Open-Closed Principle).
+
+    Permite registrar novos tipos de engine sem modificar código existente.
+
+    Example:
+        registry = EngineRegistry()
+        registry.register(WhisperEngineEnum.FASTER_WHISPER, lambda **kw: WhisperEngine(**kw))
+        engine = registry.create(WhisperEngineEnum.FASTER_WHISPER, model_size="base")
+    """
+
+    def __init__(self):
+        self._factories: Dict[_WhisperEngineEnum, Callable[..., TranscriptionEngine]] = {}
+
+    def register(self, engine_type: _WhisperEngineEnum, factory: Callable[..., TranscriptionEngine]) -> None:
+        """Registra uma factory para um tipo de engine."""
+        if engine_type in self._factories:
+            logger.warning(f"Factory já registrada para {engine_type}, sobrescrevendo")
+        self._factories[engine_type] = factory
+
+    def create(
+        self,
+        engine_type: _WhisperEngineEnum,
+        **kwargs
+    ) -> TranscriptionEngine:
+        """Cria um engine do tipo registrado."""
+        if engine_type not in self._factories:
+            raise AudioTranscriptionException(f"Engine não suportado ou sem factory registrada: {engine_type}")
+
+        logger.info(f"Criando engine via registry: type={engine_type}, kwargs={kwargs}")
+        return self._factories[engine_type](**kwargs)
+
+
 def get_whisper_engine(
     model_size: str = "base",
-    engine_type: WhisperEngine = WhisperEngine.FASTER_WHISPER
+    engine_type: _WhisperEngineEnum = _WhisperEngineEnum.FASTER_WHISPER,
 ) -> TranscriptionEngine:
+    """Factory function compatível com código legado.
+
+    Usa EngineRegistry internamente para criar engines de forma extensível (OCP).
+    Novos tipos devem ser registrados via registry.register() em vez de adicionar branches aqui.
     """
-    Factory function para criar engines de transcrição.
-    
-    Args:
-        model_size: Tamanho do modelo
-        engine_type: Tipo de engine
-        
-    Returns:
-        TranscriptionEngine configurado
-    """
-    if engine_type == WhisperEngine.FASTER_WHISPER:
+    if engine_type == _WhisperEngineEnum.FASTER_WHISPER:
         return WhisperEngine(model_size=model_size)
-    elif engine_type == WhisperEngine.OPENAI_WHISPER:
-        # Fallback para WhisperEngine (faster-whisper é mais eficiente)
+    elif engine_type == _WhisperEngineEnum.OPENAI_WHISPER:
         logger.warning(
             f"Engine {engine_type} não implementado separadamente, "
-            "usando faster-whisper"
+            "usando faster-whisper como fallback"
         )
         return WhisperEngine(model_size=model_size)
     else:
         raise AudioTranscriptionException(f"Engine não suportado: {engine_type}")
 
+
 __all__ = [
     "WhisperEngine",
     "ModelManager",
     "get_whisper_engine",
+    "EngineRegistry",
 ]

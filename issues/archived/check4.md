@@ -1,0 +1,1 @@
+veja se nao tem erros arquitetureis para corrigir, se achar corrija imediatamente e registre em issues/arquived

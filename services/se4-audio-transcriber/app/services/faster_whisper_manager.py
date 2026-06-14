@@ -2,6 +2,7 @@
 Gerenciador de modelos Whisper usando Faster-Whisper.
 Faster-Whisper é uma reimplementação do Whisper usando CTranslate2, muito mais rápida.
 """
+import gc
 import time
 import torch
 from pathlib import Path
@@ -12,6 +13,7 @@ from ..domain.interfaces import IModelManager
 from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
 from ..infrastructure import get_circuit_breaker, CircuitBreakerException
+from .device_manager import TorchDeviceManager
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -44,21 +46,12 @@ ado
         # Configurações de retry
         self.max_retries = int(self.settings.get('model_load_retries', 3))
         self.retry_backoff = float(self.settings.get('model_load_backoff', 2.0))
-    
-    def _detect_device(self) -> str:
-        """Detecta melhor device disponível"""
-        requested_device = self.settings.get('whisper_device', 'cpu').lower()
         
-        if requested_device == 'cuda' and torch.cuda.is_available():
-            logger.info(f"🎮 CUDA disponível: {torch.cuda.get_device_name(0)}")
-            return 'cuda'
-        else:
-            if requested_device == 'cuda':
-                logger.warning("⚠️  CUDA solicitado mas não disponível, usando CPU")
-            else:
-                logger.info("ℹ️  Usando CPU")
-            return 'cpu'
-    
+        # Device detection via IDeviceManager (DIP)
+        self.device_mgr = TorchDeviceManager(
+            preferred_device=self.settings.get('whisper_device', 'auto')
+        )
+
     def _is_oom_error(self, e: Exception) -> bool:
         """Detecta se o erro é Out-of-Memory na GPU"""
         error_msg = str(e).lower()
@@ -79,8 +72,8 @@ ado
         
         logger.info(f"📦 Carregando Faster-Whisper: {self.model_name}")
         
-        # Detecta melhor dispositivo
-        self.device = self._detect_device()
+        # Detecta melhor dispositivo via IDeviceManager (DIP)
+        self.device = self.device_mgr.detect_device()
         
         # Garante diretório existe
         self.model_dir.mkdir(parents=True, exist_ok=True)
@@ -197,7 +190,6 @@ ado
             self.model = None
             self.is_loaded = False
             
-            import gc
             gc.collect()
             
             # Libera CUDA cache se estava usando GPU

@@ -2,6 +2,7 @@
 Gerenciador de modelos usando WhisperX.
 WhisperX oferece timestamps word-level com forced alignment para precisão máxima.
 """
+import gc
 import logging
 import time
 import torch
@@ -18,6 +19,7 @@ except ImportError:
 from ..domain.interfaces import IModelManager
 from ..shared.exceptions import AudioTranscriptionException
 from ..core.config import get_settings
+from .device_manager import TorchDeviceManager
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -56,25 +58,17 @@ class WhisperXManager(IModelManager):
         self.compute_type: Optional[str] = None
         self.is_loaded = False
         
+        from ..core.constants import DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BACKOFF_BASE
+
         # Configurações
-        self.max_retries = int(self.settings.get('model_load_retries', 3))
-        self.retry_backoff = float(self.settings.get('model_load_backoff', 2.0))
-    
-    def _detect_device(self) -> str:
-        """Detecta melhor device disponível"""
-        requested_device = self.settings.get('whisper_device', 'cpu').lower()
-        
-        if requested_device == 'cuda':
-            if torch.cuda.is_available():
-                logger.info("✅ CUDA disponível")
-                return 'cuda'
-            else:
-                logger.warning("⚠️ CUDA solicitado mas não disponível, usando CPU")
-                return 'cpu'
-        else:
-            logger.info("ℹ️ Usando CPU")
-            return 'cpu'
-    
+        self.max_retries = int(self.settings.get('model_load_retries', DEFAULT_MAX_RETRIES))
+        self.retry_backoff = float(self.settings.get('model_load_backoff', DEFAULT_RETRY_BACKOFF_BASE))
+
+        # Device detection via IDeviceManager (DIP)
+        self.device_mgr = TorchDeviceManager(
+            preferred_device=self.settings.get('whisper_device', 'auto')
+        )
+
     def load_model(self):
         """Carrega modelo WhisperX"""
         if self.is_loaded:
@@ -83,8 +77,8 @@ class WhisperXManager(IModelManager):
         
         logger.info(f"📦 Carregando WhisperX: {self.model_name}")
         
-        # Detecta device
-        self.device = self._detect_device()
+        # Detecta dispositivo via IDeviceManager (DIP)
+        self.device = self.device_mgr.detect_device()
         
         # Define compute_type baseado no device
         if self.device == 'cuda':
@@ -173,7 +167,6 @@ class WhisperXManager(IModelManager):
         self.is_loaded = False
         
         # Força garbage collection
-        import gc
         gc.collect()
         
         # Limpa cache CUDA

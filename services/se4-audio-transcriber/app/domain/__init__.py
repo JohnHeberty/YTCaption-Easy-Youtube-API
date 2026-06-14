@@ -17,6 +17,9 @@ from .exceptions import (
     ProcessingTimeoutError,
 )
 from .interfaces import (
+    ITranscriber,
+    ILifecycleManaged,
+    TranscriptionEngine,
     IModelManager,
     IAudioProcessor,
     IProgressTracker,
@@ -39,6 +42,9 @@ __all__ = [
     "ServiceException",
     "ResourceError",
     "ProcessingTimeoutError",
+    "ITranscriber",
+    "ILifecycleManaged",
+    "TranscriptionEngine",
     "IModelManager",
     "IAudioProcessor",
     "IProgressTracker",

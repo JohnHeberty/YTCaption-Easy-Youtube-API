@@ -20,27 +20,34 @@ from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
 from ..domain.models import Job, JobStatus, WhisperEngine as WhisperEngineEnum, TranscriptionSegment, TranscriptionWord
+from ..shared.caption_formatter import CaptionFormatter, convert_to_srt as _convert_to_srt_compat
+from ..shared.job_state_updater import JobStateUpdater
+from ..shared.error_handling import safe_cleanup
 from ..shared.exceptions import AudioTranscriptionException
 from ..infrastructure.whisper_engine import WhisperEngine, ModelManager
+from ..infrastructure.storage_manager import LocalFileStorage
+from ..domain.interfaces import IStorageManager, ITranscriptionService
 from ..core.validators import JobIdValidator, LanguageValidator
 
 logger = get_logger(__name__)
 
-class TranscriptionService:
+class TranscriptionService(ITranscriptionService):
     """
     Serviço de alto nível para orquestração de transcrições.
-    
+
+    Implementa ITranscriptionService (DIP).
+
     Responsabilidades:
     - Validação de parâmetros
     - Gestão de jobs
     - Seleção de engine
     - Coordenação do fluxo de trabalho
-    
+
     Não lida com:
     - Carregamento de modelos (delega ao WhisperEngine)
     - Persistência de jobs (delega ao job_store)
     - Processamento de áudio bruto (delega ao WhisperEngine)
-    
+
     Example:
         service = TranscriptionService()
         job = await service.create_job("audio.mp3", "pt")
@@ -51,29 +58,40 @@ class TranscriptionService:
         self,
         job_store: Optional[Any] = None,
         model_manager: Optional[ModelManager] = None,
+        storage_manager: Optional[IStorageManager] = None,
         output_dir: str = "./transcriptions",
         upload_dir: str = "./uploads"
     ):
         """
         Inicializa o serviço.
-        
+
         Args:
             job_store: Store para persistência de jobs
             model_manager: Gerenciador de modelos (singleton)
+            storage_manager: Abstração de armazenamento de arquivos (opcional, backward compat)
             output_dir: Diretório para saída
             upload_dir: Diretório para uploads
         """
         self.job_store = job_store
+        self.state = JobStateUpdater(self.job_store)
+        self._current_job_id: Optional[str] = None
         self.model_manager = model_manager or ModelManager()
         self.output_dir = Path(output_dir)
         self.upload_dir = Path(upload_dir)
-        
+
+        # Default storage manager para backward compatibility.
+        if storage_manager is not None:
+            self.storage_manager = storage_manager  # type: ignore[assignment]
+        else:
+            from ..infrastructure.storage_manager import LocalFileStorage as _LFS
+
+            base = self.upload_dir.parent or Path.cwd()
+            self.storage_manager = _LFS(base)  # type: ignore[assignment]
+
         # Cria diretórios se necessário
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
-        
-        self._current_job_id: Optional[str] = None
-        
+
         logger.info(
             f"TranscriptionService iniciado: output={output_dir}, "
             f"upload={upload_dir}"
@@ -156,10 +174,8 @@ class TranscriptionService:
                 raise AudioTranscriptionException(f"Arquivo de entrada não encontrado: {job.input_file}")
             
             # Atualiza job
-            job.status = JobStatus.PROCESSING
-            job.started_at = now_brazil()
-            job.progress = 10.0
-            await self._update_job(job)
+            self.state.mark_processing(job, started_at=now_brazil())
+            self.state.set_progress(10.0, job.id)
             
             # 2. Obtém engine
             model_size = os.getenv("WHISPER_MODEL", "base")
@@ -169,8 +185,8 @@ class TranscriptionService:
             if not engine.is_loaded():
                 engine.load_model()
             
-            job.progress = 25.0
-            await self._update_job(job)
+            self.state.set_progress(25.0, job.id)
+
             
             # 3. Transcreve
             result = await engine.transcribe(
@@ -178,9 +194,9 @@ class TranscriptionService:
                 language=job.language_in if job.language_in != "auto" else None,
                 task="translate" if job.needs_translation else "transcribe"
             )
+
             
-            job.progress = 75.0
-            await self._update_job(job)
+            self.state.set_progress(75.0, job.id)
             
             # 4. Converte segmentos
             transcription_segments = self._convert_segments(result.segments)
@@ -189,29 +205,27 @@ class TranscriptionService:
             output_path = await self._save_transcription(job, result.text, result.segments)
             
             # 6. Finaliza job
-            job.output_file = str(output_path)
-            job.status = JobStatus.COMPLETED
-            job.completed_at = now_brazil()
-            job.progress = 100.0
-            job.transcription_text = result.text
-            job.transcription_segments = transcription_segments
-            job.file_size_output = output_path.stat().st_size
-            job.language_detected = result.language
-            
-            if job.started_at:
-                job.processing_time = (job.completed_at - job.started_at).total_seconds()
-            
-            await self._update_job(job)
+            self.state.mark_completed(
+                job,
+                output_file=str(output_path),
+                text=result.text,
+                segments=transcription_segments,
+                file_size_output=output_path.stat().st_size,
+                language_detected=result.language,
+            )
             
             logger.info(f"Job {job_id} concluído: {len(transcription_segments)} segmentos")
             return job
             
-        except Exception as e:
-            logger.error(f"Job {job_id} falhou: {e}")
-            job.status = JobStatus.FAILED
-            job.error_message = str(e)
-            await self._update_job(job)
+        except AudioTranscriptionException as e:
+            logger.error("Job %s falhou: %s", job_id, e)
+            self.state.mark_failed(job, str(e))
             raise
+
+        except Exception as e:
+            logger.error("Job %s falhou (erro inesperado): %s", job_id, e)
+            self.state.mark_failed(job, str(e))
+            raise AudioTranscriptionException(f"Erro no processamento do job: {str(e)}") from e
 
     def _get_engine_for_job(
         self,
@@ -261,27 +275,26 @@ class TranscriptionService:
         filename: str,
         content: bytes
     ) -> Path:
-        """Salva arquivo de upload."""
+        """Salva arquivo de upload via storage manager (com retry)."""
         ext = Path(filename).suffix
-        file_path = self.upload_dir / f"{job_id}{ext}"
-        
-        # Salva com retry
+        target_name = f"{job_id}{ext}"
+
+        # Salva com retry — apenas para erros transitórios de I/O.
+        last_error = None
         for attempt in range(3):
             try:
-                with open(file_path, "wb") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-                
-                if file_path.exists() and file_path.stat().st_size > 0:
-                    logger.info(f"Arquivo salvo: {file_path} ({len(content)} bytes)")
-                    return file_path
-                    
-            except Exception as e:
-                logger.warning(f"Tentativa {attempt + 1} falhou: {e}")
+                saved_path = self.storage_manager.save_file(content, target_name)  # type: ignore[attr-defined]
+
+                if saved_path.exists() and saved_path.stat().st_size > 0:
+                    logger.info("Arquivo salvo: %s (%d bytes)", saved_path, len(content))
+                    return saved_path
+
+            except (OSError, IOError) as e:
+                last_error = e
+                logger.warning("Tentativa %d de salvar arquivo falhou: %s", attempt + 1, e)
                 await asyncio.sleep(0.5 * (attempt + 1))
-        
-        raise AudioTranscriptionException(f"Falha ao salvar arquivo após 3 tentativas")
+
+        raise AudioTranscriptionException(f"Falha ao salvar arquivo após 3 tentativas") from last_error
 
     async def _save_transcription(
         self,
@@ -289,16 +302,17 @@ class TranscriptionService:
         text: str,
         segments: List[Dict[str, Any]]
     ) -> Path:
-        """Salva arquivo de transcrição em formato SRT."""
-        output_path = self.output_dir / f"{job.id}_transcription.srt"
-        
+        """Salva arquivo de transcrição em formato SRT via storage manager."""
+        output_filename = f"{job.id}_transcription.srt"
+
         # Converte para SRT
-        srt_content = self._convert_to_srt(segments)
-        
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(srt_content)
-        
-        return output_path
+        srt_content = CaptionFormatter.to_srt(segments)
+
+        saved_path = self.storage_manager.save_file(  # type: ignore[attr-defined]
+            srt_content.encode("utf-8"), output_filename
+        )
+
+        return Path(saved_path) if not isinstance(saved_path, Path) else saved_path
 
     def _convert_segments(self, segments: List[Dict[str, Any]]) -> List[TranscriptionSegment]:
         """Converte segmentos para o formato do domínio."""
@@ -328,38 +342,7 @@ class TranscriptionService:
         
         return result
 
-    def _convert_to_srt(self, segments: List[Dict[str, Any]]) -> str:
-        """Converte segmentos para formato SRT."""
-        srt_lines = []
-        
-        for i, seg in enumerate(segments, 1):
-            start_time = self._seconds_to_srt_time(seg["start"])
-            end_time = self._seconds_to_srt_time(seg["end"])
-            text = seg["text"].strip()
-            
-            srt_lines.extend([
-                str(i),
-                f"{start_time} --> {end_time}",
-                text,
-                ""
-            ])
-        
-        return "\n".join(srt_lines)
-
-    def _seconds_to_srt_time(self, seconds: float) -> str:
-        """Converte segundos para formato SRT (HH:MM:SS,mmm)."""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        millis = int((seconds - int(seconds)) * 1000)
-        
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-
-    async def _update_job(self, job: Job) -> None:
-        """Atualiza job no store."""
-        if self.job_store:
-            self.job_store.update_job(job)
-
+    
     async def get_job_status(self, job_id: str) -> Optional[Job]:
         """Obtém status de um job."""
         JobIdValidator.validate(job_id)
@@ -375,25 +358,20 @@ class TranscriptionService:
         return []
 
     async def delete_job(self, job_id: str) -> bool:
-        """Remove um job e seus arquivos."""
+        """Remove um job e seus arquivos via storage manager."""
         JobIdValidator.validate(job_id)
-        
+
         job = await self.get_job_status(job_id)
         if not job:
             return False
-        
-        # Remove arquivos
-        if job.input_file:
-            try:
-                Path(job.input_file).unlink(missing_ok=True)
-            except Exception as e:
-                logger.warning(f"Erro ao remover arquivo de entrada: {e}")
-        
-        if job.output_file:
-            try:
-                Path(job.output_file).unlink(missing_ok=True)
-            except Exception as e:
-                logger.warning(f"Erro ao remover arquivo de saída: {e}")
+
+        # Remove arquivos de entrada/saída via abstração de armazenamento.
+        for file_path in (job.input_file, job.output_file):
+            if file_path:
+                try:
+                    self.storage_manager.delete_file(Path(file_path))  # type: ignore[attr-defined]
+                except Exception as e:
+                    logger.warning("Erro ao remover arquivo (%s): %s", "input" if file_path == job.input_file else "output", e)
         
         # Remove do store
         if self.job_store:
@@ -438,8 +416,7 @@ class TranscriptionOrchestrator:
                     return await self.service.process_job(job)
                 except Exception as e:
                     logger.error(f"Job {job.id} falhou no batch: {e}")
-                    job.status = JobStatus.FAILED
-                    job.error_message = str(e)
+                    self.state.mark_failed(job, str(e))
                     return job
         
         tasks = [process_with_semaphore(job) for job in jobs]
@@ -455,9 +432,11 @@ class TranscriptionOrchestrator:
         
         return processed
 
+    from ..core.constants import DEFAULT_MAX_RETRIES
+
     async def retry_failed_jobs(
         self,
-        max_retries: int = 3
+        max_retries: int = DEFAULT_MAX_RETRIES
     ) -> List[Job]:
         """
         Reprocessa jobs que falharam.
@@ -477,7 +456,8 @@ class TranscriptionOrchestrator:
             job.retry_count += 1
             job.status = JobStatus.QUEUED
             job.error_message = None
-            await self.service._update_job(job)
+            if self.service.job_store:
+                self.service.job_store.update_job(job)
         
         logger.info(f"Reprocessando {len(to_retry)} jobs falhos")
         return await self.process_batch(to_retry)

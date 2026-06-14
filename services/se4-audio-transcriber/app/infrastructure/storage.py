@@ -3,14 +3,12 @@ Sistema de armazenamento para jobs de transcrição
 Implementação em memória com interface para Redis
 """
 import asyncio
-import time
 from typing import Dict, List, Optional
 from collections import defaultdict
 from datetime import datetime
 try:
     from common.datetime_utils import now_brazil
 except ImportError:
-    from datetime import timezone
     try:
         from zoneinfo import ZoneInfo
     except ImportError:

@@ -21,5 +21,17 @@ CELERY_TASK_TIMEOUT_SECONDS = 600
 CELERY_TASK_MAX_RETRIES = 3
 CELERY_TASK_RETRY_DELAY_SECONDS = 30
 
+# Byte conversions
+BYTES_PER_MB = 1_048_576
+
+# Model size estimates (MB) per engine type — used for OOM detection & memory reporting
+FASTER_WHISPER_MODEL_SIZES = {'tiny': 40, 'base': 75, 'small': 250, 'medium': 770, 'large': 1550}
+OPENAI_WHISPER_MODEL_SIZES = {'tiny': 75, 'base': 150, 'small': 384, 'medium': 960, 'large': 2400}
+WHISPERX_MODEL_SIZES = {'tiny': 100, 'base': 200, 'small': 475, 'medium': 1250, 'large': 3150}
+
+# Retry defaults (fallback when settings are missing)
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BACKOFF_BASE = 2.0
+
 # File paths
 DEFAULT_CACHE_DIR = './data/cache'

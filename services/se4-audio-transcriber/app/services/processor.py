@@ -1,3 +1,5 @@
+import gc
+import json
 import os
 import asyncio
 from pathlib import Path
@@ -10,7 +12,13 @@ except ImportError:
     def now_brazil():
         return _dt.now(_tz(timedelta(hours=-3)))
 from ..domain.models import Job, JobStatus, TranscriptionSegment, WhisperEngine
+from ..shared.audio_chunker import AudioChunker
+from ..shared.chunk_transcriber import ChunkTranscriber
+from ..shared.audio_converter import convert_to_wav, has_audio_stream
+from ..shared.caption_formatter import CaptionFormatter
+from ..shared.error_handling import retry_on_transient_error, safe_cleanup
 from ..shared.exceptions import AudioTranscriptionException
+from ..shared.job_state_updater import JobStateUpdater
 from ..core.config import get_settings
 from .faster_whisper_manager import FasterWhisperModelManager
 from .openai_whisper_manager import OpenAIWhisperManager
@@ -23,6 +31,8 @@ logger = get_logger(__name__)
 class TranscriptionProcessor:
     def __init__(self, output_dir=None, model_dir=None):
         self.job_store = None  # Will be injected
+        self.state = JobStateUpdater(self.job_store)
+        self.current_job_id: Optional[str] = None
         self.settings = get_settings()
         self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
@@ -36,17 +46,6 @@ class TranscriptionProcessor:
         self.model = None  # Para compatibilidade
         self.device = None
         self.model_loaded = False
-
-    def _safe_update_job(self, job: Job) -> None:
-        """Persiste estado do job sem propagar erro de store para o fluxo principal."""
-        if not self.job_store:
-            return
-        try:
-            if hasattr(job, "updated_at"):
-                job.updated_at = now_brazil()
-            self.job_store.update_job(job)
-        except Exception as store_err:
-            logger.error("❌ Falha ao persistir job %s: %s", job.id, store_err)
 
     async def _run_with_timeout(self, awaitable, timeout_seconds: int, operation_name: str):
         """Executa awaitable com timeout explícito para evitar jobs pendurados indefinidamente."""
@@ -104,9 +103,14 @@ class TranscriptionProcessor:
             return True  # fail-open
     
     def _detect_device(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
-        """Detecta dispositivo para o engine especificado"""
-        manager = self._get_model_manager(engine)
-        return manager.device if hasattr(manager, 'device') and manager.device else 'cpu'
+        """Detecta dispositivo para o engine especificado via IDeviceManager (DIP)"""
+        from .device_manager import TorchDeviceManager
+        preferred_device = self.settings.get('whisper_device', 'auto').lower()
+        if not preferred_device or preferred_device == 'cpu':
+            preferred_device = 'cpu'
+        elif preferred_device != 'cuda':
+            preferred_device = 'auto'
+        return TorchDeviceManager(preferred_device=preferred_device).detect_device()
     
     def _load_model(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
         """
@@ -190,7 +194,6 @@ class TranscriptionProcessor:
             self.device = None
             
             # Força garbage collection
-            import gc
             gc.collect()
             
             # Se estava na GPU, limpa cache CUDA
@@ -384,13 +387,7 @@ class TranscriptionProcessor:
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
 
-            if job.status != JobStatus.PROCESSING:
-                job.status = JobStatus.PROCESSING
-                if not job.started_at:
-                    job.started_at = now_brazil()
-                self._safe_update_job(job)
-            
-            # Define current_job_id para permitir atualizações de progresso durante chunking
+            self.state.mark_processing(job, started_at=job.started_at or now_brazil())
             self.current_job_id = job.id
             
             # ==========================================
@@ -443,7 +440,7 @@ class TranscriptionProcessor:
             # Resolve bug "tuple index out of range" do faster-whisper
             # ==========================================
             try:
-                converted_file, is_temp_file = self._convert_to_wav(actual_file_path)
+                converted_file, is_temp_file = convert_to_wav(actual_file_path, self.settings)
                 if is_temp_file:
                     original_ext = actual_file_path.suffix.lower()
                     logger.info(f"Arquivo {original_ext} convertido para WAV: {converted_file.name}")
@@ -467,9 +464,8 @@ class TranscriptionProcessor:
                 "load_model",
             )
             
-            # Atualiza progresso
-            job.progress = 25.0
-            self._safe_update_job(job)
+            # Atualiza progresso (model loaded)
+            self.state.set_progress(25.0, job.id)
             
             # Decide se usa chunking baseado nas configurações e duração do áudio
             enable_chunking = self.settings.get('enable_chunking', False)
@@ -485,8 +481,16 @@ class TranscriptionProcessor:
                 if duration_seconds > min_duration_for_chunks:
                     logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")
                     transcription_timeout = int(self.settings.get("job_processing_timeout_seconds", 3600))
+                    chunk_transcriber = ChunkTranscriber(self.settings, self.state)
                     result = await self._run_with_timeout(
-                        self._transcribe_with_chunking(job.input_file, job.language_in, job.language_out, audio),
+                        chunk_transcriber.transcribe(
+                            job.input_file,
+                            job.language_in,
+                            job.language_out,
+                            transcribe_fn=self._transcribe_direct,
+                            job_id=self.current_job_id,
+                            audio=audio,
+                        ),
                         transcription_timeout,
                         "transcribe_with_chunking",
                     )
@@ -518,8 +522,7 @@ class TranscriptionProcessor:
                 )
             
             # Atualiza progresso
-            job.progress = 75.0
-            self._safe_update_job(job)
+            self.state.set_progress(75.0, job.id)
             
             # Converte segments para o formato com start, end, duration E words
             transcription_segments = []
@@ -554,57 +557,62 @@ class TranscriptionProcessor:
             output_path = transcription_dir / f"{job.id}_transcription.srt"
             
             # Converte para formato SRT
-            srt_content = self._convert_to_srt(result["segments"])
+            srt_content = CaptionFormatter.to_srt(result["segments"])
             
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(srt_content)
             
-            # Finaliza job
-            job.output_file = str(output_path)
-            job.status = JobStatus.COMPLETED
-            job.completed_at = now_brazil()
-            job.progress = 100.0
-            job.transcription_text = result["text"]
-            job.transcription_segments = transcription_segments  # Adiciona segments ao job
-            job.file_size_output = output_path.stat().st_size
-            
-            if job.started_at:
-                job.processing_time = (job.completed_at - job.started_at).total_seconds()
-            
-            # Armazena idioma detectado pelo Whisper (se disponível)
+            # Finaliza job via JobStateUpdater
+            language_detected = None
             if "language" in result:
-                job.language_detected = result["language"]
+                language_detected = result["language"]
                 logger.info(f"Idioma detectado pelo Whisper: {result['language']}")
-            
-            self._safe_update_job(job)
+
+            self.state.mark_completed(
+                job,
+                output_file=str(output_path),
+                text=result["text"],
+                segments=transcription_segments,
+                file_size_output=output_path.stat().st_size,
+                language_detected=language_detected,
+            )
             
             logger.info(f"Job {job.id} transcrito com sucesso")
             logger.info(f"Total de segmentos: {len(transcription_segments)}")
             
+        except AudioTranscriptionException as e:
+            self.state.mark_failed(job, str(e))
+            logger.error("Job %s falhou: %s", job.id, e)
+            raise
+
         except Exception as e:
-            # Marca job como falhou
-            job.status = JobStatus.FAILED
-            job.completed_at = now_brazil()
-            job.error_message = str(e)
-            
-            if job.started_at:
-                job.processing_time = (job.completed_at - job.started_at).total_seconds()
-            
-            self._safe_update_job(job)
-            
-            logger.error(f"Job {job.id} falhou: {e}")
-            raise AudioTranscriptionException(f"Erro na transcrição: {str(e)}")
+            self.state.mark_failed(job, str(e))
+            logger.error("Job %s falhou (erro inesperado): %s", job.id, e)
+            raise AudioTranscriptionException(f"Erro na transcrição: {str(e)}") from e
         
         finally:
-            # Limpa arquivo WAV temporário convertido
+            # Limpa arquivo WAV temporário convertido — safe_cleanup para Pattern B consistency.
             if is_temp_file and converted_file is not None:
-                try:
-                    temp_path = Path(converted_file) if not isinstance(converted_file, Path) else converted_file
+                temp_path = Path(converted_file) if not isinstance(converted_file, Path) else converted_file
+
+                def _remove_temp():
                     if temp_path.exists():
                         temp_path.unlink()
-                        logger.info(f"Arquivo temporário removido: {temp_path.name}")
-                except Exception as cleanup_err:
-                    logger.warning(f"Falha ao remover arquivo temporário: {cleanup_err}")
+                        logger.info("Arquivo temporário removido: %s", temp_path.name)
+
+                safe_cleanup(_remove_temp, label="Remover arquivo temporário")
+
+            # Auto-unload do modelo para liberar VRAM quando ocioso.
+            def _unload_model():
+                unload_result = self.model_manager.unload_model()
+                if unload_result.get("success"):
+                    logger.info(
+                        "🧹 Modelo descarregado pós-job (freed ~%s MB RAM)",
+                        unload_result["memory_freed"]["ram_mb"],
+                    )
+
+            safe_cleanup(_unload_model, label="Descarregar modelo")
+
     
     def _transcribe_direct(self, audio_file: str, language_in: str = "auto", language_out: str = None):
         """
@@ -656,434 +664,39 @@ class TranscriptionProcessor:
             #"temperature": self.settings.get('whisper_temperature', 0.0)
         }
         
-        # Retry com backoff exponencial para lidar com problemas temporários
-        max_retries = 3
-        retry_delay = 2.0
-        last_error = None
-        
-        for attempt in range(max_retries):
-            try:
-                if needs_translation:
-                    # Traduzir para inglês usando task="translate" explicitamente
-                    logger.info(f"🌐 Usando {self.current_engine.value} task='translate' para traduzir para inglês (tentativa {attempt + 1}/{max_retries})")
-                    result = self.model_manager.transcribe(
-                        Path(audio_file),
-                        language=None if language_in == "auto" else language_in,
-                        task="translate",
-                        **base_options
-                    )
-                    logger.info(f"✅ Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
-                else:
-                    # Transcrever no idioma original usando task="transcribe" explicitamente
-                    logger.info(f"📝 Usando {self.current_engine.value} task='transcribe' para transcrever em {language_in} (tentativa {attempt + 1}/{max_retries})")
-                    result = self.model_manager.transcribe(
-                        Path(audio_file),
-                        language=None if language_in == "auto" else language_in,
-                        task="transcribe",
-                        **base_options
-                    )
-                    logger.info(f"✅ Transcrição concluída. Idioma: {result.get('language', language_in)}")
-                
-                return result
-                
-            except Exception as e:
-                last_error = e
-                error_msg = str(e)
-                logger.error(f"❌ Erro na transcrição (tentativa {attempt + 1}/{max_retries}): {error_msg}")
-                
-                # Se é o último retry, lança exceção
-                if attempt == max_retries - 1:
-                    logger.error(f"❌ Todas as tentativas falharam. Último erro: {error_msg}")
-                    raise AudioTranscriptionException(f"Falha após {max_retries} tentativas: {error_msg}")
-                
-                # Aguarda antes de tentar novamente (backoff exponencial)
-                sleep_time = retry_delay * (2 ** attempt)
-                logger.info(f"⏳ Aguardando {sleep_time}s antes de tentar novamente...")
-                time.sleep(sleep_time)
-        
-        # Nunca deve chegar aqui, mas por segurança
-        raise AudioTranscriptionException(f"Falha inesperada na transcrição: {last_error}")
-    
-    async def _transcribe_with_chunking(self, audio_file: str, language_in: str, language_out: str = None, audio: AudioSegment = None):
-        """
-        Transcreve ou traduz áudio longo usando chunking para acelerar o processamento
-        
-        Args:
-            audio_file: Caminho do arquivo de áudio
-            language_in: Idioma de entrada para transcrição ("auto" para detecção)
-            language_out: Idioma de saída para tradução (None = apenas transcrever)
-            audio: AudioSegment já carregado (opcional, para evitar recarregar)
-        
-        Returns:
-            dict: Resultado com 'text' e 'segments' no formato Whisper
-        """
-        try:
-            # Valida que arquivo existe
-            audio_path = Path(audio_file)
-            if not audio_path.exists():
-                raise AudioTranscriptionException(
-                    f"Arquivo de áudio não encontrado para chunking: {audio_file}"
+        from ..core.constants import DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BACKOFF_BASE as _retry_base
+
+        # Retry com backoff exponencial — apenas para erros transitórios (I/O, CUDA OOM).
+        # Erros de programação como ValueError/TypeError NÃO são retried.
+        max_retries = self.settings.get('whisper_max_retries', DEFAULT_MAX_RETRIES)
+        retry_delay = float(self.settings.get('whisper_retry_backoff_base', _retry_base))
+
+        @retry_on_transient_error(max_retries=max_retries - 1, base_delay=retry_delay)
+        def _do_transcribe():
+            if needs_translation:
+                logger.info(f"🌐 Usando {self.current_engine.value} task='translate' para traduzir para inglês")
+                result = self.model_manager.transcribe(
+                    Path(audio_file),
+                    language=None if language_in == "auto" else language_in,
+                    task="translate",
+                    **base_options
                 )
-            
-            # Carrega áudio se não foi fornecido
-            if audio is None:
-                logger.info(f"🎵 Carregando áudio para chunking: {audio_file}")
-                try:
-                    audio = AudioSegment.from_file(str(audio_path))
-                except Exception as e:
-                    raise AudioTranscriptionException(
-                        f"Erro ao carregar arquivo de áudio com pydub: {str(e)}"
-                    )
-            
-            duration_ms = len(audio)
-            duration_seconds = duration_ms / 1000.0
-            
-            # Configurações de chunking
-            chunk_length_seconds = self.settings.get('chunk_length_seconds', 30)
-            overlap_seconds = self.settings.get('chunk_overlap_seconds', 1.0)
-            
-            chunk_length_ms = chunk_length_seconds * 1000
-            overlap_ms = overlap_seconds * 1000
-            
-            logger.info(f"Processando áudio de {duration_seconds:.1f}s em chunks de {chunk_length_seconds}s com overlap de {overlap_seconds}s")
-            
-            # Divide áudio em chunks com overlap
-            chunks = []
-            current_position = 0
-            chunk_number = 0
-            
-            while current_position < duration_ms:
-                # Define limites do chunk
-                end_position = min(current_position + chunk_length_ms, duration_ms)
-                
-                # Extrai chunk
-                chunk = audio[current_position:end_position]
-                chunks.append({
-                    'audio': chunk,
-                    'start_time': current_position / 1000.0,
-                    'number': chunk_number
-                })
-                
-                chunk_number += 1
-                
-                # Move para próximo chunk (com overlap)
-                current_position += chunk_length_ms - overlap_ms
-            
-            logger.info(f"Áudio dividido em {len(chunks)} chunks")
-            
-            # Processa cada chunk
-            all_segments = []
-            full_text_parts = []
-            
-            temp_dir = Path(self.settings.get('temp_dir', './temp'))
-            temp_dir.mkdir(exist_ok=True)
-            
-            for i, chunk_data in enumerate(chunks):
-                # Salva chunk temporariamente
-                chunk_file = temp_dir / f"chunk_{i}.wav"
-                chunk_data['audio'].export(chunk_file, format="wav")
-                
-                logger.info(f"Processando chunk {i+1}/{len(chunks)} (offset: {chunk_data['start_time']:.1f}s)")
-                
-                # Transcreve ou traduz chunk
-                chunk_result = self._transcribe_direct(str(chunk_file), language_in, language_out)
-                
-                # Ajusta timestamps dos segmentos com o offset do chunk
-                for segment in chunk_result['segments']:
-                    adjusted_segment = segment.copy()
-                    adjusted_segment['start'] += chunk_data['start_time']
-                    adjusted_segment['end'] += chunk_data['start_time']
-                    all_segments.append(adjusted_segment)
-                
-                full_text_parts.append(chunk_result['text'])
-                
-                # Remove arquivo temporário
-                chunk_file.unlink()
-                
-                # Atualiza progresso (25% inicial + 50% durante chunks)
-                if self.job_store and hasattr(self, 'current_job_id'):
-                    try:
-                        progress = 25.0 + (50.0 * (i + 1) / len(chunks))
-                        job = self.job_store.get_job(self.current_job_id)
-                        if job:
-                            job.progress = progress
-                            self.job_store.update_job(job)
-                            logger.info(f"✅ Progresso atualizado: {progress:.1f}% (chunk {i+1}/{len(chunks)})")
-                    except Exception as e:
-                        logger.error(f"❌ Erro ao atualizar progresso: {e}")
-            
-            # Mescla segmentos sobrepostos (remove duplicatas no overlap)
-            merged_segments = self._merge_overlapping_segments(all_segments, overlap_seconds)
-            
-            # Combina texto completo
-            full_text = " ".join(full_text_parts)
-            
-            logger.info(f"Chunking concluído: {len(merged_segments)} segmentos finais")
-            
-            return {
-                "text": full_text,
-                "segments": merged_segments
-            }
-            
-        except Exception as e:
-            logger.error(f"Erro no chunking: {e}")
-            raise AudioTranscriptionException(f"Falha no chunking: {str(e)}")
-    
-    def _merge_overlapping_segments(self, segments: list, overlap_seconds: float) -> list:
-        """
-        Mescla segmentos sobrepostos removendo duplicatas
-        
-        Args:
-            segments: Lista de segmentos com timestamps
-            overlap_seconds: Duração do overlap em segundos
-        
-        Returns:
-            list: Segmentos mesclados sem duplicatas
-        """
-        if not segments:
-            return []
-        
-        # Ordena por tempo de início
-        sorted_segments = sorted(segments, key=lambda s: s['start'])
-        
-        merged = []
-        for segment in sorted_segments:
-            # Se não há overlap com o último segmento adicionado, adiciona normalmente
-            if not merged or segment['start'] >= merged[-1]['end']:
-                merged.append(segment)
+                logger.info(f"✅ Tradução concluída. Idioma detectado: {result.get('language', 'unknown')}")
             else:
-                # Há overlap - verifica se é texto duplicado
-                last_text = merged[-1]['text'].strip()
-                current_text = segment['text'].strip()
-                
-                # Se textos são muito similares (>80% igual), ignora o segmento duplicado
-                if self._text_similarity(last_text, current_text) > 0.8:
-                    # Atualiza apenas o tempo de fim se necessário
-                    if segment['end'] > merged[-1]['end']:
-                        merged[-1]['end'] = segment['end']
-                else:
-                    # Textos diferentes, adiciona o segmento
-                    merged.append(segment)
-        
-        return merged
-    
-    def _text_similarity(self, text1: str, text2: str) -> float:
-        """Calcula similaridade simples entre dois textos (0.0 a 1.0)"""
-        if not text1 or not text2:
-            return 0.0
-        
-        # Similaridade baseada em palavras em comum
-        words1 = set(text1.lower().split())
-        words2 = set(text2.lower().split())
-        
-        if not words1 or not words2:
-            return 0.0
-        
-        intersection = words1.intersection(words2)
-        union = words1.union(words2)
-        
-        return len(intersection) / len(union)
-    
-    def _convert_to_srt(self, segments):
-        """Converte segmentos do Whisper para formato SRT"""
-        srt_content = ""
-        
-        for i, segment in enumerate(segments, 1):
-            start_time = self._seconds_to_srt_time(segment["start"])
-            end_time = self._seconds_to_srt_time(segment["end"])
-            text = segment["text"].strip()
-            
-            srt_content += f"{i}\n{start_time} --> {end_time}\n{text}\n\n"
-        
-        return srt_content
-    
-    def _seconds_to_srt_time(self, seconds):
-        """Converte segundos para formato de tempo SRT (HH:MM:SS,mmm)"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        millis = int((seconds - int(seconds)) * 1000)
-        
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
-    
-    def _has_audio_stream(self, input_path: Path) -> tuple:
-        """
-        Verifica se o arquivo contém stream de áudio usando ffprobe.
-        
-        Returns:
-            tuple: (has_audio: bool, audio_info: str)
-                - has_audio: True se o arquivo tem pelo menos um stream de áudio
-                - audio_info: Descrição dos streams encontrados (para log)
-        """
-        import subprocess as sp
-
-        cmd = [
-            'ffprobe',
-            '-v', 'quiet',
-            '-print_format', 'json',
-            '-show_streams',
-            '-select_streams', 'a',
-            str(input_path)
-        ]
+                logger.info(f"📝 Usando {self.current_engine.value} task='transcribe' para transcrever em {language_in}")
+                result = self.model_manager.transcribe(
+                    Path(audio_file),
+                    language=None if language_in == "auto" else language_in,
+                    task="transcribe",
+                    **base_options
+                )
+                logger.info(f"✅ Transcrição concluída. Idioma: {result.get('language', language_in)}")
+            return result
 
         try:
-            result = sp.run(cmd, capture_output=True, text=True, timeout=30)
-            if result.returncode != 0:
-                logger.warning(f"ffprobe falhou para {input_path.name}: {result.stderr[:200]}")
-                return True, "ffprobe indisponível, assumindo que tem áudio"
+            return _do_transcribe()
+        except AudioTranscriptionException as e:
+            raise e from None if not e.__cause__ else e
+    
 
-            import json
-            probe_data = json.loads(result.stdout) if result.stdout.strip() else {}
-            streams = probe_data.get('streams', [])
-
-            if not streams:
-                video_cmd = [
-                    'ffprobe', '-v', 'quiet', '-print_format', 'json',
-                    '-show_streams', '-select_streams', 'v', str(input_path)
-                ]
-                video_result = sp.run(video_cmd, capture_output=True, text=True, timeout=30)
-                has_video = False
-                if video_result.returncode == 0 and video_result.stdout.strip():
-                    video_data = json.loads(video_result.stdout)
-                    has_video = bool(video_data.get('streams', []))
-
-                detail = "vídeo" if has_video else "texto/dados"
-                return False, f"Arquivo contém apenas stream de {detail}, sem stream de áudio"
-
-            codec = streams[0].get('codec_name', 'unknown')
-            channels = streams[0].get('channels', '?')
-            sample_rate = streams[0].get('sample_rate', '?')
-            return True, f"áudio: codec={codec}, canais={channels}, taxa={sample_rate}"
-
-        except json.JSONDecodeError:
-            logger.warning(f"ffprobe retornou JSON inválido para {input_path.name}")
-            return True, "ffprobe retornou JSON inválido, assumindo que tem áudio"
-        except FileNotFoundError:
-            logger.warning("ffprobe não encontrado no sistema, pulando verificação de stream de áudio")
-            return True, "ffprobe não disponível, assumindo que tem áudio"
-        except sp.TimeoutExpired:
-            logger.warning(f"ffprobe timeout para {input_path.name}")
-            return True, "ffprobe timeout, assumindo que tem áudio"
-        except Exception as e:
-            logger.warning(f"Erro ao verificar streams com ffprobe: {e}")
-            return True, f"erro na verificação: {e}, assumindo que tem áudio"
-
-    def _convert_to_wav(self, input_path: Path) -> tuple:
-        """
-        Converte qualquer formato de áudio/vídeo para WAV 16kHz mono pcm_s16le.
-        
-        Formatos suportados na entrada: MP4, OGG, MP3, M4A, WEBM, FLAC, WAV, etc.
-        Usa ffmpeg para garantir compatibilidade com faster-whisper.
-        
-        Antes de converter, verifica se o arquivo contém stream de áudio.
-        Arquivos sem stream de áudio (ex: MP4 com apenas vídeo) geram erro claro.
-        
-        Args:
-            input_path: Caminho para o arquivo de entrada
-            
-        Returns:
-            tuple: (wav_path: Path, is_temp: bool)
-                - wav_path: Caminho para o arquivo WAV convertido (ou original se já for WAV)
-                - is_temp: True se o arquivo é temporário e deve ser removido após processamento
-                
-        Raises:
-            AudioTranscriptionException: Se o arquivo não contém stream de áudio,
-                                          ou se a conversão falhar.
-        """
-        import subprocess
-
-        AUDIO_EXTENSIONS = {'.wav'}
-        AUDIO_EXTENSIONS_NEEDING_CONVERT = {
-            '.mp3', '.ogg', '.m4a', '.mp4', '.webm', '.flac', '.aac',
-            '.wma', '.opus', '.3gp', '.ts', '.mxf', '.avi', '.mkv', '.mov'
-        }
-
-        ext = input_path.suffix.lower()
-
-        if ext in AUDIO_EXTENSIONS:
-            try:
-                audio = AudioSegment.from_file(str(input_path))
-                if audio.frame_rate == 16000 and audio.channels == 1:
-                    return input_path, False
-            except Exception:
-                pass
-
-            return input_path, False
-
-        if ext not in AUDIO_EXTENSIONS_NEEDING_CONVERT and ext not in AUDIO_EXTENSIONS:
-            logger.warning(f"Formato desconhecido: {ext}, tentando converter mesmo assim")
-
-        has_audio, audio_info = self._has_audio_stream(input_path)
-        if not has_audio:
-            raise AudioTranscriptionException(
-                f"Não é possível transcrever o arquivo '{input_path.name}': "
-                f"{audio_info}. "
-                f"O arquivo precisa conter pelo menos um stream de áudio para ser transcrito. "
-                f"Verifique se o arquivo de vídeo foi gravado com áudio."
-            )
-
-        logger.info(f"Stream de áudio detectado: {audio_info}")
-
-        temp_dir = Path(self.settings.get('temp_dir', './data/temp'))
-        temp_dir.mkdir(parents=True, exist_ok=True)
-
-        wav_filename = f"{input_path.stem}_converted.wav"
-        wav_path = temp_dir / wav_filename
-
-        sample_rate = str(self.settings.get('ffmpeg_sample_rate', '16000'))
-        threads = str(self.settings.get('ffmpeg_threads', '0'))
-
-        cmd = [
-            'ffmpeg',
-            '-i', str(input_path),
-            '-vn',
-            '-acodec', 'pcm_s16le',
-            '-ar', sample_rate,
-            '-ac', '1',
-            '-threads', threads,
-            '-y',
-            str(wav_path)
-        ]
-
-        logger.info(f"Convertendo {ext} para WAV: {input_path.name} -> {wav_path.name}")
-
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300
-            )
-
-            if result.returncode != 0:
-                stderr_preview = result.stderr[:500] if result.stderr else "no stderr"
-                raise AudioTranscriptionException(
-                    f"Falha ao converter áudio para WAV (ffmpeg exit code {result.returncode}): {stderr_preview}"
-                )
-
-            if not wav_path.exists() or wav_path.stat().st_size < 100:
-                if wav_path.exists():
-                    wav_path.unlink(missing_ok=True)
-                raise AudioTranscriptionException(
-                    f"O arquivo '{input_path.name}' não pôde ser convertido para WAV. "
-                    f"Isso geralmente ocorre quando o arquivo não contém stream de áudio válido "
-                    f"(ex: vídeo sem áudio, arquivo corrompido, ou formato não suportado). "
-                    f"Verifique se o arquivo contém áudio antes de enviar para transcrição."
-                )
-
-            wav_size_mb = wav_path.stat().st_size / (1024 * 1024)
-            logger.info(f"Conversão concluída: {wav_path.name} ({wav_size_mb:.2f} MB)")
-
-            return wav_path, True
-
-        except subprocess.TimeoutExpired:
-            if wav_path.exists():
-                wav_path.unlink(missing_ok=True)
-            raise AudioTranscriptionException(
-                f"Timeout ao converter áudio para WAV (limite: 300s): {input_path.name}"
-            )
-        except AudioTranscriptionException:
-            raise
-        except Exception as e:
-            if wav_path.exists():
-                wav_path.unlink(missing_ok=True)
-            raise AudioTranscriptionException(
-                f"Erro ao converter áudio para WAV: {str(e)}"
-            )
+    # _has_audio_stream and _convert_to_wav moved to app/shared/audio_converter.py (MELHORE 1.2)

@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
@@ -7,33 +6,47 @@ from fastapi.responses import JSONResponse, Response
 from common.datetime_utils import now_brazil
 from common.health_utils import ServiceHealthChecker
 from common.log_utils import get_logger
-from app.core.config import get_settings, get_supported_languages, get_whisper_models
+from app.core.config import get_core, get_supported_languages, get_whisper_models
 from app.api.schemas import DetailedHealthResponse, EnginesResponse, HealthResponse, LanguagesResponse
+from app.domain.interfaces import IJobStore
 from app.infrastructure.dependencies import job_store, processor
-from app.infrastructure.redis_store import RedisJobStore
+from app.shared.health_checkers import (
+    check_disk_space,
+    check_ffmpeg,
+    check_whisper_model,
+)
 
 if TYPE_CHECKING:
     from app.services.processor import TranscriptionProcessor
 
 logger = get_logger(__name__)
-settings = get_settings()
+settings = get_core()
 
 router = APIRouter(tags=["Health"])
 
 
 @router.get("/health", summary="Health check", response_model=HealthResponse)
 async def health_check(
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
     processor: "TranscriptionProcessor" = Depends(processor),
 ):
     """Check service health including Redis, disk space, ffmpeg, and model status."""
-    checker = ServiceHealthChecker("audio-transcription", version=settings.get("version", "2.0.0"))
+    checker = ServiceHealthChecker("audio-transcription", version=settings.version)
 
     checker.add_check("redis", lambda: ServiceHealthChecker.check_redis(job_store.redis))
-    checker.add_check("disk_space", lambda: _check_disk_space(settings['transcription_dir']))
-    checker.add_check("ffmpeg", lambda: _check_ffmpeg_non_critical())
-    checker.add_check("celery_workers", lambda: {"status": "ok", "message": "Celery workers verification skipped for faster health response"})
-    checker.add_check("whisper_model", lambda: _check_whisper_model(processor, settings))
+    checker.add_check(
+        "disk_space",
+        lambda: check_disk_space(settings["transcription_dir"]),
+    )
+    checker.add_check("ffmpeg", lambda: check_ffmpeg())
+    checker.add_check(
+        "celery_workers",
+        lambda: {"status": "ok", "message": "Celery workers verification skipped for faster health response"},
+    )
+    checker.add_check(
+        "whisper_model",
+        lambda: check_whisper_model(processor, settings),
+    )
 
     result = await checker.check_all()
 
@@ -42,61 +55,9 @@ async def health_check(
     return JSONResponse(content=result, status_code=status_code)
 
 
-def _check_disk_space(path: str) -> dict:
-    import shutil
-    try:
-        Path(path).mkdir(exist_ok=True, parents=True)
-        stat = shutil.disk_usage(path)
-        free_gb = stat.free / (1024 ** 3)
-        total_gb = stat.total / (1024 ** 3)
-        percent_free = (stat.free / stat.total) * 100
-        if percent_free <= 5:
-            status = "error"
-        elif percent_free <= 10:
-            status = "warning"
-        else:
-            status = "ok"
-        return {
-            "status": status,
-            "free_gb": round(free_gb, 2),
-            "total_gb": round(total_gb, 2),
-            "percent_free": round(percent_free, 2),
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
-def _check_ffmpeg_non_critical() -> dict:
-    import subprocess
-    try:
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True, timeout=5)
-        if result.returncode == 0:
-            version_line = result.stdout.split("\n")[0]
-            return {"status": "ok", "version": version_line}
-        return {"status": "warning", "message": "ffmpeg not responding"}
-    except FileNotFoundError:
-        return {"status": "warning", "message": "ffmpeg not installed"}
-    except Exception as e:
-        return {"status": "warning", "message": str(e)}
-
-
-def _check_whisper_model(processor, cfg) -> dict:
-    try:
-        model_name = cfg.get("whisper_model", "base")
-        is_loaded = processor.model is not None
-        return {
-            "status": "ok",
-            "model": model_name,
-            "loaded": is_loaded,
-            "message": "Model loaded" if is_loaded else "Model will be loaded on first use",
-        }
-    except Exception as e:
-        return {"status": "ok", "message": f"Check skipped: {e}"}
-
-
 @router.get("/health/detailed", summary="Detailed health check", response_model=DetailedHealthResponse, responses={503: {"description": "Service unhealthy"}})
 async def health_check_detailed(
-    job_store: RedisJobStore = Depends(job_store),
+    job_store: IJobStore = Depends(job_store),
     processor: "TranscriptionProcessor" = Depends(processor),
 ):
     """Perform a detailed health check of Redis, Celery, and model components."""
@@ -137,7 +98,7 @@ async def health_check_detailed(
 
 
 @router.get("/metrics", summary="Prometheus metrics", response_class=Response)
-async def prometheus_metrics(job_store: RedisJobStore = Depends(job_store)):
+async def prometheus_metrics(job_store: IJobStore = Depends(job_store)):
     """Expose Prometheus-format metrics for the transcription service."""
     svc = "audio_transcriber"
     stats: dict = {}
@@ -173,7 +134,7 @@ async def get_supported_languages_endpoint():
         "transcription": {
             "supported_languages": languages,
             "total_languages": len(languages),
-            "default_language": settings.get("whisper_default_language", "auto"),
+            "default_language": settings.whisper_language,
             "note": "Use 'auto' para detecção automática ou código ISO 639-1 específico",
             "examples": ["auto", "pt", "en", "es", "fr", "de", "it", "ja", "ko", "zh"]
         },
