@@ -24,6 +24,7 @@ tenacity==8.2.3
 
 # faster-whisper (padrão): 4x mais rápido, word timestamps nativos
 faster-whisper>=1.1.1  # Atualizado para compatibilidade com whisperx 3.8.1
+ctranslate2==3.24.0  # Downgrade: CTranslate2 4.x precisa cuBLAS 12; CUDA 11.8 image usa cuBLAS 11
 
 # openai-whisper (opcional): Original da OpenAI, compatibilidade máxima
 # Descomente para habilitar:

@@ -10,24 +10,30 @@ from common.redis_utils import ResilientRedisStore
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
 
+from app.domain.interfaces import IJobStore
 from app.domain.models import AudioTranscriptionJob, JobStatus
 
 logger = get_logger(__name__)
 
 
-class RedisJobStore:
+class RedisJobStore(IJobStore):
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
             max_connections=50,
             circuit_breaker_enabled=True,
         )
-        self.redis = self._resilient.redis
+        self._redis_client = self._resilient.redis
         self.ttl_seconds = int(os.getenv("CACHE_TTL_HOURS", "24")) * 3600
         self.key_prefix = "audio_transcriber:job:"
         self.list_key = "audio_transcriber:jobs:list"
         self.queue_key = os.getenv("CELERY_DEFAULT_QUEUE", "audio_transcriber_queue")
         self._cleanup_task: Optional[asyncio.Task] = None
+
+    @property
+    def redis(self):  # IJobStore interface property for health/metrics/cleanup
+        """Retorna o cliente Redis subjacente (usado por health/metrics/cleanup)."""
+        return self._redis_client
 
     @property
     def _raw_redis(self):

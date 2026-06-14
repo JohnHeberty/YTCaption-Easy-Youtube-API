@@ -6,8 +6,26 @@ from typing import Any, Optional
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from common.job_utils.models import StandardJob, JobStatus
-from common.datetime_utils import now_brazil
+try:
+    from common.job_utils.models import StandardJob, JobStatus
+except ImportError:
+    raise
+
+try:
+    from common.datetime_utils import now_brazil  # noqa: F401
+except (ImportError, ModuleNotFoundError):
+    def now_brazil():
+        try:
+            from zoneinfo import ZoneInfo as _zi
+            return datetime.now(_zi("America/Sao_Paulo"))
+        except ImportError:
+            pass
+        from pytz import timezone as _tz2
+        return datetime.now(_tz2("America/Sao_Paulo"))
+
+
+def _now_brazil():
+    return now_brazil()
 
 
 class WhisperEngine(str, Enum):
@@ -61,8 +79,8 @@ class TranscriptionResponse(BaseModel):
 
 
 class AudioTranscriptionJob(StandardJob):
-    received_at: datetime = Field(default_factory=now_brazil)
-    updated_at: datetime = Field(default_factory=now_brazil)
+    received_at: datetime = Field(default_factory=_now_brazil)
+    updated_at: datetime = Field(default_factory=_now_brazil)
     input_file: Optional[str] = None
     output_file: Optional[str] = None
     filename: Optional[str] = None

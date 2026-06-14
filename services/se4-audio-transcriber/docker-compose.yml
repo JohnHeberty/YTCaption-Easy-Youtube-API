@@ -3,8 +3,8 @@ services:
     build:
       context: ../../
       dockerfile: services/se4-audio-transcriber/Dockerfile
-    container_name: audio-transcriber-api
-    runtime: runc
+    container_name: ytcaption-se4-audio-transcriber-api
+    runtime: nvidia
     ports:
       - "${PORT}:${PORT}"
     volumes:
@@ -14,13 +14,17 @@ services:
       - ./data/models:/app/data/models
       - ./data/temp:/app/data/temp
       - ./data/logs:/app/data/logs
+      - /usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:ro
+      - /dev/nvidia-caps:/dev/nvidia-caps:rwm
+      - /dev/nvidia-modeset:/dev/nvidia-modeset:rwm
     env_file:
       - .env
     environment:
       - TZ=${TZ}
-      - PYTHONPATH=${PYTHONPATH}
-      - WHISPER_DEVICE=cpu
+      - PYTHONPATH=/app
+      - WHISPER_DEVICE=cuda
       - WHISPER_FALLBACK_CPU=true
+      - NVIDIA_DRIVER_CAPABILITIES=all
     deploy:
       resources:
         limits:
@@ -40,7 +44,7 @@ services:
       context: ../../
       dockerfile: services/se4-audio-transcriber/Dockerfile
     container_name: audio-transcriber-celery
-    runtime: runc
+    runtime: nvidia
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ./app:/app/app
@@ -49,14 +53,18 @@ services:
       - ./data/models:/app/data/models
       - ./data/temp:/app/data/temp
       - ./data/logs:/app/data/logs
+      - /usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:ro
+      - /dev/nvidia-caps:/dev/nvidia-caps:rwm
+      - /dev/nvidia-modeset:/dev/nvidia-modeset:rwm
     env_file:
       - .env
     environment:
       - TZ=${TZ}
-      - PYTHONPATH=${PYTHONPATH}
-      - C_FORCE_ROOT=${C_FORCE_ROOT}
-      - WHISPER_DEVICE=cpu
+      - PYTHONPATH=/app
+      - C_FORCE_ROOT=true
+      - WHISPER_DEVICE=cuda
       - WHISPER_FALLBACK_CPU=true
+      - NVIDIA_DRIVER_CAPABILITIES=all
     deploy:
       resources:
         limits:
@@ -79,7 +87,6 @@ services:
       context: ../../
       dockerfile: services/se4-audio-transcriber/Dockerfile
     container_name: audio-transcriber-beat
-    runtime: runc
     command: python -m celery -A app.celery_config beat --loglevel=info
     volumes:
       - ./app:/app/app
@@ -100,4 +107,3 @@ services:
     depends_on:
       audio-transcriber-service:
         condition: service_healthy
-

@@ -5,13 +5,13 @@ from common.log_utils import setup_structured_logging, get_logger
 from common.fastapi_utils import create_service_app
 
 from app.api import jobs_router, admin_router, model_router, health_router
-from app.core.config import get_settings
+from app.core.config import get_core
 
-settings = get_settings()
+settings = get_core()
 setup_structured_logging(
     service_name="audio-transcriber",
-    log_level=settings.get("log_level", "INFO"),
-    log_dir=settings.get("log_dir", "./logs"),
+    log_level=settings.log_level,
+    log_dir=settings.log_dir,
     json_format=True,
 )
 logger = get_logger(__name__)
@@ -54,7 +54,7 @@ app = create_service_app(
     settings=settings,
     lifespan=lifespan,
     setup_routers=setup_routers,
-    body_size_mb=settings.get("max_file_size_mb", 500),
+    body_size_mb=settings.max_file_size_mb,
 )
 
 

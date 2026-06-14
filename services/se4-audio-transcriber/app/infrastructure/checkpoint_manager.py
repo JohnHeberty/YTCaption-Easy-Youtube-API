@@ -10,6 +10,18 @@ Adaptado do padrão make-video para transcrições de áudio.
 import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+try:
+    from common.datetime_utils import now_brazil
+except ImportError:
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo
+
+    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
+    def now_brazil() -> datetime:
+        return datetime.now(BRAZIL_TZ)
+
 from dataclasses import dataclass, asdict
 from enum import Enum
 from common.log_utils import get_logger

@@ -1,0 +1,1 @@
+valide se tem melhorias de code quality para fazer no codigo, se achar corrija imediatamente e registre em issues/arquived
