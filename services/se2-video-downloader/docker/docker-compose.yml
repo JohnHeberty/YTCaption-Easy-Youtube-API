@@ -1,21 +1,21 @@
+name: se2-video-downloader
 services:
   video-downloader-service:
     build:
-      context: ../../
-      dockerfile: services/se2-video-downloader/Dockerfile
+      context: ../../..
+      dockerfile: services/se2-video-downloader/docker/Dockerfile
     container_name: video-downloader-api
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      # Monta código fonte para hot reload em desenvolvimento
-      - ./app:/app/app
-      - ./data/cache:/app/data/cache
-      - ./data/logs:/app/data/logs
-      - ./user-agents.txt:/app/user-agents.txt
-      - ./user-agents-clean.txt:/app/user-agents-clean.txt
-      - ./user-agents-original.txt:/app/user-agents-original.txt
+      - ../app:/app/app
+      - ../data/cache:/app/data/cache
+      - ../data/logs:/app/data/logs
+      - ../user-agents.txt:/app/user-agents.txt
+      - ../user-agents-clean.txt:/app/user-agents-clean.txt
+      - ../user-agents-original.txt:/app/user-agents-original.txt
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app
@@ -32,20 +32,19 @@ services:
 
   celery-worker:
     build:
-      context: ../../
-      dockerfile: services/se2-video-downloader/Dockerfile
+      context: ../../..
+      dockerfile: services/se2-video-downloader/docker/Dockerfile
     container_name: video-downloader-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
-      # Monta código fonte para hot reload em desenvolvimento
-      - ./app:/app/app
-      - ./data/cache:/app/data/cache
-      - ./data/logs:/app/data/logs
-      - ./user-agents.txt:/app/user-agents.txt
-      - ./user-agents-clean.txt:/app/user-agents-clean.txt
-      - ./user-agents-original.txt:/app/user-agents-original.txt
+      - ../app:/app/app
+      - ../data/cache:/app/data/cache
+      - ../data/logs:/app/data/logs
+      - ../user-agents.txt:/app/user-agents.txt
+      - ../user-agents-clean.txt:/app/user-agents-clean.txt
+      - ../user-agents-original.txt:/app/user-agents-original.txt
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=${PYTHONPATH}

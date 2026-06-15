@@ -1,42 +1,26 @@
+name: se3-audio-normalization
 services:
-  # 1) Redis
-  # redis:
-  #   image: redis:6.2-alpine
-  #   container_name: audio-normalization-redis
-  #   ports:
-  #     - "6379:6379"
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 1s
-  #     timeout: 3s
-  #     retries: 5
-
-  # 2) API
   audio-normalization-service:
     build:
-      context: ../../
-      dockerfile: services/se3-audio-normalization/Dockerfile
+      context: ../../..
+      dockerfile: services/se3-audio-normalization/docker/Dockerfile
     container_name: audio-normalization-api
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      - ./app:/app/app
-      - ./data/uploads:/app/data/uploads
-      - ./data/processed:/app/data/processed
-      - ./data/temp:/app/data/temp
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/uploads:/app/data/uploads
+      - ../data/processed:/app/data/processed
+      - ../data/temp:/app/data/temp
+      - ../data/logs:/app/data/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app
       - NUMBA_CACHE_DIR=${NUMBA_CACHE_DIR}
       - NUMBA_DISABLE_JIT=${NUMBA_DISABLE_JIT}
     restart: unless-stopped
-    #depends_on:
-    #  redis:
-    #    condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
       interval: 30s
@@ -47,21 +31,20 @@ services:
       - "com.example.service=audio-normalization"
       - "com.example.version=2.0.0-cpu"
 
-  # 3) Worker Celery (CPU-only)
   celery-worker:
     build:
-      context: ../../
-      dockerfile: services/se3-audio-normalization/Dockerfile
+      context: ../../..
+      dockerfile: services/se3-audio-normalization/docker/Dockerfile
     container_name: audio-normalization-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=2 --pool=prefork --queues=audio_normalization_queue
     volumes:
-      - ./app:/app/app
-      - ./data/uploads:/app/data/uploads
-      - ./data/processed:/app/data/processed
-      - ./data/temp:/app/data/temp
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/uploads:/app/data/uploads
+      - ../data/processed:/app/data/processed
+      - ../data/temp:/app/data/temp
+      - ../data/logs:/app/data/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - PYTHONPATH=/app
       - C_FORCE_ROOT=${C_FORCE_ROOT}
@@ -69,8 +52,6 @@ services:
       - NUMBA_DISABLE_JIT=${NUMBA_DISABLE_JIT}
     restart: unless-stopped
     depends_on:
-      #redis:
-      #  condition: service_healthy
       audio-normalization-service:
         condition: service_started
     healthcheck:

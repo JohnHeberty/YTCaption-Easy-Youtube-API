@@ -1,17 +1,18 @@
+name: se7-audio-generation
 services:
   audio-generation-service:
     build:
-      context: ../../
-      dockerfile: services/se7-audio-generation/Dockerfile
+      context: ../../..
+      dockerfile: services/se7-audio-generation/docker/Dockerfile
       target: api
     container_name: audio-generation-api
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      - ./app:/app/app
-      - ./data:/app/data
+      - ../app:/app/app
+      - ../data:/app/data
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app/chatterbox-space:/app
@@ -25,15 +26,15 @@ services:
 
   celery-worker:
     build:
-      context: ../../
-      dockerfile: services/se7-audio-generation/Dockerfile
+      context: ../../..
+      dockerfile: services/se7-audio-generation/docker/Dockerfile
     container_name: audio-generation-celery
     command: python -m celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=1 --queues=audio_generation_queue --pool=solo
     volumes:
-      - ./app:/app/app
-      - ./data:/app/data
+      - ../app:/app/app
+      - ../data:/app/data
     env_file:
-      - .env
+      - ../.env
     environment:
       - PYTHONPATH=/app/chatterbox-space:/app
       - C_FORCE_ROOT=true

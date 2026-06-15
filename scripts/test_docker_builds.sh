@@ -32,8 +32,8 @@ test_build() {
     cd "$service_dir"
     
     # Verifica se Dockerfile existe
-    if [ ! -f "Dockerfile" ]; then
-        echo -e "${RED}  ✗ Dockerfile não encontrado${NC}"
+    if [ ! -f "docker/Dockerfile" ]; then
+        echo -e "${RED}  Dockerfile nao encontrado${NC}"
         echo -e "${RED}❌ FALHOU: $service_name${NC}"
         echo ""
         failed_tests=$((failed_tests + 1))
@@ -71,7 +71,7 @@ echo "Testando builds dos serviços (exceto se4-audio-transcriber que requer GPU
 echo ""
 
 # Teste 1: se1-orchestrator
-test_build "se1-orchestrator" "/root/YTCaption-Easy-Youtube-API/se1-orchestrator"
+test_build "se1-orchestrator" "/root/YTCaption-Easy-Youtube-API/services/se1-orchestrator"
 
 # Teste 2: se3-audio-normalization
 test_build "se3-audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/se3-audio-normalization"

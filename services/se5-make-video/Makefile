@@ -14,7 +14,7 @@
 # VARIÁVEIS
 # ============================================================================
 
-DOCKER_COMPOSE := docker compose
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml
 DOCKER_SERVICE := make-video
 PYTHON := python3
 VENV := .venv
@@ -599,7 +599,7 @@ validate: ## Validar configuração e estrutura
 	@echo ""
 	@echo "📄 Arquivos de configuração:"
 	@test -f .env && echo "  ✅ .env" || echo "  ⚠️  .env não encontrado"
-	@test -f docker-compose.yml && echo "  ✅ docker-compose.yml" || echo "  ❌ docker-compose.yml"
+	@test -f docker/docker-compose.yml && echo "  ✅ docker-compose.yml" || echo "  ❌ docker-compose.yml"
 	@test -f requirements.txt && echo "  ✅ requirements.txt" || echo "  ❌ requirements.txt"
 	@echo ""
 	@echo "🐍 Scripts Python:"
