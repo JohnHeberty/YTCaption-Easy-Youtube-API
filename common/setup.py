@@ -3,7 +3,7 @@ Setup configuration for YTCaption Common Library
 """
 from setuptools import setup, find_packages
 
-# The actual directory is 'shared', but install as 'common' namespace
+# The directory is 'common', installed as 'common' namespace
 # find_packages discovers subpackages only (e.g. ['config_utils', ...])
 _packages = ["common"] + [f"common.{pkg}" for pkg in find_packages()]
 

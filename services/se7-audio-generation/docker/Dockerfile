@@ -30,7 +30,7 @@ RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pyt
 RUN sed -i '/^torch/d; /^torchaudio/d; /^gradio/d; /cu128/d' /app/chatterbox-space/requirements.txt && \
     pip install --no-cache-dir -r /app/chatterbox-space/requirements.txt
 
-COPY shared/ ./common/
+COPY common/ ./common/
 RUN pip install --no-cache-dir -e ./common
 
 COPY services/se7-audio-generation/constraints.txt /app/constraints.txt

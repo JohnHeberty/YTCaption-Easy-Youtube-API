@@ -10,6 +10,7 @@ services:
     ports:
       - "${PORT:-8003}:${PORT:-8003}"
     volumes:
+      - ../../../common:/app/common
       - ./uploads:/app/uploads
       - ./transcriptions:/app/transcriptions
       - ./models:/app/models
@@ -65,6 +66,7 @@ services:
         --time-limit=3600
         --soft-time-limit=3300
     volumes:
+      - ../../../common:/app/common
       - ./uploads:/app/uploads
       - ./transcriptions:/app/transcriptions
       - ./models:/app/models
@@ -118,6 +120,7 @@ services:
     container_name: audio-transcriber-beat
     command: python -m celery -A app.celery_config beat --loglevel=info
     volumes:
+      - ../../../common:/app/common
       - ./logs:/app/logs
     env_file:
       - ../.env

@@ -27,7 +27,7 @@ ENV PYTHONUNBUFFERED=1 \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-COPY shared/ ./common/
+COPY common/ ./common/
 COPY services/se5-make-video/requirements-docker.txt requirements.txt
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel

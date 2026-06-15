@@ -9,6 +9,7 @@ services:
     ports:
       - "${PORT}:${PORT}"
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data/uploads:/app/data/uploads
       - ../data/transcriptions:/app/data/transcriptions
@@ -48,6 +49,7 @@ services:
     runtime: nvidia
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data/uploads:/app/data/uploads
       - ../data/transcriptions:/app/data/transcriptions
@@ -90,6 +92,7 @@ services:
     container_name: audio-transcriber-beat
     command: python -m celery -A app.celery_config beat --loglevel=info
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data/logs:/app/data/logs
     env_file:

@@ -23,7 +23,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copia shared como common/ (build context é raiz do projeto)
-COPY shared/ ./common/
+COPY common/ ./common/
 
 # Copia requirements primeiro (aproveita cache de layers)
 COPY services/se2-video-downloader/requirements.txt .
