@@ -21,8 +21,8 @@ VENV_BIN := $(VENV)/bin
 VENV_PYTHON := $(VENV_BIN)/python
 VENV_PYTEST := $(VENV_BIN)/pytest
 LOG_DIR := ./logs
-API_BASE_URL := http://localhost:8000
-PORT ?= 8000
+API_BASE_URL := http://localhost:8001
+PORT ?= 8001
 COMPOSE_FILE := docker/docker-compose.yml
 COMPOSE_PROJECT := $(SERVICE_NAME)
 
@@ -164,7 +164,7 @@ status: ## Ver status completo
 
 clean: ## Limpar arquivos temporarios
 	@echo "Limpando arquivos temporarios..."
-	rm -rf __pycache__ app/__pycache__ modules/__pycache__
+	rm -rf __pycache__ app/__pycache__
 	rm -rf .pytest_cache
 	rm -rf .coverage htmlcov
 	@echo "  Limpeza concluida!"
@@ -199,13 +199,3 @@ info: ## Mostrar informacoes do servico
 
 shell-container: ## Shell no container da API
 	@docker exec -it ytcaption-$(SERVICE_NAME) /bin/bash
-
-notebook: ## Abrir Jupyter notebook de testes
-	@echo "Abrindo notebook..."
-	$(VENV_PYTHON) -m jupyter notebook test_orchestrator.ipynb 2>/dev/null || \
-		echo "  Jupyter nao instalado. Use: pip install jupyter"
-
-test-sse: ## Testar SSE - abre HTML client no navegador
-	@echo "  Abra test_sse_client.html no navegador"
-	@echo "  Arquivo: $(PWD)/test_sse_client.html"
-	@xdg-open test_sse_client.html 2>/dev/null || echo "  Abra manualmente"

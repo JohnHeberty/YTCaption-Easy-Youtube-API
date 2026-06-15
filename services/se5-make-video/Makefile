@@ -102,9 +102,10 @@ install: venv ## Instalar dependências Python no venv
 	@echo "✅ Dependências instaladas no $(VENV)"
 	@echo "💡 Ativar venv: source $(VENV)/bin/activate"
 
-dev: ## Iniciar serviço em modo desenvolvimento
-	@echo "🚀 Iniciando em modo desenvolvimento..."
-	$(DOCKER_COMPOSE) up --build
+dev: ## Rodar servico em modo desenvolvimento (local, sem Docker)
+	@echo "Iniciando Make-Video em modo dev..."
+	@echo "   Port: $(PORT)"
+	PORT=$(PORT) $(VENV_PYTHON) run.py
 
 logs: ## Ver logs do serviço em tempo real
 	$(DOCKER_COMPOSE) logs -f $(DOCKER_SERVICE)
@@ -484,25 +485,16 @@ down: ## Parar e remover containers
 	@echo "🛑 Parando serviços..."
 	$(DOCKER_COMPOSE) down
 
-restart: ## Reiniciar serviços
-	@echo "🔄 Reiniciando serviços..."
-	$(DOCKER_COMPOSE) restart
-	@echo "✅ Serviços reiniciados"
+restart: down up ## Reiniciar containers
 
 status: ## Mostrar status dos containers
-	@echo "📊 Status dos Containers"
-	@echo "═══════════════════════════════════════════════════════════"
-	$(DOCKER_COMPOSE) ps
+	@echo "Status do Make-Video:"
 	@echo ""
-	@echo "Calibração:"
-	@CALCONTAINER=$$(docker ps --format "{{.Names}}" | grep -E "calibrate|optuna|make-video-run" | head -1); \
-	if [ -n "$$CALCONTAINER" ]; then \
-		echo "  ✅ ATIVA: $$CALCONTAINER"; \
-		echo "  Ver detalhes: make cal-status"; \
-	else \
-		echo "  ❌ Não rodando"; \
-	fi
-	@echo "═══════════════════════════════════════════════════════════"
+	@echo "Containers:"
+	@$(DOCKER_COMPOSE) ps
+	@echo ""
+	@echo "Health:"
+	@curl -s $(API_BASE_URL)/health | python3 -m json.tool 2>/dev/null || echo "  API offline"
 
 ps: status ## Alias para 'make status'
 
@@ -825,9 +817,9 @@ shell-beat: ## Shell no container do Beat
 	@docker exec -it ytcaption-make-video-celery-beat /bin/bash
 
 clean-docker: ## Limpar imagens Docker
-	@echo "🧹 Limpando imagens Docker..."
+	@echo "Limpando imagens Docker..."
 	-docker rmi -f ytcaption-make-video ytcaption-make-video-celery ytcaption-make-video-celery-beat 2>/dev/null
-	@echo "✅ Imagens removidas!"
+	@echo "  Imagens removidas!"
 
 fix-permissions: ## Corrigir permissoes dos diretorios data/
 	@echo "🔧 Corrigindo permissoes..."
