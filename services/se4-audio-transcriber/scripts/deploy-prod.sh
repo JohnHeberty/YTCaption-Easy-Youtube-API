@@ -42,8 +42,8 @@ echo ""
 log_info "Validando ambiente..."
 
 # 1. Verificar se está no diretório correto
-if [ ! -f "docker-compose.prod.yml" ]; then
-    log_error "docker-compose.prod.yml não encontrado!"
+if [ ! -f "docker/docker/docker-compose.prod.yml" ]; then
+    log_error "docker/docker/docker-compose.prod.yml nao encontrado!"
     log_error "Execute este script do diretório services/audio-transcriber/"
     exit 1
 fi
@@ -91,7 +91,7 @@ log_info "Building imagem de produção..."
 log_info "  Modelo: $WHISPER_MODEL"
 log_info "  Device: CPU"
 
-DOCKER_BUILDKIT=1 docker compose -f docker-compose.prod.yml build \
+DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.prod.yml build \
     --build-arg BUILD_ENV=production
 
 if [ $? -ne 0 ]; then
@@ -102,12 +102,12 @@ log_success "Build completo"
 
 # 7. Parar serviços antigos se existirem
 log_info "Parando serviços antigos..."
-docker compose -f docker-compose.prod.yml down 2>/dev/null || true
+docker compose -f docker/docker-compose.prod.yml down 2>/dev/null || true
 log_success "Serviços antigos parados"
 
 # 8. Subir serviços
 log_info "Subindo serviços..."
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker/docker-compose.prod.yml up -d
 
 if [ $? -ne 0 ]; then
     log_error "Falha ao subir serviços!"
@@ -134,7 +134,7 @@ done
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     log_error "API não respondeu após ${MAX_RETRIES} tentativas"
     log_info "Verificando logs..."
-    docker compose -f docker-compose.prod.yml logs --tail=50 audio-transcriber-service
+    docker compose -f docker/docker-compose.prod.yml logs --tail=50 audio-transcriber-service
     exit 1
 fi
 
@@ -155,7 +155,7 @@ echo "║                    Deploy Completo! 🎉                         ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 log_info "Serviços rodando:"
-docker compose -f docker-compose.prod.yml ps
+docker compose -f docker/docker-compose.prod.yml ps
 echo ""
 log_info "Endpoints:"
 echo "  • API: http://localhost:${PORT:-8003}"
@@ -163,14 +163,14 @@ echo "  • Docs: http://localhost:${PORT:-8003}/docs"
 echo "  • Health: http://localhost:${PORT:-8003}/health"
 echo ""
 log_info "Logs:"
-echo "  • Todos: docker compose -f docker-compose.prod.yml logs -f"
-echo "  • API: docker compose -f docker-compose.prod.yml logs -f audio-transcriber-service"
-echo "  • Celery: docker compose -f docker-compose.prod.yml logs -f celery-worker"
+echo "  • Todos: docker compose -f docker/docker-compose.prod.yml logs -f"
+echo "  • API: docker compose -f docker/docker-compose.prod.yml logs -f audio-transcriber-service"
+echo "  • Celery: docker compose -f docker/docker-compose.prod.yml logs -f celery-worker"
 echo ""
 log_info "Comandos úteis:"
 echo "  • Status: make prod-status"
 echo "  • Logs: make prod-logs"
-echo "  • Restart: docker compose -f docker-compose.prod.yml restart"
-echo "  • Down: docker compose -f docker-compose.prod.yml down"
+echo "  • Restart: docker compose -f docker/docker-compose.prod.yml restart"
+echo "  • Down: docker compose -f docker/docker-compose.prod.yml down"
 echo ""
 log_success "Deploy concluído com sucesso!"

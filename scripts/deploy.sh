@@ -1,115 +1,130 @@
 #!/bin/bash
 
 # YTCaption - Deploy Script
-# Sobe todos os serviços em produção com um único comando
+# Sobe todos os servicos com um unico comando
 
-set -e  # Exit on error
+set -e
 
-echo "🚀 YTCaption - Deploy Script"
-echo "=============================="
+echo "YTCaption - Deploy Script"
+echo "==========================="
 echo ""
 
-# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
-# Check if .env exists
-if [ ! -f .env ]; then
-    echo -e "${RED}❌ Erro: Arquivo .env não encontrado!${NC}"
-    echo ""
-    echo "Por favor, crie o arquivo .env baseado no .env.example:"
-    echo "  cp .env.example .env"
-    echo "  nano .env  # Edite com suas configurações"
-    echo ""
-    exit 1
-fi
-
-echo -e "${GREEN}✓${NC} Arquivo .env encontrado"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
-    echo -e "${RED}❌ Erro: Docker não está rodando!${NC}"
-    echo ""
-    echo "Inicie o Docker e tente novamente."
+    echo -e "${RED}ERRO: Docker nao esta rodando!${NC}"
     exit 1
 fi
+echo -e "${GREEN}OK${NC} Docker esta rodando"
 
-echo -e "${GREEN}✓${NC} Docker está rodando"
-
-# Check if docker-compose is available
-if ! command -v docker-compose &> /dev/null; then
-    echo -e "${RED}❌ Erro: docker-compose não encontrado!${NC}"
-    echo ""
-    echo "Instale o Docker Compose:"
-    echo "  https://docs.docker.com/compose/install/"
+# Check docker compose v2
+if ! docker compose version > /dev/null 2>&1; then
+    echo -e "${RED}ERRO: docker compose v2 nao encontrado!${NC}"
     exit 1
 fi
-
-echo -e "${GREEN}✓${NC} Docker Compose disponível"
+echo -e "${GREEN}OK${NC} Docker Compose disponivel"
 echo ""
 
-# Ask for build type
 echo "Escolha o modo de deploy:"
-echo "  1) 🏗️  Build completo (recomendado para primeira vez ou após mudanças no código)"
-echo "  2) 🚀 Deploy rápido (usa imagens existentes)"
+echo "  1) Build completo (recomendado para primeira vez ou apos mudancas no codigo)"
+echo "  2) Deploy rapido (usa imagens existentes)"
 echo ""
 read -p "Digite 1 ou 2: " BUILD_CHOICE
+
+SERVICES=(
+    "se1-orchestrator"
+    "se2-video-downloader"
+    "se3-audio-normalization"
+    "se4-audio-transcriber"
+    "se5-make-video"
+    "se6-youtube-search"
+    "se7-audio-generation"
+)
+
+deploy_service() {
+    local svc="$1"
+    local svc_dir="$REPO_ROOT/services/$svc"
+
+    if [ ! -d "$svc_dir" ]; then
+        echo -e "  ${YELLOW}SKIP${NC} $svc (dir not found)"
+        return
+    fi
+
+    cd "$svc_dir"
+
+    if [ "$BUILD_CHOICE" = "1" ]; then
+        if docker compose build 2>&1 | tail -1; then
+            echo -e "  ${GREEN}OK${NC} $svc build"
+        else
+            echo -e "  ${RED}ERRO${NC} $svc build"
+            return 1
+        fi
+    fi
+
+    if docker compose up -d 2>&1 | tail -1; then
+        echo -e "  ${GREEN}OK${NC} $svc up"
+    else
+        echo -e "  ${RED}ERRO${NC} $svc up"
+        return 1
+    fi
+}
 
 case $BUILD_CHOICE in
     1)
         echo ""
-        echo -e "${YELLOW}🏗️  Fazendo build completo...${NC}"
+        echo -e "${YELLOW}Build completo...${NC}"
         echo ""
-        docker-compose down
-        docker-compose build --no-cache
-        docker-compose up -d
-        BUILD_TYPE="completo"
+        for svc in "${SERVICES[@]}"; do
+            deploy_service "$svc"
+        done
         ;;
     2)
         echo ""
-        echo -e "${YELLOW}🚀 Deploy rápido...${NC}"
+        echo -e "${YELLOW}Deploy rapido...${NC}"
         echo ""
-        docker-compose up -d
-        BUILD_TYPE="rápido"
+        for svc in "${SERVICES[@]}"; do
+            deploy_service "$svc"
+        done
         ;;
     *)
-        echo -e "${RED}❌ Opção inválida!${NC}"
+        echo -e "${RED}Opcao invalida!${NC}"
         exit 1
         ;;
 esac
 
 echo ""
-echo -e "${GREEN}✓${NC} Serviços iniciados com sucesso (deploy $BUILD_TYPE)"
+echo "Aguardando servicos iniciarem..."
+sleep 15
+
+echo ""
+echo "Verificando status dos servicos..."
 echo ""
 
-# Wait for services to start
-echo "⏳ Aguardando serviços iniciarem..."
-sleep 10
-
-# Check services
-echo ""
-echo "🔍 Verificando status dos serviços..."
-echo ""
-
-SERVICES=(
-    "se1-orchestrator:http://localhost:8001/health"
-    "se2-video-downloader:http://localhost:8002/health"
-    "se3-audio-normalization:http://localhost:8003/health"
-    "se4-audio-transcriber:http://localhost:8004/health"
+HEALTH_URLS=(
+    "se1:http://localhost:8001/health"
+    "se2:http://localhost:8002/health"
+    "se3:http://localhost:8003/health"
+    "se4:http://localhost:8004/health"
+    "se5:http://localhost:8005/health"
+    "se6:http://localhost:8006/health"
+    "se7:http://localhost:8007/health"
 )
 
 ALL_HEALTHY=true
 
-for SERVICE in "${SERVICES[@]}"; do
-    NAME="${SERVICE%%:*}"
-    URL="${SERVICE##*:}"
-    
+for ENTRY in "${HEALTH_URLS[@]}"; do
+    NAME="${ENTRY%%:*}"
+    URL="${ENTRY##*:}"
     if curl -f -s "$URL" > /dev/null 2>&1; then
-        echo -e "  ${GREEN}✓${NC} $NAME"
+        echo -e "  ${GREEN}OK${NC} $NAME"
     else
-        echo -e "  ${RED}✗${NC} $NAME (não respondendo)"
+        echo -e "  ${RED}OFF${NC} $NAME"
         ALL_HEALTHY=false
     fi
 done
@@ -117,43 +132,22 @@ done
 echo ""
 
 if [ "$ALL_HEALTHY" = true ]; then
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}✅ Deploy concluído com sucesso!${NC}"
-    echo -e "${GREEN}========================================${NC}"
+    echo -e "${GREEN}Deploy concluido com sucesso!${NC}"
     echo ""
-    echo "📊 Status dos serviços:"
-    echo "  • Orchestrator:        http://localhost:8001"
-    echo "  • Video Downloader:    http://localhost:8002"
-    echo "  • Audio Normalization: http://localhost:8003"
-    echo "  • Audio Transcriber:   http://localhost:8004"
-    echo ""
-    echo "📚 Documentação da API:"
-    echo "  • Swagger UI:          http://localhost:8000/docs"
-    echo ""
-    echo "🧪 Teste rápido:"
-    echo "  curl http://localhost:8000/health"
-    echo ""
-    echo "📝 Ver logs:"
-    echo "  docker-compose logs -f"
-    echo ""
-    echo "🛑 Parar serviços:"
-    echo "  docker-compose down"
-    echo ""
+    echo "Portas:"
+    echo "  se1: http://localhost:8001"
+    echo "  se2: http://localhost:8002"
+    echo "  se3: http://localhost:8003"
+    echo "  se4: http://localhost:8004"
+    echo "  se5: http://localhost:8005"
+    echo "  se6: http://localhost:8006"
+    echo "  se7: http://localhost:8007"
 else
-    echo -e "${YELLOW}========================================${NC}"
-    echo -e "${YELLOW}⚠️  Deploy concluído com avisos${NC}"
-    echo -e "${YELLOW}========================================${NC}"
-    echo ""
-    echo "Alguns serviços não estão respondendo."
-    echo "Verifique os logs:"
-    echo "  docker-compose logs -f"
-    echo ""
-    echo "Ou verifique o status:"
-    echo "  docker-compose ps"
-    echo ""
+    echo -e "${YELLOW}Deploy concluido com avisos${NC}"
+    echo "Verifique os logs: docker compose -f docker/docker-compose.yml logs -f"
 fi
 
-# Show running containers
-echo "📦 Containers rodando:"
-docker-compose ps
+echo ""
+echo "Containers:"
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "ytcaption|audio-|video-|youtube-|make-video" || docker ps
 echo ""

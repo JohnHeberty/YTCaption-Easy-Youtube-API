@@ -1,18 +1,17 @@
+name: se6-youtube-search
 services:
-  # API Service
-  # Note: Redis is expected to be running externally (shared instance at ${IP_REDIS})
   youtube-search-service:
     build:
-      context: ../../
-      dockerfile: services/se6-youtube-search/Dockerfile
+      context: ../../..
+      dockerfile: services/se6-youtube-search/docker/Dockerfile
     container_name: youtube-search-api
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      - ./app:/app/app
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/logs:/app/data/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-UTC}
       - PYTHONPATH=/app
@@ -29,18 +28,17 @@ services:
     networks:
       - youtube-search-network
 
-  # Celery Worker
   celery-worker:
     build:
-      context: ../../
-      dockerfile: services/se6-youtube-search/Dockerfile
+      context: ../../..
+      dockerfile: services/se6-youtube-search/docker/Dockerfile
     container_name: youtube-search-celery-worker
     command: celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=2 -Q youtube_search_queue
     volumes:
-      - ./app:/app/app
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/logs:/app/data/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-UTC}
       - PYTHONPATH=/app
@@ -57,18 +55,17 @@ services:
     networks:
       - youtube-search-network
 
-  # Celery Beat (for periodic tasks)
   celery-beat:
     build:
-      context: ../../
-      dockerfile: services/se6-youtube-search/Dockerfile
+      context: ../../..
+      dockerfile: services/se6-youtube-search/docker/Dockerfile
     container_name: youtube-search-celery-beat
     command: celery -A app.infrastructure.celery_config.celery_app beat --loglevel=info
     volumes:
-      - ./app:/app/app
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/logs:/app/data/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-UTC}
       - PYTHONPATH=/app

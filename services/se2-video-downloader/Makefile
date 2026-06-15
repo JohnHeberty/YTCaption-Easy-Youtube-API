@@ -12,7 +12,7 @@
 # VARIAVEIS
 # ============================================================================
 
-DOCKER_COMPOSE := docker compose
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml
 SERVICE_NAME := video-downloader
 SERVICE_TITLE := Video-Downloader
 PYTHON := python3
@@ -27,7 +27,7 @@ TEMP_DIR := ./temp
 UPLOADS_DIR := ./uploads
 API_BASE_URL := http://localhost:8002
 PORT ?= 8002
-COMPOSE_FILE := docker-compose.yml
+COMPOSE_FILE := docker/docker-compose.yml
 COMPOSE_PROJECT := $(SERVICE_NAME)
 CONTAINER_API := $(SERVICE_NAME)-api
 CONTAINER_CELERY := $(SERVICE_NAME)-celery
@@ -215,7 +215,7 @@ validate: ## Validar configuracao
 	@echo "Validando $(SERVICE_TITLE)..."
 	@echo -n "  docker-compose.yml: "; $(DOCKER_COMPOSE) config > /dev/null 2>&1 && echo "valido" || echo "invalido"
 	@echo -n "  .env:              "; test -f .env && echo "existe" || echo "ausente"
-	@echo -n "  Dockerfile:        "; test -f Dockerfile && echo "existe" || echo "ausente"
+	@echo -n "  Dockerfile:        "; test -f docker/Dockerfile && echo "existe" || echo "ausente"
 	@echo -n "  requirements.txt:  "; test -f requirements.txt && echo "existe" || echo "ausente"
 
 info: ## Mostrar informacoes do servico

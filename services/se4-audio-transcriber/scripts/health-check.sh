@@ -69,7 +69,7 @@ echo ""
 
 # 5. Logs
 echo "📜 Últimos Erros (última hora):"
-RECENT_ERRORS=$(docker compose -f docker-compose.prod.yml logs --since 1h 2>&1 | grep -i "error\|exception\|failed" | wc -l || echo "0")
+RECENT_ERRORS=$(docker compose -f docker/docker-compose.prod.yml logs --since 1h 2>&1 | grep -i "error\|exception\|failed" | wc -l || echo "0")
 if [ "$RECENT_ERRORS" -gt 10 ]; then
     echo -e "  ${RED}⚠️  $RECENT_ERRORS erros encontrados${NC}"
     ERRORS=$((ERRORS+1))
@@ -87,6 +87,6 @@ else
     echo -e "${RED}❌ Sistema com PROBLEMAS - $ERRORS check(s) falharam${NC}"
     echo ""
     echo "💡 Para mais detalhes:"
-    echo "  docker compose -f docker-compose.prod.yml logs --tail=100"
+    echo "  docker compose -f docker/docker-compose.prod.yml logs --tail=100"
     exit 1
 fi

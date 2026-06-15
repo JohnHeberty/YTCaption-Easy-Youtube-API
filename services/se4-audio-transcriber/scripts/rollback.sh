@@ -36,7 +36,7 @@ fi
 
 # 1. Parar serviços atuais
 log_info "Parando serviços atuais..."
-docker compose -f docker-compose.prod.yml down
+docker compose -f docker/docker-compose.prod.yml down
 log_success "Serviços parados"
 
 # 2. Restaurar imagem anterior
@@ -58,7 +58,7 @@ log_success "Imagem restaurada"
 
 # 4. Subir serviços com versão antiga
 log_info "Subindo serviços com versão anterior..."
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker/docker-compose.prod.yml up -d
 log_success "Serviços iniciados"
 
 # 5. Aguardar healthcheck
@@ -82,7 +82,7 @@ done
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     log_error "API não respondeu após rollback!"
     log_info "Verificando logs..."
-    docker compose -f docker-compose.prod.yml logs --tail=50
+    docker compose -f docker/docker-compose.prod.yml logs --tail=50
     exit 1
 fi
 
@@ -93,6 +93,6 @@ echo "║                  Rollback Completo! ✅                         ║"
 echo "╚════════════════════════════════════════════════════════════════╝"
 echo ""
 log_info "Serviços rodando com versão anterior:"
-docker compose -f docker-compose.prod.yml ps
+docker compose -f docker/docker-compose.prod.yml ps
 echo ""
 log_success "Rollback concluído com sucesso!"

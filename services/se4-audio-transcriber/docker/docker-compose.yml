@@ -1,24 +1,25 @@
+name: se4-audio-transcriber
 services:
   audio-transcriber-service:
     build:
-      context: ../../
-      dockerfile: services/se4-audio-transcriber/Dockerfile
+      context: ../../..
+      dockerfile: services/se4-audio-transcriber/docker/Dockerfile
     container_name: ytcaption-se4-audio-transcriber-api
     runtime: nvidia
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      - ./app:/app/app
-      - ./data/uploads:/app/data/uploads
-      - ./data/transcriptions:/app/data/transcriptions
-      - ./data/models:/app/data/models
-      - ./data/temp:/app/data/temp
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/uploads:/app/data/uploads
+      - ../data/transcriptions:/app/data/transcriptions
+      - ../data/models:/app/data/models
+      - ../data/temp:/app/data/temp
+      - ../data/logs:/app/data/logs
       - /usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:ro
       - /dev/nvidia-caps:/dev/nvidia-caps:rwm
       - /dev/nvidia-modeset:/dev/nvidia-modeset:rwm
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app
@@ -41,23 +42,23 @@ services:
 
   celery-worker:
     build:
-      context: ../../
-      dockerfile: services/se4-audio-transcriber/Dockerfile
+      context: ../../..
+      dockerfile: services/se4-audio-transcriber/docker/Dockerfile
     container_name: audio-transcriber-celery
     runtime: nvidia
     command: python -m celery -A app.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
-      - ./app:/app/app
-      - ./data/uploads:/app/data/uploads
-      - ./data/transcriptions:/app/data/transcriptions
-      - ./data/models:/app/data/models
-      - ./data/temp:/app/data/temp
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/uploads:/app/data/uploads
+      - ../data/transcriptions:/app/data/transcriptions
+      - ../data/models:/app/data/models
+      - ../data/temp:/app/data/temp
+      - ../data/logs:/app/data/logs
       - /usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:ro
       - /dev/nvidia-caps:/dev/nvidia-caps:rwm
       - /dev/nvidia-modeset:/dev/nvidia-modeset:rwm
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app
@@ -84,15 +85,15 @@ services:
 
   celery-beat:
     build:
-      context: ../../
-      dockerfile: services/se4-audio-transcriber/Dockerfile
+      context: ../../..
+      dockerfile: services/se4-audio-transcriber/docker/Dockerfile
     container_name: audio-transcriber-beat
     command: python -m celery -A app.celery_config beat --loglevel=info
     volumes:
-      - ./app:/app/app
-      - ./data/logs:/app/data/logs
+      - ../app:/app/app
+      - ../data/logs:/app/data/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ}
       - PYTHONPATH=/app

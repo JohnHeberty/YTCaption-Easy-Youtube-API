@@ -1,5 +1,5 @@
-# Base NVIDIA correta para driver 550.x (mesma do GPU-OK)
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+# Base NVIDIA CUDA 12.1 para compatibilidade com ctranslate2 4.x
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG BUILD_ENV=development
@@ -66,8 +66,8 @@ RUN python -m pip install --no-cache-dir --ignore-installed blinker \
       -r requirements.txt -c constraints.txt
 # Volta a usar constraints.txt com numpy 2.x
 RUN python -m pip install --no-cache-dir --force-reinstall \
-      torch==2.4.0+cu118 torchaudio==2.4.0+cu118 \
-      --index-url https://download.pytorch.org/whl/cu118
+      torch==2.4.0+cu121 torchaudio==2.4.0+cu121 \
+      --index-url https://download.pytorch.org/whl/cu121
 
 # Não remover nada - manter todas as dependências instaladas
 # (ffmpeg precisa das bibliotecas libav* que foram instaladas com os pacotes -dev)

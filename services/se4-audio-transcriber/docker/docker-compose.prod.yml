@@ -1,14 +1,9 @@
-# ============================================================================
-# Docker Compose - Produção (CPU-only, otimizado)
-# ============================================================================
-# Uso: docker compose -f docker-compose.prod.yml up -d
-# ============================================================================
-
+name: se4-audio-transcriber-prod
 services:
   audio-transcriber-service:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../
+      dockerfile: docker/Dockerfile
       args:
         BUILD_ENV: production
     container_name: audio-transcriber-api
@@ -20,9 +15,8 @@ services:
       - ./models:/app/models
       - ./temp:/app/temp
       - ./logs:/app/logs
-      # Não monta app/ em produção para usar versão do build
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-America/Sao_Paulo}
       - PYTHONPATH=/app
@@ -56,8 +50,8 @@ services:
 
   celery-worker:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../
+      dockerfile: docker/Dockerfile
       args:
         BUILD_ENV: production
     container_name: audio-transcriber-celery
@@ -77,7 +71,7 @@ services:
       - ./temp:/app/temp
       - ./logs:/app/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-America/Sao_Paulo}
       - PYTHONPATH=/app
@@ -117,8 +111,8 @@ services:
 
   celery-beat:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../
+      dockerfile: docker/Dockerfile
       args:
         BUILD_ENV: production
     container_name: audio-transcriber-beat
@@ -126,7 +120,7 @@ services:
     volumes:
       - ./logs:/app/logs
     env_file:
-      - .env
+      - ../.env
     environment:
       - TZ=${TZ:-America/Sao_Paulo}
       - PYTHONPATH=/app
@@ -158,13 +152,3 @@ networks:
   ytcaption-network:
     external: true
     name: ytcaption-network
-
-# ============================================================================
-# COMANDOS ÚTEIS
-# ============================================================================
-# Up:       docker compose -f docker-compose.prod.yml up -d
-# Down:     docker compose -f docker-compose.prod.yml down
-# Logs:     docker compose -f docker-compose.prod.yml logs -f
-# Scale:    docker compose -f docker-compose.prod.yml up -d --scale celery-worker=3
-# Restart:  docker compose -f docker-compose.prod.yml restart celery-worker
-# ============================================================================

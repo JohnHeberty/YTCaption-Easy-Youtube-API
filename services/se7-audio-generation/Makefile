@@ -37,10 +37,10 @@ clean:
 	rm -rf data/temp/* data/outputs/*
 
 docker-build:
-	docker compose build
+	docker compose -f docker/docker-compose.gpu.yml build
 
 docker-up:
-	docker compose up -d
+	docker compose -f docker/docker-compose.gpu.yml up -d
 
 docker-down:
-	docker compose down
+	docker compose -f docker/docker-compose.gpu.yml down

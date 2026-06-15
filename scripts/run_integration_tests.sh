@@ -85,23 +85,23 @@ echo "📦 Fase 2: Validação de Arquivos Docker"
 echo ""
 
 run_test "Dockerfile existe (se1-orchestrator)" \
-    "test -f se1-orchestrator/Dockerfile" \
+    "test -f services/se1-orchestrator/docker/Dockerfile" \
     ""
 
 run_test "Dockerfile existe (se3-audio-normalization)" \
-    "test -f services/se3-audio-normalization/Dockerfile" \
+    "test -f services/se3-audio-normalization/docker/Dockerfile" \
     ""
 
 run_test "Dockerfile existe (se4-audio-transcriber)" \
-    "test -f services/se4-audio-transcriber/Dockerfile" \
+    "test -f services/se4-audio-transcriber/docker/Dockerfile" \
     ""
 
 run_test "Dockerfile existe (se2-video-downloader)" \
-    "test -f services/se2-video-downloader/Dockerfile" \
+    "test -f services/se2-video-downloader/docker/Dockerfile" \
     ""
 
 run_test "Dockerfile existe (se6-youtube-search)" \
-    "test -f services/se6-youtube-search/Dockerfile" \
+    "test -f services/se6-youtube-search/docker/Dockerfile" \
     ""
 
 echo ""
