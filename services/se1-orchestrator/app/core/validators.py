@@ -4,7 +4,7 @@ Validadores para entidades do orquestrador.
 import re
 from typing import Optional
 
-from core.constants import ValidationConstants
+from app.core.constants import ValidationConstants
 
 JOB_ID_MAX_LENGTH = ValidationConstants.JOB_ID_MAX_LENGTH
 JOB_ID_PATTERN = ValidationConstants.JOB_ID_PATTERN

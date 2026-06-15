@@ -10,12 +10,12 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from common.log_utils import get_logger
-from domain.models import PipelineRequest, PipelineResponse, PipelineJob
-from core.config import get_settings
-from infrastructure.redis_store import get_store
-from infrastructure.dependency_injection import get_pipeline_orchestrator
-from core.exceptions import ValidationError, JobCreationError, RedisConnectionError
-from core.constants import Timeouts
+from app.domain.models import PipelineRequest, PipelineResponse, PipelineJob
+from app.core.config import get_settings
+from app.infrastructure.redis_store import get_store
+from app.infrastructure.dependency_injection import get_pipeline_orchestrator
+from app.core.exceptions import ValidationError, JobCreationError, RedisConnectionError
+from app.core.constants import Timeouts
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -80,7 +80,7 @@ async def _schedule_pipeline_execution(
         redis_store.save_job(job)
         logger.info(f"Pipeline job {job.id} saved to Redis")
 
-        from services.pipeline_background import execute_pipeline_background
+        from app.services.pipeline_background import execute_pipeline_background
 
         background_tasks.add_task(execute_pipeline_background, job.id)
         logger.info(f"Background task scheduled for job {job.id}")

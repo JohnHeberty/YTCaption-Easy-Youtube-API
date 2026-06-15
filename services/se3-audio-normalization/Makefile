@@ -12,7 +12,7 @@
 # VARIAVEIS
 # ============================================================================
 
-DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
 SERVICE_NAME := audio-normalization
 SERVICE_TITLE := Audio-Normalization
 PYTHON := python3

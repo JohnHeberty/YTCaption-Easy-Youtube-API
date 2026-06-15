@@ -1,13 +1,9 @@
 """
-Script de inicializacao do orquestrador (legado - use run_new.py)
+Script de inicializacao do orquestrador
 """
 import uvicorn
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
-
-from core.config import get_settings
+from app.core.config import get_settings
 from common.log_utils import setup_structured_logging, get_logger
 
 settings = get_settings()
@@ -37,15 +33,16 @@ def main():
 
     try:
         uvicorn.run(
-            "main:app",
+            "app.main:app",
             host=settings.app_host,
-            port=8000,
+            port=settings.app_port,
             reload=settings.debug,
             workers=settings.workers if not settings.debug else 1,
             log_level="info",
         )
     except Exception as e:
         logger.error(f"Failed to start server: {str(e)}")
+        import sys
         sys.exit(1)
 
 

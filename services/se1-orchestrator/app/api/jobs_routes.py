@@ -21,10 +21,10 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 
 from common.log_utils import get_logger
-from domain.models import JobListResponse, PipelineStatus, PipelineStatusResponse
-from modules.redis_store import get_store
-from core.config import get_settings
-from domain.builders import StageResponseBuilder
+from app.domain.models import JobListResponse, PipelineStatus, PipelineStatusResponse
+from app.infrastructure.redis_store import get_store
+from app.core.config import get_settings
+from app.domain.builders import StageResponseBuilder
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="", tags=["Jobs"])

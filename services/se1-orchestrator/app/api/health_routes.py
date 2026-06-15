@@ -18,14 +18,14 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 
 from common.log_utils import get_logger
-from domain.models import HealthResponse
-from core.config import get_settings
-from infrastructure.dependency_injection import (
+from app.domain.models import HealthResponse
+from app.core.config import get_settings
+from app.infrastructure.dependency_injection import (
     get_app_start_time,
     get_health_checker,
     get_pipeline_orchestrator,
 )
-from modules.redis_store import get_store
+from app.infrastructure.redis_store import get_store
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["Health"])

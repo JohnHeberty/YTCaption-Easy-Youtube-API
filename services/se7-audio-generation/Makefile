@@ -1,5 +1,7 @@
 .PHONY: help install run dev worker lint test clean docker-build docker-up docker-down
 
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.gpu.yml --env-file .env
+
 help:
 	@echo "Available commands:"
 	@echo "  make install     - Install dependencies"
@@ -37,10 +39,10 @@ clean:
 	rm -rf data/temp/* data/outputs/*
 
 docker-build:
-	docker compose -f docker/docker-compose.gpu.yml build
+	$(DOCKER_COMPOSE) build
 
 docker-up:
-	docker compose -f docker/docker-compose.gpu.yml up -d
+	$(DOCKER_COMPOSE) up -d
 
 docker-down:
-	docker compose -f docker/docker-compose.gpu.yml down
+	$(DOCKER_COMPOSE) down

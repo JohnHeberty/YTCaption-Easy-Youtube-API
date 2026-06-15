@@ -7,13 +7,13 @@ from datetime import datetime
 from functools import lru_cache
 from typing import Optional
 
-from core.config import get_settings
-from domain.interfaces import MicroserviceClientInterface
-from infrastructure.circuit_breaker import CircuitBreaker
-from infrastructure.microservice_client import MicroserviceClient
-from infrastructure.redis_store import RedisStore, get_store
-from services.health_checker import HealthChecker
-from services.pipeline_orchestrator import PipelineOrchestrator
+from app.core.config import get_settings
+from app.domain.interfaces import MicroserviceClientInterface
+from app.infrastructure.circuit_breaker import CircuitBreaker
+from app.infrastructure.microservice_client import MicroserviceClient
+from app.infrastructure.redis_store import RedisStore, get_store
+from app.services.health_checker import HealthChecker
+from app.services.pipeline_orchestrator import PipelineOrchestrator
 
 _app_start_time: Optional[datetime] = None
 

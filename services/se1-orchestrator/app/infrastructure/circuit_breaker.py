@@ -28,8 +28,8 @@ from typing import Any, Callable, Optional
 
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
-from domain.interfaces import CircuitBreakerInterface
-from infrastructure.exceptions import CircuitBreakerOpenError
+from app.domain.interfaces import CircuitBreakerInterface
+from app.infrastructure.exceptions import CircuitBreakerOpenError
 
 logger = get_logger(__name__)
 

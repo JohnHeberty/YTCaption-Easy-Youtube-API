@@ -19,10 +19,10 @@ except ImportError:
         return datetime.now(BRAZIL_TZ)
 
 from common.log_utils import get_logger
-from core.config import get_settings
-from infrastructure.dependency_injection import get_pipeline_orchestrator
-from modules.redis_store import get_store
-from domain.models import AdminCleanupResponse, AdminStatsResponse, FactoryResetResponse
+from app.core.config import get_settings
+from app.infrastructure.dependency_injection import get_pipeline_orchestrator
+from app.infrastructure.redis_store import get_store
+from app.domain.models import AdminCleanupResponse, AdminStatsResponse, FactoryResetResponse
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin"])

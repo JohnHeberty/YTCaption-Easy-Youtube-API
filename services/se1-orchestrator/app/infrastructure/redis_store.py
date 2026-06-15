@@ -8,7 +8,7 @@ from common.log_utils import get_logger
 from common.redis_utils import ResilientRedisStore
 from common.job_utils.store import JobRedisStore
 
-from modules.models import PipelineJobV2
+from app.domain.pipeline_job_v2 import PipelineJobV2
 
 logger = get_logger(__name__)
 
