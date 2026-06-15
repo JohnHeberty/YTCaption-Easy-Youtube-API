@@ -257,7 +257,7 @@ beat-restart: ## Reiniciar Celery beat
 
 purge: ## Limpar fila do Celery
 	@echo "Limpando fila do Celery..."
-	@docker exec $(CONTAINER_CELERY) python -m celery -A app.celery_config purge -f 2>/dev/null || \
+	@docker exec $(CONTAINER_CELERY) python -m celery -A app.infrastructure.celery_config purge -f 2>/dev/null || \
 		echo "  Nao foi possivel limpar fila"
 
 # ============================================================================

@@ -57,7 +57,7 @@ services:
         BUILD_ENV: production
     container_name: audio-transcriber-celery
     command: |
-      python -m celery -A app.celery_config worker 
+      python -m celery -A app.infrastructure.celery_config worker 
         --loglevel=info 
         --concurrency=${CELERY_CONCURRENCY:-2}
         --pool=prefork
@@ -95,7 +95,7 @@ services:
       replicas: ${CELERY_REPLICAS:-1}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python -c 'from app.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
+      test: ["CMD-SHELL", "python -c 'from app.infrastructure.celery_config import celery_app; i = celery_app.control.inspect(); exit(0 if i.stats() else 1)'"]
       interval: 60s
       timeout: 30s
       retries: 3
@@ -118,7 +118,7 @@ services:
       args:
         BUILD_ENV: production
     container_name: audio-transcriber-beat
-    command: python -m celery -A app.celery_config beat --loglevel=info
+    command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
     volumes:
       - ../../../shared:/app/common
       - ./logs:/app/logs
