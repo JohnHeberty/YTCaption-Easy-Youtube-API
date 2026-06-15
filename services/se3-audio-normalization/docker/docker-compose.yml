@@ -8,7 +8,7 @@ services:
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      - ../../../common:/app/common
+      - ../../../shared:/app/common
       - ../app:/app/app
       - ../data/uploads:/app/data/uploads
       - ../data/processed:/app/data/processed
@@ -39,7 +39,7 @@ services:
     container_name: audio-normalization-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=2 --pool=prefork --queues=audio_normalization_queue
     volumes:
-      - ../../../common:/app/common
+      - ../../../shared:/app/common
       - ../app:/app/app
       - ../data/uploads:/app/data/uploads
       - ../data/processed:/app/data/processed

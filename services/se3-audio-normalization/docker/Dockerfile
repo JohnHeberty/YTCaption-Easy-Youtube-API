@@ -28,7 +28,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Copia shared library como common/ (build context é raiz do projeto)
-COPY common/ ./common/
+COPY shared/ ./common/
 
 # Copia requirements antes p/ cache de layers
 COPY services/se3-audio-normalization/requirements.txt .

@@ -32,7 +32,7 @@ RUN pip install --no-cache-dir torch torchvision torchaudio --index-url https://
     pip install --no-cache-dir -r requirements.txt
 
 # Copy shared library (renamed as common/ for Python imports)
-COPY common/ ./common/
+COPY shared/ ./common/
 
 # Copy application code
 COPY services/se5-make-video/app/ ./app/
