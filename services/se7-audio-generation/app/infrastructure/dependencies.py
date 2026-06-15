@@ -33,12 +33,7 @@ def get_voice_store() -> IVoiceStore:
 def get_model_manager() -> IModelManager:
     from app.services.model_manager import ChatterboxModelManager
 
-    settings = get_settings()
-    return ChatterboxModelManager(
-        model_name=settings.model_name,
-        model_dir=settings.model_dir,
-        device=settings.device,
-    )
+    return ChatterboxModelManager()
 
 
 @lru_cache(maxsize=1)

@@ -3,6 +3,7 @@ services:
     build:
       context: ../../
       dockerfile: services/se7-audio-generation/Dockerfile
+      target: api
     container_name: audio-generation-api
     ports:
       - "${PORT}:${PORT}"
@@ -13,7 +14,7 @@ services:
       - .env
     environment:
       - TZ=${TZ}
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app/chatterbox-space:/app
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
@@ -34,7 +35,7 @@ services:
     env_file:
       - .env
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app/chatterbox-space:/app
       - C_FORCE_ROOT=true
     restart: unless-stopped
     depends_on:
