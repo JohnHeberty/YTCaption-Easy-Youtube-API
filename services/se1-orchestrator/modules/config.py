@@ -37,9 +37,9 @@ def get_orchestrator_settings() -> Dict[str, Any]:
         "log_dir": os.getenv("LOG_DIR", "./logs"),
 
         # Microserviços URLs - URLs corretas baseadas no log de erro
-        "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.1.132:8000"),
-        "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.1.132:8001"),
-        "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.1.132:8002"),
+        "video_downloader_url": os.getenv("VIDEO_DOWNLOADER_URL", "http://192.168.1.132:8002"),
+        "audio_normalization_url": os.getenv("AUDIO_NORMALIZATION_URL", "http://192.168.1.132:8003"),
+        "audio_transcriber_url": os.getenv("AUDIO_TRANSCRIBER_URL", "http://192.168.1.132:8004"),
 
         # Timeouts dos microserviços (segundos) - Otimizados para resiliência
         "video_downloader_timeout": int(os.getenv("VIDEO_DOWNLOADER_TIMEOUT", "900")),   # 15min

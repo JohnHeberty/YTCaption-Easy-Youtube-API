@@ -64,11 +64,12 @@ class BaseJob(BaseModel):
     )
     retry_count: int = 0
     
-    class Config:
-        use_enum_values = True
-        json_encoders = {
+    model_config = {
+        "use_enum_values": True,
+        "json_encoders": {
             datetime: lambda v: v.isoformat()
-        }
+        },
+    }
     
     @property
     def is_expired(self) -> bool:

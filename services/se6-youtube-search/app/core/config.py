@@ -14,7 +14,7 @@ class _CoreSettings(BaseSettings):
     environment: str = "development"
     debug: bool = False
     host: str = "0.0.0.0"
-    port: int = 8001
+    port: int = 8006
     redis_url: str = "redis://localhost:6379/0"
     log_level: str = "INFO"
 
@@ -51,7 +51,7 @@ def get_settings() -> Dict[str, Any]:
         'environment': os.getenv('ENVIRONMENT', 'development'),
         'debug': os.getenv('DEBUG', 'false').lower() == 'true',
         'host': os.getenv('HOST', '0.0.0.0'),
-        'port': int(os.getenv('PORT', '8003')),
+        'port': int(os.getenv('PORT', '8006')),
         
         # ===== REDIS =====
         'redis_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),

@@ -2,7 +2,7 @@
 
 FastAPI microservice for YouTube search operations. Uses a custom `ytbpy` library (scraping-based, no official API key required) and an async job-based architecture with Celery and Redis for reliable, cached results.
 
-- **Port:** 8001 (default, configurable via `PORT` env var)
+- **Port:** 8006 (default, configurable via `PORT` env var)
 - **Cache:** 24-hour TTL in Redis, periodic cleanup every 30 minutes
 - **Async processing:** All search requests create a Job that is processed by a Celery worker; clients can poll, long-poll (`/wait`), or download results
 

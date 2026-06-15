@@ -76,8 +76,7 @@ class VideoDownloadJob(StandardJob):
     def received_at(self) -> datetime:
         return self.created_at
 
-    class Config:
-        json_encoders = {**StandardJob.Config.json_encoders}
+    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
     @field_validator("quality")
     @classmethod

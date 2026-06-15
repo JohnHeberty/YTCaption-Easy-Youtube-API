@@ -6,6 +6,7 @@ the standard lifecycle methods while preserving pipeline-specific
 stage tracking.
 """
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from pydantic import Field
 import hashlib
 
@@ -72,8 +73,7 @@ class PipelineJobV2(StandardJob):
         JobStatus.CANCELLED: PipelineStatus.CANCELLED,
     }
 
-    class Config:
-        json_encoders = {**StandardJob.Config.json_encoders}
+    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
     @classmethod
     def create_new(cls, youtube_url: str, **kwargs) -> "PipelineJobV2":

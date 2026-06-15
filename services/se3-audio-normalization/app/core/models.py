@@ -5,6 +5,7 @@ Adds service-specific fields (audio processing parameters, file paths)
 while inheriting standard lifecycle methods from common.
 """
 from typing import Any, Dict, List, Optional
+from datetime import datetime
 from pydantic import BaseModel, Field
 import hashlib
 
@@ -65,8 +66,7 @@ class AudioNormJob(StandardJob):
         description="Marca de vida do worker responsável pelo job (uso interno).",
     )
 
-    class Config:
-        json_encoders = {**StandardJob.Config.json_encoders}
+    model_config = {"json_encoders": {**StandardJob.model_config.get("json_encoders", {})}}
 
     @classmethod
     def create_new(cls, filename: str, **kwargs) -> "AudioNormJob":
