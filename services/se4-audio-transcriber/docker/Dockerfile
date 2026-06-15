@@ -49,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # 🔥 COPY shared as common/ (build context é raiz do projeto)
-COPY shared/ ./common/
+COPY common/ ./common/
 
 # Copia requirements antes p/ cache de layers
 COPY services/se4-audio-transcriber/requirements.txt .

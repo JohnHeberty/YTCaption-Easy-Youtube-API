@@ -15,6 +15,7 @@ services:
     ports:
       - "${HOST_PORT:-8005}:${CONTAINER_PORT:-8000}"
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../run.py:/app/run.py
     networks:

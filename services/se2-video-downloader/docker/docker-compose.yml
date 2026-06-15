@@ -8,6 +8,7 @@ services:
     ports:
       - "${PORT}:${PORT}"
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data/cache:/app/data/cache
       - ../data/logs:/app/data/logs
@@ -37,6 +38,7 @@ services:
     container_name: video-downloader-celery
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=video_downloader_queue
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data/cache:/app/data/cache
       - ../data/logs:/app/data/logs

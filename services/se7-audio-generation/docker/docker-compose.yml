@@ -9,6 +9,7 @@ services:
     ports:
       - "${PORT}:${PORT}"
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data:/app/data
       - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro
@@ -41,6 +42,7 @@ services:
     container_name: audio-generation-celery
     command: python -m celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=1 --queues=audio_generation_queue --pool=solo
     volumes:
+      - ../../../common:/app/common
       - ../app:/app/app
       - ../data:/app/data
       - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro

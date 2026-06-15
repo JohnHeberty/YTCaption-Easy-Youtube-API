@@ -27,7 +27,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY shared/ ./common/
+COPY common/ ./common/
 COPY services/se3-audio-normalization/requirements.txt .
 COPY services/se3-audio-normalization/constraints.txt .
 

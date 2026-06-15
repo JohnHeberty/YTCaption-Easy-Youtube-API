@@ -11,6 +11,7 @@ services:
     memswap_limit: 6g
     shm_size: '2gb'
     volumes:
+      - ../../../common:/app/common
       - ../data:/app/data
       - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/nvidia/lib/libcuda.so.1:ro
@@ -43,6 +44,7 @@ services:
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
     network_mode: "host"
     volumes:
+      - ../../../common:/app/common
       - ../data:/app/data
       - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/nvidia/lib/libcuda.so.1:ro
@@ -77,6 +79,8 @@ services:
     container_name: ytcaption-make-video-celery-beat
     command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
     network_mode: "host"
+    volumes:
+      - ../../../common:/app/common
     env_file:
       - ../.env
     environment:
