@@ -12,7 +12,7 @@
 # VARIAVEIS
 # ============================================================================
 
-DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
 DOCKER_SERVICE := audio-transcriber-service
 SERVICE_NAME := audio-transcriber
 SERVICE_TITLE := Audio-Transcriber

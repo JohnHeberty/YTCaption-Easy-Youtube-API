@@ -11,8 +11,8 @@ logger = get_logger(__name__)
 
 async def execute_pipeline_background(job_id: str):
     """Executa pipeline em background"""
-    from infrastructure.dependency_injection import get_pipeline_orchestrator
-    from infrastructure.redis_store import get_store
+    from app.infrastructure.dependency_injection import get_pipeline_orchestrator
+    from app.infrastructure.redis_store import get_store
 
     redis_store = get_store()
     orchestrator = get_pipeline_orchestrator(redis_store=redis_store)

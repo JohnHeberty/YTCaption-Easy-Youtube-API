@@ -14,7 +14,7 @@
 # VARIÁVEIS
 # ============================================================================
 
-DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
 DOCKER_SERVICE := make-video
 PYTHON := python3
 VENV := .venv

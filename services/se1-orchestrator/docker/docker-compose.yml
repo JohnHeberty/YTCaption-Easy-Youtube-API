@@ -15,15 +15,8 @@ services:
     ports:
       - "${HOST_PORT:-8005}:${CONTAINER_PORT:-8000}"
     volumes:
-      - ../api:/app/api
-      - ../core:/app/core
-      - ../domain:/app/domain
-      - ../infrastructure:/app/infrastructure
-      - ../modules:/app/modules
-      - ../orchestrator:/app/orchestrator
-      - ../services:/app/services
+      - ../app:/app/app
       - ../run.py:/app/run.py
-      - ../main.py:/app/main.py
     networks:
       - ytcaption-network
     restart: unless-stopped

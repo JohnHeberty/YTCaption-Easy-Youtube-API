@@ -11,11 +11,11 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import httpx
 from common.log_utils import get_logger
 
-from core.config import get_microservice_config, get_settings
-from core.ssl_config import get_ssl_context
-from domain.interfaces import MicroserviceClientInterface
-from infrastructure.circuit_breaker import CircuitBreaker
-from infrastructure.exceptions import CircuitBreakerOpenError, PipelineStageError
+from app.core.config import get_microservice_config, get_settings
+from app.core.ssl_config import get_ssl_context
+from app.domain.interfaces import MicroserviceClientInterface
+from app.infrastructure.circuit_breaker import CircuitBreaker
+from app.infrastructure.exceptions import CircuitBreakerOpenError, PipelineStageError
 
 logger = get_logger(__name__)
 

@@ -6,7 +6,7 @@ Verifica saúde de todos os serviços e reporta status consolidado.
 from typing import Dict
 
 from common.log_utils import get_logger
-from domain.interfaces import HealthCheckable
+from app.domain.interfaces import HealthCheckable
 
 logger = get_logger(__name__)
 

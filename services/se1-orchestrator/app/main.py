@@ -11,19 +11,19 @@ from common.log_utils import setup_structured_logging, get_logger
 from common.datetime_utils import now_brazil
 from common.fastapi_utils import create_service_app
 
-from domain.models import (
+from app.domain.models import (
     PipelineRequest, PipelineResponse, PipelineJob, PipelineStatus, RootResponse,
 )
-from infrastructure.dependency_injection import get_pipeline_orchestrator, get_health_checker, set_app_start_time
-from infrastructure.redis_store import RedisStore, get_store
-from services.pipeline_background import execute_pipeline_background
-from infrastructure.microservice_client import MicroserviceClient
-from core.config import get_settings
-from core.exceptions import ValidationError, JobCreationError, RedisConnectionError
-from core.constants import Timeouts, HealthStatus
-from api.health_routes import router as health_router
-from api.admin_routes import router as admin_router
-from api.jobs_routes import router as jobs_router
+from app.infrastructure.dependency_injection import get_pipeline_orchestrator, get_health_checker, set_app_start_time
+from app.infrastructure.redis_store import RedisStore, get_store
+from app.services.pipeline_background import execute_pipeline_background
+from app.infrastructure.microservice_client import MicroserviceClient
+from app.core.config import get_settings
+from app.core.exceptions import ValidationError, JobCreationError, RedisConnectionError
+from app.core.constants import Timeouts, HealthStatus
+from app.api.health_routes import router as health_router
+from app.api.admin_routes import router as admin_router
+from app.api.jobs_routes import router as jobs_router
 
 settings = get_settings()
 

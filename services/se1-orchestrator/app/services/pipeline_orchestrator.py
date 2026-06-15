@@ -8,11 +8,11 @@ from typing import Any, Dict, Optional, Tuple
 
 from common.log_utils import get_logger
 
-from core.config import get_microservice_config, get_settings
-from domain.interfaces import MicroserviceClientInterface
-from domain.models import PipelineJob, PipelineStatus, StageStatus
-from infrastructure.redis_store import RedisStore
-from services.health_checker import HealthChecker
+from app.core.config import get_microservice_config, get_settings
+from app.domain.interfaces import MicroserviceClientInterface
+from app.domain.models import PipelineJob, PipelineStatus, StageStatus
+from app.infrastructure.redis_store import RedisStore
+from app.services.health_checker import HealthChecker
 
 logger = get_logger(__name__)
 
@@ -338,7 +338,7 @@ class PipelineOrchestrator:
             try:
                 text_url = f"{self._transcription_client.base_url}/jobs/{stage.job_id}/text"
                 import httpx
-                from core.ssl_config import get_ssl_context
+                from app.core.ssl_config import get_ssl_context
                 ssl_verify = get_ssl_context()
                 async with httpx.AsyncClient(timeout=self._transcription_client.timeout, verify=ssl_verify) as client:
                     tr = await client.get(text_url)
