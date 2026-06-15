@@ -13,8 +13,6 @@ services:
       - ../data/cache:/app/data/cache
       - ../data/logs:/app/data/logs
       - ../user-agents.txt:/app/user-agents.txt
-      - ../user-agents-clean.txt:/app/user-agents-clean.txt
-      - ../user-agents-original.txt:/app/user-agents-original.txt
     env_file:
       - ../.env
     environment:
@@ -43,8 +41,6 @@ services:
       - ../data/cache:/app/data/cache
       - ../data/logs:/app/data/logs
       - ../user-agents.txt:/app/user-agents.txt
-      - ../user-agents-clean.txt:/app/user-agents-clean.txt
-      - ../user-agents-original.txt:/app/user-agents-original.txt
     env_file:
       - ../.env
     environment:
