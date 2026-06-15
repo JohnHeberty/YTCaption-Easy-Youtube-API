@@ -73,7 +73,7 @@ class TestRealTranscription:
         print(f"{'='*70}")
         
         # Import REAL (sem patches)
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker
         
         print("   ✓ Imports realizados com sucesso")
@@ -127,7 +127,7 @@ class TestRealTranscription:
         print(f"   Tamanho: {test_audio_real.stat().st_size / 1024:.1f} KB\n")
         
         # Import REAL
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         
         # Manager REAL
         manager = FasterWhisperModelManager(model_dir=temp_work_dir / "models")
@@ -243,7 +243,7 @@ class TestRealTranscription:
         print("🔌 TESTE: Circuit Breaker - Registro de Sucessos")
         print(f"{'='*70}")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker, CircuitBreakerState
         
         # Get circuit breaker

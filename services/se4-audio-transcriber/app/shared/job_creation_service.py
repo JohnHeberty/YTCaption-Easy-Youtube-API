@@ -6,11 +6,10 @@ This service encapsulates all business logic that was previously embedded in the
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime as _dt
 from datetime import timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
-
-from common.datetime_utils import now_brazil
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from app.domain.interfaces import IJobStore
@@ -22,6 +21,12 @@ class JobCreationError(Exception):
     """Raised when job creation fails."""
 
 
+def _default_now() -> "_dt":  # noqa: F821
+    from common.datetime_utils import now_brazil
+
+    return now_brazil()
+
+
 class JobCreationService:
     """Business logic for creating and re-submitting transcription jobs."""
 
@@ -30,11 +35,13 @@ class JobCreationService:
         job_store: "IJobStore",
         upload_handler: FileUploadHandler,
         submit_task_fn=None,
+        time_fn: Optional[Callable[[], "_dt"]] = None,  # noqa: F821
     ) -> None:
         self.job_store = job_store
         self.upload_handler = upload_handler
         # Callable(job, store) → submits processing (Celery or asyncio fallback).
         self.submit_task_fn = submit_task_fn
+        self._time_fn = time_fn or _default_now
 
     # -- public API ------------------------------------------------------------
 
@@ -94,7 +101,7 @@ class JobCreationService:
             return existing
 
         processing_timeout = timedelta(minutes=30)
-        job_age = now_brazil() - existing.created_at
+        job_age = self._time_fn() - existing.created_at
 
         if existing.status in (JobStatus.QUEUED, JobStatus.PROCESSING):
             if job_age > processing_timeout:

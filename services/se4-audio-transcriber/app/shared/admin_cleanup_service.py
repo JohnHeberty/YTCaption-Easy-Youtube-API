@@ -2,7 +2,7 @@
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Optional
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
@@ -10,11 +10,16 @@ from common.log_utils import get_logger
 logger = get_logger(__name__)
 
 
+def _admin_default_now() -> datetime:
+    return now_brazil()
+
+
 class AdminCleanupService:
     """Serviço dedicado para operações de limpeza administrativa."""
 
-    def __init__(self, settings: Dict[str, Any]):
+    def __init__(self, settings: Dict[str, Any], time_fn: Optional[Callable[[], datetime]] = None):
         self._settings = settings
+        self._time_fn = time_fn or _admin_default_now
 
     async def basic_cleanup(self, redis_client) -> Dict[str, Any]:
         """Limpeza básica: remove jobs expirados do Redis e arquivos órfãos (>24h)."""
@@ -24,7 +29,7 @@ class AdminCleanupService:
 
         try:
             keys = redis_client.keys("transcription_job:*")
-            now = now_brazil()
+            now = self._time_fn()
             expired_count = 0
             for key in keys:
                 job_data = redis_client.get(key)
@@ -202,7 +207,7 @@ class AdminCleanupService:
 
         deleted_count = 0
         freed_mb = 0.0
-        now = now_brazil()
+        now = self._time_fn()
 
         for file_path in dir_path.iterdir():
             if not file_path.is_file():
@@ -211,9 +216,7 @@ class AdminCleanupService:
                 age = now - datetime.fromtimestamp(file_path.stat().st_mtime)
                 if age > timedelta(hours=max_age_hours):
                     size_mb = file_path.stat().st_size / (1024 * 1024)
-                    asyncio.get_event_loop().run_until_complete(
-                        self._async_unlink(file_path)
-                    )
+                    file_path.unlink()
                     deleted_count += 1
                     freed_mb += size_mb
             except Exception:
@@ -223,10 +226,6 @@ class AdminCleanupService:
             logger.info(f"🗑️  {dir_label}: {deleted_count} arquivos órfãos removidos")
 
         return (deleted_count, freed_mb)
-
-    @staticmethod
-    async def _async_unlink(path: Path):
-        await asyncio.to_thread(path.unlink)
 
     def _delete_all_files(
         self, dir_path: Path, label: str = ""
@@ -243,9 +242,7 @@ class AdminCleanupService:
                 continue
             try:
                 size_mb = file_path.stat().st_size / (1024 * 1024)
-                asyncio.get_event_loop().run_until_complete(
-                    self._async_unlink(file_path)
-                )
+                file_path.unlink()
                 deleted_count += 1
                 freed_mb += size_mb
             except Exception as e:

@@ -31,10 +31,10 @@ class StubTranscriptionProcessor:
             if engine == WhisperEngine.FASTER_WHISPER:
                 self.model_managers[engine] = FasterWhisperModelManager(model_dir=self.model_dir)
             elif engine == WhisperEngine.OPENAI_WHISPER:
-                from app.openai_whisper_manager import OpenAIWhisperManager
+                from app.services.openai_whisper_manager import OpenAIWhisperManager
                 self.model_managers[engine] = OpenAIWhisperManager(model_dir=self.model_dir)
             elif engine == WhisperEngine.WHISPERX:
-                from app.whisperx_manager import WhisperXManager
+                from app.services.whisperx_manager import WhisperXManager
                 self.model_managers[engine] = WhisperXManager(model_dir=self.model_dir)
             else:
                 from app.shared.exceptions import AudioTranscriptionException
@@ -100,7 +100,7 @@ class TestEngineSelection:
     def test_openai_whisper_manager_importable(self):
         """Testa que OpenAIWhisperManager pode ser importado"""
         try:
-            from app.openai_whisper_manager import OpenAIWhisperManager
+            from app.services.openai_whisper_manager import OpenAIWhisperManager
             assert OpenAIWhisperManager is not None
         except ImportError as e:
             pytest.fail(f"Falha ao importar OpenAIWhisperManager: {e}")
@@ -108,7 +108,7 @@ class TestEngineSelection:
     def test_whisperx_manager_importable(self):
         """Testa que WhisperXManager pode ser importado"""
         try:
-            from app.whisperx_manager import WhisperXManager
+            from app.services.whisperx_manager import WhisperXManager
             assert WhisperXManager is not None
         except ImportError as e:
             pytest.fail(f"Falha ao importar WhisperXManager: {e}")

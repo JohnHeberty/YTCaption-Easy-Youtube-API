@@ -139,6 +139,25 @@ def temp_dirs(tmp_path):
     }
 
 
+def pytest_configure(config):
+    """Register custom pytest marks to avoid PytestUnknownMarkWarning."""
+    config.addinivalue_line(
+        "markers", "resilience: resilience tests"
+    )
+    config.addinivalue_line(
+        "markers", "circuit_breaker: circuit breaker behavior tests"
+    )
+    config.addinivalue_line(
+        "markers", "error_handling: error handling and corrupted file tests"
+    )
+    config.addinivalue_line(
+        "markers", "real: real (non-mocked) integration tests"
+    )
+    config.addinivalue_line(
+        "markers", "slow: slow-running tests"
+    )
+
+
 @pytest.fixture(autouse=True)
 def mock_now_brazil(monkeypatch):
     """Mock para now_brazil() retornar datetime consistente."""

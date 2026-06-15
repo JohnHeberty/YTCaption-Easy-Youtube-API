@@ -98,10 +98,8 @@ class AudioTranscriptionJob(StandardJob):
     status_message: Optional[str] = None
     result: Optional[dict[str, Any]] = None
     error: Optional[str] = None
-    dlq_at: Optional[datetime] = None
 
-    class Config:
-        json_encoders = {**StandardJob.Config.json_encoders}
+    dlq_at: Optional[datetime] = None
 
     @model_validator(mode="before")
     @classmethod

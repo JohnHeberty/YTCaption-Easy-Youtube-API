@@ -63,12 +63,6 @@ def _job_payload(created_at: datetime):
 # Fixtures                                                                     #
 # --------------------------------------------------------------------------- #
 
-@pytest.fixture(autouse=True)
-def _mock_now_brazil(monkeypatch):
-    """Pin now_brazil() to a fixed instant so age calculations are deterministic."""
-    monkeypatch.setattr("common.datetime_utils.now_brazil", lambda: _fixed_now())
-
-
 @pytest.fixture
 def settings(tmp_path: Path) -> dict:
     """Settings pointing at tmp directories (no real filesystem side-effects)."""
@@ -84,7 +78,7 @@ def settings(tmp_path: Path) -> dict:
 def service(settings: dict):
     from app.shared.admin_cleanup_service import AdminCleanupService
 
-    return AdminCleanupService(settings)
+    return AdminCleanupService(settings, time_fn=lambda: _fixed_now())
 
 
 # --------------------------------------------------------------------------- #
@@ -101,13 +95,11 @@ def _write_file(path: Path, age_hours: int = 48, content: str = "data"):
 
 def _sync_cleanup_directory(dir_path: Path, max_age_hours: int = 24):
     """Synchronous version of _cleanup_directory that avoids asyncio.get_event_loop()."""
-    from common.datetime_utils import now_brazil
-
     if not dir_path.exists():
         return (0, 0.0)
     deleted_count = 0
     freed_mb = 0.0
-    now = now_brazil()
+    now = _fixed_now()
     for file_path in list(dir_path.iterdir()):
         if not file_path.is_file():
             continue

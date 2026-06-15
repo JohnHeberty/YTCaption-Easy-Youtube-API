@@ -8,7 +8,7 @@
             "options": {
                 "baseURL-LOCAL": "http://192.168.1.139:11434/v1",
                 "baseURL-OLLAMA": "http://100.102.127.47:11434/v1",
-				"baseURL":"http://100.91.54.69:4000/v1",
+                "baseURL": "http://100.91.54.69:4000/v1",
                 "apiKey": "sk-litellm-master"
             },
             "models": {
@@ -43,7 +43,7 @@
                 "qwen": {
                     "name": "qwen",
                     "limit": {
-                        "context": 77824,
+                        "context": 61440,
                         "output": 4096
                     },
                     "tools": true
@@ -78,12 +78,12 @@
         }
     },
     "plugin": [
-		"opencode-pty",
+        "opencode-pty",
         "@tarquinen/opencode-dcp",
         "opencode-websearch-cited@1.2.0"
-	],
+    ],
     "compaction": {
-        "auto":  true,
+        "auto": true,
         "prune": true,
         "reserved": 4096
     },
@@ -123,9 +123,11 @@
                 "-i",
                 "--rm",
                 "-v",
-                "/root/PetCare:/workspace",
+                "/opt/jupyter:/workspace",
                 "ghcr.io/yamadashy/repomix",
-                "--mcp"
+                "--mcp",
+                "--config",
+                "/workspace/.opencode/repomix.config.json"
             ],
             "enabled": true,
             "timeout": 60000
@@ -140,13 +142,15 @@
                 "--network",
                 "host",
                 "-v",
-                "/root/PetCare:/workspaces/projects/PetCare",
+                "/opt/jupyter:/workspaces/projects/disbral-beatriz-margem",
+                "-v",
+                "/root/.serena/serena_config.yml:/root/.serena/serena_config.yml:ro",
                 "ghcr.io/oraios/serena:latest",
                 "serena",
                 "start-mcp-server",
                 "--context=ide",
                 "--project",
-                "/workspaces/projects/PetCare"
+                "/workspaces/projects/disbral-beatriz-margem"
             ],
             "enabled": true,
             "timeout": 60000
@@ -154,8 +158,16 @@
         "context7": {
             "type": "remote",
             "url": "https://mcp.context7.com/mcp",
-            "enabled": false,
+            "enabled": true,
             "timeout": 30000
+        },
+        "protheus": {
+            "type": "local",
+            "command": [
+                "python3",
+                "/opt/jupyter/.opencode/mcp_protheus.py"
+            ],
+            "enabled": true
         }
     },
     "permission": {
@@ -171,7 +183,5 @@
         "doom_loop": "allow",
         "question": "allow",
         "external_directory": "allow"
-    },
-    "model": "litellm/glm-5.1:cloud",
-    "small_model": "litellm/glm-5.1:cloud"
+    }
 }

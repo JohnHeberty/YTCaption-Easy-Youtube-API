@@ -173,10 +173,13 @@ class TestCircuitBreakerBehavior:
         test_timeout = 2  # 2 segundos para teste rápido
         cb.timeout = test_timeout
         
-        # Força estado OPEN com timestamp antigo
+        from common.datetime_utils import now_brazil
+        
+        # Força estado OPEN com timestamp antigo (usa now_brazil para consistência com o mock do conftest)
         cb.state[test_service] = CircuitBreakerState.OPEN
         cb.failures[test_service] = cb.failure_threshold
-        cb.last_failure_time[test_service] = time.time() - (test_timeout + 1)  # Já passou timeout
+        past_time = now_brazil().timestamp() - (test_timeout + 1)  # Já passou timeout
+        cb.last_failure_time[test_service] = past_time
         
         print(f"   ✓ Circuit configurado: OPEN")
         print(f"   ✓ Timeout configurado: {test_timeout}s")
@@ -245,7 +248,7 @@ class TestCircuitBreakerBehavior:
         print("🔌 TESTE: Circuit Breaker + Model Loading Real")
         print(f"{'='*70}")
         
-        from app.faster_whisper_manager import FasterWhisperModelManager
+        from app.services.faster_whisper_manager import FasterWhisperModelManager
         from app.infrastructure import get_circuit_breaker, CircuitBreakerState
         
         cb = get_circuit_breaker()

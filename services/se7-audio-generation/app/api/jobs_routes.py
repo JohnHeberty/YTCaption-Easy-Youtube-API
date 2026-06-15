@@ -1,0 +1,136 @@
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, File
+from fastapi.responses import FileResponse
+
+from common.log_utils import get_logger
+
+from app.api.schemas import JobResponse, DeleteJobResponse
+from app.core.constants import DEFAULT_EXAGGERATION, DEFAULT_CFG_WEIGHT, DEFAULT_TEMPERATURE
+from app.domain.models import AudioGenerationJob, JobStatus
+from app.domain.interfaces import IJobStore, ITTSGenerator, IVoiceStore
+from app.domain.exceptions import TextValidationError, VoiceProfileNotFound
+from app.infrastructure.dependencies import job_store, generator, voice_store
+
+logger = get_logger(__name__)
+router = APIRouter(tags=["Jobs"])
+
+
+@router.post("/jobs", response_model=JobResponse, status_code=201)
+async def create_generation_job(
+    text: str = Form(...),
+    voice_id: Optional[str] = Form(None),
+    exaggeration: float = Form(DEFAULT_EXAGGERATION),
+    cfg_weight: float = Form(DEFAULT_CFG_WEIGHT),
+    temperature: float = Form(DEFAULT_TEMPERATURE),
+    store: IJobStore = Depends(job_store),
+    gen: ITTSGenerator = Depends(generator),
+    voice_store_dep: IVoiceStore = Depends(voice_store),
+):
+    if voice_id:
+        profile = voice_store_dep.get_profile(voice_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
+
+    try:
+        job = AudioGenerationJob.create_new(
+            text=text,
+            voice_id=voice_id,
+            exaggeration=exaggeration,
+            cfg_weight=cfg_weight,
+            temperature=temperature,
+        )
+    except TextValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    store.save_job(job)
+
+    try:
+        from app.infrastructure.celery_tasks import generate_audio_task
+
+        generate_audio_task.apply_async(
+            args=[job.model_dump()], task_id=job.id, retry=False
+        )
+    except Exception as e:
+        logger.warning(f"Celery unavailable, job {job.id} queued locally: {e}")
+
+    return JobResponse(
+        success=True,
+        job_id=job.id,
+        status=job.status.value,
+        message="Audio generation job created",
+    )
+
+
+@router.get("/jobs")
+async def list_jobs(
+    limit: int = Query(20, ge=1, le=100),
+    store: IJobStore = Depends(job_store),
+):
+    jobs = store.list_jobs(limit)
+    return {
+        "jobs": [j.model_dump() for j in jobs],
+        "total": len(jobs),
+    }
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(
+    job_id: str,
+    store: IJobStore = Depends(job_store),
+):
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.is_expired:
+        raise HTTPException(status_code=410, detail="Job expired")
+    return job.model_dump()
+
+
+@router.get("/jobs/{job_id}/download")
+async def download_audio(
+    job_id: str,
+    store: IJobStore = Depends(job_store),
+):
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.is_expired:
+        raise HTTPException(status_code=410, detail="Job expired")
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=425, detail=f"Audio not ready. Status: {job.status.value}"
+        )
+    if not job.output_file or not Path(job.output_file).exists():
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    return FileResponse(
+        path=job.output_file,
+        filename=f"generated_{job_id}.wav",
+        media_type="audio/wav",
+    )
+
+
+@router.delete("/jobs/{job_id}")
+async def delete_job(
+    job_id: str,
+    store: IJobStore = Depends(job_store),
+):
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    files_deleted = 0
+    if job.output_file:
+        path = Path(job.output_file)
+        if path.exists():
+            path.unlink()
+            files_deleted += 1
+
+    store.delete_job(job_id)
+    return DeleteJobResponse(
+        message="Job removed successfully",
+        job_id=job_id,
+        files_deleted=files_deleted,
+    )
