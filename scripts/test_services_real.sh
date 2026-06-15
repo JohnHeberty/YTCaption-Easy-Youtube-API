@@ -140,7 +140,7 @@ fi
 
 # Teste 2: se3-audio-normalization
 total_tests=$((total_tests + 1))
-if test_service_docker "se3-audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/se3-audio-normalization" "8001"; then
+if test_service_docker "se3-audio-normalization" "/root/YTCaption-Easy-Youtube-API/services/se3-audio-normalization" "8003"; then
     passed_tests=$((passed_tests + 1))
 elif [ $? -eq 2 ]; then
     partial_tests=$((partial_tests + 1))

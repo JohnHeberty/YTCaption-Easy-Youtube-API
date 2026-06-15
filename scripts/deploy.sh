@@ -94,10 +94,10 @@ echo "🔍 Verificando status dos serviços..."
 echo ""
 
 SERVICES=(
-    "se1-orchestrator:http://localhost:8000/health"
-    "se2-video-downloader:http://localhost:8001/health"
-    "se3-audio-normalization:http://localhost:8002/health"
-    "se4-audio-transcriber:http://localhost:8003/health"
+    "se1-orchestrator:http://localhost:8001/health"
+    "se2-video-downloader:http://localhost:8002/health"
+    "se3-audio-normalization:http://localhost:8003/health"
+    "se4-audio-transcriber:http://localhost:8004/health"
 )
 
 ALL_HEALTHY=true
@@ -122,10 +122,10 @@ if [ "$ALL_HEALTHY" = true ]; then
     echo -e "${GREEN}========================================${NC}"
     echo ""
     echo "📊 Status dos serviços:"
-    echo "  • Orchestrator:        http://localhost:8000"
-    echo "  • Video Downloader:    http://localhost:8001"
-    echo "  • Audio Normalization: http://localhost:8002"
-    echo "  • Audio Transcriber:   http://localhost:8003"
+    echo "  • Orchestrator:        http://localhost:8001"
+    echo "  • Video Downloader:    http://localhost:8002"
+    echo "  • Audio Normalization: http://localhost:8003"
+    echo "  • Audio Transcriber:   http://localhost:8004"
     echo ""
     echo "📚 Documentação da API:"
     echo "  • Swagger UI:          http://localhost:8000/docs"

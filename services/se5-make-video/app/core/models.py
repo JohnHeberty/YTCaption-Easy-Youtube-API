@@ -5,6 +5,7 @@ Adds service-specific video composition fields (shorts, subtitles,
 aspect ratio, crop position) while inheriting standard lifecycle.
 """
 from enum import Enum
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -41,8 +42,7 @@ class MakeVideoJob(StandardJob):
     output_file: Optional[str] = None
     output_url: Optional[str] = None
 
-    class Config:
-        json_encoders = {**StandardJob.Config.json_encoders}
+    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
 
     @classmethod
     def create_new(cls, **kwargs) -> "MakeVideoJob":

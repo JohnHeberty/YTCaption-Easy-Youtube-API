@@ -118,12 +118,12 @@ class OrchestratorSettings(BaseSettings):
         """Backward compatibility: allow settings.get("key", default)."""
         return getattr(self, key, default)
 
-    class Config:
-        """Configuração do Pydantic Settings."""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-        extra = "ignore"
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore",
+    }
 
 
 @lru_cache()

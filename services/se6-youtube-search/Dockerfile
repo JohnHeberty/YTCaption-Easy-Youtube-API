@@ -46,11 +46,11 @@ RUN useradd -m -u 1000 appuser && \
 USER appuser
 
 # Expose port (configurable via PORT env var)
-EXPOSE 8001
+EXPOSE 8006
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8001}/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8006}/health || exit 1
 
 # Run via run.py — garante que SIGTERM propaga corretamente (sem sh -c intermediário)
 CMD ["python", "run.py"]
