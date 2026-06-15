@@ -1,0 +1,2 @@
+# constraints.txt — se1-orchestrator
+# No ML dependencies — orchestrator only uses FastAPI + Redis + HTTP

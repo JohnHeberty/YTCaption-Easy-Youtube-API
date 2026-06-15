@@ -67,7 +67,7 @@ async def health_check_detailed(
         ModelHealthChecker,
         AggregateHealthChecker
     )
-    from app.celery_config import celery_app
+    from app.infrastructure.celery_config import celery_app
 
     try:
         aggregate = AggregateHealthChecker()
