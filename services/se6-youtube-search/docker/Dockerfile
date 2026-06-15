@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 # Copy shared as common/ (build context é raiz do projeto)
-COPY common/ ./common/
+COPY shared/ ./common/
 
 # Copy requirements
 COPY services/se6-youtube-search/requirements.txt .

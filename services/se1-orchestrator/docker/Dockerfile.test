@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia biblioteca common primeiro
-COPY common/ /app/common/
+COPY shared/ /app/common/
 
 # Copia requirements (sem -e ../common) e instala
 COPY orchestrator/requirements-docker.txt /app/requirements.txt

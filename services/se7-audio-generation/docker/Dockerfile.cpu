@@ -23,7 +23,7 @@ RUN sed -i '/^torch/d; /^torchaudio/d; /^gradio/d; /cu128/d' /app/chatterbox-spa
     pip install --no-cache-dir -r /app/chatterbox-space/requirements.txt
 
 # Shared library
-COPY common/ ./common/
+COPY shared/ ./common/
 RUN pip install --no-cache-dir -e ./common
 
 # Service deps

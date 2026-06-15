@@ -9,7 +9,7 @@ services:
     ports:
       - "${PORT}:${PORT}"
     volumes:
-      - ../../../common:/app/common
+      - ../../../shared:/app/common
       - ../app:/app/app
       - ../data:/app/data
     env_file:
@@ -32,7 +32,7 @@ services:
     container_name: audio-generation-celery
     command: python -m celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=1 --queues=audio_generation_queue --pool=solo
     volumes:
-      - ../../../common:/app/common
+      - ../../../shared:/app/common
       - ../app:/app/app
       - ../data:/app/data
     env_file:

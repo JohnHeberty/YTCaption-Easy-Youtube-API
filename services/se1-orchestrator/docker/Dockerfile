@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY common/ /app/common/
+COPY shared/ /app/common/
 
 COPY services/se1-orchestrator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
