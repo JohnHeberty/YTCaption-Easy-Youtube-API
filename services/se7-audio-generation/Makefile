@@ -1,19 +1,21 @@
 .PHONY: help install run dev worker lint test clean docker-build docker-up docker-down
 
-DOCKER_COMPOSE := docker compose -f docker/docker-compose.gpu.yml --env-file .env
+DOCKER_COMPOSE := docker compose -f docker/docker-compose.yml --env-file .env
+DOCKER_COMPOSE_CPU := docker compose -f docker/docker-compose.cpu.yml --env-file .env
 
 help:
 	@echo "Available commands:"
-	@echo "  make install     - Install dependencies"
-	@echo "  make run         - Run API server"
-	@echo "  make dev         - Run API with hot reload"
-	@echo "  make worker      - Run Celery worker"
-	@echo "  make test        - Run tests"
-	@echo "  make lint        - Run linting"
-	@echo "  make clean       - Clean temporary files"
-	@echo "  make docker-build - Build Docker images"
-	@echo "  make docker-up   - Start all services with Docker"
-	@echo "  make docker-down - Stop all services with Docker"
+	@echo "  make install       - Install dependencies"
+	@echo "  make run           - Run API server"
+	@echo "  make dev           - Run API with hot reload"
+	@echo "  make worker        - Run Celery worker"
+	@echo "  make test          - Run tests"
+	@echo "  make lint          - Run linting"
+	@echo "  make clean         - Clean temporary files"
+	@echo "  make docker-build  - Build Docker images (GPU default)"
+	@echo "  make docker-up     - Start all services with Docker (GPU)"
+	@echo "  make docker-down   - Stop all services with Docker"
+	@echo "  make docker-cpu-*  - CPU-only variants"
 
 install:
 	pip install -r requirements.txt
@@ -46,3 +48,12 @@ docker-up:
 
 docker-down:
 	$(DOCKER_COMPOSE) down
+
+docker-cpu-build:
+	$(DOCKER_COMPOSE_CPU) build
+
+docker-cpu-up:
+	$(DOCKER_COMPOSE_CPU) up -d
+
+docker-cpu-down:
+	$(DOCKER_COMPOSE_CPU) down
