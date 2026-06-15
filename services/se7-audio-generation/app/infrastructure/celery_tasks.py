@@ -31,11 +31,7 @@ class GenerationTask(Task):
             from app.services.generator import TTSGenerator
 
             settings = get_settings()
-            model_mgr = ChatterboxModelManager(
-                model_name=settings.model_name,
-                model_dir=settings.model_dir,
-                device=settings.device,
-            )
+            model_mgr = ChatterboxModelManager()
             self._generator = TTSGenerator(
                 model_manager=model_mgr,
                 job_store=self.store,
@@ -52,10 +48,12 @@ def _resolve_audio_prompt_path(voice_id: str, store: JobRedisStore) -> Optional[
         return None
     try:
         from app.core.config import get_settings
+        from app.infrastructure.redis_store import VoiceRedisStore
         from app.services.voice_manager import VoiceProfileManager
 
         settings = get_settings()
-        vm = VoiceProfileManager(store, settings.voices_dir)
+        voice_store = VoiceRedisStore(redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        vm = VoiceProfileManager(voice_store, settings.voices_dir)
         return vm.get_profile_audio_path(voice_id)
     except Exception as e:
         logger.warning(f"Failed to resolve voice profile {voice_id}: {e}")
