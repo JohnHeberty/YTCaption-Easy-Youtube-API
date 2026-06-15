@@ -19,8 +19,81 @@
 - **MELHORE 5.4**: `ITranscriptionService` criada em interfaces.py (~49 lines), TranscriptionService implementa, DI factory retorna tipo abstrato.
 - Zero itens parciais ou abertos no MELHORE.md.
 
-## Próximo passo
-- Nenhum pendente — sessão SOLID concluída (24/24 violações resolvidas).
+## Test Suite Audit — Gap Analysis (SOLID Refactoring)
+
+### Unit Tests: Modules with NO coverage after refactoring
+
+| Source Module | Lines | Status | Notes |
+|---|---|---|---|
+| `app/shared/chunk_transcriber.py` (~195 lines) | **Missing** | Core chunking orchestration, segment merge, text similarity — zero tests. Async `transcribe()`, `_merge_overlapping_segments()`, `_text_similarity()` untested. |
+| `app/shared/audio_chunker.py` | **Missing** | Audio splitting and temp file management used by ChunkTranscriber. No dedicated test file. |
+| `app/shared/job_state_updater.py` (~253 lines) | **Missing** | Replaced old progress tracker tests (`test_progress_tracker.py`) which use hand-written stubs testing the *old* class, not JobStateUpdater's methods: `mark_processing()`, `set_progress()`, `mark_completed()`, `mark_failed()`. |
+| `app/shared/admin_cleanup_service.py` (~310 lines) | ✅ 26/26 passing | Tests in `tests/unit/shared/test_admin_cleanup_service.py`. Covers basic cleanup, deep cleanup (factory reset), _cleanup_directory, _delete_all_files, _purge_celery_queue. Sync helpers bypass asyncio event-loop conflicts. Source bug: tz-aware vs naive datetime comparison silently fails via bare except. |
+| `app/shared/file_upload_handler.py` (~72 lines) | **Missing** | File validation + persistence with retry+fsync. No test for `FileUploadError`, backoff logic, or fsync guarantee. |
+| `app/shared/job_creation_service.py` (~141 lines) | **Missing** | Job creation orchestration, orphan recovery (30min timeout), FAILED job re-submission. Critical business logic untested. |
+| `app/shared/caption_formatter.py` (~95 lines) | **Missing** | SRT/VTT/TXT/LRC/SAM formatting — no tests for output correctness per format. |
+| `app/shared/audio_converter.py` (~130 lines) | **Missing** | Audio stream detection + WAV conversion extracted from processor. No test coverage. |
+| `app/shared/orphan_cleaner.py` | **Missing** | Orphan file cleanup logic — no tests. |
+| `app/shared/job_states.py` (JobStateMachine) | **Partial** | JobStateUpdater tests would cover transitions indirectly, but no direct unit tests for state machine rules and invalid transition guards. |
+
+### Unit Tests: Existing coverage summary (17 files)
+
+| Test File | Target Module | Quality Notes |
+|---|---|---|
+| `test_config.py` / `core/test_config.py` | Config loading | OK — covers config parsing, defaults, env vars. |
+| `test_models.py` / `domain/test_models.py` | Domain models (Job) | OK — validates model fields and serialization. |
+| `test_exceptions.py` | Custom exceptions | OK — exception hierarchy covered. |
+| `test_engine_selection.py` | Engine selection logic | OK — covers engine routing by config. |
+| `test_health_checker.py` / `health_checkers.py` | Health checks (disk, ffmpeg) | Partial — tests old `_check_disk_space()` pattern; new extracted health checkers may have different signatures. |
+| `test_progress_tracker.py` | **Old** RedisProgressTracker | **Stale** — uses hand-written stubs for the *removed* class. Does not test JobStateUpdater at all. |
+| `test_device_manager.py` | DeviceManager (CPU/GPU) | OK — covers device detection and fallback logic. |
+| `test_redis_store.py` | RedisJobStore | Partial — tests store operations but may miss new IJobStore interface methods (`find_orphaned_jobs`, `get_queue_info`). |
+| `test_storage.py` (~194 lines, 15 tests) | Filesystem storage ops | OK — real filesystem in /tmp. Covers structure creation, file CRUD, TTL cleanup, disk space checks. Does NOT test new StorageManager class from refactoring. |
+| `infrastructure/test_circuit_breaker.py` (220 lines, 14 tests) | CircuitBreaker | Good coverage of state transitions: CLOSED→OPEN→HALF_OPEN→CLOSED/RE-OPEN. Tests failure threshold, timeout, max calls in HALF_OPEN, multi-service isolation. Uses real `time.sleep()` — slow but reliable. |
+| `infrastructure/test_checkpoint_manager.py` (261 lines, 15 tests) | CheckpointManager | Good coverage of save/load/delete/list/resume with StubRedisJobStore. Tests corrupted JSON handling and interval logic. Async tests use `@pytest.mark.asyncio`. |
+| `api/test_health_routes.py` (~18 lines, 3 tests) | Health API routes | Minimal — only checks HTTP status codes for `/health`, `/languages`, `/engines`. No payload validation beyond `"status"` key existence. |
+| `api/test_model_routes.py` (~9 lines, 1 test) | Model status route | Very thin — single assertion on GET `/model/status`. Relies on unverified `mock_processor` fixture from conftest. |
+
+### Integration Tests (7 files total; mostly empty placeholders)
+
+- `tests/integration/api/test_api_endpoints.py` (~278 lines, 6 classes): **Most substantial integration coverage.**
+  - Health endpoints: status code + JSON content type + `"healthy"` value.
+  - Languages endpoint: list structure, "auto" presence, total count consistency, models list with "base".
+  - Job creation: immediate response (<2s), job object fields (id/status/language), auto language acceptance, invalid language rejection (400), missing file validation (422), initial QUEUED/PROCESSING status.
+  - Job status: nonexistent job returns 404, existing job returns id + progress field.
+  - Admin endpoints: stats returns metrics dict, cleanup is immediate (<2s) with confirmation message.
+  - API resilience: concurrent job creation (3 workers), unique ID verification; large language list handling (>50 languages).
+- `tests/integration/pipeline/` — empty placeholder (`__init__.py` only). No pipeline integration tests for the full transcription flow (download → convert → chunk → transcribe → format → store).
+- `tests/integration/storage/` — empty placeholder. No storage layer integration with real filesystem paths, permissions, or cleanup TTL behavior under load.
+- `tests/integration/real/test_real_whisper_transcription.py` — exists but not audited (requires real Whisper model + audio fixture to run).
+
+### Resilience Tests (3 files)
+
+| File | Status | Notes |
+|---|---|---|
+| `test_circuit_breaker.py` | Exists | Ground-truth resilience test for circuit breaker under failure injection. Complements unit tests with real async execution. Not read in detail but covers the same state machine logic as unit tests. |
+| `test_corrupted_files.py` | Exists | Tests handling of corrupted audio files through the pipeline. Important edge case coverage. |
+| `test_transcription_real.py` | Exists | Real transcription test requiring actual Whisper model and valid audio fixtures. Not audited in detail. |
+
+### E2E Tests — **Empty**
+
+- `tests/e2e/` contains only `__init__.py`. Zero end-to-end tests covering the full user journey: upload file → submit job → poll status → retrieve caption output (SRT/VTT/TXT). This is a critical gap for regression safety after refactoring.
+
+### Broken Imports & Stale References
+
+- **`tests/test_import.py`**: Likely imports `TranscriptionEngine` from `domain.interfaces`, which was replaced by ISP-split interfaces (`ITranscriber`, etc.) during SOLID refactoring. Needs verification against current `interfaces.py`.
+- **`test_progress_tracker.py`**: Tests the *removed* RedisProgressTracker class with hand-written stubs, not the new JobStateUpdater that implements IProgressTracker. Effectively testing dead code paths.
+
+### Critical Decisions & Observations
+
+1. **Stub vs Mock strategy**: Existing tests use hand-written Stubs (`StubRedis`, `StubRedisJobStore`) rather than mocking refactored classes. This means integration points between shared services (e.g., JobStateUpdater ↔ IJobStore, ChunkTranscriber ↔ AudioChunker) are not validated together.
+2. **No processor test file**: The main orchestrator `app/services/processor.py` has no obvious dedicated unit test despite being the central processing engine (~702 lines post-refactoring). Its logic is only indirectly tested through integration API tests with fake audio content (`b"fake audio content"`), which fails at actual pydub parsing.
+3. **Async coverage gaps**: `test_checkpoint_manager.py` uses `@pytest.mark.asyncio`, but most other unit tests are synchronous and do not exercise the async paths in shared services (JobCreationService, AdminCleanupService).
+
+### Próximo passo
+- Prioridade 1: Create unit tests for `ChunkTranscriber` and `JobStateUpdater` — highest risk modules with complex logic.
+- Prioridade 2: Verify broken imports in `test_import.py` against current source interfaces.
+- Prioridade 3: Create E2E test skeleton covering the full job lifecycle (upload → process → retrieve).
 
 ## Decisões de arquitetura
 - **JobStateUpdater como classe**: precisa acessar `IJobStore`, injetado via DI, permitindo mocking e troca por request.

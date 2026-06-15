@@ -1,0 +1,116 @@
+import os
+from typing import Optional
+
+from common.log_utils import get_logger
+from common.datetime_utils import now_brazil
+from celery import Task
+
+from app.domain.models import AudioGenerationJob
+from app.infrastructure.celery_config import celery_app
+from app.infrastructure.redis_store import JobRedisStore
+
+logger = get_logger(__name__)
+
+
+class GenerationTask(Task):
+    _generator = None
+    _store: Optional[JobRedisStore] = None
+
+    @property
+    def store(self) -> JobRedisStore:
+        if self._store is None:
+            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+            self._store = JobRedisStore(redis_url=redis_url)
+        return self._store
+
+    @property
+    def generator(self):
+        if self._generator is None:
+            from app.core.config import get_settings
+            from app.services.model_manager import ChatterboxModelManager
+            from app.services.generator import TTSGenerator
+
+            settings = get_settings()
+            model_mgr = ChatterboxModelManager(
+                model_name=settings.model_name,
+                model_dir=settings.model_dir,
+                device=settings.device,
+            )
+            self._generator = TTSGenerator(
+                model_manager=model_mgr,
+                job_store=self.store,
+                output_dir=settings.output_dir,
+                max_text_length=settings.max_text_length,
+                chunk_size=settings.chunk_size,
+            )
+        return self._generator
+
+
+def _resolve_audio_prompt_path(voice_id: str, store: JobRedisStore) -> Optional[str]:
+    """Resolve voice_id to audio file path for voice cloning."""
+    if not voice_id:
+        return None
+    try:
+        from app.core.config import get_settings
+        from app.services.voice_manager import VoiceProfileManager
+
+        settings = get_settings()
+        vm = VoiceProfileManager(store, settings.voices_dir)
+        return vm.get_profile_audio_path(voice_id)
+    except Exception as e:
+        logger.warning(f"Failed to resolve voice profile {voice_id}: {e}")
+        return None
+
+
+def _mark_job_failed(job_dict: dict, error_message: str, store: JobRedisStore) -> None:
+    """Mark a job as FAILED in the store."""
+    try:
+        job = AudioGenerationJob(**job_dict)
+        job.mark_as_failed(str(error_message), "TaskError")
+        store.update_job(job)
+    except Exception as store_err:
+        logger.error(f"Failed to mark job as failed: {store_err}")
+
+
+@celery_app.task(
+    bind=True,
+    base=GenerationTask,
+    name="generate_audio",
+    autoretry_for=(ConnectionError, IOError, OSError),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+    soft_time_limit=2700,
+    time_limit=3600,
+)
+def generate_audio_task(self, job_dict: dict) -> dict:
+    job_id = job_dict.get("id", "unknown")
+    logger.info(f"Starting audio generation job {job_id}")
+
+    try:
+        job = AudioGenerationJob(**job_dict)
+        audio_prompt_path = _resolve_audio_prompt_path(job.voice_id, self.store)
+        if audio_prompt_path:
+            logger.info(f"Using voice profile {job.voice_id} for cloning")
+
+        result_job = self.generator.generate(job, audio_prompt_path=audio_prompt_path)
+        return result_job.model_dump()
+
+    except Exception as e:
+        logger.error(f"Job {job_id} failed in task: {e}")
+        _mark_job_failed(job_dict, str(e), self.store)
+        raise
+
+
+@celery_app.task(name="cleanup_expired_jobs")
+def cleanup_expired_jobs_task():
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    store = JobRedisStore(redis_url=redis_url)
+    expired = []
+    for job in store.list_jobs(100):
+        if job.is_expired:
+            store.delete_job(job.id)
+            expired.append(job.id)
+    logger.info(f"Cleaned up {len(expired)} expired jobs")
+    return {"cleaned": len(expired), "jobs": expired}

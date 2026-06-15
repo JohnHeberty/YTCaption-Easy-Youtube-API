@@ -16,13 +16,10 @@ def make_fixed_dt(year=2025, month=1, day=15, hour=12, minute=0, second=0):
     return dt_cls(year, month, day, hour, minute, second, tzinfo=BRAZIL_TZ)
 
 
-from unittest.mock import patch
-
 import pytest
 
-with patch("common.datetime_utils.now_brazil", return_value=make_fixed_dt()):
-    from app.shared.orphan_cleaner import OrphanJobCleaner, DeadLetterQueueManager
-    from common.job_utils.models import JobStatus
+from app.shared.orphan_cleaner import OrphanJobCleaner, DeadLetterQueueManager
+from common.job_utils.models import JobStatus
 
 
 class MockJobStore:
@@ -75,55 +72,48 @@ def fixed_now():
     return make_fixed_dt(2025, 1, 15, 12, 0, 0)
 
 
-@pytest.fixture()
-def now_patch(fixed_now):
-    with patch("common.datetime_utils.now_brazil", return_value=fixed_now):
-        yield fixed_now
-
-
 # -- _is_orphan_processing ---------------------------------------------------
 
 class TestIsOrphanProcessing:
-    def test_no_started_at_is_orphan(self, store, now_patch):
+    def test_no_started_at_is_orphan(self, store):
         job = _make_job(store, status=JobStatus.PROCESSING, started_at=None)
-        cleaner = OrphanJobCleaner(store)
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         assert cleaner._is_orphan_processing(job) is True
 
-    def test_within_timeout_not_orphan(self, store, now_patch):
+    def test_within_timeout_not_orphan(self, store):
         fixed = make_fixed_dt(2025, 1, 15, 11, 56, 0)
         job = _make_job(store, status=JobStatus.PROCESSING, started_at=fixed)
-        cleaner = OrphanJobCleaner(store, processing_timeout_minutes=10)
+        cleaner = OrphanJobCleaner(store, processing_timeout_minutes=10, _now=lambda: make_fixed_dt())
         assert cleaner._is_orphan_processing(job) is False
 
-    def test_exceeds_timeout_is_orphan(self, store, now_patch):
+    def test_exceeds_timeout_is_orphan(self, store):
         fixed = make_fixed_dt(2025, 1, 15, 11, 49, 0)
         job = _make_job(store, status=JobStatus.PROCESSING, started_at=fixed)
-        cleaner = OrphanJobCleaner(store, processing_timeout_minutes=10)
+        cleaner = OrphanJobCleaner(store, processing_timeout_minutes=10, _now=lambda: make_fixed_dt())
         assert cleaner._is_orphan_processing(job) is True
 
     def test_exactly_at_boundary_not_orphan(self, store):
         fixed_now_val = make_fixed_dt(2025, 1, 15, 12, 0, 0)
         started = make_fixed_dt(2025, 1, 15, 11, 50, 0)
-        with patch("common.datetime_utils.now_brazil", return_value=fixed_now_val):
-            job = _make_job(store, status=JobStatus.PROCESSING, started_at=started)
-            cleaner = OrphanJobCleaner(store, processing_timeout_minutes=10)
-            assert cleaner._is_orphan_processing(job) is False
+        job = _make_job(store, status=JobStatus.PROCESSING, started_at=started)
+        cleaner = OrphanJobCleaner(store, processing_timeout_minutes=10, _now=lambda: fixed_now_val)
+        assert cleaner._is_orphan_processing(job) is False
 
 
 # -- _is_orphan_queued -------------------------------------------------------
 
 class TestIsOrphanQueued:
-    def test_within_timeout_not_orphan(self, store, now_patch):
+    def test_within_timeout_not_orphan(self, store):
         fixed = make_fixed_dt(2025, 1, 15, 11, 35, 0)
         _make_job(store, status=JobStatus.QUEUED, created_at=fixed)
-        cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30)
+        cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30, _now=lambda: make_fixed_dt())
         jobs = store.list_jobs(status=JobStatus.QUEUED)
         assert cleaner._is_orphan_queued(jobs[0]) is False
 
-    def test_exceeds_timeout_is_orphan(self, store, now_patch):
+    def test_exceeds_timeout_is_orphan(self, store):
         fixed = make_fixed_dt(2025, 1, 15, 11, 29, 0)
         _make_job(store, status=JobStatus.QUEUED, created_at=fixed)
-        cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30)
+        cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30, _now=lambda: make_fixed_dt())
         jobs = store.list_jobs(status=JobStatus.QUEUED)
         assert cleaner._is_orphan_queued(jobs[0]) is True
 
@@ -132,9 +122,9 @@ class TestIsOrphanQueued:
 
 class TestHandleOrphanProcessing:
     @pytest.mark.asyncio
-    async def test_requeues_when_retry_below_max(self, store, now_patch):
+    async def test_requeues_when_retry_below_max(self, store):
         job = _make_job(store, status=JobStatus.PROCESSING, started_at=None, retry_count=0)
-        cleaner = OrphanJobCleaner(store)
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         stats = {"requeued": 0, "failed": 0}
         await cleaner._handle_orphan_job(job, stats)
 
@@ -147,9 +137,9 @@ class TestHandleOrphanProcessing:
         assert stats["requeued"] == 1
 
     @pytest.mark.asyncio
-    async def test_fails_when_retry_equals_max(self, store, now_patch):
+    async def test_fails_when_retry_equals_max(self, store):
         job = _make_job(store, status=JobStatus.PROCESSING, started_at=None, retry_count=2)
-        cleaner = OrphanJobCleaner(store)
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         stats = {"requeued": 0, "failed": 0}
         await cleaner._handle_orphan_job(job, stats)
 
@@ -163,9 +153,9 @@ class TestHandleOrphanProcessing:
 
 class TestHandleStaleQueuedJob:
     @pytest.mark.asyncio
-    async def test_marks_failed(self, store, now_patch):
+    async def test_marks_failed(self, store):
         job = _make_job(store, status=JobStatus.QUEUED)
-        cleaner = OrphanJobCleaner(store)
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         stats = {"failed": 0}
         await cleaner._handle_stale_queued_job(job, stats)
 
@@ -180,18 +170,18 @@ class TestHandleStaleQueuedJob:
 
 class TestCleanupOrphans:
     @pytest.mark.asyncio
-    async def test_empty_store(self, store, now_patch):
-        cleaner = OrphanJobCleaner(store)
+    async def test_empty_store(self, store):
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         result = await cleaner.cleanup_orphans()
         assert result["checked"] == 0
         assert result["orphans_found"] == 0
 
     @pytest.mark.asyncio
-    async def test_detects_and_requeues_processing_orphan(self, store, now_patch):
+    async def test_detects_and_requeues_processing_orphan(self, store):
         _make_job(
             store, "j1", JobStatus.PROCESSING, started_at=None, retry_count=0
         )
-        cleaner = OrphanJobCleaner(store)
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         result = await cleaner.cleanup_orphans()
 
         assert result["orphans_found"] == 1
@@ -200,11 +190,11 @@ class TestCleanupOrphans:
         assert updated.status == JobStatus.QUEUED
 
     @pytest.mark.asyncio
-    async def test_fails_processing_orphan_exhausted_retries(self, store, now_patch):
+    async def test_fails_processing_orphan_exhausted_retries(self, store):
         _make_job(
             store, "j2", JobStatus.PROCESSING, started_at=None, retry_count=3
         )
-        cleaner = OrphanJobCleaner(store)
+        cleaner = OrphanJobCleaner(store, _now=lambda: make_fixed_dt())
         result = await cleaner.cleanup_orphans()
 
         assert result["orphans_found"] == 1
@@ -216,10 +206,9 @@ class TestCleanupOrphans:
     async def test_fails_stale_queued(self, store):
         fixed_now_val = make_fixed_dt(2025, 1, 15, 14, 0, 0)
         old_created = make_fixed_dt(2025, 1, 15, 9, 0, 0)
-        with patch("common.datetime_utils.now_brazil", return_value=fixed_now_val):
-            _make_job(store, "j3", JobStatus.QUEUED, created_at=old_created)
-            cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30)
-            result = await cleaner.cleanup_orphans()
+        _make_job(store, "j3", JobStatus.QUEUED, created_at=old_created)
+        cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30, _now=lambda: fixed_now_val)
+        result = await cleaner.cleanup_orphans()
 
         assert result["orphans_found"] == 1
         assert result["failed"] == 1
@@ -231,14 +220,13 @@ class TestCleanupOrphans:
         fixed_now_val = make_fixed_dt(2025, 1, 15, 14, 0, 0)
         old_created = make_fixed_dt(2025, 1, 15, 9, 0, 0)
 
-        with patch("common.datetime_utils.now_brazil", return_value=fixed_now_val):
-            _make_job(store, "p1", JobStatus.PROCESSING, started_at=None, retry_count=0)
-            _make_job(
-                store, "q1", JobStatus.QUEUED, created_at=old_created
-            )
+        _make_job(store, "p1", JobStatus.PROCESSING, started_at=None, retry_count=0)
+        _make_job(
+            store, "q1", JobStatus.QUEUED, created_at=old_created
+        )
 
-            cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30)
-            result = await cleaner.cleanup_orphans()
+        cleaner = OrphanJobCleaner(store, queued_timeout_minutes=30, _now=lambda: fixed_now_val)
+        result = await cleaner.cleanup_orphans()
 
         assert result["checked"] >= 2
         assert result["orphans_found"] >= 2
@@ -250,7 +238,7 @@ class TestCleanupOrphans:
 
 class TestDeadLetterQueueManager:
     @pytest.mark.asyncio
-    async def test_send_to_dlq(self, store, now_patch):
+    async def test_send_to_dlq(self, store):
         job = _make_job(store, status=JobStatus.QUEUED)
         manager = DeadLetterQueueManager(store)
         manager.send_to_dlq(job, "test reason")
@@ -260,7 +248,7 @@ class TestDeadLetterQueueManager:
         assert "[DLQ]" in (updated.error_message or "")
 
     @pytest.mark.asyncio
-    async def test_list_dlq_jobs(self, store, now_patch):
+    async def test_list_dlq_jobs(self, store):
         _make_job(store, "f1", status=JobStatus.FAILED)
         _make_job(store, "f2", status=JobStatus.FAILED)
         manager = DeadLetterQueueManager(store)
@@ -268,7 +256,7 @@ class TestDeadLetterQueueManager:
         assert len(dlq) == 2
 
     @pytest.mark.asyncio
-    async def test_retry_dlq_success(self, store, now_patch):
+    async def test_retry_dlq_success(self, store):
         job = _make_job(store, "r1", status=JobStatus.FAILED)
         manager = DeadLetterQueueManager(store)
         ok = manager.retry_dlq_job("r1")
@@ -279,7 +267,7 @@ class TestDeadLetterQueueManager:
         assert updated.error_message is None
 
     @pytest.mark.asyncio
-    async def test_retry_dlq_not_found(self, store, now_patch):
+    async def test_retry_dlq_not_found(self, store):
         manager = DeadLetterQueueManager(store)
         ok = manager.retry_dlq_job("nonexistent")
         assert ok is False

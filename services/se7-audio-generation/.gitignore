@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venv/
+env/
+.venv
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Large model files
+data/models/
+*.pt
+*.safetensors
+*.bin
+
+# Voice samples and outputs
+data/voices/
+data/outputs/
+data/temp/
+*.wav
+*.mp3
+*.ogg
+*.m4a
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+tmp/

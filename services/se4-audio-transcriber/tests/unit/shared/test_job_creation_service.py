@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import datetime, timedelta, timezone as tz
 from pathlib import Path
 from typing import Optional
@@ -22,6 +23,20 @@ def _fixed_now(offset_minutes: int = 0) -> datetime:
     """Return a deterministic Brazil-time datetime with optional offset."""
     base = datetime(2024, 6, 15, 10, 0, 0, tzinfo=_BRAZIL_TZ)
     return base + timedelta(minutes=offset_minutes)
+
+
+def _run(coro):
+    """Run an async coroutine in a fresh event loop if needed."""
+    with suppress(RuntimeError):
+        loop = asyncio.get_running_loop()
+        if loop:
+            return loop.run_until_complete(coro)
+
+    new_loop = asyncio.new_event_loop()
+    try:
+        return new_loop.run_until_complete(coro)
+    finally:
+        new_loop.close()
 
 
 class _MockJobStore:
@@ -97,11 +112,6 @@ def _make_job(
 class TestJobCreationServiceNewJob:
     """Happy-path and basic behaviour for brand-new jobs."""
 
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
-
     def test_create_new_job_persists_and_submits(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
 
@@ -109,9 +119,9 @@ class TestJobCreationServiceNewJob:
         upload_handler = _MockUploadHandler(tmp_path)
         submit_fn = MagicMock()
 
-        svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+        svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _run(
             svc.create_or_resume_job(b"audio-data", "test.mp3", "pt")
         )
 
@@ -128,9 +138,9 @@ class TestJobCreationServiceNewJob:
         store = _MockJobStore()
         upload_handler = _MockUploadHandler(tmp_path)
 
-        svc = JobCreationService(store, upload_handler)
+        svc = JobCreationService(store, upload_handler, time_fn=lambda: _fixed_now())
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _run(
             svc.create_or_resume_job(b"12345", "input.wav", "en")
         )
 
@@ -144,9 +154,9 @@ class TestJobCreationServiceNewJob:
         store = _MockJobStore()
         upload_handler = _MockUploadHandler(tmp_path)
 
-        svc = JobCreationService(store, upload_handler, submit_task_fn=None)
+        svc = JobCreationService(store, upload_handler, submit_task_fn=None, time_fn=lambda: _fixed_now())
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _run(
             svc.create_or_resume_job(b"data", "file.mp3", "pt")
         )
 
@@ -155,11 +165,6 @@ class TestJobCreationServiceNewJob:
 
 class TestJobCreationServiceExistingCompleted:
     """COMPLETED jobs are returned as-is (no re-processing)."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_completed_job_returned_without_re_submit(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -174,9 +179,9 @@ class TestJobCreationServiceExistingCompleted:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="existing-1"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -187,11 +192,6 @@ class TestJobCreationServiceExistingCompleted:
 
 class TestJobCreationServiceOrphanDetection:
     """QUEUED/PROCESSING jobs older than 30 min are treated as orphaned."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_queued_job_within_timeout_returned_as_is(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -205,9 +205,9 @@ class TestJobCreationServiceOrphanDetection:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-1"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -227,9 +227,9 @@ class TestJobCreationServiceOrphanDetection:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-2"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -240,11 +240,6 @@ class TestJobCreationServiceOrphanDetection:
 
 class TestJobCreationServiceFailedResubmission:
     """FAILED jobs are reset and re-submitted via callable DI."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_failed_job_resubmitted_via_callable_di(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -258,9 +253,9 @@ class TestJobCreationServiceFailedResubmission:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-3"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -275,11 +270,6 @@ class TestJobCreationServiceFailedResubmission:
 class TestJobCreationServiceSubmitTaskErrorHandling:
     """_submit_task swallows exceptions and logs them."""
 
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
-
     def test_submit_fn_exception_does_not_crash_creation(self, tmp_path, caplog):  # noqa: ARG002 – fixture side-effects
         import logging as log_mod
 
@@ -291,10 +281,10 @@ class TestJobCreationServiceSubmitTaskErrorHandling:
         def bad_submit(job, job_store):
             raise RuntimeError("broker unavailable")
 
-        svc = JobCreationService(store, upload_handler, submit_task_fn=bad_submit)
+        svc = JobCreationService(store, upload_handler, submit_task_fn=bad_submit, time_fn=lambda: _fixed_now())
 
         with caplog.at_level(log_mod.ERROR):
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -305,20 +295,15 @@ class TestJobCreationServiceSubmitTaskErrorHandling:
 class TestJobCreationServiceDefaultEngine:
     """When engine is None, default should be FASTER_WHISPER."""
 
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
-
     def test_default_engine_is_faster_whisper(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
 
         store = _MockJobStore()
         upload_handler = _MockUploadHandler(tmp_path)
 
-        svc = JobCreationService(store, upload_handler)
+        svc = JobCreationService(store, upload_handler, time_fn=lambda: _fixed_now())
 
-        result = asyncio.get_event_loop().run_until_complete(
+        result = _run(
             svc.create_or_resume_job(b"data", "test.mp3", "pt")
         )
 
@@ -330,11 +315,6 @@ class TestJobCreationServiceDefaultEngine:
 
 class TestJobCreationServiceUnknownExistingStatus:
     """Jobs in an unexpected status are returned as-is."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_unknown_status_returned_without_resubmit(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -348,9 +328,9 @@ class TestJobCreationServiceUnknownExistingStatus:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-4"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -361,11 +341,6 @@ class TestJobCreationServiceUnknownExistingStatus:
 
 class TestJobCreationServiceProcessingOrphan:
     """PROCESSING jobs over 30 min are also orphan-recovered."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_processing_job_over_timeout_resubmitted(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -379,9 +354,9 @@ class TestJobCreationServiceProcessingOrphan:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-5"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -392,11 +367,6 @@ class TestJobCreationServiceProcessingOrphan:
 
 class TestJobCreationServiceProcessingWithinTimeout:
     """PROCESSING jobs within 30 min are left alone."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_processing_job_within_timeout_returned_as_is(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -410,9 +380,9 @@ class TestJobCreationServiceProcessingWithinTimeout:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-6"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 
@@ -423,11 +393,6 @@ class TestJobCreationServiceProcessingWithinTimeout:
 
 class TestJobCreationServiceResubmitClearsError:
     """Re-submitting a FAILED job clears error_message and resets progress."""
-
-    @pytest.fixture(autouse=True)
-    def _patch_now(self):
-        with patch("common.datetime_utils.now_brazil", return_value=_fixed_now()):
-            yield
 
     def test_resubmit_clears_error_and_progress(self, tmp_path):  # noqa: ARG002 – fixture side-effects
         from app.shared.job_creation_service import JobCreationService
@@ -440,9 +405,9 @@ class TestJobCreationServiceResubmitClearsError:
         with patch(
             "common.job_utils.models.generate_job_id", return_value="job-7"
         ):
-            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn)
+            svc = JobCreationService(store, upload_handler, submit_task_fn=submit_fn, time_fn=lambda: _fixed_now())
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = _run(
                 svc.create_or_resume_job(b"data", "test.mp3", "pt")
             )
 

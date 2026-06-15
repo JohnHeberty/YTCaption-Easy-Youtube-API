@@ -47,10 +47,8 @@ class StageInfo(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def start(self):
         self.status = StageStatus.PROCESSING
@@ -100,10 +98,8 @@ class StandardJob(BaseModel):
     error_type: Optional[str] = None
     correlation_id: Optional[str] = None
     retry_count: int = 0
-    stages: dict[str, StageInfo] = Field(default_factory=dict)
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    stages: dict[str, StageInfo] = Field(default_factory=dict)
 
     def mark_as_queued(self):
         self.status = JobStatus.QUEUED
@@ -182,10 +178,8 @@ class JobResponse(BaseModel):
     status: JobStatus
     message: str = ""
     progress: float = 0.0
-    correlation_id: Optional[str] = None
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    correlation_id: Optional[str] = None
 
 
 class JobListResponse(BaseModel):

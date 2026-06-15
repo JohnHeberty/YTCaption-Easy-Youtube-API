@@ -17,7 +17,7 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable, Optional
 from celery import Celery
 
 from ..domain.interfaces import IJobStore
@@ -26,21 +26,27 @@ from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
+
+def _default_now() -> datetime:
+    return now_brazil()
+
+
 class OrphanJobCleaner:
     """
     Limpa jobs órfãos automaticamente.
-    
+
     Jobs órfãos são aqueles que:
     - Estão em PROCESSING há muito tempo (> timeout)
     - Estão em QUEUED mas nunca foram processados
     - Tem worker que morreu durante processamento
     """
-    
+
     def __init__(
         self,
         job_store: IJobStore,
         processing_timeout_minutes: int = 10,
-        queued_timeout_minutes: int = 30
+        queued_timeout_minutes: int = 30,
+        _now: Optional[Callable[[], datetime]] = None,
     ):
         """
         Args:
@@ -51,7 +57,8 @@ class OrphanJobCleaner:
         self.job_store = job_store
         self.processing_timeout = timedelta(minutes=processing_timeout_minutes)
         self.queued_timeout = timedelta(minutes=queued_timeout_minutes)
-    
+        self._now: Callable[[], datetime] = _now or _default_now
+
     async def cleanup_orphans(self) -> Dict[str, Any]:
         """
         Executa limpeza de jobs órfãos.
@@ -70,10 +77,12 @@ class OrphanJobCleaner:
         }
         
         try:
-            # Busca jobs em PROCESSING
-            processing_jobs = self.job_store.list_jobs(status=JobStatus.PROCESSING)
+            # Snapshot both lists before any mutations to avoid double-processing requeued jobs
+            processing_jobs = list(self.job_store.list_jobs(status=JobStatus.PROCESSING))
+            queued_jobs = list(self.job_store.list_jobs(status=JobStatus.QUEUED))
+
             stats["checked"] += len(processing_jobs)
-            
+
             for job in processing_jobs:
                 try:
                     if self._is_orphan_processing(job):
@@ -82,9 +91,8 @@ class OrphanJobCleaner:
                 except Exception as e:
                     logger.error(f"Erro ao processar job órfão {job.id}: {e}")
                     stats["errors"].append(f"{job.id}: {str(e)}")
-            
-            # Busca jobs em QUEUED muito antigos
-            queued_jobs = self.job_store.list_jobs(status=JobStatus.QUEUED)
+
+            # Busca jobs em QUEUED muito antigos (snapshot taken before requeue mutations)
             stats["checked"] += len(queued_jobs)
             
             for job in queued_jobs:
@@ -113,12 +121,12 @@ class OrphanJobCleaner:
             # Job em PROCESSING sem started_at é definitivamente órfão
             return True
         
-        age = now_brazil() - job.started_at
+        age = self._now() - job.started_at
         return age > self.processing_timeout
     
     def _is_orphan_queued(self, job: Job) -> bool:
         """Verifica se job em QUEUED é órfão"""
-        age = now_brazil() - job.created_at
+        age = self._now() - job.created_at
         return age > self.queued_timeout
     
     async def _handle_orphan_job(self, job: Job, stats: Dict) -> None:
@@ -157,7 +165,7 @@ class OrphanJobCleaner:
     
     async def _handle_stale_queued_job(self, job: Job, stats: Dict) -> None:
         """Trata job muito antigo em QUEUED"""
-        age = now_brazil() - job.created_at
+        age = self._now() - job.created_at
         
         job.status = JobStatus.FAILED
         job.error_message = f"Job permaneceu em fila por {age} sem ser processado. Possível problema no worker."
