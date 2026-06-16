@@ -1,0 +1,90 @@
+name: se8-image-generation-gpu
+services:
+  image-generation-api:
+    build:
+      context: ../../..
+      dockerfile: services/se8-image-generation/docker/Dockerfile
+      target: api
+    container_name: image-generation-api
+    ports:
+      - "8008:8008"
+    volumes:
+      - ../../../shared:/app/common
+      - ../app:/app/app
+      - ../data:/app/data
+    env_file:
+      - ../.env
+    environment:
+      - TZ=America/Sao_Paulo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  fooocus-api:
+    build:
+      context: ../../..
+      dockerfile: services/se8-image-generation/docker/Dockerfile.fooocus
+    container_name: fooocus-api
+    volumes:
+      - ../../../FOOOCUS:/app/fooocus
+      - ../data/models:/app/data/models
+      - ../data/outputs:/tmp/fooocus
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/nvidia/lib/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/nvidia/lib/libcuda.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/nvidia/lib/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/nvidia/lib/libnvidia-ml.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/nvidia/lib/libnvidia-ptxjitcompiler.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1:/nvidia/lib/libnvidia-encode.so.1:ro
+    env_file:
+      - ../.env
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - LD_LIBRARY_PATH=/nvidia/lib:/usr/local/cuda/lib64
+      - path_checkpoints=/app/data/models/checkpoints
+      - path_loras=/app/data/models/loras
+      - path_embeddings=/app/data/models/embeddings
+      - path_vae_approx=/app/data/models/vae_approx
+      - path_vae=/app/data/models/vae
+      - path_upscale_models=/app/data/models/upscale_models
+      - path_inpaint=/app/data/models/inpaint
+      - path_controlnet=/app/data/models/controlnet
+      - path_clip_vision=/app/data/models/clip_vision
+      - path_fooocus_expansion=/app/data/models/prompt_expansion/fooocus_expansion
+      - path_outputs=/app/fooocus/outputs/files
+    runtime: nvidia
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  celery-worker:
+    build:
+      context: ../../..
+      dockerfile: services/se8-image-generation/docker/Dockerfile
+      target: worker
+    container_name: image-generation-celery
+    command: >
+      python -m celery -A app.infrastructure.celery_config.celery_app worker
+      --loglevel=info --concurrency=1 --queues=image_generation_queue --pool=solo
+    volumes:
+      - ../../../shared:/app/common
+      - ../app:/app/app
+      - ../data:/app/data
+    env_file:
+      - ../.env
+    environment:
+      - C_FORCE_ROOT=true
+      - TZ=America/Sao_Paulo
+    restart: unless-stopped
+    depends_on:
+      image-generation-api:
+        condition: service_healthy
