@@ -1,0 +1,18 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = [".", ".."]
+markers = [
+    "unit: Unit tests (no external deps)",
+    "integration: Integration tests (requires Docker)",
+    "slow: Slow tests",
+    "real: Tests requiring real services",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/core/config.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
