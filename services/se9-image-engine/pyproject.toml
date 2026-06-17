@@ -1,0 +1,18 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = [".", ".."]
+markers = [
+    "unit: Unit tests (no external deps)",
+    "integration: Integration tests (requires Docker)",
+    "gpu: Tests requiring GPU (nvidia/cuda)",
+    "slow: Slow tests",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/core/config.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
