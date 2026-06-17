@@ -36,4 +36,4 @@ celery_app.conf.update(
     result_expires=3600,
 )
 
-celery_app.autodiscover_tasks(["app.infrastructure"])
+celery_app.autodiscover_tasks(["app.infrastructure"], related_name="celery_tasks")

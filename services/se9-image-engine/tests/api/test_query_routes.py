@@ -5,7 +5,7 @@ from app.domain.task_models import TaskType
 
 class TestQueryJob:
     def test_query_job_not_found(self, client, auth_header):
-        with patch("app.api.query_routes.worker_queue") as mock_q:
+        with patch("app.services.worker.worker_queue") as mock_q:
             mock_q.get_task.return_value = None
             resp = client.get("/v1/generation/query-job?job_id=xxx", headers=auth_header)
         assert resp.status_code == 404
@@ -23,7 +23,7 @@ class TestQueryJob:
         mock_task.task_result = None
         mock_task.finish_with_error = False
 
-        with patch("app.api.query_routes.worker_queue") as mock_q:
+        with patch("app.services.worker.worker_queue") as mock_q:
             mock_q.get_task.return_value = mock_task
             resp = client.get("/v1/generation/query-job?job_id=abc-123", headers=auth_header)
         assert resp.status_code == 200
@@ -33,7 +33,7 @@ class TestQueryJob:
 
 class TestJobQueue:
     def test_job_queue_info(self, client, auth_header):
-        with patch("app.api.query_routes.worker_queue") as mock_q:
+        with patch("app.services.worker.worker_queue") as mock_q:
             mock_q.get_queue_info.return_value = {
                 "running_size": 2,
                 "finished_size": 5,
@@ -48,7 +48,7 @@ class TestJobQueue:
 
 class TestJobHistory:
     def test_job_history_empty(self, client, auth_header):
-        with patch("app.api.query_routes.worker_queue") as mock_q:
+        with patch("app.services.worker.worker_queue") as mock_q:
             mock_q.get_history.return_value = {"queue": [], "history": []}
             resp = client.get("/v1/generation/job-history", headers=auth_header)
         assert resp.status_code == 200
@@ -59,7 +59,7 @@ class TestJobHistory:
     def test_job_history_delete(self, client, auth_header):
         mock_task = MagicMock()
         mock_task.job_id = "del-123"
-        with patch("app.api.query_routes.worker_queue") as mock_q:
+        with patch("app.services.worker.worker_queue") as mock_q:
             mock_q.get_task.return_value = mock_task
             mock_q.history = [mock_task]
             resp = client.get(

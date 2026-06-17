@@ -24,13 +24,18 @@ async def verify_api_key(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s", settings.app_name, settings.version)
+    import threading
     from app.services.task_queue import TaskQueue
-    from app.services.worker import worker_queue as wq
+    import app.services.worker as worker_mod
 
-    if wq is None:
-        import app.services.worker as worker_mod
-
+    if worker_mod.worker_queue is None:
         worker_mod.worker_queue = TaskQueue(queue_size=settings.max_queue_size)
+
+    _worker_thread = threading.Thread(
+        target=worker_mod.task_schedule_loop, daemon=True, name="se9-worker"
+    )
+    _worker_thread.start()
+    logger.info("Worker task loop started in background thread")
 
     yield
 

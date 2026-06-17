@@ -15,6 +15,7 @@ from app.api.api_utils import call_worker
 from app.domain.models import (
     GeneratedImageResult,
     ImageEnhanceRequestJson,
+    ImagePromptJson,
     ImgInpaintOrOutpaintRequestJson,
     ImgPromptRequestJson,
     ImgUpscaleOrVaryRequestJson,
@@ -28,7 +29,6 @@ router = APIRouter(prefix="/v2/generation", tags=["GenerateV2"])
 
 @router.post(
     "/text-to-image-with-ip",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV2"],
 )
 def text_to_image_with_ip(
@@ -44,13 +44,12 @@ def text_to_image_with_ip(
     if accept_query:
         accept = accept_query
     while len(req.image_prompts) <= 4:
-        req.image_prompts.append({"cn_img": None})
+        req.image_prompts.append(ImagePromptJson())
     return call_worker(req, accept)
 
 
 @router.post(
     "/image-upscale-vary",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV2"],
 )
 def image_upscale_vary_v2(
@@ -64,13 +63,12 @@ def image_upscale_vary_v2(
     if accept_query:
         accept = accept_query
     while len(req.image_prompts) <= 4:
-        req.image_prompts.append({"cn_img": None})
+        req.image_prompts.append(ImagePromptJson())
     return call_worker(req, accept)
 
 
 @router.post(
     "/image-inpaint-outpaint",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV2"],
 )
 def image_inpaint_outpaint_v2(
@@ -84,13 +82,12 @@ def image_inpaint_outpaint_v2(
     if accept_query:
         accept = accept_query
     while len(req.image_prompts) <= 4:
-        req.image_prompts.append({"cn_img": None})
+        req.image_prompts.append(ImagePromptJson())
     return call_worker(req, accept)
 
 
 @router.post(
     "/image-prompt",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV2"],
 )
 def image_prompt_v2(
@@ -104,13 +101,12 @@ def image_prompt_v2(
     if accept_query:
         accept = accept_query
     while len(req.image_prompts) <= 4:
-        req.image_prompts.append({"cn_img": None})
+        req.image_prompts.append(ImagePromptJson())
     return call_worker(req, accept)
 
 
 @router.post(
     "/image-enhance",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV2"],
 )
 def image_enhance_v2(

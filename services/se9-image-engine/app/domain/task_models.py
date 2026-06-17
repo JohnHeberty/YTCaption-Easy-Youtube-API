@@ -172,6 +172,9 @@ class AsyncTask:
     # ControlNet tasks: {cn_type: [[img, stop, weight], ...]}
     cn_tasks: Dict[str, List[List[Any]]] = field(default_factory=dict)
 
+    # Image prompts (IP-Adapter)
+    image_prompts: List[Dict[str, Any]] = field(default_factory=list)
+
     # Enhance
     enhance_input_image: Optional[str] = None
     enhance_checkbox: bool = False

@@ -87,3 +87,6 @@ dmypy.json
 # Whisper models (large files)
 services/audio-transcriber/models/
 services/*/models/models--*/
+
+# SE9 model files (12GB+, copied from SE8)
+services/se9-image-engine/data/

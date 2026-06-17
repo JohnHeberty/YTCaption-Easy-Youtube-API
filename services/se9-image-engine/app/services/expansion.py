@@ -45,6 +45,7 @@ class FooocusExpansion:
             candidates = [
                 os.path.join(os.getcwd(), "models", "expansion"),
                 os.path.join(os.getcwd(), "data", "models", "expansion"),
+                os.path.join(os.getcwd(), "data", "models", "prompt_expansion", "fooocus_expansion"),
                 os.path.expanduser("~/.cache/fooocus/expansion"),
             ]
             for c in candidates:
