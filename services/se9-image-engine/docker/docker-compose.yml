@@ -1,0 +1,66 @@
+version: "3.8"
+
+services:
+  image-engine-api:
+    build:
+      context: ../..
+      dockerfile: services/se9-image-engine/docker/Dockerfile
+      target: api
+    container_name: image-engine-api
+    ports:
+      - "8009:8009"
+    volumes:
+      - ../shared/:/app/common:rw
+      - ../../services/se9-image-engine/app/:/app/app:rw
+      - ../../services/se9-image-engine/data/:/app/data:rw
+    env_file:
+      - ../.env
+    environment:
+      - REDIS_URL=redis://host.docker.internal:6379/9
+      - CELERY_BROKER_URL=redis://host.docker.internal:6379/9
+      - CELERY_RESULT_BACKEND=redis://host.docker.internal:6379/9
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+
+  image-engine-worker:
+    build:
+      context: ../..
+      dockerfile: services/se9-image-engine/docker/Dockerfile.gpu
+      target: worker
+    container_name: image-engine-worker
+    volumes:
+      - ../shared/:/app/common:rw
+      - ../../services/se9-image-engine/app/:/app/app:rw
+      - ../../services/se9-image-engine/data/:/app/data:rw
+      - fooocus-models:/app/data/models
+      - fooocus-outputs:/app/data/outputs
+    env_file:
+      - ../.env
+    environment:
+      - REDIS_URL=redis://host.docker.internal:6379/9
+      - CELERY_BROKER_URL=redis://host.docker.internal:6379/9
+      - CELERY_RESULT_BACKEND=redis://host.docker.internal:6379/9
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      image-engine-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.infrastructure.celery_config.celery_app", "inspect", "ping"]
+      interval: 60s
+      timeout: 30s
+      start_period: 120s
+      retries: 3
+
+volumes:
+  fooocus-models:
+  fooocus-outputs:
