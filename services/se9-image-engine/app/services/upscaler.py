@@ -68,6 +68,7 @@ def _resolve_upscale_model() -> str:
     candidates = [
         os.path.join(upscale_dir, "RealESRGAN_x4plus.pth"),
         os.path.join(upscale_dir, "RealESRGAN_x4plus_anime_6B.pth"),
+        os.path.join(upscale_dir, "fooocus_upscaler_s409985e5.bin"),
     ]
 
     # Also check FOOOCUS paths if available
@@ -75,7 +76,7 @@ def _resolve_upscale_model() -> str:
         from modules.config import paths_upscale_models
         if paths_upscale_models:
             for d in paths_upscale_models:
-                for name in ["RealESRGAN_x4plus.pth", "RealESRGAN_x4plus_anime_6B.pth"]:
+                for name in ["RealESRGAN_x4plus.pth", "RealESRGAN_x4plus_anime_6B.pth", "fooocus_upscaler_s409985e5.bin"]:
                     p = os.path.join(d, name)
                     if os.path.exists(p):
                         return p
@@ -88,7 +89,7 @@ def _resolve_upscale_model() -> str:
 
     raise FileNotFoundError(
         f"Upscale model not found. Searched: {candidates}. "
-        "Download RealESRGAN_x4plus.pth to data/models/upscale_models/"
+        "Download RealESRGAN_x4plus.pth or fooocus_upscaler_s409985e5.bin to data/models/upscale_models/"
     )
 
 

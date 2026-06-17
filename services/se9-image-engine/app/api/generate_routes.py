@@ -28,7 +28,6 @@ router = APIRouter(prefix="/v1/generation", tags=["GenerateV1"])
 
 @router.post(
     "/text-to-image",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV1"],
 )
 async def text_to_image(
@@ -50,7 +49,6 @@ async def text_to_image(
 
 @router.post(
     "/image-upscale-vary",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV1"],
 )
 async def image_upscale_vary(
@@ -70,7 +68,6 @@ async def image_upscale_vary(
 
 @router.post(
     "/image-inpaint-outpaint",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV1"],
 )
 async def image_inpaint_outpaint(
@@ -90,7 +87,6 @@ async def image_inpaint_outpaint(
 
 @router.post(
     "/image-prompt",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV1"],
 )
 async def image_prompt(
@@ -110,7 +106,6 @@ async def image_prompt(
 
 @router.post(
     "/image-enhance",
-    response_model=List[GeneratedImageResult],
     tags=["GenerateV1"],
 )
 async def image_enhance(

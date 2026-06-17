@@ -40,7 +40,7 @@ from app.domain.task_models import (
     TaskOutputs,
     TaskType,
 )
-from app.services.worker import worker_queue, blocking_get_task_result
+import app.services.worker as _worker_mod
 
 logger = logging.getLogger(__name__)
 
@@ -246,7 +246,7 @@ def call_worker(
 
     task_type = get_task_type(req)
     params = req_to_params(req)
-    async_task = worker_queue.add_task(task_type, params, req.webhook_url)
+    async_task = _worker_mod.worker_queue.add_task(task_type, params, req.webhook_url)
 
     if async_task is None:
         failure_results = [
@@ -280,7 +280,7 @@ def call_worker(
     if req.async_process:
         return generate_async_output(async_task)
 
-    results = blocking_get_task_result(async_task.job_id)
+    results = _worker_mod.blocking_get_task_result(async_task.job_id)
 
     if streaming_output:
         return _generate_streaming_output(results)

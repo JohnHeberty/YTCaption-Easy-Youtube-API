@@ -20,7 +20,7 @@ from app.domain.models import (
     JobQueueInfo,
 )
 from app.domain.task_models import TaskType
-from app.services.worker import worker_queue
+import app.services.worker as _worker_mod
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ router = APIRouter(tags=["Query"])
 @router.get("/v1/generation/query-job", response_model=AsyncJobResponse)
 def query_job(job_id: str, require_step_preview: bool = False):
     """Query async generation job status."""
-    queue_task = worker_queue.get_task(job_id, True)
+    queue_task = _worker_mod.worker_queue.get_task(job_id, True)
     if queue_task is None:
         result = AsyncJobResponse(
             job_id="",
@@ -51,7 +51,7 @@ def query_job(job_id: str, require_step_preview: bool = False):
 @router.get("/v1/generation/job-queue", response_model=JobQueueInfo)
 def job_queue():
     """Query job queue info."""
-    info = worker_queue.get_queue_info()
+    info = _worker_mod.worker_queue.get_queue_info()
     return JobQueueInfo(**info)
 
 
@@ -67,10 +67,10 @@ def job_history(
 ):
     """Query historical job data."""
     if delete and job_id:
-        task = worker_queue.get_task(job_id, include_history=True)
-        if task and task in worker_queue.history:
-            worker_queue.history.remove(task)
-            worker_queue._cleanup_output_files(task)
+        task = _worker_mod.worker_queue.get_task(job_id, include_history=True)
+        if task and task in _worker_mod.worker_queue.history:
+            _worker_mod.worker_queue.history.remove(task)
+            _worker_mod.worker_queue._cleanup_output_files(task)
             return Response(
                 content='{"message": "Deleted"}',
                 media_type="application/json",
@@ -80,7 +80,7 @@ def job_history(
             media_type="application/json",
         )
 
-    result = worker_queue.get_history(job_id, page, page_size)
+    result = _worker_mod.worker_queue.get_history(job_id, page, page_size)
     queue = [
         JobHistoryInfo(**item) for item in result.get("queue", [])
     ]

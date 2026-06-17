@@ -96,15 +96,17 @@ def _resolve_model_path() -> str:
 
     candidates = [
         os.path.join(model_dir, "vae_approx", "xl-to-v1_interposer-v4.0.safetensors"),
+        os.path.join(model_dir, "vae_approx", "xl-to-v1_interposer-v3.1.safetensors"),
         os.path.join(model_dir, "xl-to-v1_interposer-v4.0.safetensors"),
     ]
 
     # Also check FOOOCUS paths
     try:
         from modules.config import path_vae_approx
-        p = os.path.join(path_vae_approx, "xl-to-v1_interposer-v4.0.safetensors")
-        if os.path.exists(p):
-            return p
+        for name in ["xl-to-v1_interposer-v4.0.safetensors", "xl-to-v1_interposer-v3.1.safetensors"]:
+            p = os.path.join(path_vae_approx, name)
+            if os.path.exists(p):
+                return p
     except Exception:
         pass
 
@@ -115,7 +117,7 @@ def _resolve_model_path() -> str:
 
     raise FileNotFoundError(
         f"VAE interpose model not found. Searched: {candidates}. "
-        "Download xl-to-v1_interposer-v4.0.safetensors"
+        "Download xl-to-v1_interposer-v4.0.safetensors or v3.1"
     )
 
 
