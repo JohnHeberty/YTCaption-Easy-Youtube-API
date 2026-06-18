@@ -11,7 +11,12 @@ markers = [
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["app/core/config.py"]
+omit = [
+    "app/core/config.py",
+    "ldm_patched/*",
+    "modules/*",
+    "extras/*",
+]
 
 [tool.coverage.report]
 show_missing = true
