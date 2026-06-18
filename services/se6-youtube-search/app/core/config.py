@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -17,6 +17,7 @@ class _CoreSettings(BaseSettings):
     port: int = 8006
     redis_url: str = "redis://localhost:6379/0"
     log_level: str = "INFO"
+    api_key: Optional[str] = None
 
     @field_validator("port")
     @classmethod
@@ -52,7 +53,10 @@ def get_settings() -> Dict[str, Any]:
         'debug': os.getenv('DEBUG', 'false').lower() == 'true',
         'host': os.getenv('HOST', '0.0.0.0'),
         'port': int(os.getenv('PORT', '8006')),
-        
+
+        # ===== API KEY =====
+        'api_key': os.getenv('API_KEY'),
+
         # ===== REDIS =====
         'redis_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
         

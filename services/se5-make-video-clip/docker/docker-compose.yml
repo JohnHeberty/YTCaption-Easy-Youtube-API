@@ -1,0 +1,76 @@
+name: se5-make-video-clip
+services:
+
+  make-video-clip:
+    build:
+      context: ../../..
+      dockerfile: services/se5-make-video-clip/docker/Dockerfile
+    container_name: ytcaption-make-video-clip
+    network_mode: "host"
+    mem_limit: 6g
+    memswap_limit: 6g
+    shm_size: '2gb'
+    volumes:
+      - ../../../shared:/app/common
+      - ../data:/app/data
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+      - PADDLE_HOME=/app/data/.paddleocr_cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  make-video-clip-celery:
+    build:
+      context: ../../..
+      dockerfile: services/se5-make-video-clip/docker/Dockerfile
+    container_name: ytcaption-make-video-clip-celery
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
+    network_mode: "host"
+    volumes:
+      - ../../../shared:/app/common
+      - ../data:/app/data
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+      - PADDLE_HOME=/app/data/.paddleocr_cache
+    restart: unless-stopped
+    depends_on:
+      make-video-clip:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  make-video-clip-celery-beat:
+    build:
+      context: ../../..
+      dockerfile: services/se5-make-video-clip/docker/Dockerfile
+    container_name: ytcaption-make-video-clip-celery-beat
+    command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
+    network_mode: "host"
+    volumes:
+      - ../../../shared:/app/common
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | tr -d '\\0' | grep -q celery"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - make-video-clip-celery

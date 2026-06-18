@@ -15,8 +15,13 @@ RUN apt-get update --allow-insecure-repositories && \
     apt-get install -y --allow-unauthenticated --no-install-recommends \
     python3.11 python3.11-dev python3.11-venv python3-pip \
     build-essential git wget curl ca-certificates \
-    libgl1-mesa-glx libglib2.0-0 && \
+    libgl1-mesa-glx libglib2.0-0 libmimalloc2.0 && \
     rm -rf /var/lib/apt/lists/*
+
+# Use mimalloc as system allocator — returns freed pages to OS aggressively
+# Fixes PyTorch C++ allocator retaining 14GB+ of anonymous memory after model unload
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.2
+ENV MIMALLOC_PURGE_DELAY=0
 
 # Verify python3.11 exists
 RUN python3.11 --version && python3.11 -c "import sys; print(sys.executable)"
@@ -71,7 +76,9 @@ RUN python3.11 -m pip install --no-cache-dir \
     omegaconf \
     timm \
     onnxruntime \
-    rembg
+    rembg && \
+    python3.11 -m pip install --no-cache-dir "numpy<2" && \
+    python3.11 -c "import numpy; print(f'numpy={numpy.__version__}')"
 
 # Verify torch + CUDA
 RUN python3.11 -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}')"

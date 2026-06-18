@@ -618,6 +618,11 @@ def process_generate(async_job: QueueTask) -> None:
         # Prepare encoder for next task
         pipeline.prepare_text_encoder(async_call=True)
 
+        # Post-generation memory cleanup — helps mimalloc return freed pages to OS
+        import gc
+        pipeline.clear_caches()
+        gc.collect()
+
     except Exception as e:
         logger.exception("Generation failed: %s", e)
         async_job.set_result([], True, str(e))
@@ -627,11 +632,26 @@ def process_generate(async_job: QueueTask) -> None:
 
 
 def task_schedule_loop() -> None:
-    """Main worker loop. Processes tasks one at a time from the queue."""
+    """Main worker loop. Processes tasks one at a time from the queue.
+
+    When idle for AUTO_RESTART_IDLE_SECONDS, restarts the process via os.execv
+    to reclaim all PyTorch mmap'd memory. Controlled by SE8_AUTO_RESTART_IDLE env var.
+    """
     logger.info("Worker task loop started")
+
+    auto_restart_idle = int(os.environ.get("SE8_AUTO_RESTART_IDLE", "0"))
+    last_task_finish_time = time.monotonic()
+    had_tasks = False
 
     while True:
         if worker_queue is None or not worker_queue.queue:
+            if had_tasks and auto_restart_idle > 0:
+                idle_seconds = time.monotonic() - last_task_finish_time
+                if idle_seconds >= auto_restart_idle:
+                    logger.info("Auto-restart: idle for %.0fs (threshold=%ds), restarting process", idle_seconds, auto_restart_idle)
+                    import sys
+                    os.execv(sys.executable, ["python3.11", "-m", "uvicorn", "app.main:app",
+                                               "--host", "0.0.0.0", "--port", "8008"])
             time.sleep(0.05)
             continue
 
@@ -641,10 +661,14 @@ def task_schedule_loop() -> None:
             try:
                 worker_queue.start_task(current_task.job_id)
                 process_generate(current_task)
+                had_tasks = True
+                last_task_finish_time = time.monotonic()
             except Exception as e:
                 logger.exception("Task failed: %s", e)
                 current_task.set_result([], True, str(e))
                 worker_queue.finish_task(current_task.job_id)
+                had_tasks = True
+                last_task_finish_time = time.monotonic()
         else:
             time.sleep(0.05)
 

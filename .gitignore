@@ -90,3 +90,6 @@ services/*/models/models--*/
 
 # SE8 model files (12GB+, copied from SE8)
 services/se8-image-generation/data/
+
+# Accidental data dirs at repo root (relative paths in configs)
+/data/

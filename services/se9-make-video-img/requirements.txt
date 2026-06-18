@@ -1,0 +1,12 @@
+# Core
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+httpx
+
+# Redis (optional, has in-memory fallback)
+redis
+
+# Common library
+-e ../shared

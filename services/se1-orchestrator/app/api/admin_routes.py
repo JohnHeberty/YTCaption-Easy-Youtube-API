@@ -201,11 +201,13 @@ async def factory_reset(
             for service_name, service_client in microservices:
                 try:
                     cleanup_url = f"{service_client.base_url}/admin/cleanup"
+                    _headers = getattr(service_client, '_headers', {})
                     logger.warning(f"Calling FACTORY RESET for {service_name}: {cleanup_url}")
 
                     response = await client.post(
                         cleanup_url,
                         params={"deep": True, "purge_celery_queue": True},
+                        headers=_headers,
                     )
 
                     if response.status_code == 200:

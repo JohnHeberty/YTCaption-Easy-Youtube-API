@@ -256,6 +256,6 @@ async def create_job(request: Request):
 
 ## 📚 Referências
 
-- Make-Video Service: `/root/YTCaption-Easy-Youtube-API/services/se5-make-video/`
+- Make-Video-Clip Service: `/root/YTCaption-Easy-Youtube-API/services/se5-make-video-clip/`
 - Circuit Breaker Pattern: [Martin Fowler](https://martinfowler.com/bliki/CircuitBreaker.html)
 - Redis Rate Limiting: [Redis Labs](https://redis.io/docs/manual/patterns/rate-limiter/)

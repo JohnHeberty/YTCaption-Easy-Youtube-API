@@ -61,8 +61,12 @@ class MicroserviceClient(MicroserviceClientInterface):
         self.max_retries = self.config.get("max_retries", 3)
         self.retry_delay = self.config.get("retry_delay", 2)
 
-        # Circuit breaker integrado
         settings = get_settings()
+        self._headers = {}
+        if settings.api_key:
+            self._headers["X-API-Key"] = settings.api_key
+
+        # Circuit breaker integrado
         self._circuit_breaker = CircuitBreaker(
             failure_threshold=settings.circuit_breaker_max_failures,
             recovery_timeout=settings.circuit_breaker_recovery_timeout,
@@ -91,7 +95,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             url = f"{self.base_url}/health"
             ssl_verify = get_ssl_context()
             async with httpx.AsyncClient(timeout=10.0, verify=ssl_verify) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=self._headers)
                 response.raise_for_status()
                 return response.json()
         except httpx.HTTPStatusError as http_error:
@@ -129,7 +133,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             logger.info(f"Submitting JSON to {self.service_name}: {url}")
             ssl_verify = get_ssl_context()
             async with httpx.AsyncClient(timeout=self.timeout, verify=ssl_verify) as client:
-                response = await client.post(url, json=payload)
+                response = await client.post(url, json=payload, headers=self._headers)
                 response.raise_for_status()
                 return response.json()
 
@@ -176,7 +180,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             logger.info(f"Submitting multipart to {self.service_name}: {url}")
             ssl_verify = get_ssl_context()
             async with httpx.AsyncClient(timeout=self.timeout, verify=ssl_verify) as client:
-                response = await client.post(url, files=files, data=data or {})
+                response = await client.post(url, files=files, data=data or {}, headers=self._headers)
                 response.raise_for_status()
                 return response.json()
 
@@ -220,7 +224,7 @@ class MicroserviceClient(MicroserviceClientInterface):
 
         async def _do_request() -> Dict[str, Any]:
             async with httpx.AsyncClient(timeout=self.timeout, verify=ssl_verify) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=self._headers)
                 response.raise_for_status()
                 return response.json()
 
@@ -265,7 +269,7 @@ class MicroserviceClient(MicroserviceClientInterface):
                 async with asyncio.timeout(960):  # 16 minutos total
                     async with httpx.AsyncClient(timeout=download_timeout, verify=ssl_verify) as client:
                         logger.info(f"[{self.service_name}] Starting download for job {job_id}...")
-                        response = await client.get(url)
+                        response = await client.get(url, headers=self._headers)
                         response.raise_for_status()
 
                         # Verifica Content-Length

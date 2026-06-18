@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 
+from fastapi import Depends
 from common.datetime_utils import now_brazil
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger
 
 from app.services.video_downloader import YDLPVideoDownloader
@@ -15,6 +16,7 @@ from app.core.config import get_settings
 from app.api import jobs_router, admin_router, health_router
 
 settings = get_settings()
+verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 setup_structured_logging(
     service_name="video-downloader",
     log_level=settings.get('log_level', 'INFO'),
@@ -56,6 +58,7 @@ app = create_service_app(
     settings=settings,
     lifespan=lifespan,
     body_size_mb=100,
+    dependencies=[Depends(verify_api_key)],
     setup_routers=lambda a: (
         a.include_router(jobs_router),
         a.include_router(admin_router),

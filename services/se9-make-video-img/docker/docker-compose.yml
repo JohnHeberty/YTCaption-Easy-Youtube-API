@@ -1,0 +1,19 @@
+services:
+  se9:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: se9-make-video-img
+    ports:
+      - "8009:8009"
+    env_file:
+      - ../.env
+    volumes:
+      - ../app:/app/app
+    networks:
+      - ytcaption-net
+    restart: unless-stopped
+
+networks:
+  ytcaption-net:
+    external: true

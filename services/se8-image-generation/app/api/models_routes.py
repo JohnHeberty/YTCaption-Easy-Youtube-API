@@ -5,6 +5,7 @@ Provides model listing, styles, and VRAM cleanup.
 
 from __future__ import annotations
 
+import gc
 import logging
 from typing import List
 
@@ -80,3 +81,50 @@ def clean_vram():
     except Exception as e:
         logger.error("Failed to clean VRAM: %s", e)
         return {"message": "error", "detail": str(e)}
+
+
+@router.get("/cleanup")
+def cleanup_memory():
+    """Full memory cleanup — releases GPU VRAM, unloads models, then restarts process.
+
+    PyTorch C++ allocator retains mmap'd anonymous pages after model unload.
+    gc.collect/malloc_trim cannot reclaim them — only process replacement (os.execv)
+    forces the kernel to munmap all pages. Server restarts in ~2s.
+    """
+    import psutil
+    proc = psutil.Process()
+    rss_before = proc.memory_info().rss / 1024**3
+
+    try:
+        from app.services.model_manager import get_model_manager
+        from app.services.pipeline import get_pipeline
+
+        pipeline = get_pipeline()
+        mm = get_model_manager()
+
+        pipeline.clear_caches()
+        mm.cleanup_models()
+        mm.unload_all()
+        gc.collect()
+    except Exception as e:
+        logger.error("Cleanup pre-restart failed: %s", e)
+
+    rss_after_cleanup = proc.memory_info().rss / 1024**3
+
+    import os
+    import sys
+    import threading
+
+    def _restart():
+        import time
+        time.sleep(1.0)
+        os.execv(sys.executable, ["python3.11", "-m", "uvicorn", "app.main:app",
+                                   "--host", "0.0.0.0", "--port", "8008"])
+
+    threading.Thread(target=_restart, daemon=True).start()
+
+    return {
+        "message": "Server restarting to free all memory",
+        "rss_before_gb": round(rss_before, 2),
+        "rss_after_cleanup_gb": round(rss_after_cleanup, 2),
+    }

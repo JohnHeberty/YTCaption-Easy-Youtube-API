@@ -19,6 +19,9 @@ class CoreSettings(BaseSettings):
     environment: str = "development"
     debug: bool = False
 
+    # ===== API KEY =====
+    api_key: Optional[str] = None
+
     # ===== SERVIDOR =====
     host: str = "0.0.0.0"
     port: int = 8002

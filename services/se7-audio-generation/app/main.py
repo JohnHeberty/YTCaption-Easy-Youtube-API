@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import get_logger
 
 from app.core.config import get_settings
@@ -10,11 +10,19 @@ from app.api import jobs_routes, voices_routes, health_routes
 
 logger = get_logger(__name__)
 settings = get_settings()
+verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.app_name} v{settings.version}")
+    try:
+        from app.infrastructure.dependencies import get_voice_manager
+        from app.services.voice_seeder import seed_builtin_voices
+        mgr = get_voice_manager()
+        seed_builtin_voices(mgr, settings.voices_dir)
+    except Exception as e:
+        logger.warning(f"Voice seeding failed (non-fatal): {e}")
     yield
     logger.info("Shutting down Audio Generation Service")
 
@@ -33,4 +41,5 @@ app = create_service_app(
     settings=settings,
     lifespan=lifespan,
     setup_routers=setup_routers,
+    dependencies=[Depends(verify_api_key)],
 )

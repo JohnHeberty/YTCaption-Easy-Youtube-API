@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from fastapi import Depends
 from common.log_utils import setup_structured_logging, get_logger
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 
 from app.api import jobs_router, admin_router, model_router, health_router
 from app.core.config import get_core
 
 settings = get_core()
+verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 setup_structured_logging(
     service_name="audio-transcriber",
     log_level=settings.log_level,
@@ -55,6 +57,7 @@ app = create_service_app(
     lifespan=lifespan,
     setup_routers=setup_routers,
     body_size_mb=settings.max_file_size_mb,
+    dependencies=[Depends(verify_api_key)],
 )
 
 

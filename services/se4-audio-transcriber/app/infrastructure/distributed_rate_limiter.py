@@ -4,7 +4,7 @@ Distributed Rate Limiter using Redis
 Rate limiter distribuído para múltiplas instâncias do serviço.
 Implementa sliding window counter para precisão.
 
-Adaptado do padrão make-video para audio-transcriber.
+Adaptado do padrão make-video-clip para audio-transcriber.
 """
 
 import time

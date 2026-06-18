@@ -28,7 +28,7 @@ except ImportError:
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query, Depends, Path as PathParam
 from fastapi.responses import FileResponse, JSONResponse
 
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger
 from common.health_utils import ServiceHealthChecker
 
@@ -62,6 +62,7 @@ from .services.job_service import (
 )
 # Configuração inicial
 settings = get_settings()
+verify_api_key = create_api_key_dependency(api_key=settings.get('api_key'))
 setup_structured_logging(
     service_name="audio-normalization",
     log_level=settings['log_level'],
@@ -91,6 +92,7 @@ app = create_service_app(
     settings=settings,
     lifespan=lifespan,
     body_size_mb=settings.get("max_file_size_mb"),
+    dependencies=[Depends(verify_api_key)],
 )
 
 # ============================================================================

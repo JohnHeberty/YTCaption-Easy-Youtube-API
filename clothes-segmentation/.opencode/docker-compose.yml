@@ -1,0 +1,17 @@
+services:
+  litellm-toolcall-patch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: litellm-toolcall-patch
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    environment:
+      LITELLM_BASE: "http://192.168.1.140:4000"
+      PROXY_PORT: "4001"
+      FORCE_FIRST_TOOL: "true"
+      INJECT_TOOL_SYSTEM: "true"
+      SYNTHESIZE_FIRST_TOOL: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

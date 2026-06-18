@@ -29,6 +29,9 @@ services:
       - GPU_MODE=lazy
       - MODEL_DIR=/app/data/models
       - OUTPUT_DIR=/app/data/outputs
+      - LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.2
+      - MIMALLOC_PURGE_DELAY=0
+      - SE8_AUTO_RESTART_IDLE=300
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
       interval: 30s

@@ -24,7 +24,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN git clone https://huggingface.co/spaces/ResembleAI/Chatterbox-Multilingual-TTS-pt-br \
     /app/chatterbox-space
 
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir --upgrade pip "setuptools<71" wheel
 RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 RUN sed -i '/^torch/d; /^torchaudio/d; /^gradio/d; /cu128/d' /app/chatterbox-space/requirements.txt && \
@@ -42,6 +42,8 @@ COPY services/se7-audio-generation/app/ ./app/
 COPY services/se7-audio-generation/run.py .
 
 RUN mkdir -p /app/data/models /app/data/voices /app/data/outputs /app/data/temp
+
+COPY services/se7-audio-generation/data/voices/_builtin/ /app/data/voices/_builtin/
 
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app && \

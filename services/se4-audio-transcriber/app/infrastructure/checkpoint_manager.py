@@ -4,7 +4,7 @@ Checkpoint Manager for Audio Transcription
 Sistema de checkpoints granulares para recuperação de transcrições interrompidas.
 Salva progresso incremental durante transcrições longas.
 
-Adaptado do padrão make-video para transcrições de áudio.
+Adaptado do padrão make-video-clip para transcrições de áudio.
 """
 
 import json
