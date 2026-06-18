@@ -3,7 +3,7 @@ from typing import List, Optional, Any
 
 
 # =============================================================================
-# Enums (matching FOOOCUS)
+# Request / Response Enums
 # =============================================================================
 
 class PerformanceSelection(str):
@@ -177,6 +177,10 @@ class CommonRequest(BaseModel):
     async_process: bool = False
     webhook_url: Optional[str] = ""
 
+    @classmethod
+    def as_form(cls, prompt: str = "", negative_prompt: str = "", **kwargs):
+        return cls(prompt=prompt, negative_prompt=negative_prompt, **kwargs)
+
 
 # =============================================================================
 # V1 Generation Request Models (for OpenAPI docs — actual proxy uses raw body)
@@ -190,6 +194,9 @@ class ImgUpscaleVaryRequest(CommonRequest):
     input_image: str = ""
     uov_method: str = "Upscale (1.5x)"
     upscale_value: Optional[float] = Field(None, ge=1.0, le=5.0)
+
+
+ImgUpscaleOrVaryRequest = ImgUpscaleVaryRequest
 
 
 class ImgInpaintOrOutpaintRequest(CommonRequest):

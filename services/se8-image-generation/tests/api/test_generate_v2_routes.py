@@ -1,91 +1,65 @@
 import pytest
-import httpx
-import respx
+from unittest.mock import patch, MagicMock
 
 
 class TestV2Routes:
-    @respx.mock
-    def test_text_to_image_with_ip(self, client, mock_fooocus, auth_header):
-        route = mock_fooocus.post("/v2/generation/text-to-image-with-ip").mock(
-            return_value=httpx.Response(200, json=[{"url": "http://img.png"}])
-        )
-        resp = client.post(
-            "/v2/generation/text-to-image-with-ip",
-            headers=auth_header,
-            json={"prompt": "test", "image_prompts": []},
-        )
-        assert resp.status_code == 200
-        assert route.called
-
-    @respx.mock
-    def test_image_upscale_vary_v2(self, client, mock_fooocus, auth_header):
-        route = mock_fooocus.post("/v2/generation/image-upscale-vary").mock(
-            return_value=httpx.Response(200, json=[{"url": "http://upscaled.png"}])
-        )
-        resp = client.post(
-            "/v2/generation/image-upscale-vary",
-            headers=auth_header,
-            json={"input_image": "base64data"},
-        )
+    def test_text_to_image_with_ip(self, client, auth_header):
+        with patch("app.api.generate_v2_routes.call_worker") as mock_call:
+            mock_call.return_value = [{"base64": None, "url": "/files/x.png", "seed": "1", "finish_reason": "SUCCESS"}]
+            resp = client.post(
+                "/v2/generation/text-to-image-with-ip",
+                headers={**auth_header, "content-type": "application/json"},
+                json={"prompt": "test", "image_prompts": []},
+            )
         assert resp.status_code == 200
 
-    @respx.mock
-    def test_image_inpaint_outpaint_v2(self, client, mock_fooocus, auth_header):
-        route = mock_fooocus.post("/v2/generation/image-inpaint-outpaint").mock(
-            return_value=httpx.Response(200, json=[{"url": "http://inpainted.png"}])
-        )
-        resp = client.post(
-            "/v2/generation/image-inpaint-outpaint",
-            headers=auth_header,
-            json={"input_image": "base64data"},
-        )
+    def test_image_upscale_vary_v2(self, client, auth_header):
+        with patch("app.api.generate_v2_routes.call_worker") as mock_call:
+            mock_call.return_value = [{"base64": None, "url": "/files/x.png", "seed": "1", "finish_reason": "SUCCESS"}]
+            resp = client.post(
+                "/v2/generation/image-upscale-vary",
+                headers={**auth_header, "content-type": "application/json"},
+                json={"prompt": "test", "uov_method": "Disabled"},
+            )
         assert resp.status_code == 200
 
-    @respx.mock
-    def test_image_prompt_v2(self, client, mock_fooocus, auth_header):
-        route = mock_fooocus.post("/v2/generation/image-prompt").mock(
-            return_value=httpx.Response(200, json=[{"url": "http://prompt.png"}])
-        )
-        resp = client.post(
-            "/v2/generation/image-prompt",
-            headers=auth_header,
-            json={"prompt": "test"},
-        )
+    def test_image_inpaint_outpaint_v2(self, client, auth_header):
+        with patch("app.api.generate_v2_routes.call_worker") as mock_call:
+            mock_call.return_value = [{"base64": None, "url": "/files/x.png", "seed": "1", "finish_reason": "SUCCESS"}]
+            resp = client.post(
+                "/v2/generation/image-inpaint-outpaint",
+                headers={**auth_header, "content-type": "application/json"},
+                json={"prompt": "test"},
+            )
         assert resp.status_code == 200
 
-    @respx.mock
-    def test_image_enhance_v2(self, client, mock_fooocus, auth_header):
-        route = mock_fooocus.post("/v2/generation/image-enhance").mock(
-            return_value=httpx.Response(200, json=[{"url": "http://enhanced.png"}])
-        )
-        resp = client.post(
-            "/v2/generation/image-enhance",
-            headers=auth_header,
-            json={"prompt": "test"},
-        )
+    def test_image_prompt_v2(self, client, auth_header):
+        with patch("app.api.generate_v2_routes.call_worker") as mock_call:
+            mock_call.return_value = [{"base64": None, "url": "/files/x.png", "seed": "1", "finish_reason": "SUCCESS"}]
+            resp = client.post(
+                "/v2/generation/image-prompt",
+                headers={**auth_header, "content-type": "application/json"},
+                json={"prompt": "test", "image_prompts": []},
+            )
         assert resp.status_code == 200
 
-    @respx.mock
-    def test_v2_preserves_fooocus_status(self, client, mock_fooocus, auth_header):
-        mock_fooocus.post("/v2/generation/image-upscale-vary").mock(
-            return_value=httpx.Response(500, text="error")
-        )
-        resp = client.post(
-            "/v2/generation/image-upscale-vary",
-            headers=auth_header,
-            json={"input_image": "x"},
-        )
-        assert resp.status_code == 500
+    def test_image_enhance_v2(self, client, auth_header):
+        with patch("app.api.generate_v2_routes.call_worker") as mock_call:
+            mock_call.return_value = [{"base64": None, "url": "/files/x.png", "seed": "1", "finish_reason": "SUCCESS"}]
+            resp = client.post(
+                "/v2/generation/image-enhance",
+                headers={**auth_header, "content-type": "application/json"},
+                json={"prompt": "test"},
+            )
+        assert resp.status_code == 200
 
-    @respx.mock
-    def test_v2_accept_header(self, client, mock_fooocus, auth_header):
-        route = mock_fooocus.post("/v2/generation/image-enhance").mock(
-            return_value=httpx.Response(200, json={})
-        )
-        client.post(
-            "/v2/generation/image-enhance?accept=image/webp",
-            headers=auth_header,
-            json={"prompt": "test"},
-        )
-        req = route.calls[0].request
-        assert req.headers.get("accept") == "image/webp"
+    def test_v2_pads_image_prompts(self, client, auth_header):
+        with patch("app.api.generate_v2_routes.call_worker") as mock_call:
+            mock_call.return_value = []
+            client.post(
+                "/v2/generation/text-to-image-with-ip",
+                headers={**auth_header, "content-type": "application/json"},
+                json={"prompt": "test", "image_prompts": [{"cn_img": None}]},
+            )
+        req = mock_call.call_args[0][0]
+        assert len(req.image_prompts) == 5

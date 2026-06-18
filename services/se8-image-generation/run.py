@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Entry point for the Image Generation Service."""
+"""Entry point for the SE8 Image Engine."""
 import uvicorn
 from app.core.config import get_settings
 

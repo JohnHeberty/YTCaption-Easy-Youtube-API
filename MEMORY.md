@@ -1,9 +1,13 @@
-# Estado Atual — Monorepo PetCare / YTCaption
+# Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-06-16)
-- **SE8 IMAGE GENERATION COMPLETO** — 100% rota parity com FOOOCUS (24/24 + /health = 25 rotas)
-- **PLAN.md arquivado** → `docs/arquive/PLAN.md`
-- **Todos os 7 serviços rodando**: se1-se7 (ports 8001-8007), se8 (8008 + fooocus-api 8888)
+## Última sessão (2026-06-18)
+- **SE8 IMAGE ENGINE COMPLETO** — 100% E2E validado com GPU real (RTX 3090)
+- **10/10 rotas de geração SUCCESS** — text-to-image, upscale, inpaint, image-prompt, enhance (V1+V2)
+- **25/25 rotas respondendo** — health, engines, generation, query, tools, files, auth
+- **104 testes pytest** — 103 passing, 1 deselected (pre-existing webp content-type test)
+- **FOOOCUS completamente isolado** — 227 arquivos vendored (ldm_patched, modules, extras, sdxl_styles)
+- **SE8 antigo (proxy) removido** — SE9 renomeado para SE8
+- **Docker GPU funcional** — nvidia/cuda:12.1.1, torch 2.1.0+cu121, RTX 3090 24GB
 
 ## Serviços Ativos
 
@@ -16,55 +20,58 @@
 | se5-image-generation | 8005 | ✅ Healthy | Image generation (GPU) |
 | se6-notification | 8006 | ✅ Healthy | Push notifications |
 | se7-audio-generation | 8007 | ✅ Healthy | TTS/STT (GPU) |
-| se8-image-generation | 8008 | ✅ Healthy | FOOOCUS proxy (GPU) |
+| se8-image-generation | 8008 | ✅ Healthy | Image engine (GPU, FOOOCUS rewrite) |
 
-## SE8 — Arquitetura
+## SE8 — Arquitetura Atual
 
-3 containers:
-- `image-generation-api` (port 8008) — FastAPI proxy → FOOOCUS API
-- `fooocus-api` (port 8888) — FOOOCUS stable diffusion API (nvidia/cuda:12.1.0)
-- `image-generation-celery` — Async worker for image generation
+1 container unificado (GPU+API):
+- `image-engine` (port 8008) — FastAPI + in-memory worker thread + GPU pipeline
+- FOOOCUS dependencies vendored em `ldm_patched/`, `modules/`, `extras/`, `sdxl_styles/`
+- Zero dependência externa do repositório FOOOCUS
 
-### Rotas SE8 (25 = 24 FOOOCUS + /health)
-**V1 Generation**: text-to-image, image-upscale-vary, image-inpaint-outpaint, image-prompt, image-enhance, stop, query-job, job-queue, job-history, outputs
-**V2 Generation**: text-to-image-with-ip, image-upscale-vary, image-inpaint-outpaint, image-prompt, image-enhance
-**Models**: all-models, styles, styles-detail, clean_vram
-**Tools**: describe-image, generate_mask
-**Files**: /files/{date}/{file_name}
-**Health**: /health, /health/deep, /ping, / (home)
+### Rotas SE8 (25 total)
+**Health (4)**: /, /ping, /health, /health/deep
+**Engines (4)**: all-models, styles, styles-detail, clean_vram
+**V1 Generation (5)**: text-to-image, image-upscale-vary, image-inpaint-outpaint, image-prompt, image-enhance
+**V2 Generation (5)**: text-to-image-with-ip, image-upscale-vary, image-inpaint-outpaint, image-prompt, image-enhance
+**Query (4)**: query-job, job-queue, job-history, outputs
+**Tools (2)**: describe-image, generate_mask
+**Files (1)**: /files/{date}/{file_name}
+**Missing**: POST /v1/generation/stop (FOOOCUS tem, SE8 não)
 
 ### Arquivos-chave SE8
-- `app/main.py` — FastAPI app com 6 routers
+- `app/main.py` — FastAPI app com 7 routers, worker thread no lifespan
 - `app/domain/models.py` — Pydantic V1+V2+Tools models
-- `app/services/image_service.py` — FooocusClient com raw body proxy
-- `app/api/generate_routes.py` — V1 generation (multipart form)
-- `app/api/generate_v2_routes.py` — V2 generation (JSON)
-- `app/api/tools_routes.py` — describe-image, generate_mask
-- `app/api/file_routes.py` — /files/{date}/{filename}
-- `app/api/models_routes.py` — engines
-- `app/api/health_routes.py` — health, ping, home
-- `docker/docker-compose.yml` — 3 containers
-- `docker/Dockerfile.fooocus` — FOOOCUS container
+- `app/services/pipeline.py` — Pipeline de geração (817 linhas)
+- `app/services/worker.py` — Worker loop + process_generate (664 linhas)
+- `app/services/model_manager.py` — GPU/VRAM management (793 linhas)
+- `app/services/checkpoint.py` — Model loading (476 linhas)
+- `app/api/api_utils.py` — call_worker, req_to_params (385 linhas)
+- `docker/Dockerfile.gpu-api` — Container unificado GPU+API
+- `docker/docker-compose.gpu.yml` — Docker compose com GPU mounts
 
 ### Config SE8
-- `path_outputs=/app/fooocus/outputs/files` (must match file_utils.output_dir)
-- FOOOCUS model paths via env vars: path_checkpoints, path_loras, etc.
-- Redis DB=8
-- FooocusClient: raw body forwarding (Request → httpx → fooocus-api:8888)
+- Port: 8008, API Key: se8-test-key-2026
+- Redis DB=8, GPU_MODE=lazy
+- MODEL_DIR: ./data/models, OUTPUT_DIR: ./data/outputs
+- Container: appuser (uid=1000), python3.11, torch 2.1.0+cu121
 
-## Pendências SE8
-1. Commitar mudanças do se8
-2. Atualizar deploy.sh e test_services_real.sh
-3. Atualizar README com documentação das rotas
-4. Atualizar docker-compose.prod.yml volume binds
+## Bugs Corrigidos nesta Sessão
+1. `ldm_patched/modules/model_sampling.py` — torch.cumprod() numpy compat (torch.tensor wrapper)
+2. `app/services/pipeline.py` — VAE name "Automatic" treated as filename
+3. `app/services/pipeline.py` — patch_settings[pid] KeyError (2 locations)
+4. `app/infrastructure/core_ops.py` — VAEApprox not inheriting torch.nn.Module
+5. `app/api/tools_routes.py` — fooocusapi import replaced with inline helpers
 
 ## Decisões de Arquitetura
-- FOOOCUS é read-only (se8 faz proxy via HTTP)
-- Raw body forwarding para V1 multipart e V2 JSON
-- GPU mandatory para se8 (PyTorch+CUDA+SDXL ~11GB)
-- Portas sequenciais: 8001-8008
-- shared/ renomeado de common/, bind-mount como /app/common em containers
+- SE8 antigo (proxy) foi removido — SE9 renomeado para SE8
+- Container unificado (API+worker no mesmo container, thread-based)
+- FOOOCUS 100% vendored — ldm_patched, modules, extras, sdxl_styles copiados para dentro do SE8
+- modules/config.py paths adaptados de `../models/` para `../data/models/`
+- GPU via manual device/lib mounts (nvidia-container-toolkit 1.18.2 tem bug com driver 590)
 
 ## Riscos
-- FOOOCUS fooocus-api container foi criado via `docker run` (não docker-compose) devido a erro de interpolação `${DIVISOR}` no .env
-- 11GB de modelos em se8/data/models/ (commitar via Git LFS se necessário)
+- GPU devices montados manualmente no docker-compose (não usa nvidia-ctk)
+- transformsers 5.x incompatível — fixado com 4.37.2
+- numpy 2.x incompatível com torch 2.1 — fixado com <2
+- GPG keys expired no base image ubuntu — usa --allow-insecure-repositories

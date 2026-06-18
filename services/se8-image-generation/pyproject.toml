@@ -5,13 +5,18 @@ pythonpath = [".", ".."]
 markers = [
     "unit: Unit tests (no external deps)",
     "integration: Integration tests (requires Docker)",
+    "gpu: Tests requiring GPU (nvidia/cuda)",
     "slow: Slow tests",
-    "real: Tests requiring real services",
 ]
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["app/core/config.py"]
+omit = [
+    "app/core/config.py",
+    "ldm_patched/*",
+    "modules/*",
+    "extras/*",
+]
 
 [tool.coverage.report]
 show_missing = true

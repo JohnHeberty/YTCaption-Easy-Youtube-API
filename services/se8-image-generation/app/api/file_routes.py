@@ -1,20 +1,65 @@
-from fastapi import APIRouter, HTTPException
+"""File serving routes for SE8 Image Engine.
 
-from app.services.image_service import fooocus_client
-from common.log_utils import get_logger
+Serves generated images by date and filename.
+"""
 
-logger = get_logger(__name__)
+from __future__ import annotations
+
+import logging
+import os
+from pathlib import Path
+
+from fastapi import APIRouter, Header, Response
+from fastapi.responses import FileResponse
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+ACCEPT_FORMATS = {"png", "jpg", "jpeg", "webp"}
+
 router = APIRouter(tags=["Files"])
 
 
-@router.get("/files/{date}/{file_name}", summary="Get Output File")
-async def get_output_file(date: str, file_name: str):
+@router.get("/files/{date}/{file_name}")
+def get_output_file(date: str, file_name: str, accept: str = Header(None)):
+    """Get a specific output image by date and filename."""
+    settings = get_settings()
+    output_dir = settings.output_dir
+
+    accept_formats = ACCEPT_FORMATS
+
+    ext = None
+    if accept is not None:
+        try:
+            _, ext = accept.lower().split("/")
+            if ext not in accept_formats:
+                ext = None
+        except ValueError:
+            ext = None
+    else:
+        ext = file_name.split(".")[-1]
+        if ext not in accept_formats:
+            ext = None
+
+    if not file_name.endswith(tuple(f".{f}" for f in accept_formats)):
+        return Response(status_code=404)
+
+    file_path = os.path.join(output_dir, date, file_name)
+
+    if not os.path.isfile(file_path):
+        return Response(status_code=404)
+
+    if ext is None:
+        try:
+            return FileResponse(file_path)
+        except FileNotFoundError:
+            return Response(status_code=404)
+
     try:
-        content, content_type = await fooocus_client.get_output_file(date, file_name)
-        from fastapi.responses import Response
-        return Response(content=content, media_type=content_type)
-    except HTTPException:
-        raise
+        with open(file_path, "rb") as f:
+            content = f.read()
+        return Response(content=content, media_type=f"image/{ext}")
     except Exception as e:
-        logger.error("get_output_file failed: %s", e)
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.error("Failed to serve file %s: %s", file_path, e)
+        return Response(status_code=500)

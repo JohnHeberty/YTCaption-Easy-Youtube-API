@@ -1,10 +1,10 @@
-SERVICE_NAME := se8-image-generation
-PORT := 8008
+SERVICE_NAME := se9-image-engine
+PORT := 8009
 DC := docker compose
 DC_FILE := docker/docker-compose.yml
 DC_ARGS := --env-file .env
 
-.PHONY: help build up down restart logs status health dev stop clean rebuild
+.PHONY: help build up down restart logs status health dev stop clean rebuild test lint
 
 help:
 	@echo "Targets:"
@@ -18,6 +18,8 @@ help:
 	@echo "  rebuild    - Build (no-cache) + up"
 	@echo "  clean      - Remove containers, images, volumes"
 	@echo "  dev        - Local dev (uvicorn, no Docker)"
+	@echo "  test       - Run tests"
+	@echo "  lint       - AST parse check"
 
 build:
 	cd .. && $(DC) -f $(SERVICE_NAME)/$(DC_FILE) $(DC_ARGS) build
@@ -51,3 +53,10 @@ clean:
 rebuild:
 	cd .. && $(DC) -f $(SERVICE_NAME)/$(DC_FILE) $(DC_ARGS) build --no-cache && \
 	$(DC) -f $(SERVICE_NAME)/$(DC_FILE) $(DC_ARGS) up -d
+
+test:
+	python -m pytest tests/ -v --tb=short
+
+lint:
+	@echo "=== AST Parse Check ==="
+	@python -c "import ast; [ast.parse(open(f).read()) for f in __import__('glob').glob('app/**/*.py', recursive=True)]" && echo "OK" || echo "FAIL"

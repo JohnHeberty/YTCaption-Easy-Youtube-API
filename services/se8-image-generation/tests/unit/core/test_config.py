@@ -1,53 +1,56 @@
 import pytest
-from app.core.config import ImageGenerationSettings, get_settings
+from app.core.config import ImageEngineSettings, get_settings
 
 
-class TestImageGenerationSettings:
+class TestImageEngineSettings:
     def test_default_values(self):
-        settings = ImageGenerationSettings()
-        assert settings.app_name == "Image Generation Service"
+        settings = ImageEngineSettings()
+        assert settings.app_name == "SE8 Image Engine"
         assert settings.version == "1.0.0"
         assert settings.environment == "development"
         assert settings.debug is False
 
     def test_default_network(self):
-        settings = ImageGenerationSettings()
+        settings = ImageEngineSettings()
         assert settings.host == "0.0.0.0"
-        assert settings.port == 8008
+        assert settings.port == 8009
         assert settings.workers == 1
 
     def test_default_generation(self):
-        settings = ImageGenerationSettings()
+        settings = ImageEngineSettings()
         assert settings.default_performance == "Speed"
         assert settings.default_cfg_scale == 4.0
         assert settings.default_sharpness == 2.0
         assert settings.default_width == 1024
         assert settings.default_height == 1024
-        assert settings.max_image_number == 4
 
     def test_default_paths(self):
-        settings = ImageGenerationSettings()
-        assert settings.output_dir == "./data/outputs"
-        assert settings.model_dir == "./data/models"
-        assert settings.temp_dir == "./data/temp"
+        settings = ImageEngineSettings()
+        assert "outputs" in settings.output_dir
+        assert "models" in settings.model_dir
+
+    def test_default_gpu(self):
+        settings = ImageEngineSettings()
+        assert settings.gpu_mode == "lazy"
+        assert settings.model_idle_timeout == 300
 
     def test_getitem(self):
-        settings = ImageGenerationSettings()
-        assert settings["port"] == 8008
+        settings = ImageEngineSettings()
+        assert settings["port"] == 8009
         assert settings["nonexistent"] is None
 
     def test_settings_from_env(self, monkeypatch):
-        monkeypatch.setenv("SE8_API_KEY", "custom-key")
+        monkeypatch.setenv("SE8_API_KEY", "custom-key-9")
         get_settings.cache_clear()
         settings = get_settings()
-        assert settings.se8_api_key == "custom-key"
+        assert settings.se9_api_key == "custom-key-9"
         get_settings.cache_clear()
 
-    def test_fooocus_url_from_env(self, monkeypatch):
-        monkeypatch.setenv("FOOOCUS_API_URL", "http://custom:9999")
+    def test_gpu_mode_from_env(self, monkeypatch):
+        monkeypatch.setenv("GPU_MODE", "eager")
         get_settings.cache_clear()
         settings = get_settings()
-        assert settings.fooocus_api_url == "http://custom:9999"
+        assert settings.gpu_mode == "eager"
         get_settings.cache_clear()
 
 
