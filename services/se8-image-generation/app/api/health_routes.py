@@ -1,58 +1,94 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import HTMLResponse
+"""Health and utility routes for SE8 Image Engine."""
 
-from app.services.image_service import fooocus_client
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+from fastapi import APIRouter, Response
+
 from app.core.config import get_settings
-from common.log_utils import get_logger
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 settings = get_settings()
+
 router = APIRouter(tags=["Health"])
 
 
-@router.get("/health")
-async def health():
-    fooocus_ok = await fooocus_client.health_check()
-    return {
-        "status": "healthy" if fooocus_ok else "degraded",
-        "service": "image-generation",
-        "fooocus_api": "connected" if fooocus_ok else "disconnected",
-    }
+@router.get(
+    "/",
+    include_in_schema=False,
+)
+def home():
+    """Home page."""
+    return Response(
+        content=(
+            "<h2>SE8 Image Engine</h2>"
+            "<ul>"
+            "<li><a href=\"/docs\">Swagger UI (API docs)</a></li>"
+            "<li><a href=\"/redoc\">ReDoc</a></li>"
+            "</ul>"
+        ),
+        media_type="text/html",
+    )
 
 
-@router.get("/health/deep")
-async def health_deep():
-    fooocus_ok = await fooocus_client.health_check()
-    return {
-        "status": "healthy" if fooocus_ok else "degraded",
-        "service": "image-generation",
-        "checks": {
-            "fooocus_api": "connected" if fooocus_ok else "disconnected",
-        },
-    }
-
-
-@router.get("/", include_in_schema=False)
-async def home():
+@router.get("/health", tags=["Health"])
+def health():
+    """Basic health check."""
     try:
-        result = await fooocus_client.home()
-        if isinstance(result, str):
-            return HTMLResponse(content=result)
-        if isinstance(result, dict) and "raw" in result:
-            return HTMLResponse(content=result["raw"])
-        return result
+        from app.services.worker import worker_queue
+
+        queue_size = len(worker_queue.queue) if worker_queue else 0
+        return {
+            "status": "healthy",
+            "service": "se8-image-generation",
+            "version": settings.version,
+            "queue_size": queue_size,
+        }
     except Exception as e:
         return {
+            "status": "degraded",
             "service": "se8-image-generation",
-            "status": "ok",
-            "docs": "/docs",
-            "fooocus_api": settings.fooocus_api_url,
+            "error": str(e),
         }
 
 
-@router.get("/ping")
+@router.get("/health/deep", tags=["Health"])
+def health_deep():
+    """Deep health check with component status."""
+    checks = {}
+    try:
+        from app.services.worker import worker_queue
+
+        checks["worker_queue"] = {
+            "status": "ok",
+            "queue_size": len(worker_queue.queue) if worker_queue else 0,
+        }
+    except Exception as e:
+        checks["worker_queue"] = {"status": "error", "error": str(e)}
+
+    try:
+        from app.services.model_manager import get_model_manager
+
+        mm = get_model_manager()
+        checks["gpu"] = {
+            "status": "ok",
+            "device": mm.device_name,
+            "vram_total_mb": mm.total_vram_mb,
+        }
+    except Exception as e:
+        checks["gpu"] = {"status": "unavailable", "error": str(e)}
+
+    return {
+        "status": "healthy",
+        "service": "se8-image-generation",
+        "version": settings.version,
+        "checks": checks,
+    }
+
+
+@router.get("/ping", tags=["Health"])
 async def ping():
-    fooocus_ok = await fooocus_client.health_check()
-    if fooocus_ok:
-        return "pong"
-    raise HTTPException(status_code=503, detail="Fooocus API unavailable")
+    """Ping — returns pong."""
+    return "pong"

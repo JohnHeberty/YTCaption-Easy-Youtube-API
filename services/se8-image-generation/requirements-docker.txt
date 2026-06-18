@@ -1,1 +1,0 @@
-# Docker-only dependencies (empty — main requirements.txt covers everything)

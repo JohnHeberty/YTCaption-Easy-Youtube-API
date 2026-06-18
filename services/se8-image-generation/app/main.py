@@ -6,14 +6,6 @@ from common.fastapi_utils import create_service_app
 from common.log_utils import get_logger
 
 from app.core.config import get_settings
-from app.api import (
-    health_routes,
-    generate_routes,
-    generate_v2_routes,
-    models_routes,
-    tools_routes,
-    file_routes,
-)
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -32,25 +24,54 @@ async def verify_api_key(request: Request):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s", settings.app_name, settings.version)
+    import threading
+    from app.services.task_queue import TaskQueue
+    import app.services.worker as worker_mod
+
+    if worker_mod.worker_queue is None:
+        worker_mod.worker_queue = TaskQueue(queue_size=settings.max_queue_size)
+
+    _worker_thread = threading.Thread(
+        target=worker_mod.task_schedule_loop, daemon=True, name="se8-worker"
+    )
+    _worker_thread.start()
+    logger.info("Worker task loop started in background thread")
+
     yield
-    from app.services.image_service import fooocus_client
-    await fooocus_client.close()
-    logger.info("Shutting down Image Generation Service")
+
+    logger.info("Shutting down %s", settings.app_name)
 
 
 def setup_routers(app: FastAPI):
+    from app.api import (
+        file_routes,
+        generate_routes,
+        generate_v2_routes,
+        health_routes,
+        models_routes,
+        query_routes,
+        tools_routes,
+    )
+
     app.include_router(health_routes.router)
-    app.include_router(generate_routes.router, dependencies=[Depends(verify_api_key)])
-    app.include_router(generate_v2_routes.router, dependencies=[Depends(verify_api_key)])
-    app.include_router(models_routes.router, dependencies=[Depends(verify_api_key)])
+    app.include_router(query_routes.router, dependencies=[Depends(verify_api_key)])
+    app.include_router(
+        generate_routes.router, dependencies=[Depends(verify_api_key)]
+    )
+    app.include_router(
+        generate_v2_routes.router, dependencies=[Depends(verify_api_key)]
+    )
+    app.include_router(
+        models_routes.router, dependencies=[Depends(verify_api_key)]
+    )
     app.include_router(tools_routes.router, dependencies=[Depends(verify_api_key)])
     app.include_router(file_routes.router, dependencies=[Depends(verify_api_key)])
 
 
 app = create_service_app(
-    service_name="image-generation",
+    service_name="image-engine",
     title=settings.app_name,
-    description="SDXL image generation service powered by Fooocus (full proxy)",
+    description="SE8 Image Engine — SDXL inference engine with lazy/eager GPU and in-memory worker",
     version=settings.version,
     settings=settings,
     lifespan=lifespan,

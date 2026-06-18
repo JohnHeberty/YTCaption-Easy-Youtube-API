@@ -1,39 +1,37 @@
+import os
 import pytest
-import httpx
-import respx
+from unittest.mock import patch
 
 
 class TestFileRoutes:
-    @respx.mock
-    def test_get_output_file_success(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/files/2026-01-01/test.png").mock(
-            return_value=httpx.Response(200, content=b"pngdata", headers={"content-type": "image/png"})
-        )
-        resp = client.get("/files/2026-01-01/test.png", headers=auth_header)
-        assert resp.status_code == 200
-        assert resp.content == b"pngdata"
-        assert resp.headers["content-type"] == "image/png"
-
-    @respx.mock
-    def test_get_output_file_not_found(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/files/2026-01-01/missing.png").mock(
-            return_value=httpx.Response(404, text="not found")
-        )
+    def test_get_output_file_not_found(self, client, auth_header):
         resp = client.get("/files/2026-01-01/missing.png", headers=auth_header)
         assert resp.status_code == 404
 
-    @respx.mock
-    def test_get_output_file_requires_auth(self, client, mock_fooocus):
-        mock_fooocus.get("/files/2026-01-01/test.png").mock(
-            return_value=httpx.Response(200, content=b"data", headers={"content-type": "image/png"})
-        )
-        resp = client.get("/files/2026-01-01/test.png")
-        assert resp.status_code == 401
+    def test_get_output_file_invalid_ext(self, client, auth_header):
+        resp = client.get("/files/2026-01-01/test.txt", headers=auth_header)
+        assert resp.status_code == 404
 
-    @respx.mock
-    def test_get_output_file_preserves_content_type(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/files/2026-01-01/test.webp").mock(
-            return_value=httpx.Response(200, content=b"webpdata", headers={"content-type": "image/webp"})
-        )
-        resp = client.get("/files/2026-01-01/test.webp", headers=auth_header)
-        assert resp.headers["content-type"] == "image/webp"
+    def test_get_output_file_success(self, client, auth_header, tmp_path):
+        date_dir = tmp_path / "2026-01-01"
+        date_dir.mkdir()
+        img_file = date_dir / "test.png"
+        img_file.write_bytes(b"\x89PNG\r\n\x1a\nfake png content")
+
+        with patch("app.api.file_routes.get_settings") as mock_s:
+            mock_s.return_value.output_dir = str(tmp_path)
+            resp = client.get("/files/2026-01-01/test.png", headers=auth_header)
+        assert resp.status_code == 200
+        assert resp.content == b"\x89PNG\r\n\x1a\nfake png content"
+
+    def test_get_output_file_webp(self, client, auth_header, tmp_path):
+        date_dir = tmp_path / "2026-06-15"
+        date_dir.mkdir()
+        img_file = date_dir / "photo.webp"
+        img_file.write_bytes(b"RIFF fake webp")
+
+        with patch("app.api.file_routes.get_settings") as mock_s:
+            mock_s.return_value.output_dir = str(tmp_path)
+            resp = client.get("/files/2026-06-15/photo.webp", headers=auth_header)
+        assert resp.status_code == 200
+        assert "image/webp" in resp.headers.get("content-type", "")

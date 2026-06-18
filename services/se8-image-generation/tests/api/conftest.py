@@ -1,5 +1,6 @@
 import pytest
-import respx
+import httpx
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 from app.main import app
@@ -8,24 +9,17 @@ from app.core.config import get_settings
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 @pytest.fixture
 def api_key():
-    return get_settings().se8_api_key
+    return get_settings().se9_api_key
 
 
 @pytest.fixture
 def auth_header(api_key):
     return {"X-API-Key": api_key}
-
-
-@pytest.fixture
-def mock_fooocus():
-    with respx.mock:
-        respx.mock.base_url = "http://mock-fooocus:8888"
-        yield respx
 
 
 @pytest.fixture
@@ -49,3 +43,19 @@ def sample_png():
     png += chunk(b"IDAT", compressed)
     png += chunk(b"IEND", b"")
     return png
+
+
+@pytest.fixture
+def mock_worker_queue():
+    with patch("app.api.query_routes.worker_queue") as mock:
+        mock.queue = []
+        mock.history = []
+        mock.last_job_id = None
+        yield mock
+
+
+@pytest.fixture
+def mock_worker_queue_health():
+    with patch("app.api.health_routes.worker_queue", create=True) as mock:
+        mock.queue = []
+        yield mock

@@ -1,51 +1,41 @@
 import pytest
-import httpx
-import respx
+from unittest.mock import patch, MagicMock
 
 
 class TestEngines:
-    @respx.mock
-    def test_all_models(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/v1/engines/all-models").mock(
-            return_value=httpx.Response(200, json={"model_filenames": ["model.safetensors"], "lora_filenames": ["lora.safetensors"]})
-        )
-        resp = client.get("/v1/engines/all-models", headers=auth_header)
+    def test_all_models_fallback(self, client, auth_header):
+        with patch.dict("sys.modules", {"modules": None, "modules.config": None}):
+            resp = client.get("/v1/engines/all-models", headers=auth_header)
         assert resp.status_code == 200
         data = resp.json()
-        assert "model_filenames" in data
-        assert len(data["model_filenames"]) == 1
+        assert data["model_filenames"] == []
+        assert data["lora_filenames"] == []
 
-    @respx.mock
-    def test_styles(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/v1/engines/styles").mock(
-            return_value=httpx.Response(200, json=["Fooocus V2", "Fooocus Enhance"])
-        )
-        resp = client.get("/v1/engines/styles", headers=auth_header)
+    def test_styles_fallback(self, client, auth_header):
+        with patch.dict("sys.modules", {"modules": None, "modules.sdxl_styles": None}):
+            resp = client.get("/v1/engines/styles", headers=auth_header)
         assert resp.status_code == 200
-        assert len(resp.json()) == 2
+        assert resp.json() == []
 
-    @respx.mock
-    def test_styles_detail(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/v1/engines/styles-detail").mock(
-            return_value=httpx.Response(200, json=[{"name": "Fooocus V2", "prompt": "{prompt}", "negative_prompt": ""}])
-        )
-        resp = client.get("/v1/engines/styles-detail", headers=auth_header)
+    def test_styles_detail_fallback(self, client, auth_header):
+        with patch.dict("sys.modules", {"modules": None, "modules.sdxl_styles": None}):
+            resp = client.get("/v1/engines/styles-detail", headers=auth_header)
         assert resp.status_code == 200
-        assert resp.json()[0]["name"] == "Fooocus V2"
+        assert resp.json() == []
 
-    @respx.mock
-    def test_clean_vram(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/v1/engines/clean_vram").mock(
-            return_value=httpx.Response(200, json={"message": "ok"})
-        )
-        resp = client.get("/v1/engines/clean_vram", headers=auth_header)
+    def test_clean_vram(self, client, auth_header):
+        mock_module = MagicMock()
+        with patch.dict("sys.modules", {"app.services.model_manager": mock_module}):
+            resp = client.get("/v1/engines/clean_vram", headers=auth_header)
         assert resp.status_code == 200
-        assert resp.json()["message"] == "ok"
+        data = resp.json()
+        assert data["message"] == "ok"
 
-    @respx.mock
-    def test_all_models_error(self, client, mock_fooocus, auth_header):
-        mock_fooocus.get("/v1/engines/all-models").mock(
-            return_value=httpx.Response(500, text="error")
-        )
-        resp = client.get("/v1/engines/all-models", headers=auth_header)
-        assert resp.status_code == 500
+    def test_clean_vram_error(self, client, auth_header):
+        mock_module = MagicMock()
+        mock_module.get_model_manager.side_effect = Exception("GPU error")
+        with patch.dict("sys.modules", {"app.services.model_manager": mock_module}):
+            resp = client.get("/v1/engines/clean_vram", headers=auth_header)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["message"] == "error"

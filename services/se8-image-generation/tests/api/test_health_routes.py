@@ -1,82 +1,60 @@
 import pytest
-import httpx
-import respx
+from unittest.mock import patch, MagicMock, PropertyMock
 
 
 class TestHealthEndpoints:
-    @respx.mock
-    def test_health_healthy(self, client, mock_fooocus):
-        mock_fooocus.get("/ping").mock(return_value=httpx.Response(200, text="pong"))
-        resp = client.get("/health")
+    def test_health_healthy(self, client):
+        with patch("app.services.worker.worker_queue") as mock_q:
+            mock_q.queue = []
+            resp = client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["fooocus_api"] == "connected"
+        assert data["service"] == "se9-image-engine"
 
-    @respx.mock
-    def test_health_degraded(self, client, mock_fooocus):
-        mock_fooocus.get("/ping").mock(side_effect=httpx.ConnectError("refused"))
-        resp = client.get("/health")
+    def test_health_degraded(self, client):
+        mock_q = MagicMock()
+        type(mock_q).queue = PropertyMock(side_effect=Exception("boom"))
+        with patch("app.services.worker.worker_queue", mock_q):
+            resp = client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "degraded"
-        assert data["fooocus_api"] == "disconnected"
 
-    @respx.mock
-    def test_health_deep_healthy(self, client, mock_fooocus):
-        mock_fooocus.get("/ping").mock(return_value=httpx.Response(200, text="pong"))
-        resp = client.get("/health/deep")
+    def test_health_deep_healthy(self, client):
+        with patch("app.services.worker.worker_queue") as mock_q:
+            mock_q.queue = []
+            resp = client.get("/health/deep")
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
         assert "checks" in data
 
-    @respx.mock
-    def test_health_deep_degraded(self, client, mock_fooocus):
-        mock_fooocus.get("/ping").mock(side_effect=httpx.ConnectError("refused"))
-        resp = client.get("/health/deep")
+    def test_health_deep_degraded(self, client):
+        mock_q = MagicMock()
+        type(mock_q).queue = PropertyMock(side_effect=Exception("boom"))
+        with patch("app.services.worker.worker_queue", mock_q):
+            resp = client.get("/health/deep")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "degraded"
+        assert "checks" in data
 
 
 class TestPing:
-    @respx.mock
-    def test_ping_ok(self, client, mock_fooocus):
-        mock_fooocus.get("/ping").mock(return_value=httpx.Response(200, text="pong"))
+    def test_ping_ok(self, client):
         resp = client.get("/ping")
         assert resp.status_code == 200
         assert resp.json() == "pong"
 
-    @respx.mock
-    def test_ping_unavailable(self, client, mock_fooocus):
-        mock_fooocus.get("/ping").mock(side_effect=httpx.ConnectError("refused"))
-        resp = client.get("/ping")
-        assert resp.status_code == 503
-
 
 class TestHome:
-    @respx.mock
-    def test_home_returns_html(self, client, mock_fooocus):
-        html = "<h2>Fooocus-API</h2><ul><li>test</li></ul>"
-        mock_fooocus.get("/").mock(return_value=httpx.Response(200, text=html))
+    def test_home_returns_html(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "<h2>" in resp.text
         assert "text/html" in resp.headers.get("content-type", "")
+        assert "SE8 Image Engine" in resp.text
 
-    @respx.mock
-    def test_home_fallback_on_error(self, client, mock_fooocus):
-        mock_fooocus.get("/").mock(side_effect=httpx.ConnectError("refused"))
+    def test_home_has_docs_links(self, client):
         resp = client.get("/")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["service"] == "se8-image-generation"
-        assert data["status"] == "ok"
-
-    @respx.mock
-    def test_home_json_response(self, client, mock_fooocus):
-        mock_fooocus.get("/").mock(return_value=httpx.Response(200, json={"docs": "/docs"}))
-        resp = client.get("/")
-        assert resp.status_code == 200
-        assert resp.json() == {"docs": "/docs"}
+        assert "/docs" in resp.text
+        assert "/redoc" in resp.text

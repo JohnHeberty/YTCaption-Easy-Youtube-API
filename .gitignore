@@ -88,5 +88,5 @@ dmypy.json
 services/audio-transcriber/models/
 services/*/models/models--*/
 
-# SE9 model files (12GB+, copied from SE8)
-services/se9-image-engine/data/
+# SE8 model files (12GB+, copied from SE8)
+services/se8-image-generation/data/
