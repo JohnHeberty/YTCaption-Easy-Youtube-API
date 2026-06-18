@@ -1,7 +1,7 @@
 """
 API principal do orquestrador
 """
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status, Depends
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from common.log_utils import setup_structured_logging, get_logger
 from common.datetime_utils import now_brazil
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 
 from app.domain.models import (
     PipelineRequest, PipelineResponse, PipelineJob, PipelineStatus, RootResponse,
@@ -33,6 +33,8 @@ setup_structured_logging(
     log_dir=settings.log_dir,
 )
 logger = get_logger(__name__)
+
+verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 
 orchestrator = None
 redis_store = None
@@ -87,8 +89,14 @@ cors_config = {
 
 def setup_routers(app):
     app.include_router(health_router)
-    app.include_router(admin_router)
-    app.include_router(jobs_router)
+    app.include_router(
+        admin_router,
+        dependencies=[Depends(verify_api_key)],
+    )
+    app.include_router(
+        jobs_router,
+        dependencies=[Depends(verify_api_key)],
+    )
 
 
 app = create_service_app(

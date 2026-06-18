@@ -340,8 +340,9 @@ class PipelineOrchestrator:
                 import httpx
                 from app.core.ssl_config import get_ssl_context
                 ssl_verify = get_ssl_context()
+                _headers = getattr(self._transcription_client, '_headers', {})
                 async with httpx.AsyncClient(timeout=self._transcription_client.timeout, verify=ssl_verify) as client:
-                    tr = await client.get(text_url)
+                    tr = await client.get(text_url, headers=_headers)
                     if tr.status_code == 200:
                         text_data = tr.json()
                         text = text_data.get("text", "")
@@ -353,7 +354,7 @@ class PipelineOrchestrator:
             try:
                 seg_url = f"{self._transcription_client.base_url}/jobs/{stage.job_id}/transcription"
                 async with httpx.AsyncClient(timeout=self._transcription_client.timeout, verify=ssl_verify) as client:
-                    tr = await client.get(seg_url)
+                    tr = await client.get(seg_url, headers=_headers)
                     if tr.status_code == 200:
                         seg_data = tr.json()
                         segments = seg_data.get("segments", [])

@@ -7,10 +7,11 @@ Standardizes:
 - CORS middleware
 - Rate limiting middleware
 - Body size middleware
+- API key authentication dependency
 - Router registration
 
 Usage:
-    from common.fastapi_utils import create_service_app
+    from common.fastapi_utils import create_service_app, create_api_key_dependency
 
     app = create_service_app(
         service_name="my-service",
@@ -22,9 +23,9 @@ Usage:
     )
 """
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Dict, Optional, Sequence
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from common.exception_handlers import setup_exception_handlers
@@ -202,3 +203,52 @@ def _resolve_body_size(
     if mb is not None:
         return int(mb) * 1024 * 1024
     return None
+
+
+# ------------------------------------------------------------------ #
+#  API Key Authentication
+# ------------------------------------------------------------------ #
+
+_DEFAULT_EXEMPT_PATHS = frozenset({"/", "/health", "/health/deep", "/ping"})
+
+
+def create_api_key_dependency(
+    api_key: Optional[str],
+    exempt_paths: Optional[List[str]] = None,
+) -> Callable:
+    """Create a FastAPI dependency that validates ``X-API-Key`` header.
+
+    Args:
+        api_key: Expected API key value.  When ``None``, authentication is
+            **disabled** (all requests pass through).
+        exempt_paths: URL paths that bypass authentication.  Defaults to
+            common health endpoints (``/``, ``/health``, ``/health/deep``,
+            ``/ping``).
+
+    Returns:
+        An async dependency function suitable for use with
+        ``FastAPI.dependencies`` or ``Depends()``.
+
+    Example::
+
+        from common.fastapi_utils import create_api_key_dependency
+
+        verify = create_api_key_dependency(api_key=settings.api_key)
+
+        app = create_service_app(
+            ...,
+            dependencies=[Depends(verify)],
+        )
+    """
+    paths = frozenset(exempt_paths) if exempt_paths is not None else _DEFAULT_EXEMPT_PATHS
+
+    async def _verify(request: Request) -> None:
+        if not api_key:
+            return
+        if request.url.path in paths:
+            return
+        key = request.headers.get("X-API-Key")
+        if key != api_key:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    return _verify

@@ -22,6 +22,9 @@ class OrchestratorSettings(BaseSettings):
     app_port: int = Field(default=8080)
     workers: int = Field(default=1)
 
+    # API Key (shared auth)
+    api_key: Optional[str] = Field(default=None)
+
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/0")
 
@@ -88,6 +91,9 @@ class OrchestratorSettings(BaseSettings):
     # SSL Configuration
     ssl_verify: bool = Field(default=True)
     ssl_cert_path: Optional[str] = Field(default=None)
+
+    # Auth
+    api_key: Optional[str] = Field(default=None, env="API_KEY")
 
     @field_validator("video_downloader_url", "audio_normalization_url", "audio_transcriber_url")
     @classmethod

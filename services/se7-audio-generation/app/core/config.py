@@ -14,6 +14,8 @@ class CoreSettings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8007
 
+    api_key: Optional[str] = Field(default=None)
+
     huggingface_token: Optional[str] = Field(default=None)
     model_name: str = "ResembleAI/Chatterbox-Multilingual-pt-br"
     model_dir: str = "./data/models"

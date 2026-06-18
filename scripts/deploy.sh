@@ -42,7 +42,7 @@ SERVICES=(
     "se2-video-downloader"
     "se3-audio-normalization"
     "se4-audio-transcriber"
-    "se5-make-video"
+    "se5-make-video-clip"
     "se6-youtube-search"
     "se7-audio-generation"
 )
@@ -149,5 +149,5 @@ fi
 
 echo ""
 echo "Containers:"
-docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "ytcaption|audio-|video-|youtube-|make-video" || docker ps
+docker ps --format "table {{.Names}}\t{{.Status}}" | grep -E "ytcaption|audio-|video-|youtube-|make-video-clip" || docker ps
 echo ""

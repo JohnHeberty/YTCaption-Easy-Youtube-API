@@ -4,7 +4,7 @@ Uses pydantic_settings for type validation + lru_cache singleton.
 """
 import os
 from functools import lru_cache
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -23,6 +23,7 @@ class _CoreSettings(BaseSettings):
     max_file_size_mb: int = 2048
     max_duration_minutes: int = 120
     log_level: str = "INFO"
+    api_key: Optional[str] = None
 
     @field_validator("port")
     @classmethod
@@ -144,6 +145,7 @@ def get_settings() -> Dict[str, Any]:
         'backup_dir': os.getenv('BACKUP_DIR', './backup'),
         
         # ===== LOGGING =====
+        'api_key': os.getenv('API_KEY'),
         'log_level': os.getenv('LOG_LEVEL', 'INFO'),
         'log_format': os.getenv('LOG_FORMAT', 'json'),
         'log_rotation': os.getenv('LOG_ROTATION', '1 day'),

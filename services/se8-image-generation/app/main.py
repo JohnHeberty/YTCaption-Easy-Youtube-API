@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends
 
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import get_logger
 
 from app.core.config import get_settings
@@ -10,15 +10,7 @@ from app.core.config import get_settings
 logger = get_logger(__name__)
 settings = get_settings()
 
-
-async def verify_api_key(request: Request):
-    if not settings.se8_api_key:
-        return
-    if request.url.path in ("/health", "/health/deep", "/ping", "/"):
-        return
-    key = request.headers.get("X-API-Key")
-    if key != settings.se8_api_key:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+verify_api_key = create_api_key_dependency(api_key=settings.se8_api_key)
 
 
 @asynccontextmanager

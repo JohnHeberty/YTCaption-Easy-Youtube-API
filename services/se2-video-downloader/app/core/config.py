@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional
 
 from pydantic_settings import BaseSettings
 
@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     version: str = "2.0.0"
     environment: str = "development"
     debug: bool = False
+
+    # API Key
+    api_key: Optional[str] = None
 
     # Server
     host: str = "0.0.0.0"

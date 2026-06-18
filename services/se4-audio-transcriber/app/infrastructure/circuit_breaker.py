@@ -2,7 +2,7 @@
 Circuit Breaker Pattern for Audio Transcriber Service
 
 Protege serviços externos (HuggingFace model downloads, GPU operations)
-de falhas em cascata. Adaptado do padrão make-video.
+de falhas em cascata. Adaptado do padrão make-video-clip.
 """
 
 from typing import Callable, Any, Optional

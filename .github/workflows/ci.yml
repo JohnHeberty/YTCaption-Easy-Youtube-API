@@ -42,7 +42,7 @@ jobs:
           - se2-video-downloader
           - se3-audio-normalization
           - se4-audio-transcriber
-          - se5-make-video
+          - se5-make-video-clip
           - se6-youtube-search
     steps:
       - uses: actions/checkout@v4

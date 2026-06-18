@@ -6,10 +6,11 @@ Microservice for YouTube search operations with Celery + Redis and 24h cache.
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from fastapi import Depends
 from fastapi.responses import JSONResponse
 
 from common.datetime_utils import now_brazil
-from common.fastapi_utils import create_service_app
+from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger
 
 from app.core.config import get_settings
@@ -21,6 +22,7 @@ from app.domain.models import HealthResponse, RootResponse
 from app.api import routes as api_routes
 
 settings = get_settings()
+verify_api_key = create_api_key_dependency(api_key=settings.get('api_key'))
 setup_structured_logging(
     service_name="youtube-search",
     log_level=settings["log_level"],
@@ -57,6 +59,7 @@ app = create_service_app(
     version="1.0.0",
     settings=settings,
     lifespan=lifespan,
+    dependencies=[Depends(verify_api_key)],
     setup_routers=lambda a: a.include_router(api_routes.router),
 )
 

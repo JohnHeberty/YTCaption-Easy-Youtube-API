@@ -70,8 +70,36 @@
 - modules/config.py paths adaptados de `../models/` para `../data/models/`
 - GPU via manual device/lib mounts (nvidia-container-toolkit 1.18.2 tem bug com driver 590)
 
+## SE8 Memory Fix (mimalloc + os.execv)
+
+### Problema
+Container consumia 14 GB RAM idle (70% de 20GB) — PyTorch C++ allocator mantinha mmap'd pages após unload de modelos, nunca chamava munmap().
+
+### Solução implementada
+1. **mimalloc allocator** — substitui glibc malloc, retorna memória freed ao OS via madvise(MADV_DONTNEED)
+   - `Dockerfile.gpu-api`: libmimalloc2.0 + LD_PRELOAD + MIMALLOC_PURGE_DELAY=0
+   - `docker-compose.gpu.yml`: LD_PRELOAD + MIMALLOC_PURGE_DELAY env vars
+2. **os.execv restart** — `/cleanup` endpoint (models_routes.py:86-130) faz unload_all + gc.collect + os.execv() para reiniciar o processo
+3. **Auto-restart idle** — worker.py:634-675, `SE8_AUTO_RESTART_IDLE=300` (5 min idle → auto cleanup)
+4. **Post-generation GC** — worker.py:622-624, gc.collect() após clear_caches()
+
+### Resultado validado E2E
+| Estado | Docker MEM | PID 1 RSS | Notes |
+|---|---|---|---|
+| Idle (fresh) | 81 MB (0.40%) | 0.07 GB | ✅ mimalloc working |
+| Durante geração | 7.66 GB (38%) | 7.67 GB | Modelo carregado (6.6GB) + overhead |
+| Post-cleanup | 429 MB (2.10%) | 0.07 GB | ✅ os.execv libera tudo |
+
+### Arquivos modificados
+1. `docker/Dockerfile.gpu-api` — libmimalloc2.0, LD_PRELOAD, MIMALLOC_PURGE_DELAY
+2. `docker/docker-compose.gpu.yml` — LD_PRELOAD, MIMALLOC_PURGE_DELAY, SE8_AUTO_RESTART_IDLE=300
+3. `app/services/worker.py` — gc.collect() pós-geração + auto-restart idle
+4. `app/api/models_routes.py` — /cleanup com os.execv restart
+
 ## Riscos
 - GPU devices montados manualmente no docker-compose (não usa nvidia-ctk)
 - transformsers 5.x incompatível — fixado com 4.37.2
 - numpy 2.x incompatível com torch 2.1 — fixado com <2
 - GPG keys expired no base image ubuntu — usa --allow-insecure-repositories
+- Docker cgroup pode reportar mais que PID RSS (GPU driver memory)
+- os.execv() reinicia todo o processo — ~3s downtime no /cleanup

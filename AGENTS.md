@@ -235,3 +235,13 @@ Objetivo e sempre ficar com contexto limpo de para manter foco e atenção, siga
 - [Contexto e ferramentas](agent/context-and-tools.md)
 - [Validação](agent/validation.md)
 - [Memória operacional](MEMORY.md)
+
+## 13. Restrição: Motor TTS do SE7
+
+**O SE7 (audio-generation) usa APENAS o modelo ResembleAI Chatterbox Multilingual PT-BR.**
+
+- **NUNCA sugerir** outros motores TTS (Piper, Coqui, OpenAI TTS, Bark, etc.) para o SE7.
+- **NUNCA propor** troca de modelo TTS. O Chatterbox é o motor definitivo deste serviço.
+- Vozes masculinas/femininas são implementadas como **voice profiles** (áudios de referência) registrados no startup via `voice_seeder.py`.
+- Para adicionar vozes: criar amostra WAV, colocar em `data/voices/_builtin/`, e adicionar entrada em `BUILTIN_VOICES` em `voice_seeder.py`.
+- O modelo Chatterbox é de **clonagem de voz** — sem áudio de referência, usa o `conds.pt` (speaker embedding embutido).

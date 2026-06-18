@@ -1,0 +1,96 @@
+name: se5-make-video-clip-gpu
+services:
+
+  make-video-clip:
+    build:
+      context: ../../..
+      dockerfile: services/se5-make-video-clip/docker/Dockerfile.gpu
+    container_name: ytcaption-make-video-clip
+    network_mode: "host"
+    mem_limit: 6g
+    memswap_limit: 6g
+    shm_size: '2gb'
+    volumes:
+      - ../../../shared:/app/common
+      - ../data:/app/data
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/nvidia/lib/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/nvidia/lib/libcuda.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/nvidia/lib/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/nvidia/lib/libnvidia-ml.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/nvidia/lib/libnvidia-ptxjitcompiler.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1:/nvidia/lib/libnvidia-encode.so.1:ro
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+      - PADDLE_HOME=/app/data/.paddleocr_cache
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - LD_LIBRARY_PATH=/nvidia/lib:/usr/local/cuda/lib64
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  make-video-clip-celery:
+    build:
+      context: ../../..
+      dockerfile: services/se5-make-video-clip/docker/Dockerfile.gpu
+    container_name: ytcaption-make-video-clip-celery
+    command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --queues=make_video_queue --pool=solo
+    network_mode: "host"
+    volumes:
+      - ../../../shared:/app/common
+      - ../data:/app/data
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.590.48.01:/nvidia/lib/libcuda.so.590.48.01:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/nvidia/lib/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/nvidia/lib/libcuda.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/nvidia/lib/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/nvidia/lib/libnvidia-ml.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/nvidia/lib/libnvidia-ptxjitcompiler.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1:/nvidia/lib/libnvidia-encode.so.1:ro
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+      - PADDLE_HOME=/app/data/.paddleocr_cache
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - LD_LIBRARY_PATH=/nvidia/lib:/usr/local/cuda/lib64
+    restart: unless-stopped
+    depends_on:
+      make-video-clip:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  make-video-clip-celery-beat:
+    build:
+      context: ../../..
+      dockerfile: services/se5-make-video-clip/docker/Dockerfile.gpu
+    container_name: ytcaption-make-video-clip-celery-beat
+    command: python -m celery -A app.infrastructure.celery_config beat --loglevel=info
+    network_mode: "host"
+    volumes:
+      - ../../../shared:/app/common
+    env_file:
+      - ../.env
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cat /proc/1/cmdline | tr -d '\\0' | grep -q celery"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    depends_on:
+      - make-video-clip-celery

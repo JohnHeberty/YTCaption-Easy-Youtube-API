@@ -1,6 +1,6 @@
 """Infrastructure components for audio-transcriber service
 
-Padrões de resiliência adaptados do make-video service para alta disponibilidade.
+Padrões de resiliência adaptados do make-video-clip service para alta disponibilidade.
 
 Components:
 - CircuitBreaker: Protege contra falhas em cascata
