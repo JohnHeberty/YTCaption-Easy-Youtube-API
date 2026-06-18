@@ -1,6 +1,5 @@
 """API utilities for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS fooocusapi/utils/api_utils.py.
 Provides call_worker, req_to_params, generate_async_output, and response helpers.
 """
 
@@ -75,10 +74,7 @@ def get_task_type(req: CommonRequest) -> TaskType:
 
 
 def req_to_params(req: CommonRequest) -> Dict[str, Any]:
-    """Convert a request model to a dict of AsyncTask parameters.
-
-    This maps FOOOCUS-compatible request models to the worker's AsyncTask fields.
-    """
+    """Convert a request model to a dict of AsyncTask parameters."""
     settings = get_settings()
     prompt = req.prompt
     negative_prompt = req.negative_prompt
@@ -235,10 +231,7 @@ def _decode_image(data: str) -> Any:
 def call_worker(
     req: CommonRequest, accept: Optional[str] = None
 ) -> Union[Response, Dict[str, Any], List[Dict[str, Any]]]:
-    """Enqueue a generation task and return results (sync or async).
-
-    Mirrors FOOOCUS call_worker.py behavior.
-    """
+    """Enqueue a generation task and return results (sync or async)."""
     streaming_output = False
     if accept and "image/png" in accept:
         streaming_output = True

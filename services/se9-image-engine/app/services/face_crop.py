@@ -1,6 +1,5 @@
 """Face detection and alignment for IP-Adapter face tasks.
 
-Clean-room rewrite of FOOOCUS Fooocus/extras/face_crop.py (50 lines).
 Uses facexlib for face detection and alignment.
 """
 import logging

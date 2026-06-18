@@ -1,10 +1,9 @@
 """
 SE9 Image Engine — StableDiffusionModel
 
-Clean-room rewrite of FOOOCUS modules/core.py:StableDiffusionModel (lines 37-123).
 Encapsulates UNet, VAE, CLIP, CLIP Vision and manages LoRA loading.
 
-Key changes from FOOOCUS:
+Design decisions:
 - No global state — all state is instance-level
 - Uses SE9 ModelPatcher instead of ldm_patched.modules.model_patcher
 - Uses SE9 checkpoint module for load_model()

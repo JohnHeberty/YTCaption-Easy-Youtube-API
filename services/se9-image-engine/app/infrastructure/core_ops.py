@@ -1,14 +1,12 @@
 """
 SE9 Image Engine — Core Operations
 
-Clean-room rewrite of FOOOCUS modules/core.py (341 lines).
 Convenience wrappers for operators and ksampler.
 
-Key changes from FOOOCUS:
+Design decisions:
 - Functions instead of global operator instances
 - Uses SE9 operators.py instead of ldm_patched.contrib.external
 - Lazy torch imports
-- Thread-safe
 """
 
 from __future__ import annotations

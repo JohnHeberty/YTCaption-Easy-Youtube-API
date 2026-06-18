@@ -1,10 +1,9 @@
 """
 SE9 Image Engine — Pipeline
 
-Clean-room rewrite of FOOOCUS modules/default_pipeline.py (515 lines).
 Orchestrates model loading, CLIP encoding, and diffusion processing.
 
-Key changes from FOOOCUS:
+Design decisions:
 - Class-based instead of 15+ module-level globals
 - Uses SE9 model_base, model_manager, checkpoint modules
 - Thread-safe, no global mutable state

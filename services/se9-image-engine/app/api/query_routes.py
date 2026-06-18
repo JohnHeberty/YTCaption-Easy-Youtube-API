@@ -1,6 +1,5 @@
 """Query routes for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS fooocusapi/routes/query.py.
 Handles job status queries, queue info, history, and outputs listing.
 """
 

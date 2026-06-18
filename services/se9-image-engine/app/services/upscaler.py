@@ -1,7 +1,4 @@
-"""ESRGAN upscaler — lazy-loaded 4x super-resolution.
-
-Clean-room rewrite of FOOOCUS Fooocus/modules/upscaler.py (33 lines).
-"""
+"""ESRGAN upscaler — lazy-loaded 4x super-resolution."""
 import collections
 import logging
 from typing import Optional
@@ -29,7 +26,7 @@ def _load_model():
     logger.info("Loading ESRGAN upscaler from %s", model_path)
 
     state_dict = torch.load(model_path, map_location="cpu")
-    # Rename keys: residual_block_ -> RDB (FOOOCUS convention)
+    # Rename keys: residual_block_ -> RDB (ESRGAN convention)
     new_state_dict = collections.OrderedDict()
     for k, v in state_dict.items():
         new_key = k.replace("residual_block_", "RDB.")
@@ -71,7 +68,7 @@ def _resolve_upscale_model() -> str:
         os.path.join(upscale_dir, "fooocus_upscaler_s409985e5.bin"),
     ]
 
-    # Also check FOOOCUS paths if available
+    # Also check modules config paths
     try:
         from modules.config import paths_upscale_models
         if paths_upscale_models:

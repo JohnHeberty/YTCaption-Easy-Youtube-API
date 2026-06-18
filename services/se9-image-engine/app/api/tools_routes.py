@@ -1,53 +1,17 @@
 """Tools routes for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS tools endpoints.
 Provides image description and mask generation.
 """
 
 from __future__ import annotations
 
-import base64
 import logging
-from io import BytesIO
 from typing import Optional
 
-import numpy as np
 from fastapi import APIRouter, File, Query, UploadFile
-from PIL import Image
 
+from app.api.image_utils import ndarray_to_base64png, read_input_image
 from app.domain.models import DescribeImageResponse, GenerateMaskRequest
-
-
-def _narray_to_base64img(narray: np.ndarray) -> str:
-    if narray is None:
-        return ""
-    img = Image.fromarray(narray)
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
-
-
-def _read_input_image(input_image):
-    if input_image is None:
-        return None
-    if isinstance(input_image, str):
-        if input_image in ("", "None", "null", "string", "none"):
-            return None
-        if input_image.startswith("http"):
-            import urllib.request
-            req = urllib.request.Request(input_image, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req) as resp:
-                img_bytes = resp.read()
-            nparr = np.frombuffer(img_bytes, np.uint8)
-            return np.flip(np.array(Image.open(BytesIO(img_bytes))), axis=-1).copy()
-        if input_image.startswith("data:"):
-            img_data = base64.b64decode(input_image.split(",", 1)[1])
-            return np.flip(np.array(Image.open(BytesIO(img_data))), axis=-1).copy()
-        img = Image.open(input_image)
-        return np.flip(np.array(img), axis=-1).copy()
-    if isinstance(input_image, bytes):
-        return np.flip(np.array(Image.open(BytesIO(input_image))), axis=-1).copy()
-    return None
 
 logger = logging.getLogger(__name__)
 
@@ -67,29 +31,25 @@ def describe_image(
 ):
     """Describe an image — get tags from an image."""
     try:
+        import cv2
+        import numpy as np
         from modules.util import HWC3
 
         img_bytes = image.file.read()
 
         if image_type == "Photo":
             from extras.interrogate import default_interrogator
-
-            interrogator = default_interrogator
         else:
             from extras.wd14tagger import default_interrogator
 
-            interrogator = default_interrogator
-
-        import numpy as np
-        import cv2
-
+        interrogator = default_interrogator
         nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         img = HWC3(img)
         result = interrogator(img)
         return DescribeImageResponse(describe=result)
     except ImportError:
-        logger.warning("Fooocus modules not available for describe-image")
+        logger.warning("Required modules not available for describe-image")
         return DescribeImageResponse(describe="Module not available")
     except Exception as e:
         logger.error("describe-image failed: %s", e)
@@ -106,7 +66,7 @@ async def generate_mask(mask_options: GenerateMaskRequest) -> str:
     try:
         from extras.inpaint_mask import SAMOptions, generate_mask_from_image
 
-        image = _read_input_image(mask_options.image)
+        image = read_input_image(mask_options.image)
         extras = {}
         sam_options = None
 
@@ -126,9 +86,9 @@ async def generate_mask(mask_options: GenerateMaskRequest) -> str:
         mask, _, _, _ = generate_mask_from_image(
             image, mask_options.mask_model, extras, sam_options
         )
-        return _narray_to_base64img(mask)
+        return ndarray_to_base64png(mask)
     except ImportError:
-        logger.warning("Fooocus modules not available for generate_mask")
+        logger.warning("Required modules not available for generate_mask")
         return ""
     except Exception as e:
         logger.error("generate_mask failed: %s", e)

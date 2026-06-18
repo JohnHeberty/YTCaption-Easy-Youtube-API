@@ -1,7 +1,4 @@
-"""VAE Interpose — latent space translation for SDXL→SD1 refiner swap.
-
-Clean-room rewrite of FOOOCUS Fooocus/extras/vae_interpose.py (109 lines).
-"""
+"""VAE Interpose — latent space translation for SDXL→SD1 refiner swap."""
 import logging
 import os
 from typing import Optional
@@ -100,7 +97,7 @@ def _resolve_model_path() -> str:
         os.path.join(model_dir, "xl-to-v1_interposer-v4.0.safetensors"),
     ]
 
-    # Also check FOOOCUS paths
+    # Also check modules config paths
     try:
         from modules.config import path_vae_approx
         for name in ["xl-to-v1_interposer-v4.0.safetensors", "xl-to-v1_interposer-v3.1.safetensors"]:

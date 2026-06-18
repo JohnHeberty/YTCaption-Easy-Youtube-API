@@ -1,7 +1,7 @@
 """Task models for SE9 Image Engine.
 
-Maps FOOOCUS AsyncTask, QueueTask, TaskType, ImageGenerationResult
-into clean, type-safe domain models.
+Domain models for generation task lifecycle:
+TaskType, AsyncTask, QueueTask, ImageGenerationResult.
 """
 
 from __future__ import annotations
@@ -91,7 +91,6 @@ class AsyncTask:
     """Holds all parameters for one generation job.
 
     Constructed from ImageGenerationParams (V1/V2 request).
-    Mirrors FOOOCUS AsyncTask structure.
     """
     prompt: str = ""
     negative_prompt: str = ""

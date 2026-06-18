@@ -1,6 +1,5 @@
 """V2 Generation routes for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS fooocusapi/routes/generate_v2.py.
 V2 uses JSON with base64-encoded images.
 """
 

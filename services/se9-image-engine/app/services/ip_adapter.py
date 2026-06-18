@@ -1,7 +1,4 @@
-"""IP-Adapter — CLIP vision encoding + cross-attention injection.
-
-Clean-room rewrite of FOOOCUS Fooocus/extras/ip_adapter.py (284 lines).
-"""
+"""IP-Adapter — CLIP vision encoding + cross-attention injection."""
 import logging
 from typing import Dict, List, Optional, Tuple
 

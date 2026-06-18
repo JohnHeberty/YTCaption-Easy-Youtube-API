@@ -1,13 +1,10 @@
 """
 SE9 Image Engine — Operators
 
-Clean-room rewrite of FOOOCUS ldm_patched/contrib/external.py (key operators)
-and external_freelunch.py (FreeU_V2).
+Wraps ldm_patched primitives into clean callable objects.
+Used by pipeline.py and core_ops.py for the generation pipeline.
 
-Operators wrap ldm_patched primitives into clean callable objects.
-These are used by pipeline.py and core_ops.py for the generation pipeline.
-
-Key changes from FOOOCUS:
+Design decisions:
 - No ComfyUI node registration (INPUT_TYPES, RETURN_TYPES, etc.)
 - Clean class-based operators with __call__ interface
 - Lazy torch imports

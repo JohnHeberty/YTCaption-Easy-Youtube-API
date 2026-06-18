@@ -1,10 +1,9 @@
 """
 SE9 Image Engine — Model Manager
 
-Clean-room rewrite of FOOOCUS ldm_patched/modules/model_management.py (807 lines).
 Manages GPU/VRAM state, device detection, model load/unload with LRU eviction.
 
-Key differences from FOOOCUS:
+Design decisions:
 - Class-based (ModelManager singleton) instead of global state
 - Config-driven (ImageEngineSettings) instead of CLI args
 - Thread-safe with Lock for concurrent access
@@ -785,7 +784,7 @@ class InterruptProcessingException(Exception):
 
 
 # ---------------------------------------------------------------------------
-# Module-level convenience (for backward compat with FOOOCUS patterns)
+# Module-level convenience
 # ---------------------------------------------------------------------------
 
 def get_model_manager() -> ModelManager:

@@ -1,7 +1,6 @@
 """Task queue for SE9 Image Engine.
 
 FIFO queue with history tracking, webhook support, and status management.
-Clean-room rewrite of FOOOCUS fooocusapi/task_queue.py.
 """
 
 from __future__ import annotations

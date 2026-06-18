@@ -1,8 +1,4 @@
-"""Face restoration — GFPGAN/CodeFormer via facexlib and ldm_patched.
-
-Clean-room implementation based on FOOOCUS extras/face_crop.py and
-ldm_patched/pfn/architecture/face/ model definitions.
-"""
+"""Face restoration — GFPGAN/CodeFormer via facexlib and ldm_patched."""
 import logging
 from typing import Optional
 

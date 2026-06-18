@@ -1,7 +1,4 @@
-"""Image preprocessors for ControlNet — Canny pyramid + CPDS.
-
-Clean-room rewrite of FOOOCUS Fooocus/extras/preprocessors.py (81 lines).
-"""
+"""Image preprocessors for ControlNet — Canny pyramid + CPDS."""
 import logging
 
 import cv2

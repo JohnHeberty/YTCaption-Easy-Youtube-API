@@ -1,7 +1,6 @@
 """V1 Generation routes for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS fooocusapi/routes/generate_v1.py.
-V1 accepts multipart/form-data for image inputs.
+V1 accepts multipart/form-data or JSON body for image inputs.
 """
 
 from __future__ import annotations
