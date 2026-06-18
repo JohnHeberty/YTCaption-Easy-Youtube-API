@@ -92,7 +92,7 @@ def req_to_params(req: CommonRequest) -> Dict[str, Any]:
     base_model_name = req.base_model_name
     refiner_model_name = req.refiner_model_name
     refiner_switch = req.refiner_switch
-    loras = [(l.enabled, l.model_name, l.weight) for l in req.loras]
+    loras = [(l.model_name, l.weight) for l in req.loras if l.enabled]
 
     uov_input_image = None
     uov_method = "Disabled"
@@ -339,10 +339,12 @@ def _generate_image_result_output(
     """Convert ImageGenerationResult list to API response format."""
     settings = get_settings()
     output = []
+    output_dir = settings.output_dir
     for item in results:
         url = None
         if item.im:
-            url = f"/files/{item.im}"
+            rel = os.path.relpath(item.im, output_dir)
+            url = f"/files/{rel}"
         b64 = None
         if require_base64 and item.im:
             b64 = _output_file_to_base64(item.im)

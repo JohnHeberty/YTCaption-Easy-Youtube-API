@@ -469,11 +469,10 @@ def _process_diffusion(
     initial_latent = generate_empty_latent(width, height, 1)
 
     # CLIP encode
-    positive_cond, negative_cond = pipeline.clip_encode(
-        task["prompt"],
-        task["negative"],
-        clip_skip=async_task.clip_skip,
-    )
+    if async_task.clip_skip:
+        pipeline.set_clip_skip(async_task.clip_skip)
+    positive_cond = pipeline.clip_encode([task["prompt"]])
+    negative_cond = pipeline.clip_encode([task["negative"]])
 
     # Calculate steps
     steps = async_task.overwrite_step if async_task.overwrite_step > 0 else 30
@@ -481,15 +480,17 @@ def _process_diffusion(
 
     # Process diffusion
     imgs = pipeline.process_diffusion(
-        seed=seed,
         positive_cond=positive_cond,
         negative_cond=negative_cond,
-        initial_latent=initial_latent,
-        width=width,
-        height=height,
         steps=steps,
         switch=switch,
+        width=width,
+        height=height,
+        image_seed=seed,
         callback=progress_callback,
+        sampler_name=async_task.sampler_name,
+        scheduler_name=async_task.scheduler_name,
+        latent=initial_latent,
     )
 
     return imgs if imgs else []
@@ -558,16 +559,17 @@ def process_generate(async_job: QueueTask) -> None:
             progress = 20 + int(70 * idx / max(total_tasks, 1))
             async_job.set_progress(progress, f"Generating {idx + 1}/{total_tasks}")
 
-            def progress_callback(step: int, total: int, preview=None):
-                step_progress = 20 + int(70 * (idx + step / max(total, 1)) / max(total_tasks, 1))
-                async_job.set_progress(step_progress, f"Step {step}/{total}")
-                if preview is not None:
+            def progress_callback(step, x0=None, x=None, total=None, preview=None):
+                total_steps = total if total is not None else 30
+                step_progress = 20 + int(70 * (idx + step / max(total_steps, 1)) / max(total_tasks, 1))
+                async_job.set_progress(step_progress, f"Step {step}/{total_steps}")
+                if x0 is not None:
                     try:
                         import base64
                         import numpy as np
                         from PIL import Image
-                        if isinstance(preview, np.ndarray):
-                            img = Image.fromarray(preview)
+                        if isinstance(x0, np.ndarray):
+                            img = Image.fromarray(x0)
                             buf = io.BytesIO()
                             img.save(buf, format="PNG")
                             b64 = base64.b64encode(buf.getvalue()).decode()

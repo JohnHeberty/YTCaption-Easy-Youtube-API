@@ -40,7 +40,7 @@ def _get_ldm():
         from ldm_patched.modules import gligen as _gligen
         from ldm_patched.modules import diffusers_convert as _dc
         from ldm_patched.modules import conds as _conds
-        from ldm_patched.modules import taesd as _taesd
+        from ldm_patched.taesd import taesd as _taesd
         from ldm_patched.ldm.models.autoencoder import AutoencoderKL, AutoencodingEngine
 
         _ldm_modules = {

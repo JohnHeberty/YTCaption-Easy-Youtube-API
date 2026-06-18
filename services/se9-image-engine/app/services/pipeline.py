@@ -74,7 +74,9 @@ class Pipeline:
                 from modules.config import paths_checkpoints
                 self._paths_checkpoints = paths_checkpoints
             except ImportError:
-                self._paths_checkpoints = ["models/checkpoints"]
+                from app.core.config import get_settings
+                md = get_settings().model_dir
+                self._paths_checkpoints = [os.path.join(md, "checkpoints"), os.path.join(md, "unet")]
         return self._paths_checkpoints
 
     def _get_paths_loras(self) -> List[str]:
@@ -83,7 +85,9 @@ class Pipeline:
                 from modules.config import paths_loras
                 self._paths_loras = paths_loras
             except ImportError:
-                self._paths_loras = ["models/loras"]
+                from app.core.config import get_settings
+                md = get_settings().model_dir
+                self._paths_loras = [os.path.join(md, "loras")]
         return self._paths_loras
 
     def _get_path_vae(self) -> str:
@@ -92,7 +96,8 @@ class Pipeline:
                 from modules.config import path_vae
                 self._path_vae = path_vae
             except ImportError:
-                self._path_vae = "models/vae"
+                from app.core.config import get_settings
+                self._path_vae = os.path.join(get_settings().model_dir, "vae")
         return self._path_vae
 
     def _get_path_embeddings(self) -> str:
@@ -101,7 +106,8 @@ class Pipeline:
                 from modules.config import path_embeddings
                 self._path_embeddings = path_embeddings
             except ImportError:
-                self._path_embeddings = "models/embeddings"
+                from app.core.config import get_settings
+                self._path_embeddings = os.path.join(get_settings().model_dir, "embeddings")
         return self._path_embeddings
 
     # -------------------------------------------------------------------------
@@ -425,10 +431,10 @@ class Pipeline:
 
         if self.final_expansion is None:
             try:
-                from extras.expansion import FooocusExpansion
+                from app.services.expansion import FooocusExpansion
                 self.final_expansion = FooocusExpansion()
-            except ImportError:
-                logger.warning("FooocusExpansion not available — prompt expansion disabled")
+            except Exception as e:
+                logger.warning("FooocusExpansion not available — prompt expansion disabled: %s", e)
 
         self.prepare_text_encoder(async_call=True)
         self.clear_caches()

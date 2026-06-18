@@ -39,7 +39,7 @@ class EmptyLatentImage:
             Dict with 'samples' tensor of shape [batch, 4, height//8, width//8].
         """
         import torch
-        from ldm_patched.modules.ops import unet_dtype
+        from ldm_patched.modules.model_management import unet_dtype
 
         latent = torch.zeros(
             [batch_size, 4, height // 8, width // 8],

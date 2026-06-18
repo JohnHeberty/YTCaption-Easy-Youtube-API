@@ -14,6 +14,7 @@ Key changes from FOOOCUS:
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -283,6 +284,7 @@ def ksampler(
             device="cpu",
         )
     else:
+        import ldm_patched.modules.sample
         batch_inds = latent.get("batch_index", None)
         noise = ldm_patched.modules.sample.prepare_noise(
             latent_image, seed, batch_inds
