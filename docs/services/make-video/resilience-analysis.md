@@ -323,7 +323,7 @@ Job `4CBwM8mr7kBoeBGiuz4QTQ` aguardando há **~4 minutos** sem ser processado.
 
 ```bash
 # 1. Matar o worker travado
-docker compose -f services/se5-make-video/docker-compose.yml restart ytcaption-make-video-celery
+docker compose -f services/se5-make-video-clip/docker-compose.yml restart ytcaption-make-video-celery
 
 # 2. Ver fila de jobs pendentes  
 curl -s http://localhost:8005/jobs | jq '.jobs[] | select(.status == "queued") | {id, created_at}'

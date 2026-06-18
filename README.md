@@ -13,7 +13,7 @@ Principais componentes:
 - `services/se2-video-downloader/` para download de video e extracao de audio
 - `services/se3-audio-normalization/` para processamento de audio
 - `services/se4-audio-transcriber/` para transcricao
-- `services/se5-make-video/` para composicao do video final
+- `services/se5-make-video-clip/` para composicao do video final
 - `common/` para codigo compartilhado
 
 ## Documentacao

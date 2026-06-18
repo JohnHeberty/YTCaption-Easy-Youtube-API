@@ -329,7 +329,7 @@ make calibrate        # Otimização de parâmetros
 
 ### Documentação por Serviço
 - [Audio Transcriber](./services/se4-audio-transcriber/README.md) - ⭐ Estrutura modular
-- [Make Video](./services/se5-make-video/README.md) - ⭐ Referência arquitetural
+- [Make Video](./services/se5-make-video-clip/README.md) - ⭐ Referência arquitetural
 - [Video Downloader](./services/se2-video-downloader/README.md)
 - [Audio Normalization](./services/se3-audio-normalization/README.md)
 - [YouTube Search](./services/se6-youtube-search/README.md)

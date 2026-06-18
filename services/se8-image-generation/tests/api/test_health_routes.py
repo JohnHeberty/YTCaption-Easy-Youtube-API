@@ -10,7 +10,7 @@ class TestHealthEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["service"] == "se9-image-engine"
+        assert data["service"] == "se8-image-generation"
 
     def test_health_degraded(self, client):
         mock_q = MagicMock()

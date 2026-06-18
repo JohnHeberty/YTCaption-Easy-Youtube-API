@@ -36,7 +36,7 @@ Use este hub para encontrar rapidamente:
 - [Orchestrator](./orchestrator/README.md)
 - [Audio Normalization](./services/se3-audio-normalization/README.md)
 - [Audio Transcriber](./services/se4-audio-transcriber/README.md)
-- [Make Video](./services/se5-make-video/README.md)
+- [Make Video](./services/se5-make-video-clip/README.md)
 - [Video Downloader](./services/se2-video-downloader/README.md)
 
 ### Architecture Decisions

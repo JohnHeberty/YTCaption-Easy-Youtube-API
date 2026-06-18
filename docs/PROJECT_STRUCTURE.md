@@ -123,7 +123,7 @@ services/{service-name}/
 | `REBUILD_VALIDATION_REPORT.md` | `docs/history/REBUILD_VALIDATION_REPORT.md` | Documentação histórica |
 | `DOCUMENTATION_UPDATE.md` | `docs/history/DOCUMENTATION_UPDATE.md` | Documentação histórica |
 | `docs/MAKEFILES-SUMMARY.md` | `docs/operations/makefiles-summary.md` | Documentação operacional |
-| `docs/RESILIENCE_ANALYSIS_MAKE_VIDEO.md` | `docs/services/se5-make-video/resilience-analysis.md` | Documentação de serviço |
+| `docs/RESILIENCE_ANALYSIS_MAKE_VIDEO.md` | `docs/services/se5-make-video-clip/resilience-analysis.md` | Documentação de serviço |
 
 Esses movimentos nao esgotam a organizacao do repositório. Eles registram apenas a passada recente de reclassificacao da documentacao global.
 

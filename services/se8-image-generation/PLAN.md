@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Eliminar 100% das dependências externas do FOOOCUS. Tudo deve residir dentro de `services/se9-image-engine/`.
+Eliminar 100% das dependências externas do FOOOCUS. Tudo deve residir dentro de `services/se8-image-generation/`.
 
 ## Contexto Atual
 
@@ -18,12 +18,12 @@ SE9 tem 8,903 linhas próprias (42 arquivos) mas faz 81 imports de 3 pacotes FOO
 
 ## Estratégia: Vendor no Root do SE9
 
-Copiar os 3 pacotes FOOOCUS como pacotes irmãos na raiz de `services/se9-image-engine/`. Isso garante ZERO import changes no código FOOOCUS e ZERO import changes nos 12 arquivos SE9 que consomem FOOOCUS.
+Copiar os 3 pacotes FOOOCUS como pacotes irmãos na raiz de `services/se8-image-generation/`. Isso garante ZERO import changes no código FOOOCUS e ZERO import changes nos 12 arquivos SE9 que consomem FOOOCUS.
 
 ## Estrutura Final
 
 ```
-services/se9-image-engine/
+services/se8-image-generation/
 ├── app/                    # CÓDIGO SE9 (INALTERADO)
 ├── ldm_patched/            # 🆕 VENDORED (143 arquivos, 3.3MB)
 ├── modules/                # 🆕 VENDORED (18 arquivos + sdxl_styles/)
@@ -40,22 +40,22 @@ services/se9-image-engine/
 
 ### Fase 1: Copiar ldm_patched/
 - Origem: `FOOOCUS/Fooocus/ldm_patched/`
-- Destino: `services/se9-image-engine/ldm_patched/`
+- Destino: `services/se8-image-generation/ldm_patched/`
 - Método: `cp -r` integral, zero modificações
 
 ### Fase 2: Copiar modules/ (18 arquivos) + sdxl_styles/
 - Origem: `FOOOCUS/Fooocus/modules/` (apenas 18 arquivos necessários)
 - Origem: `FOOOCUS/Fooocus/sdxl_styles/` (apenas 6 JSONs, sem samples/)
-- Destino: `services/se9-image-engine/modules/` + `sdxl_styles/`
+- Destino: `services/se8-image-generation/modules/` + `sdxl_styles/`
 - Pós: Adaptar paths em `modules/config.py` (12 linhas)
 
 ### Fase 3: Copiar extras/
 - Origem: `FOOOCUS/Fooocus/extras/` (diretório inteiro)
-- Destino: `services/se9-image-engine/extras/`
+- Destino: `services/se8-image-generation/extras/`
 
 ### Fase 4: Copiar args_manager.py
 - Origem: `FOOOCUS/Fooocus/args_manager.py`
-- Destino: `services/se9-image-engine/args_manager.py`
+- Destino: `services/se8-image-generation/args_manager.py`
 
 ### Fase 5: Adaptar modules/config.py paths
 - Trocar 12 linhas de paths relativos para paths baseados em `MODEL_DIR`
