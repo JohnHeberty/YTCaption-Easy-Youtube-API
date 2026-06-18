@@ -689,6 +689,13 @@ class ModelManager:
                 return self.device
         return torch.device("cpu")
 
+    def text_encoder_offload_device(self):
+        """Offload device for text encoder (always CPU unless always_gpu mode)."""
+        torch = self._get_torch()
+        if self._vram_state == VRAMState.NO_VRAM:
+            return torch.device("cpu")
+        return torch.device("cpu")
+
     def text_encoder_dtype(self, device=None):
         """Determine text encoder dtype."""
         torch = self._get_torch()

@@ -1,0 +1,79 @@
+# =============================================================================
+# SE9 Image Engine — Unified GPU + API container
+# CUDA PyTorch + FastAPI + in-memory worker (all-in-one)
+# Uses python3.11 explicitly (CMD + pip) to bypass system python3.10
+# =============================================================================
+FROM nvidia/cuda:12.1.1-devel-ubuntu22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH="${CUDA_HOME}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
+
+# GPG keys are expired in base image — allow insecure repos for apt
+RUN apt-get update --allow-insecure-repositories && \
+    apt-get install -y --allow-unauthenticated --no-install-recommends \
+    python3.11 python3.11-dev python3.11-venv python3-pip \
+    build-essential git wget curl ca-certificates \
+    libgl1-mesa-glx libglib2.0-0 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Verify python3.11 exists
+RUN python3.11 --version && python3.11 -c "import sys; print(sys.executable)"
+
+# Use get-pip.py to bootstrap pip for python3.11 (ensurepip is blocked for system python)
+RUN wget -qO /tmp/get-pip.py https://bootstrap.pypa.io/get-pip.py && \
+    python3.11 /tmp/get-pip.py && \
+    rm /tmp/get-pip.py && \
+    python3.11 -m pip install --upgrade pip setuptools wheel
+
+# PyTorch + CUDA
+RUN python3.11 -m pip install --no-cache-dir \
+    torch==2.1.0 \
+    torchvision==0.16.0 \
+    --index-url https://download.pytorch.org/whl/cu121
+
+WORKDIR /app
+
+# Shared library
+COPY shared/ ./common/
+RUN python3.11 -m pip install --no-cache-dir -e ./common
+
+# Python dependencies
+RUN python3.11 -m pip install --no-cache-dir \
+    fastapi==0.120.0 \
+    "uvicorn[standard]==0.38.0" \
+    pydantic==2.12.3 \
+    pydantic-settings==2.11.0 \
+    python-multipart==0.0.6 \
+    redis==5.0.1 \
+    celery==5.3.4 \
+    tenacity==8.2.3 \
+    httpx==0.27.0 \
+    prometheus-client==0.19.0 \
+    safetensors \
+    pyyaml \
+    Pillow \
+    opencv-python-headless \
+    psutil && \
+    python3.11 -m pip install --no-cache-dir "numpy<2" && \
+    python3.11 -c "import numpy; print(f'numpy={numpy.__version__}')"
+
+# Verify torch + CUDA
+RUN python3.11 -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}')"
+
+# Application code
+COPY services/se9-image-engine/app/ ./app/
+
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data/{outputs,models,temp} && \
+    chown -R appuser:appuser /app/data
+
+USER appuser
+
+EXPOSE 8009
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+    CMD curl -f http://localhost:8009/health || exit 1
+
+CMD ["python3.11", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8009"]
