@@ -43,7 +43,7 @@
 ## 2. ESTRUTURA DE DIRETÓRIOS
 
 ```
-services/se9-image-engine/
+services/se8-image-generation/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py                          ← FastAPI app, lifespan, middleware
@@ -568,7 +568,7 @@ FASE 1 (Infra) ──▶ FASE 2 (Models) ──▶ FASE 3 (Pipeline) ──▶ F
 
 ```
 SPRINT 1 (Dias 1-2): Infraestrutura Base
-├── Criar se9-image-engine/ estrutura
+├── Criar se8-image-generation/ estrutura
 ├── app/core/config.py
 ├── app/core/constants.py
 ├── app/domain/enums.py

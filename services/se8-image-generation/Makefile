@@ -1,5 +1,5 @@
-SERVICE_NAME := se9-image-engine
-PORT := 8009
+SERVICE_NAME := se8-image-generation
+PORT := 8008
 DC := docker compose
 DC_FILE := docker/docker-compose.yml
 DC_ARGS := --env-file .env

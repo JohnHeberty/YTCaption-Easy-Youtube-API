@@ -89,7 +89,7 @@ pytest tests/unit/core/test_config.py::TestGetSettings::test_get_settings_has_pi
 ## 📚 ESTRUTURA DOS ARQUIVOS
 
 ```
-/root/YTCaption-Easy-Youtube-API/services/se5-make-video/
+/root/YTCaption-Easy-Youtube-API/services/se5-make-video-clip/
 │
 ├── sprints/                          # 📁 GUIAS DAS SPRINTS
 │   ├── README.md                    # Índice e visão geral

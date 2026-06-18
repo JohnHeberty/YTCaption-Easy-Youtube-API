@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-17
 **Auditor:** QA Senior (Automated)
-**Service:** SE9 Image Engine (`services/se9-image-engine/`)
+**Service:** SE8 Image Engine (`services/se8-image-generation/`)
 **Port:** 8009
 **API Key:** `se9-test-key-2026`
 **Environment:** RTX 3090 (24GB), Redis 192.168.1.110:6379/9, CPU-only PyTorch (no CUDA)
@@ -32,7 +32,7 @@
 | # | Method | Route | Status | Response |
 |---|--------|-------|--------|----------|
 | 1 | `GET` | `/` | **200** | HTML home page with docs links |
-| 2 | `GET` | `/health` | **200** | `{"status":"healthy","service":"se9-image-engine","version":"1.0.0","queue_size":0}` |
+| 2 | `GET` | `/health` | **200** | `{"status":"healthy","service":"se8-image-generation","version":"1.0.0","queue_size":0}` |
 | 3 | `GET` | `/health/deep` | **200** | `{"worker_queue":"ok","gpu":"unavailable"}` (no psutil) |
 | 4 | `GET` | `/ping` | **200** | `"pong"` |
 

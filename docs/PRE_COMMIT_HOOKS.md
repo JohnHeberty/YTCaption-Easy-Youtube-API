@@ -36,7 +36,7 @@ pre-commit run --all-files
 
 Rodar em arquivos específicos:
 ```bash
-pre-commit run --files services/se5-make-video/app/main.py
+pre-commit run --files services/se5-make-video-clip/app/main.py
 ```
 
 Rodar hook específico:
@@ -86,10 +86,10 @@ pre-commit run flake8 --all-files
 
 ```bash
 # 1. Fazer mudanças
-vim services/se5-make-video/app/main.py
+vim services/se5-make-video-clip/app/main.py
 
 # 2. Adicionar ao staging
-git add services/se5-make-video/app/main.py
+git add services/se5-make-video-clip/app/main.py
 
 # 3. Commit (hooks rodam automaticamente)
 git commit -m "feat: add new endpoint"
