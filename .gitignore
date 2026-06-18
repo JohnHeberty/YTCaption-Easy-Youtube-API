@@ -93,3 +93,4 @@ services/se8-image-generation/data/
 
 # Accidental data dirs at repo root (relative paths in configs)
 /data/
+services/se5-make-video/
