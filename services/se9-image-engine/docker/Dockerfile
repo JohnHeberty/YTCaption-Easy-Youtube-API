@@ -23,6 +23,13 @@ WORKDIR /app
 COPY services/se9-image-engine/app/ ./app/
 COPY services/se9-image-engine/run.py ./run.py
 
+# Vendored FOOOCUS dependencies (isolated inside SE9)
+COPY services/se9-image-engine/ldm_patched/ ./ldm_patched/
+COPY services/se9-image-engine/modules/ ./modules/
+COPY services/se9-image-engine/sdxl_styles/ ./sdxl_styles/
+COPY services/se9-image-engine/extras/ ./extras/
+COPY services/se9-image-engine/args_manager.py ./args_manager.py
+
 RUN useradd -m -u 1000 appuser && \
     mkdir -p /app/data/{outputs,models,temp} && \
     chown -R appuser:appuser /app/data
