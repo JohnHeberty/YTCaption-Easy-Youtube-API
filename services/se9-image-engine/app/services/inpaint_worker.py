@@ -1,7 +1,4 @@
-"""InpaintWorker — manages inpainting region, UNet patching, post-processing.
-
-Clean-room rewrite of FOOOCUS Fooocus/modules/inpaint_worker.py (264 lines).
-"""
+"""InpaintWorker — manages inpainting region, UNet patching, post-processing."""
 import logging
 from typing import Optional, Tuple
 

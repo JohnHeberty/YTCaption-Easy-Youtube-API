@@ -1,6 +1,5 @@
 """Engine/model routes for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS query.py engine endpoints.
 Provides model listing, styles, and VRAM cleanup.
 """
 
@@ -30,19 +29,19 @@ def get_all_models():
             lora_filenames=config.lora_filenames,
         )
     except ImportError:
-        logger.warning("Fooocus modules not available, returning empty model list")
+        logger.warning("Required modules not available, returning empty model list")
         return AllModelNamesResponse(model_filenames=[], lora_filenames=[])
 
 
 @router.get("/styles", response_model=List[str])
 def get_styles():
-    """Get all legal Fooocus styles."""
+    """Get all legal style presets."""
     try:
         from modules.sdxl_styles import legal_style_names
 
         return legal_style_names
     except ImportError:
-        logger.warning("Fooocus modules not available, returning empty styles list")
+        logger.warning("Required modules not available, returning empty styles list")
         return []
 
 
@@ -64,7 +63,7 @@ def get_styles_detail():
             )
         return result
     except ImportError:
-        logger.warning("Fooocus modules not available, returning empty styles-detail")
+        logger.warning("Required modules not available, returning empty styles-detail")
         return []
 
 

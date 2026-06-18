@@ -1,10 +1,8 @@
 """
 SE9 Image Engine — Checkpoint Loading
 
-Clean-room rewrite of FOOOCUS ldm_patched/modules/sd.py (key functions).
 Handles checkpoint detection, CLIP text encoding, and VAE encode/decode.
-
-This module bridges FOOOCUS's ldm_patched internals with SE9's clean architecture.
+Bridges ldm_patched internals with SE9's clean architecture.
 Lazy imports from ldm_patched are used to avoid import-time side effects.
 """
 
@@ -78,8 +76,7 @@ def _get_utils():
 # ---------------------------------------------------------------------------
 
 class CLIP:
-    """
-    Text encoding wrapper around FOOOCUS's CLIP implementation.
+    """Text encoding wrapper around ldm_patched CLIP implementation.
     Handles tokenization and encoding of text prompts.
     """
 
@@ -160,8 +157,7 @@ class CLIP:
 # ---------------------------------------------------------------------------
 
 class VAE:
-    """
-    VAE encode/decode wrapper around FOOOCUS's AutoencoderKL.
+    """VAE encode/decode wrapper around ldm_patched AutoencoderKL.
     Handles tiled and batched encode/decode with OOM fallback.
     """
 

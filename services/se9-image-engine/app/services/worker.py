@@ -1,7 +1,6 @@
 """GPU worker for SE9 Image Engine.
 
 Single-threaded GPU worker that processes image generation tasks.
-Clean-room rewrite of FOOOCUS fooocusapi/worker.py.
 
 Architecture:
 - task_schedule_loop() runs in a thread, processes one task at a time
@@ -237,7 +236,7 @@ def _get_style_loras(style_selections: list) -> list:
     result = []
     for style in style_selections:
         if isinstance(style, str) and style.startswith("Fooocus"):
-            # Fooocus styles are applied via prompt, not LoRAs
+            # Fooocus-style presets are applied via prompt, not LoRAs
             pass
     return result
 
@@ -260,13 +259,13 @@ def _apply_style(
     negative: str,
     styles: list,
 ) -> Tuple[str, str]:
-    """Apply Fooocus styles to prompt/negative."""
+    """Apply style presets to prompt/negative."""
     # Styles are typically prompt templates
     positive_additions = []
     negative_additions = []
     for style in styles:
         if isinstance(style, str):
-            # Fooocus uses style names as prompt keywords
+            # Style names are used as prompt keywords
             positive_additions.append(style)
     if positive_additions:
         prompt = prompt + ", " + ", ".join(positive_additions)

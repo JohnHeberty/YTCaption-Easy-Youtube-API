@@ -3,7 +3,7 @@ from typing import List, Optional, Any
 
 
 # =============================================================================
-# Enums (matching FOOOCUS)
+# Request / Response Enums
 # =============================================================================
 
 class PerformanceSelection(str):

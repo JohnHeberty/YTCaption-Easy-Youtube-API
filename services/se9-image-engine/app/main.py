@@ -71,7 +71,7 @@ def setup_routers(app: FastAPI):
 app = create_service_app(
     service_name="image-engine",
     title=settings.app_name,
-    description="SE9 Image Engine — Full FOOOCUS rewrite (SDXL, lazy/eager GPU, Celery)",
+    description="SE9 Image Engine — SDXL inference engine with lazy/eager GPU and in-memory worker",
     version=settings.version,
     settings=settings,
     lifespan=lifespan,

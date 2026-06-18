@@ -1,6 +1,5 @@
-"""FooocusExpansion — GPT-2 prompt expansion engine.
+"""Prompt expansion engine — GPT-2 based prompt enhancement.
 
-Clean-room rewrite of FOOOCUS Fooocus/extras/expansion.py (129 lines).
 License: Algorithm by Lvmin Zhang at Stanford, 2023. CC-By NC 4.0 for external use.
 """
 import logging

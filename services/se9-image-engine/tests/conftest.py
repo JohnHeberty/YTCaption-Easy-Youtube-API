@@ -1,8 +1,6 @@
 import os
 import sys
 
-os.environ["FOOOCUS_API_URL"] = "http://mock-fooocus:8888"
-os.environ["FOOOCUS_API_KEY"] = ""
 os.environ["SE9_API_KEY"] = "se9-test-key-2026"
 os.environ["REDIS_URL"] = "redis://localhost:6379/9"
 os.environ["CELERY_BROKER_URL"] = "redis://localhost:6379/9"

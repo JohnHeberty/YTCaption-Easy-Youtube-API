@@ -1,6 +1,5 @@
 """ControlNet — loading, inference, T2I adapter, LoRA ControlNet.
 
-Clean-room rewrite of FOOOCUS ldm_patched/modules/controlnet.py (516 lines).
 Supports: ControlNet, ControlLora, T2I-Adapter, linked-list chaining.
 """
 import logging

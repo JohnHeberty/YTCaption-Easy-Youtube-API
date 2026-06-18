@@ -96,7 +96,7 @@ def calculate_weight_patched(self, patches, weight, key):
             w1 = (w1 / 255.0) * (w_max - w_min) + w_min
             if alpha != 0.0:
                 if w1.shape != weight.shape:
-                    print("WARNING SHAPE MISMATCH {} FOOOCUS WEIGHT NOT MERGED {} != {}".format(key, w1.shape, weight.shape))
+                    print("WARNING SHAPE MISMATCH {} FOOOCUS_WEIGHT_NOT_MERGED {} != {}".format(key, w1.shape, weight.shape))
                 else:
                     weight += alpha * ldm_patched.modules.model_management.cast_to_device(w1, weight.device, weight.dtype)
         elif patch_type == "lokr":

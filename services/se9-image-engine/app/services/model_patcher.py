@@ -1,10 +1,9 @@
 """
 SE9 Image Engine — Model Patcher
 
-Clean-room rewrite of FOOOCUS ldm_patched/modules/model_patcher.py (357 lines).
 Wraps a model with load/offload support, LoRA patching, and transformer options.
 
-Key changes from FOOOCUS:
+Design decisions:
 - Uses SE9 ModelManager instead of global model_management
 - No circular imports (cast_to_device defined locally)
 - Clean type hints

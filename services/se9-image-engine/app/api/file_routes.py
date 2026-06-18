@@ -1,6 +1,5 @@
 """File serving routes for SE9 Image Engine.
 
-Clean-room rewrite of FOOOCUS api.py get_output endpoint.
 Serves generated images by date and filename.
 """
 

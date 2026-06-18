@@ -1,12 +1,9 @@
 """
 SE9 Image Engine — LoRA Manager
 
-Clean-room rewrite of FOOOCUS modules/lora.py (match_lora) + modules/default_pipeline.py
-(refresh_loras, get_file_from_folder_list).
-
 Handles LoRA file matching, key mapping, and loading for UNet + CLIP.
 
-Key changes from FOOOCUS:
+Design decisions:
 - Pure functions, no global state
 - Uses SE9 StableDiffusionModel instead of core.StableDiffusionModel
 - Lazy torch imports
@@ -24,8 +21,6 @@ logger = logging.getLogger(__name__)
 def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict, Dict]:
     """Match LoRA file keys to model state_dict keys.
 
-    This is a clean-room rewrite of FOOOCUS modules/lora.py:match_lora().
-
     Supports: fooocus format, regular LoRA, diffusers LoRA, transformers LoRA,
     LoHa, LoKr, GLoRA, diff, and w_norm/b_norm.
 
@@ -42,7 +37,7 @@ def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict
     for model_key, lora_key in to_load.items():
         real_load_key = lora_key
 
-        # === Fooocus format (direct key match) ===
+        # === Fooocus LoRA format (direct key match) ===
         if real_load_key in lora_data:
             patch_dict[real_load_key] = ('fooocus', lora_data[real_load_key])
             loaded_keys.add(real_load_key)
@@ -191,8 +186,6 @@ def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict
 def get_file_from_folder_list(name: str, folders: List[str]) -> Optional[str]:
     """Resolve a filename by searching through a list of folders.
 
-    Clean-room rewrite of FOOOCUS modules/util.py:get_file_from_folder_list().
-
     Args:
         name: Filename or relative path.
         folders: List of directories to search.
@@ -223,8 +216,6 @@ def get_file_from_folder_list(name: str, folders: List[str]) -> Optional[str]:
 def get_enabled_loras(loras: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
     """Extract enabled LoRAs as (filename, weight) tuples.
 
-    Clean-room rewrite of FOOOCUS modules/util.py:get_enabled_loras().
-
     Args:
         loras: List of LoRA config dicts with 'enabled', 'model_name', 'weight' keys.
 
@@ -251,8 +242,6 @@ def refresh_loras_for_models(
     base_model_additional_loras: Optional[List[Tuple[str, float]]] = None,
 ):
     """Refresh LoRAs for both base and refiner models.
-
-    Clean-room rewrite of FOOOCUS modules/default_pipeline.py:refresh_loras().
 
     Args:
         model_base: StableDiffusionModel for base.
