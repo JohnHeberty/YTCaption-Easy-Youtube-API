@@ -1,48 +1,45 @@
-"""Health check routes."""
-import shutil
+"""Health check routes using shared ServiceHealthChecker."""
+import httpx
 
 from fastapi import APIRouter
 
 from app.core.config import settings
+from common.health_utils import ServiceHealthChecker
 
 router = APIRouter()
 
 
 @router.get("/health")
 async def health_check():
-    """Check service health including dependencies."""
-    checks = {}
+    """Check service health including SE7, SE8, disk, and ffmpeg."""
+    checker = ServiceHealthChecker("make-video-img", version=settings.app_version)
 
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"{settings.se7_url}/health")
-            checks["se7"] = "ok" if resp.status_code == 200 else "error"
-    except Exception:
-        checks["se7"] = "unreachable"
+    async def check_se7():
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{settings.se7_url}/health")
+                if resp.status_code == 200:
+                    return {"status": "ok"}
+                return {"status": "error", "message": f"HTTP {resp.status_code}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"{settings.se8_url}/health")
-            checks["se8"] = "ok" if resp.status_code == 200 else "error"
-    except Exception:
-        checks["se8"] = "unreachable"
+    async def check_se8():
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                resp = await client.get(f"{settings.se8_url}/health")
+                if resp.status_code == 200:
+                    return {"status": "ok"}
+                return {"status": "error", "message": f"HTTP {resp.status_code}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
-    try:
-        usage = shutil.disk_usage("/")
-        free_gb = usage.free / (1024 ** 3)
-        checks["disk"] = "ok" if free_gb > 5 else "low"
-    except Exception:
-        checks["disk"] = "unknown"
+    checker.add_check("se7", check_se7)
+    checker.add_check("se8", check_se8)
+    checker.add_check("disk", lambda: ServiceHealthChecker.check_disk("/tmp"))
+    checker.add_check("ffmpeg", lambda: ServiceHealthChecker.check_ffmpeg())
 
-    all_ok = all(v == "ok" for v in checks.values())
-    return {
-        "status": "healthy" if all_ok else "degraded",
-        "service": "make-video-img",
-        "version": settings.version,
-        "checks": checks,
-    }
+    return await checker.check_all()
 
 
 @router.get("/ping")

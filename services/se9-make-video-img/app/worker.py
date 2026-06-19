@@ -19,6 +19,7 @@ class VideoWorker:
     def __init__(self):
         self.store = VideoJobStore()
         self.running = False
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
     def start(self):
         """Start the worker in a background thread."""
@@ -35,20 +36,27 @@ class VideoWorker:
         """Stop the worker."""
         self.running = False
         _stop_event.set()
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
         logger.info("Video worker stopped")
 
     def _run_loop(self):
-        """Main worker loop."""
+        """Main worker loop with a persistent event loop."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
         while self.running and not _stop_event.is_set():
             try:
                 job = self._get_next_job()
                 if job:
-                    self._process_job(job)
+                    self._loop.run_until_complete(self._process_job(job))
                 else:
                     _stop_event.wait(timeout=2)
             except Exception as e:
-                logger.error(f"Worker error: {e}", exc_info=True)
+                logger.error("Worker error: %s", e, exc_info=True)
                 _stop_event.wait(timeout=5)
+
+        self._loop.close()
 
     def _get_next_job(self) -> Optional[VideoJob]:
         """Get the next queued job from the store."""
@@ -58,21 +66,17 @@ class VideoWorker:
                 return VideoJob(**job_data)
         return None
 
-    def _process_job(self, job: VideoJob):
+    async def _process_job(self, job: VideoJob):
         """Process a single video job."""
-        logger.info(f"Processing job {job.job_id}")
+        logger.info("Processing job %s", job.job_id)
         try:
-            asyncio.run(self._run_pipeline(job))
+            from app.services.pipeline import run_video_pipeline
+            await run_video_pipeline(job)
         except Exception as e:
-            logger.error(f"Job {job.job_id} failed: {e}", exc_info=True)
+            logger.error("Job %s failed: %s", job.job_id, e, exc_info=True)
             job.status = VideoJobStatus.FAILED
             job.error = str(e)
             self.store.save_job(job.job_id, job.model_dump(mode="json"))
-
-    async def _run_pipeline(self, job: VideoJob):
-        """Run the video generation pipeline."""
-        from app.services.pipeline import run_video_pipeline
-        await run_video_pipeline(job)
 
 
 _worker: Optional[VideoWorker] = None

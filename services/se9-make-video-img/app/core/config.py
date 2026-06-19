@@ -1,22 +1,21 @@
-"""Application configuration using Pydantic Settings."""
-from pydantic_settings import BaseSettings, SettingsConfigDict
+"""Application configuration using BaseServiceSettings from shared library."""
+from functools import lru_cache
+from typing import Optional
+
+from pydantic import ConfigDict, Field
+
+from common.config_utils.base_settings import BaseServiceSettings
 
 
-class CoreSettings(BaseSettings):
-    """Core settings for the Make Video IMG service."""
+class MakeVideoImgSettings(BaseServiceSettings):
+    """Core settings for the Make Video IMG service.
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    Inherits from BaseServiceSettings: app_name, app_version, environment,
+    debug, host, port, workers, redis_url, api_key, tz, log_level, log_dir,
+    output_dir, temp_dir, divisor.
+    """
 
-    # === APP ===
-    app_name: str = "Make Video IMG"
-    version: str = "1.0.0"
-    port: int = 8009
-    api_key: str = "se9-test-key-2026"
-    debug: bool = False
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="allow")
 
     # === SE7 (Audio Generation) ===
     se7_url: str = "http://localhost:8007"
@@ -45,11 +44,13 @@ class CoreSettings(BaseSettings):
     ffmpeg_segment_timeout: int = 60
     ffmpeg_total_timeout: int = 300
 
-    # === TEMP FILES ===
-    temp_dir: str = "/tmp"
-
-    # === REDIS ===
-    redis_url: str = "redis://localhost:6379/9"
+    def __getitem__(self, key: str):
+        return getattr(self, key, None)
 
 
-settings = CoreSettings()
+@lru_cache()
+def get_settings() -> MakeVideoImgSettings:
+    return MakeVideoImgSettings()
+
+
+settings = get_settings()

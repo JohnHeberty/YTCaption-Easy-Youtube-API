@@ -5,10 +5,11 @@ Carrega variáveis de ambiente e configurações dos microserviços.
 from functools import lru_cache
 from typing import Optional
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings
+
+from common.config_utils.base_settings import BaseServiceSettings
 
 
-class OrchestratorSettings(BaseSettings):
+class OrchestratorSettings(BaseServiceSettings):
     """Configurações do orquestrador via Pydantic Settings."""
 
     # Application
@@ -18,15 +19,9 @@ class OrchestratorSettings(BaseSettings):
     debug: bool = Field(default=False)
 
     # Server
-    app_host: str = Field(default="0.0.0.0")
-    app_port: int = Field(default=8080)
+    host: str = Field(default="0.0.0.0")
+    port: int = Field(default=8001)
     workers: int = Field(default=1)
-
-    # API Key (shared auth)
-    api_key: Optional[str] = Field(default=None)
-
-    # Redis
-    redis_url: str = Field(default="redis://localhost:6379/0")
 
     # Cache e TTL
     cache_ttl_hours: int = Field(default=24)
@@ -34,10 +29,6 @@ class OrchestratorSettings(BaseSettings):
 
     # Limitações de recursos
     max_file_size_mb: int = Field(default=500)
-
-    # Logging
-    log_level: str = Field(default="INFO")
-    log_dir: str = Field(default="./logs")
 
     # Microserviços URLs - required but with None default for validation
     video_downloader_url: Optional[str] = Field(
@@ -92,8 +83,14 @@ class OrchestratorSettings(BaseSettings):
     ssl_verify: bool = Field(default=True)
     ssl_cert_path: Optional[str] = Field(default=None)
 
-    # Auth
-    api_key: Optional[str] = Field(default=None, env="API_KEY")
+    # Backward-compat aliases
+    @property
+    def app_host(self) -> str:
+        return self.host
+
+    @property
+    def app_port(self) -> int:
+        return self.port
 
     @field_validator("video_downloader_url", "audio_normalization_url", "audio_transcriber_url")
     @classmethod
@@ -104,7 +101,7 @@ class OrchestratorSettings(BaseSettings):
         if not v.startswith(("http://", "https://")):
             raise ValueError(f"URL must start with http:// or https://: {v}")
         return v.rstrip("/")
-    
+
     @model_validator(mode='after')
     def validate_required_urls(self):
         """Valida que URLs obrigatórias foram fornecidas."""
@@ -123,13 +120,6 @@ class OrchestratorSettings(BaseSettings):
     def get(self, key: str, default=None):
         """Backward compatibility: allow settings.get("key", default)."""
         return getattr(self, key, default)
-
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": False,
-        "extra": "ignore",
-    }
 
 
 @lru_cache()

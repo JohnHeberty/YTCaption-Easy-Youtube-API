@@ -143,6 +143,18 @@ class BaseServiceSettings(BaseSettings):
     log_level: str = Field(default='INFO', env='LOG_LEVEL')
     log_format: str = Field(default='json', env='LOG_FORMAT')
     
+    # API Key (autenticacao)
+    api_key: Optional[str] = Field(default=None, env='API_KEY')
+    
+    # Timezone
+    tz: str = Field(default='America/Sao_Paulo', env='TZ')
+    
+    # Output
+    output_dir: str = Field(default='./data/outputs', env='OUTPUT_DIR')
+    
+    # Divisor (porta Redis DB = DIVISOR)
+    divisor: Optional[int] = Field(default=None, env='DIVISOR')
+    
     @validator('environment')
     def validate_environment(cls, v):
         """Valida environment"""

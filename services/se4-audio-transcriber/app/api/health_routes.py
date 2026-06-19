@@ -31,7 +31,7 @@ async def health_check(
     processor: "TranscriptionProcessor" = Depends(processor),
 ):
     """Check service health including Redis, disk space, ffmpeg, and model status."""
-    checker = ServiceHealthChecker("audio-transcription", version=settings.version)
+    checker = ServiceHealthChecker("audio-transcription", version=settings.app_version)
 
     checker.add_check("redis", lambda: ServiceHealthChecker.check_redis(job_store.redis))
     checker.add_check(

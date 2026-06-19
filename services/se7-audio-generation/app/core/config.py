@@ -2,20 +2,20 @@ from functools import lru_cache
 from typing import Optional
 
 from pydantic import Field
-from pydantic_settings import BaseSettings
+
+from common.config_utils.base_settings import BaseServiceSettings
 
 
-class CoreSettings(BaseSettings):
+class AudioGenSettings(BaseServiceSettings):
     app_name: str = "Audio Generation Service"
-    version: str = "1.0.0"
+    app_version: str = "1.0.0"
     environment: str = "development"
     debug: bool = False
 
     host: str = "0.0.0.0"
     port: int = 8007
 
-    api_key: Optional[str] = Field(default=None)
-
+    # SE7-specific
     huggingface_token: Optional[str] = Field(default=None)
     model_name: str = "ResembleAI/Chatterbox-Multilingual-pt-br"
     model_dir: str = "./data/models"
@@ -29,27 +29,15 @@ class CoreSettings(BaseSettings):
 
     output_dir: str = "./data/outputs"
     voices_dir: str = "./data/voices"
-    temp_dir: str = "./data/temp"
-
-    redis_url: str = Field(default="redis://localhost:6379/0")
-    celery_broker_url: Optional[str] = None
-    celery_result_backend: Optional[str] = None
-
-    log_level: str = "INFO"
 
     min_voice_sample_duration: float = Field(default=5.0, ge=1.0, le=30.0)
     max_voice_sample_duration: float = Field(default=15.0, ge=1.0, le=60.0)
     max_voice_file_size_mb: int = Field(default=10, ge=1, le=50)
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "allow"
 
     def __getitem__(self, key: str):
         return getattr(self, key, None)
 
 
 @lru_cache()
-def get_settings() -> CoreSettings:
-    return CoreSettings()
+def get_settings() -> AudioGenSettings:
+    return AudioGenSettings()

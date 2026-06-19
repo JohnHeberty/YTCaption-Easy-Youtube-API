@@ -1,19 +1,37 @@
 services:
   se9:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: ../../..
+      dockerfile: services/se9-make-video-img/docker/Dockerfile
     container_name: se9-make-video-img
     ports:
       - "8009:8009"
     env_file:
       - ../.env
+    environment:
+      - SE7_URL=http://host.docker.internal:8007
+      - SE8_URL=http://host.docker.internal:8008
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
-      - ../app:/app/app
+      - se9-output:/app/data/outputs
     networks:
-      - ytcaption-net
+      - ytcaption-network
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8009/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  se9-output:
 
 networks:
-  ytcaption-net:
+  ytcaption-network:
     external: true

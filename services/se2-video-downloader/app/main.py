@@ -19,8 +19,8 @@ settings = get_settings()
 verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 setup_structured_logging(
     service_name="video-downloader",
-    log_level=settings.get('log_level', 'INFO'),
-    log_dir=settings.get('log_dir', './logs'),
+    log_level=settings.log_level,
+    log_dir=settings.log_dir,
     json_format=True,
 )
 logger = get_logger(__name__)
