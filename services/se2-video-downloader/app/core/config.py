@@ -1,27 +1,21 @@
 from functools import lru_cache
 from typing import Any, Optional
 
-from pydantic_settings import BaseSettings
+from common.config_utils.base_settings import BaseServiceSettings
 
 
-class Settings(BaseSettings):
+class Settings(BaseServiceSettings):
     """Video Downloader Service settings — validated & loaded from environment variables."""
 
     # Application
     app_name: str = "Video Downloader Service"
-    version: str = "2.0.0"
+    app_version: str = "2.0.0"
     environment: str = "development"
     debug: bool = False
-
-    # API Key
-    api_key: Optional[str] = None
 
     # Server
     host: str = "0.0.0.0"
     port: int = 8002
-
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
 
     # Processing limits
     cache_ttl_hours: int = 24
@@ -33,11 +27,9 @@ class Settings(BaseSettings):
     # Directories
     cache_dir: str = "./data/cache"
     downloads_dir: str = "./data/downloads"
-    temp_dir: str = "./data/temp"
     log_dir: str = "./data/logs"
 
     # Logging
-    log_level: str = "INFO"
     log_format: str = "json"
 
     # Rate limiting
@@ -61,13 +53,6 @@ class Settings(BaseSettings):
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
-
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": False,
-        "extra": "ignore",
-    }
 
 
 @lru_cache(maxsize=1)

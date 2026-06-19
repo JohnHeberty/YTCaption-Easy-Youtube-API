@@ -24,7 +24,7 @@ async def health(
     store: IJobStore = Depends(job_store),
 ):
     settings = get_settings()
-    checker = ServiceHealthChecker("audio-generation", version=settings.version)
+    checker = ServiceHealthChecker("audio-generation", version=settings.app_version)
 
     checker.add_check("redis", lambda: _check_redis(store))
 

@@ -1,0 +1,30 @@
+venv/
+.venv/
+.mypy_cache/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+.vscode/
+.idea/
+.git/
+.github/
+node_modules/
+*.egg-info/
+
+# Service-specific data (not needed in image)
+services/*/data/
+services/*/logs/
+services/*/downloads/
+services/*/uploads/
+services/*/temp/
+services/*/output/
+
+# Exclude heavy dirs from other services
+clothes-segmentation/
+make-video-backgraund/db/data/
+scripts/
+
+# Include only what's needed
+!shared/
+!services/se9-make-video-img/

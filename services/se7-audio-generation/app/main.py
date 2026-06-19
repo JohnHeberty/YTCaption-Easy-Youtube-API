@@ -3,19 +3,20 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
-from common.log_utils import get_logger
+from common.log_utils import setup_structured_logging, get_logger
 
 from app.core.config import get_settings
 from app.api import jobs_routes, voices_routes, health_routes
 
-logger = get_logger(__name__)
 settings = get_settings()
+setup_structured_logging(service_name="audio-generation", log_level=settings.log_level, log_dir=settings.log_dir)
+logger = get_logger(__name__)
 verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"Starting {settings.app_name} v{settings.version}")
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     try:
         from app.infrastructure.dependencies import get_voice_manager
         from app.services.voice_seeder import seed_builtin_voices
@@ -37,7 +38,7 @@ app = create_service_app(
     service_name="audio-generation",
     title=settings.app_name,
     description="TTS audio generation service for Brazilian Portuguese with voice cloning",
-    version=settings.version,
+    version=settings.app_version,
     settings=settings,
     lifespan=lifespan,
     setup_routers=setup_routers,

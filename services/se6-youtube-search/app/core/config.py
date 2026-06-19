@@ -1,23 +1,53 @@
-import os
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
-from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+
+from common.config_utils.base_settings import BaseServiceSettings
 
 
-class _CoreSettings(BaseSettings):
-    """Validates critical typed settings at startup (fail-fast)."""
+class ServiceSettings(BaseServiceSettings):
+    """YouTube Search Service settings — validated & loaded from environment variables."""
 
     app_name: str = "YouTube Search Service"
-    version: str = "1.0.0"
+    app_version: str = "1.0.0"
     environment: str = "development"
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8006
-    redis_url: str = "redis://localhost:6379/0"
-    log_level: str = "INFO"
-    api_key: Optional[str] = None
+
+    # YouTube API
+    youtube_default_timeout: int = Field(default=10, env="YOUTUBE_DEFAULT_TIMEOUT")
+    youtube_max_results: int = Field(default=50, env="YOUTUBE_MAX_RESULTS")
+    youtube_max_videos_per_channel: int = Field(default=100, env="YOUTUBE_MAX_VIDEOS_PER_CHANNEL")
+    youtube_innertube_api_key: str = Field(
+        default="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
+        env="YOUTUBE_INNERTUBE_API_KEY",
+    )
+
+    # Cache
+    cache_ttl_hours: int = 24
+    cache_cleanup_interval_minutes: int = 30
+    cache_max_size_mb: int = 512
+
+    # Rate limiting
+    rate_limit_enabled: bool = Field(default=True, env="RATE_LIMIT_ENABLED")
+    rate_limit_requests: int = Field(default=100, env="RATE_LIMIT_REQUESTS")
+    rate_limit_period: int = Field(default=60, env="RATE_LIMIT_PERIOD")
+
+    # Logging
+    log_dir: str = "./logs"
+
+    # Timeouts
+    async_timeout_seconds: int = Field(default=120, env="ASYNC_TIMEOUT_SECONDS")
+    job_processing_timeout_seconds: int = Field(default=300, env="JOB_PROCESSING_TIMEOUT_SECONDS")
+    poll_interval_seconds: int = Field(default=2, env="POLL_INTERVAL_SECONDS")
+
+    # Celery
+    celery_broker_url: Optional[str] = None
+    celery_result_backend: Optional[str] = None
+    celery_task_time_limit: int = Field(default=600, env="CELERY_TASK_TIME_LIMIT")
+    celery_task_soft_time_limit: int = Field(default=500, env="CELERY_TASK_SOFT_TIME_LIMIT")
 
     @field_validator("port")
     @classmethod
@@ -26,113 +56,79 @@ class _CoreSettings(BaseSettings):
             raise ValueError(f"PORT must be 1-65535, got {v}")
         return v
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": False,
-        "extra": "ignore",
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key, None)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+
+_core = ServiceSettings()
+
+
+def _build_legacy_dict(s: ServiceSettings) -> Dict[str, Any]:
+    """Build backward-compatible dict with nested structures for callers
+    that use settings['youtube']['key'] style."""
+    return {
+        'app_name': s.app_name,
+        'version': s.app_version,
+        'environment': s.environment,
+        'debug': s.debug,
+        'host': s.host,
+        'port': s.port,
+        'api_key': s.api_key,
+        'redis_url': s.redis_url,
+        'celery': {
+            'broker_url': s.celery_broker_url or s.redis_url,
+            'result_backend': s.celery_result_backend or s.redis_url,
+            'task_serializer': 'json',
+            'result_serializer': 'json',
+            'accept_content': ['json'],
+            'timezone': s.tz,
+            'enable_utc': False,
+            'task_track_started': True,
+            'task_time_limit': s.celery_task_time_limit,
+            'task_soft_time_limit': s.celery_task_soft_time_limit,
+            'worker_prefetch_multiplier': 1,
+            'worker_max_tasks_per_child': 100,
+        },
+        'cache_ttl_hours': s.cache_ttl_hours,
+        'cache_cleanup_interval_minutes': s.cache_cleanup_interval_minutes,
+        'cache_max_size_mb': s.cache_max_size_mb,
+        'youtube': {
+            'default_timeout': s.youtube_default_timeout,
+            'max_results': s.youtube_max_results,
+            'max_videos_per_channel': s.youtube_max_videos_per_channel,
+            'innertube_api_key': s.youtube_innertube_api_key,
+        },
+        'rate_limit': {
+            'enabled': s.rate_limit_enabled,
+            'requests_per_minute': s.rate_limit_requests,
+            'period_seconds': s.rate_limit_period,
+        },
+        'timeouts': {
+            'async_timeout_sec': s.async_timeout_seconds,
+            'job_processing_timeout_sec': s.job_processing_timeout_seconds,
+            'poll_interval_sec': s.poll_interval_seconds,
+        },
+        'log_level': s.log_level,
+        'log_format': 'json',
+        'log_dir': s.log_dir,
+        'cors': {
+            'enabled': True,
+            'origins': ['*'],
+            'credentials': True,
+            'methods': ['*'],
+            'headers': ['*'],
+        },
+        'health_check': {
+            'enabled': True,
+            'interval_seconds': 30,
+        },
     }
-
-
-# Validate critical settings at import time — raises ValidationError on bad env vars
-_core = _CoreSettings()
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Dict[str, Any]:
-    """
-    Returns all service settings from environment variables.
-    Result is cached (singleton) — env changes after first call are ignored.
-    Configurations organized by category for easy maintenance.
-    """
-    return {
-        # ===== APPLICATION =====
-        'app_name': os.getenv('APP_NAME', 'YouTube Search Service'),
-        'version': os.getenv('VERSION', '1.0.0'),
-        'environment': os.getenv('ENVIRONMENT', 'development'),
-        'debug': os.getenv('DEBUG', 'false').lower() == 'true',
-        'host': os.getenv('HOST', '0.0.0.0'),
-        'port': int(os.getenv('PORT', '8006')),
-
-        # ===== API KEY =====
-        'api_key': os.getenv('API_KEY'),
-
-        # ===== REDIS =====
-        'redis_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
-        
-        # ===== CELERY =====
-        'celery': {
-            'broker_url': os.getenv('CELERY_BROKER_URL', os.getenv('REDIS_URL', 'redis://localhost:6379/0')),
-            'result_backend': os.getenv('CELERY_RESULT_BACKEND', os.getenv('REDIS_URL', 'redis://localhost:6379/0')),
-            'task_serializer': os.getenv('CELERY_TASK_SERIALIZER', 'json'),
-            'result_serializer': os.getenv('CELERY_RESULT_SERIALIZER', 'json'),
-            'accept_content': os.getenv('CELERY_ACCEPT_CONTENT', 'json').split(','),
-            'timezone': os.getenv('CELERY_TIMEZONE', 'UTC'),
-            'enable_utc': os.getenv('CELERY_ENABLE_UTC', 'true').lower() == 'true',
-            'task_track_started': os.getenv('CELERY_TASK_TRACK_STARTED', 'true').lower() == 'true',
-            'task_time_limit': int(os.getenv('CELERY_TASK_TIME_LIMIT', '600')),
-            'task_soft_time_limit': int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '500')),
-            'worker_prefetch_multiplier': int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', '1')),
-            'worker_max_tasks_per_child': int(os.getenv('CELERY_WORKER_MAX_TASKS_PER_CHILD', '100')),
-        },
-        
-        # ===== CACHE =====
-        'cache_ttl_hours': int(os.getenv('CACHE_TTL_HOURS', '24')),
-        'cache_cleanup_interval_minutes': int(os.getenv('CACHE_CLEANUP_INTERVAL_MINUTES', '30')),
-        'cache_max_size_mb': int(os.getenv('CACHE_MAX_SIZE_MB', '512')),
-        
-        # ===== YOUTUBE API =====
-        'youtube': {
-            'default_timeout': int(os.getenv('YOUTUBE_DEFAULT_TIMEOUT', '10')),
-            'max_results': int(os.getenv('YOUTUBE_MAX_RESULTS', '50')),
-            'max_videos_per_channel': int(os.getenv('YOUTUBE_MAX_VIDEOS_PER_CHANNEL', '100')),
-            'innertube_api_key': os.getenv('YOUTUBE_INNERTUBE_API_KEY', 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'),
-        },
-        
-        # ===== RATE LIMITING =====
-        'rate_limit': {
-            'enabled': os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true',
-            'requests_per_minute': int(os.getenv('RATE_LIMIT_REQUESTS', '100')),
-            'period_seconds': int(os.getenv('RATE_LIMIT_PERIOD', '60')),
-        },
-        
-        # ===== TIMEOUTS =====
-        'timeouts': {
-            'async_timeout_sec': int(os.getenv('ASYNC_TIMEOUT_SECONDS', '120')),
-            'job_processing_timeout_sec': int(os.getenv('JOB_PROCESSING_TIMEOUT_SECONDS', '300')),
-            'poll_interval_sec': int(os.getenv('POLL_INTERVAL_SECONDS', '2')),
-        },
-        
-        # ===== LOGGING =====
-        'log_level': os.getenv('LOG_LEVEL', 'INFO'),
-        'log_format': os.getenv('LOG_FORMAT', 'json'),
-        'log_dir': os.getenv('LOG_DIR', './data/logs'),
-        
-        # ===== CORS =====
-        'cors': {
-            'enabled': os.getenv('CORS_ENABLED', 'true').lower() == 'true',
-            'origins': os.getenv('CORS_ORIGINS', '*').split(','),
-            'credentials': os.getenv('CORS_CREDENTIALS', 'true').lower() == 'true',
-            'methods': os.getenv('CORS_METHODS', '*').split(','),
-            'headers': os.getenv('CORS_HEADERS', '*').split(','),
-        },
-        
-        # ===== HEALTH CHECK =====
-        'health_check': {
-            'enabled': os.getenv('HEALTH_CHECK_ENABLED', 'true').lower() == 'true',
-            'interval_seconds': int(os.getenv('HEALTH_CHECK_INTERVAL', '30')),
-        },
-    }
-
-
-def validate_settings():
-    """Validates required settings"""
-    settings = get_settings()
-    
-    # Validate required fields
-    required_fields = ['redis_url', 'app_name', 'port']
-    for field in required_fields:
-        if not settings.get(field):
-            raise ValueError(f"Missing required setting: {field}")
-    
-    return True
+    """Returns backward-compatible dict with nested structures."""
+    return _build_legacy_dict(_core)

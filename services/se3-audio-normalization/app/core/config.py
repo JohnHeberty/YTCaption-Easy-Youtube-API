@@ -2,28 +2,68 @@
 Configuration module — loads settings from environment variables.
 Uses pydantic_settings for type validation + lru_cache singleton.
 """
-import os
 from functools import lru_cache
 from typing import Any, Dict, Optional
 
-from pydantic import field_validator
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator
+
+from common.config_utils.base_settings import BaseServiceSettings
 
 
-class _CoreSettings(BaseSettings):
-    """Validates critical typed settings at startup (fail-fast)."""
+class ServiceSettings(BaseServiceSettings):
+    """Audio Normalization Service settings — validated & typed."""
 
     app_name: str = "Audio Normalization Service"
-    version: str = "2.0.0"
+    app_version: str = "2.0.0"
     environment: str = "development"
     debug: bool = False
     host: str = "0.0.0.0"
-    port: int = 8002
-    redis_url: str = "redis://localhost:6379/0"
+    port: int = 8003
     max_file_size_mb: int = 2048
     max_duration_minutes: int = 120
-    log_level: str = "INFO"
-    api_key: Optional[str] = None
+
+    # Celery
+    celery_broker_url: Optional[str] = None
+    celery_result_backend: Optional[str] = None
+    celery_task_time_limit: int = Field(default=1800, env="CELERY_TASK_TIME_LIMIT")
+    celery_task_soft_time_limit: int = Field(default=1500, env="CELERY_TASK_SOFT_TIME_LIMIT")
+
+    # Processing
+    processing_max_concurrent_jobs: int = Field(default=3, env="PROCESSING__MAX_CONCURRENT_JOBS")
+    processing_job_timeout_minutes: int = Field(default=30, env="PROCESSING__JOB_TIMEOUT_MINUTES")
+
+    # Audio chunking
+    audio_enable_chunking: bool = Field(default=True, env="AUDIO_ENABLE_CHUNKING")
+    audio_chunk_size_mb: int = Field(default=30, env="AUDIO_CHUNK_SIZE_MB")
+    audio_chunk_duration_sec: int = Field(default=60, env="AUDIO_CHUNK_DURATION_SEC")
+    audio_chunk_overlap_sec: int = Field(default=1, env="AUDIO_CHUNK_OVERLAP_SEC")
+
+    # Noise reduction
+    noise_reduction_max_duration_sec: int = Field(default=300, env="NOISE_REDUCTION_MAX_DURATION_SEC")
+    noise_reduction_sample_rate: int = Field(default=22050, env="NOISE_REDUCTION_SAMPLE_RATE")
+    noise_reduction_chunk_size_sec: int = Field(default=30, env="NOISE_REDUCTION_CHUNK_SIZE_SEC")
+
+    # Vocal isolation
+    vocal_isolation_max_duration_sec: int = Field(default=180, env="VOCAL_ISOLATION_MAX_DURATION_SEC")
+
+    # Extraction
+    extraction_timeout_sec: int = Field(default=300, env="EXTRACTION_TIMEOUT_SEC")
+
+    # Timeouts
+    async_timeout_seconds: int = Field(default=900, env="ASYNC_TIMEOUT_SECONDS")
+    job_processing_timeout_seconds: int = Field(default=3600, env="JOB_PROCESSING_TIMEOUT_SECONDS")
+
+    # Ffmpeg
+    ffmpeg_threads: int = Field(default=0, env="FFMPEG_THREADS")
+    ffmpeg_preset: str = Field(default="medium", env="FFMPEG_PRESET")
+    ffmpeg_audio_codec: str = Field(default="libopus", env="FFMPEG_AUDIO_CODEC")
+    ffmpeg_audio_bitrate: str = Field(default="128k", env="FFMPEG_AUDIO_BITRATE")
+
+    # Directories
+    upload_dir: str = "./data/uploads"
+    processed_dir: str = "./data/processed"
+    log_dir: str = "./data/logs"
+    backup_dir: str = "./backup"
 
     @field_validator("port")
     @classmethod
@@ -32,140 +72,97 @@ class _CoreSettings(BaseSettings):
             raise ValueError(f"PORT must be 1-65535, got {v}")
         return v
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": False,
-        "extra": "ignore",
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key, None)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+
+_core = ServiceSettings()
+
+
+def _build_legacy_dict(s: ServiceSettings) -> Dict[str, Any]:
+    """Build backward-compatible dict with nested structures."""
+    return {
+        'app_name': s.app_name,
+        'version': s.app_version,
+        'environment': s.environment,
+        'debug': s.debug,
+        'host': s.host,
+        'port': s.port,
+        'redis_url': s.redis_url,
+        'celery': {
+            'broker_url': s.celery_broker_url or s.redis_url,
+            'result_backend': s.celery_result_backend or s.redis_url,
+            'task_serializer': 'json',
+            'result_serializer': 'json',
+            'accept_content': ['json'],
+            'timezone': s.tz,
+            'enable_utc': False,
+            'task_track_started': True,
+            'task_time_limit': s.celery_task_time_limit,
+            'task_soft_time_limit': s.celery_task_soft_time_limit,
+            'worker_prefetch_multiplier': 1,
+            'worker_max_tasks_per_child': 100,
+        },
+        'cache_ttl_hours': 24,
+        'cache_cleanup_interval_minutes': 30,
+        'cache_max_size_mb': 1024,
+        'max_file_size_mb': s.max_file_size_mb,
+        'max_duration_minutes': s.max_duration_minutes,
+        'max_concurrent_jobs': s.processing_max_concurrent_jobs,
+        'job_timeout_minutes': s.processing_job_timeout_minutes,
+        'audio_chunking': {
+            'enabled': s.audio_enable_chunking,
+            'chunk_size_mb': s.audio_chunk_size_mb,
+            'chunk_duration_sec': s.audio_chunk_duration_sec,
+            'chunk_overlap_sec': s.audio_chunk_overlap_sec,
+        },
+        'noise_reduction': {
+            'max_duration_sec': s.noise_reduction_max_duration_sec,
+            'sample_rate': s.noise_reduction_sample_rate,
+            'chunk_size_sec': s.noise_reduction_chunk_size_sec,
+        },
+        'vocal_isolation': {
+            'max_duration_sec': s.vocal_isolation_max_duration_sec,
+        },
+        'highpass_filter': {
+            'cutoff_hz': 80,
+            'order': 5,
+        },
+        'extraction_timeout_sec': s.extraction_timeout_sec,
+        'timeouts': {
+            'async_timeout_sec': s.async_timeout_seconds,
+            'job_processing_timeout_sec': s.job_processing_timeout_seconds,
+            'poll_interval_sec': 2,
+        },
+        'ffmpeg': {
+            'threads': s.ffmpeg_threads,
+            'preset': s.ffmpeg_preset,
+            'audio_codec': s.ffmpeg_audio_codec,
+            'audio_bitrate': s.ffmpeg_audio_bitrate,
+        },
+        'upload_dir': s.upload_dir,
+        'processed_dir': s.processed_dir,
+        'temp_dir': s.temp_dir,
+        'log_dir': s.log_dir,
+        'backup_dir': s.backup_dir,
+        'api_key': s.api_key,
+        'log_level': s.log_level,
+        'log_format': 'json',
     }
-
-
-# Validate critical settings at import time — raises ValidationError on bad env vars
-_core = _CoreSettings()
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Dict[str, Any]:
-    """
-    Returns all service settings from environment variables.
-    Result is cached (singleton) — env changes after first call are ignored.
-    Settings organised by category for easy maintenance.
-    """
-    return {
-        # ===== APLICAÇÃO =====
-        'app_name': os.getenv('APP_NAME', 'Audio Normalization Service'),
-        'version': os.getenv('VERSION', '2.0.0'),
-        'environment': os.getenv('ENVIRONMENT', 'development'),
-        'debug': os.getenv('DEBUG', 'false').lower() == 'true',
-        'host': os.getenv('HOST', '0.0.0.0'),
-        'port': int(os.getenv('PORT', '8002')),
-        
-        # ===== REDIS =====
-        'redis_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
-        
-        # ===== CELERY =====
-        'celery': {
-            'broker_url': os.getenv('CELERY_BROKER_URL', os.getenv('REDIS_URL', 'redis://localhost:6379/0')),
-            'result_backend': os.getenv('CELERY_RESULT_BACKEND', os.getenv('REDIS_URL', 'redis://localhost:6379/0')),
-            'task_serializer': os.getenv('CELERY_TASK_SERIALIZER', 'json'),
-            'result_serializer': os.getenv('CELERY_RESULT_SERIALIZER', 'json'),
-            'accept_content': os.getenv('CELERY_ACCEPT_CONTENT', 'json').split(','),
-            'timezone': os.getenv('CELERY_TIMEZONE', 'UTC'),
-            'enable_utc': os.getenv('CELERY_ENABLE_UTC', 'true').lower() == 'true',
-            'task_track_started': os.getenv('CELERY_TASK_TRACK_STARTED', 'true').lower() == 'true',
-            'task_time_limit': int(os.getenv('CELERY_TASK_TIME_LIMIT', '1800')),
-            'task_soft_time_limit': int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '1500')),
-            'worker_prefetch_multiplier': int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', '1')),
-            'worker_max_tasks_per_child': int(os.getenv('CELERY_WORKER_MAX_TASKS_PER_CHILD', '100')),
-        },
-        
-        # ===== CACHE =====
-        'cache_ttl_hours': int(os.getenv('CACHE__TTL_HOURS', '24')),
-        'cache_cleanup_interval_minutes': int(os.getenv('CACHE__CLEANUP_INTERVAL_MINUTES', '30')),
-        'cache_max_size_mb': int(os.getenv('CACHE__MAX_CACHE_SIZE_MB', '1024')),
-        
-        # ===== PROCESSAMENTO - LIMITES =====
-        'max_file_size_mb': int(os.getenv('MAX_FILE_SIZE_MB', os.getenv('PROCESSING__MAX_FILE_SIZE_MB', '2048'))),
-        'max_duration_minutes': int(os.getenv('MAX_DURATION_MINUTES', os.getenv('PROCESSING__MAX_DURATION_MINUTES', '120'))),
-        'max_concurrent_jobs': int(os.getenv('PROCESSING__MAX_CONCURRENT_JOBS', '3')),
-        'job_timeout_minutes': int(os.getenv('PROCESSING__JOB_TIMEOUT_MINUTES', '30')),
-        
-        # ===== PROCESSAMENTO - CHUNKS =====
-        'audio_chunking': {
-            'enabled': os.getenv('AUDIO_ENABLE_CHUNKING', 'true').lower() == 'true',
-            'chunk_size_mb': int(os.getenv('AUDIO_CHUNK_SIZE_MB', '30')),
-            'chunk_duration_sec': int(os.getenv('AUDIO_CHUNK_DURATION_SEC', '60')),
-            'chunk_overlap_sec': int(os.getenv('AUDIO_CHUNK_OVERLAP_SEC', '1')),
-            'streaming_threshold_mb': int(os.getenv('AUDIO_STREAMING_THRESHOLD_MB', '50')),
-        },
-        
-        # ===== PROCESSAMENTO - OPERAÇÕES =====
-        'noise_reduction': {
-            'max_duration_sec': int(os.getenv('NOISE_REDUCTION_MAX_DURATION_SEC', '300')),
-            'sample_rate': int(os.getenv('NOISE_REDUCTION_SAMPLE_RATE', '22050')),
-            'chunk_size_sec': int(os.getenv('NOISE_REDUCTION_CHUNK_SIZE_SEC', '30')),
-        },
-        
-        'vocal_isolation': {
-            'max_duration_sec': int(os.getenv('VOCAL_ISOLATION_MAX_DURATION_SEC', '180')),
-            'sample_rate': int(os.getenv('VOCAL_ISOLATION_SAMPLE_RATE', '44100')),
-            'device': os.getenv('VOCAL_ISOLATION_DEVICE', 'cpu'),
-        },
-        
-        'highpass_filter': {
-            'cutoff_hz': int(os.getenv('HIGHPASS_FILTER_CUTOFF_HZ', '80')),
-            'order': int(os.getenv('HIGHPASS_FILTER_ORDER', '5')),
-        },
-        
-        # ===== EXTRACTION =====
-        'extraction_timeout_sec': int(os.getenv('EXTRACTION_TIMEOUT_SEC', '300')),
-        
-        # ===== TIMEOUTS =====
-        'timeouts': {
-            'async_timeout_sec': int(os.getenv('ASYNC_TIMEOUT_SECONDS', '900')),
-            'job_processing_timeout_sec': int(os.getenv('JOB_PROCESSING_TIMEOUT_SECONDS', '3600')),
-            'poll_interval_sec': int(os.getenv('POLL_INTERVAL_SECONDS', '2')),
-            'job_heartbeat_interval_sec': int(os.getenv('JOB_HEARTBEAT_INTERVAL_SEC', '30')),
-            'job_orphan_timeout_minutes': int(os.getenv('JOB_ORPHAN_TIMEOUT_MINUTES', '15')),
-        },
-        
-        # ===== FFMPEG =====
-        'ffmpeg': {
-            'threads': int(os.getenv('FFMPEG_THREADS', '0')),
-            'preset': os.getenv('FFMPEG_PRESET', 'medium'),
-            'audio_codec': os.getenv('FFMPEG_AUDIO_CODEC', 'libopus'),
-            'audio_bitrate': os.getenv('FFMPEG_AUDIO_BITRATE', '128k'),
-        },
-        
-        # ===== DIRETÓRIOS =====
-        'upload_dir': os.getenv('UPLOAD_DIR', './data/uploads'),
-        'processed_dir': os.getenv('PROCESSED_DIR', './data/processed'),
-        'temp_dir': os.getenv('TEMP_DIR', './data/temp'),
-        'log_dir': os.getenv('LOG_DIR', './data/logs'),
-        'backup_dir': os.getenv('BACKUP_DIR', './backup'),
-        
-        # ===== LOGGING =====
-        'api_key': os.getenv('API_KEY'),
-        'log_level': os.getenv('LOG_LEVEL', 'INFO'),
-        'log_format': os.getenv('LOG_FORMAT', 'json'),
-        'log_rotation': os.getenv('LOG_ROTATION', '1 day'),
-        'log_retention': os.getenv('LOG_RETENTION', '30 days'),
-
-        # ===== RATE LIMITING =====
-        'rate_limit': {
-            'enabled': os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true',
-            'max_requests': int(os.getenv('RATE_LIMIT_REQUESTS', '100')),
-            'window_seconds': int(os.getenv('RATE_LIMIT_PERIOD', '60')),
-        },
-    }
+    """Returns backward-compatible dict with nested structures."""
+    return _build_legacy_dict(_core)
 
 
 def get_service_config() -> Dict[str, Any]:
-    """
-    Retorna configuração específica para os serviços (SOLID)
-    """
+    """Retorna configuração específica para os serviços."""
     settings = get_settings()
-    
     return {
         'max_file_size_mb': settings['max_file_size_mb'],
         'max_duration_minutes': settings['max_duration_minutes'],
