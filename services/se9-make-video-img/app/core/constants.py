@@ -34,3 +34,9 @@ STAGE_NAMES = {
 }
 
 CHATTERBOX_MAX_CHARS = 5000
+
+IMAGE_ASPECT_RATIOS = {
+    "9:16": (1024, 1792),
+    "16:9": (1792, 1024),
+    "1:1": (1024, 1024),
+}

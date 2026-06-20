@@ -14,16 +14,14 @@ from common.datetime_utils import now_brazil
 
 
 class JobStatus(str, Enum):
+    """Generic job statuses shared across all services.
+
+    Service-specific stages (e.g., GENERATING_AUDIO, FETCHING_SHORTS) should
+    be tracked via ``StageInfo`` dicts on the job, NOT as top-level statuses.
+    """
     PENDING = "pending"
     QUEUED = "queued"
     PROCESSING = "processing"
-    ANALYZING_AUDIO = "analyzing_audio"
-    FETCHING_SHORTS = "fetching_shorts"
-    DOWNLOADING_SHORTS = "downloading_shorts"
-    SELECTING_SHORTS = "selecting_shorts"
-    ASSEMBLING_VIDEO = "assembling_video"
-    GENERATING_SUBTITLES = "generating_subtitles"
-    FINAL_COMPOSITION = "final_composition"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

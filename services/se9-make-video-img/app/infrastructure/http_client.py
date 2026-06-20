@@ -13,14 +13,14 @@ logger = get_logger(__name__)
 class ServiceClient:
     """Base HTTP client with retry logic."""
 
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
-        self.base_url = base_url
-        self.api_key = api_key
-        self.timeout = timeout
+    def __init__(self, base_url: str = None, api_key: str = None, timeout: int = None):
+        self.base_url = base_url or ""
+        self.api_key = api_key or ""
+        self.timeout = timeout or 30
         self.client = httpx.AsyncClient(
-            base_url=base_url,
-            headers={"X-API-Key": api_key},
-            timeout=timeout,
+            base_url=self.base_url,
+            headers={"X-API-Key": self.api_key},
+            timeout=self.timeout,
         )
 
     async def close(self):
@@ -53,11 +53,11 @@ class ServiceClient:
 class SE7Client(ServiceClient):
     """Client for SE7 Audio Generation service."""
 
-    def __init__(self):
+    def __init__(self, base_url: str = None, api_key: str = None, timeout: int = None):
         super().__init__(
-            base_url=settings.se7_url,
-            api_key=settings.se7_api_key,
-            timeout=settings.se7_timeout,
+            base_url=base_url or settings.se7_url,
+            api_key=api_key or settings.se7_api_key,
+            timeout=timeout or settings.se7_timeout,
         )
 
     async def create_job(
@@ -110,11 +110,11 @@ class SE8Client(ServiceClient):
     POST /v1/generation/text-to-image returns a list of image objects.
     """
 
-    def __init__(self):
+    def __init__(self, base_url: str = None, api_key: str = None, timeout: int = None):
         super().__init__(
-            base_url=settings.se8_url,
-            api_key=settings.se8_api_key,
-            timeout=settings.se8_timeout,
+            base_url=base_url or settings.se8_url,
+            api_key=api_key or settings.se8_api_key,
+            timeout=timeout or settings.se8_timeout,
         )
 
     async def generate_image(

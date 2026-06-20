@@ -7,7 +7,10 @@ import numpy as np
 
 from common.log_utils import get_logger
 
+from app.core.constants import SUPPORTED_AUDIO_EXTENSIONS, VOICE_SAMPLE_RATE_TARGET
 from app.domain.exceptions import InvalidVoiceSample
+
+INT16_MAX = 32767
 
 logger = get_logger(__name__)
 
@@ -25,7 +28,7 @@ def validate_voice_sample(file_path: str, min_duration: float = 5.0,
         )
 
     ext = path.suffix.lower()
-    if ext not in {".wav", ".mp3", ".m4a", ".ogg"}:
+    if ext not in SUPPORTED_AUDIO_EXTENSIONS:
         raise InvalidVoiceSample(f"Unsupported format: {ext}")
 
     try:
@@ -65,7 +68,7 @@ def validate_voice_sample(file_path: str, min_duration: float = 5.0,
 
 
 def convert_to_mono_wav(input_path: str, output_path: str,
-                        target_sr: int = 24000) -> str:
+                        target_sr: int = VOICE_SAMPLE_RATE_TARGET) -> str:
     import soundfile as sf
     import librosa
 
@@ -104,10 +107,33 @@ def chunk_text(text: str, chunk_size: int = 1000) -> list[str]:
     return chunks
 
 
-def assemble_audio(wave_arrays: list, sample_rate: int,
-                   silence_between_paras_ms: int = 0) -> bytes:
+def _waveform_to_audiosegment(wav, sample_rate: int):
     import tempfile
     import torch
+    from pydub import AudioSegment
+
+    if isinstance(wav, torch.Tensor):
+        wav = wav.cpu().numpy()
+    if isinstance(wav, np.ndarray):
+        if wav.ndim > 1:
+            wav = wav.squeeze()
+        wav = np.clip(wav, -1.0, 1.0)
+        wav_int16 = (wav * INT16_MAX).astype(np.int16)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        try:
+            import soundfile as sf
+            sf.write(tmp.name, wav_int16, sample_rate)
+            segment = AudioSegment.from_wav(tmp.name)
+        finally:
+            os.unlink(tmp.name)
+    else:
+        segment = wav
+    return segment
+
+
+def assemble_audio(wave_arrays: list, sample_rate: int,
+                   silence_between_paras_ms: int = 0) -> bytes:
+    from io import BytesIO
     from pydub import AudioSegment
 
     if not wave_arrays:
@@ -117,23 +143,7 @@ def assemble_audio(wave_arrays: list, sample_rate: int,
     silence = AudioSegment.silent(duration=silence_between_paras_ms)
 
     for wav in wave_arrays:
-        if isinstance(wav, torch.Tensor):
-            wav = wav.cpu().numpy()
-        if isinstance(wav, np.ndarray):
-            if wav.ndim > 1:
-                wav = wav.squeeze()
-            wav = np.clip(wav, -1.0, 1.0)
-            wav_int16 = (wav * 32767).astype(np.int16)
-            tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            try:
-                import soundfile as sf
-                sf.write(tmp.name, wav_int16, sample_rate)
-                segment = AudioSegment.from_wav(tmp.name)
-            finally:
-                os.unlink(tmp.name)
-        else:
-            segment = wav
-
+        segment = _waveform_to_audiosegment(wav, sample_rate)
         if combined is None:
             combined = segment
         else:
