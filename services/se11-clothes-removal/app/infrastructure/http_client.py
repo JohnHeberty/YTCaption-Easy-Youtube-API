@@ -165,8 +165,16 @@ class SE8Client(ServiceClient):
         )
         result = response.json()
         if isinstance(result, list) and len(result) > 0:
-            return result[0]
-        return result
+            item = result[0]
+        else:
+            item = result
+        # SE8 sometimes returns base64 in 'url' field (with or without prefix)
+        if not item.get("base64") and item.get("url"):
+            url_val = item["url"]
+            data_idx = url_val.find("data:image")
+            if data_idx >= 0:
+                item["base64"] = url_val[data_idx:]
+        return item
 
     async def health(self) -> dict:
         """Check SE8 health."""
