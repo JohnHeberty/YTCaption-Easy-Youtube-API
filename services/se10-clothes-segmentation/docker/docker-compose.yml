@@ -10,7 +10,7 @@ services:
     volumes:
       - ../../../shared:/app/common
       - ../app:/app/app
-      - se10-data:/app/data
+      - ../data:/app/data
     env_file:
       - ../.env
     extra_hosts:
@@ -28,9 +28,6 @@ services:
     restart: unless-stopped
     networks:
       - ytcaption-network
-
-volumes:
-  se10-data:
 
 networks:
   ytcaption-network:
