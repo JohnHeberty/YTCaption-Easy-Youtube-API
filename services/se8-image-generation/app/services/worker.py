@@ -124,6 +124,11 @@ def _build_async_task(req: Dict[str, Any]) -> AsyncTask:
         freeu_b2=adv.get("freeu_b2", 1.02),
         freeu_s1=adv.get("freeu_s1", 0.99),
         freeu_s2=adv.get("freeu_s2", 0.95),
+        inpaint_engine=adv.get("inpaint_engine", "v2.6"),
+        inpaint_strength=adv.get("inpaint_strength", 1.0),
+        inpaint_respective_field=adv.get("inpaint_respective_field", 0.5),
+        inpaint_erode_or_dilate=adv.get("inpaint_erode_or_dilate", 0),
+        inpaint_disable_initial_latent=adv.get("inpaint_disable_initial_latent", False),
         save_metadata_to_images=adv.get("save_metadata_to_images", False),
         metadata_scheme=adv.get("metadata_scheme", "fooocus"),
         save_final_enhanced_image_only=req.get("save_final_enhanced_image_only", True),
@@ -404,12 +409,62 @@ def _apply_vary(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
 
 
 def _apply_inpaint(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
-    """Apply inpaint mode. Returns modified tasks and state."""
+    """Apply inpaint mode. Creates InpaintWorker for crop/paste/color_correction."""
     if not async_task.inpaint_input_image:
         return tasks, {}
 
+    img_data = async_task.inpaint_input_image.get("image")
+    mask_data = async_task.inpaint_input_image.get("mask")
+    if not img_data or not mask_data:
+        return tasks, {}
+
+    import numpy as np
+    from PIL import Image
+    import io
+
+    # Decode image bytes -> numpy RGB
+    if isinstance(img_data, bytes):
+        img = np.array(Image.open(io.BytesIO(img_data)).convert("RGB"))
+    elif isinstance(img_data, np.ndarray):
+        img = img_data
+    else:
+        logger.warning("Inpaint: unexpected image type %s", type(img_data))
+        return tasks, {}
+
+    # Decode mask bytes -> numpy grayscale (255=masked, 0=keep)
+    if isinstance(mask_data, bytes):
+        mask = np.array(Image.open(io.BytesIO(mask_data)).convert("L"))
+    elif isinstance(mask_data, np.ndarray):
+        mask = mask_data
+    else:
+        logger.warning("Inpaint: unexpected mask type %s", type(mask_data))
+        return tasks, {}
+
+    if mask.ndim == 3:
+        mask = mask[:, :, 0]
+
+    # Ensure mask is binary (255=masked, 0=keep)
+    mask = (mask > 127).astype(np.uint8) * 255
+
+    # Create InpaintWorker from modules (legacy, correct implementation)
+    import modules.inpaint_worker as miw
+    k = async_task.inpaint_respective_field or 0.618
+    worker = miw.InpaintWorker(img, mask, use_fill=True, k=k)
+
+    # Override task dimensions to match crop size
+    crop_h, crop_w = worker.interested_image.shape[:2]
+    for task in tasks:
+        task["width"] = crop_w
+        task["height"] = crop_h
+
+    logger.info(
+        "InpaintWorker created: crop=%dx%d, k=%.3f, strength=%.2f",
+        crop_w, crop_h, k, async_task.inpaint_strength,
+    )
+
     return tasks, {
         "mode": "inpaint",
+        "worker": worker,
         "prompt": async_task.inpaint_additional_prompt or "",
         "negative": async_task.inpaint_negative_prompt,
         "strength": async_task.inpaint_strength,
@@ -538,6 +593,14 @@ def process_generate(async_job: QueueTask) -> None:
         if async_task.inpaint_input_image:
             tasks, inpaint_state = _apply_inpaint(async_task, tasks)
 
+        # Step 3b: Set up InpaintWorker for latent-level masking
+        inpaint_worker_ref = None
+        if inpaint_state.get("mode") == "inpaint":
+            inpaint_worker_ref = inpaint_state["worker"]
+            import modules.inpaint_worker as miw
+            miw.current_task = inpaint_worker_ref
+            logger.info("InpaintWorker: current_task set for latent-level masking")
+
         # Step 4: Apply FreeU
         _apply_freeu(async_task, pipeline)
 
@@ -577,6 +640,19 @@ def process_generate(async_job: QueueTask) -> None:
                         pass
 
             imgs = _process_diffusion(pipeline, async_task, task, progress_callback)
+
+            # Post-process inpaint: paste crop back into original image
+            if inpaint_worker_ref is not None and imgs:
+                postprocessed = []
+                for img in imgs:
+                    try:
+                        result = inpaint_worker_ref.post_process(img)
+                        postprocessed.append(result)
+                    except Exception as e:
+                        logger.warning("InpaintWorker post_process failed: %s", e)
+                        postprocessed.append(img)
+                imgs = postprocessed
+
             all_images.extend(imgs)
 
         # Step 6: Save results
@@ -627,6 +703,14 @@ def process_generate(async_job: QueueTask) -> None:
         logger.exception("Generation failed: %s", e)
         async_job.set_result([], True, str(e))
     finally:
+        # Clean up InpaintWorker
+        if inpaint_worker_ref is not None:
+            try:
+                import modules.inpaint_worker as miw
+                miw.current_task = None
+                logger.info("InpaintWorker: current_task cleared")
+            except Exception:
+                pass
         if worker_queue:
             worker_queue.finish_task(async_job.job_id)
 

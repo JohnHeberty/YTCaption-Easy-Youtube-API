@@ -111,14 +111,13 @@ Configuração: `directory = /workspace`, `compress = true`. Sempre usar include
 
 Includes recomendados:
 ```
-PetCare/src/**, PetCare/pages/**, PetCare/components/**, PetCare/shared/**, PetCare/ui/**
-PetCarePro/src/**, PetCarePro/pages/**, PetCarePro/components/**, PetCarePro/shared/**, PetCarePro/ui/**
-expo/PetCareExpo/src/**, expo/PetCareExpo/components/**, expo/PetCareExpo/screens/**
+services/se{N}/**/*.py
+shared/**/*.py
 ```
 
 Evitar `**/*` sem pedido explícito de análise global.
 
-Nunca incluir: `node_modules/**`, `vendor/**`, `dist/**`, `build/**`, `.git/**`, `.next/**`, `.nuxt/**`, `coverage/**`, `logs/**`, `*.log`, `*.lock`, `*.min.js`, `*.map`, `*.png`, `*.jpg`, `*.jpeg`, `*.webp`, `*.gif`, `*.ico`, `*.pdf`, `*.zip`, `*.rar`, `*.7z`.
+Nunca incluir: `__pycache__/**`, `*.pyc`, `FOOOCUS/**` (referência imutável), `node_modules/**`, `dist/**`, `build/**`, `.git/**`, `*.egg-info/**`, `data/**` (modelos, outputs), `.env` (secrets).
 
 Protocolo: definir escopo exato antes, usar includes pequenos, usar output como índice/resumo, buscar no output antes de ler grandes blocos, ler somente arquivos ou trechos necessários depois, não colar output completo na resposta, não repetir se o resumo anterior ainda for suficiente.
 
@@ -134,6 +133,12 @@ Protocolo: buscar somente a biblioteca necessária, buscar somente o tópico nec
 
 Exemplos bons: "React Navigation stack header options", "Expo AsyncStorage usage", "Vite base path config".
 Exemplos ruins: "React docs", "Expo docs", "Vite docs".
+
+Para este monorepo Python:
+- Buscar rotas FastAPI: `grep -r "router\.\|app\." --include="*.py" services/se{N}/`
+- Buscar models: `grep -r "class.*BaseModel\|class.*BaseJob" --include="*.py" shared/`
+- Buscar config: `grep -r "class.*Settings\|Field(" --include="*.py" shared/config_utils/`
+- Buscar testes: `glob services/se{N}/tests/**/*.py`
 
 ## Subagents
 

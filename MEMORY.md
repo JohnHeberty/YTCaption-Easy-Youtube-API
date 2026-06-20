@@ -1,12 +1,15 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-06-19/20)
-- **SE11 Clothes Removal** — criado do zero (23 arquivos), 11 testes passando, **E2E validado** via Docker compose
-- **SE10 Masks** — modificado para retornar masks binárias (3 arquivos alterados)
-- **SE10 Deploy** — Docker compose rebuild com todos fixes: SAM2 config, bertwarper transformers 5.x, segmentor area
-- **SE11 PNG transparency fix** — `require_base64=False` + download via URL, resultado RGB válido
-- **FIX-2 arquivado** — concat SIGKILL fix + INVESTIGACAO.md restaurado
-- **Root docs limpos** — apenas AGENTS.md, INVESTIGATION.md, MEMORY.md, README.md, SE9-UP.md
+## Última sessão (2026-06-20)
+- **Commit 51202c2** — fix: chosen_seq bug + Pydantic v2 migration + doc sync
+- **SE9 critical bug fix** — `chosen_seq` NameError in `video_assembler.py` (runtime crash every video)
+- **SE9 dead code cleanup** — removed `hook_text` param from `create_title_card()` + `ffmpeg_utils.py`
+- **SE9 Redis store refactor** — `_use_raw` property replaces 10 try/except blocks in `redis_store.py`
+- **SE9 lazy import fix** — `audio_generator.py` top-level import instead of inside function
+- **Shared library Pydantic v2** — eliminated all 65 deprecation warnings:
+  - `shared/config_utils/base_settings.py`: `SettingsConfigDict`, `field_validator`, `model_validator`
+  - `shared/models/base.py`: `ConfigDict`, removed `json_encoders`
+- **SE9 ARCHITECTURE.md sync** — TTS params corrected, title card 0.5s, subtitle removed, 17 fields, ~32 files
 
 ## Serviços Ativos
 
@@ -85,13 +88,25 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - Bertwarper patchado para transformers>=5.0
 
 ## SE9 — Make Video IMG
-### FIX-2 validado e arquivado
-- `concat_simple()` em `ffmpeg_utils.py:303` — resolve SIGKILL com >8 segmentos
-- 27/27 testes passando
+- **27/27 testes passando, 0 warnings** (era 65)
+- Critical bug fix: `chosen_seq` NameError em `video_assembler.py`
+- Redis store refactor: `_use_raw` property
+- Lazy import fix: `audio_generator.py`
+- Dead code removal: `hook_text` param de `create_title_card()`
+- ARCHITECTURE.md sincronizado com código real
+- Pydantic v2 migration completa (shared library)
 
 ## SE8 — Image Engine
 - Port: 8008, Container: `image-engine`, nvidia/cuda:12.1.1
 - Rotas: Health(4) + Engines(4) + V1 Gen(5) + V2 Gen(5) + Query(4) + Tools(2) + Files(1)
+- Memory issue: RSS 14.19GB é [anon] C-level (PyTorch caching allocator)
+- Só resolve com restart do container
+
+## Shared Library
+- Pydantic v2 migration completa — 0 warnings (era 65)
+- `config_utils/base_settings.py`: SettingsConfigDict, field_validator, model_validator
+- `models/base.py`: ConfigDict, json_encoders removido
+- `di.py`: dependency injection container
 
 ## Docs Arquivados
 ```
@@ -106,3 +121,4 @@ docs/archive/se9-make-video-img/
 1. ✅ SE10 deploy com todos fixes — Docker compose rebuild persistido
 2. ✅ SE11 E2E testado via compose — pipeline completo funciona, RGB válido
 3. Integração SE11 ao SE1 ou APIs externas
+4. Pydantic v2 migration completa (shared library zero warnings)
