@@ -2,120 +2,91 @@
 
 ## Estrutura Geral
 
-Monorepo multi-app. Não existe `package.json` raiz nem workspace manager.
+Monorepo multi-serviço Python. Cada serviço é um microserviço FastAPI independente com seu próprio `Dockerfile`, `requirements.txt` e testes.
 
-Cada subprojeto tem seu próprio `package.json` e deve ser instalado, executado e buildado separadamente.
-
-| Diretório | Descrição | Status |
-|---|---|---|
-| `PetCare/` | App cliente para tutor de pet — Vite + React + Tailwind | Ativo |
-| `PetCarePro/` | App profissional para groomer/veterinário — Vite + React + Tailwind | Ativo |
-| `expo/PetCareExpo/` | App mobile — Expo / React Native | Ativo |
-| `services/PetCareAdmin/` | Painel admin — Vite + React + TS + Tailwind + Prisma + Express | Ativo |
-| `PetCareChat/` | Serviço de chat | Stub |
-
-### Regras Estruturais
-- `PetCare/` e `PetCarePro/` têm estrutura parecida, dependências parecidas e `theme.ts`.
-- Não estão linkados por workspace.
-- Código compartilhado está duplicado.
-- Mudanças em um app podem precisar ser espelhadas no outro.
-- Não importar diretamente arquivos entre `PetCare/` e `PetCarePro/` sem decisão explícita.
-- Não assumir backend existente.
-- Não assumir orquestração global na raiz.
+| Diretório | Port | Descrição | Stack | Status |
+|---|---|---|---|---|
+| `services/se1-orchestrator/` | 8001 | Pipeline orchestrator | FastAPI + Celery | Ativo |
+| `services/se2-video-downloader/` | 8002 | Video download (yt-dlp) | FastAPI + Celery | Ativo |
+| `services/se3-audio-normalization/` | 8003 | Audio normalization (ffmpeg) | FastAPI + Celery | Ativo |
+| `services/se4-audio-transcriber/` | 8004 | Whisper transcription | FastAPI + Celery | Ativo |
+| `services/se5-make-video-clip/` | 8005 | Video clip generation (ffmpeg) | FastAPI + Celery | Ativo |
+| `services/se6-youtube-search/` | 8006 | YouTube search API | FastAPI + Celery | Ativo |
+| `services/se7-audio-generation/` | 8007 | TTS Chatterbox (GPU) | FastAPI + Celery | Ativo |
+| `services/se8-image-generation/` | 8008 | Fooocus SDXL (GPU) | FastAPI + Thread worker | Ativo |
+| `services/se9-make-video-img/` | 8009 | Ken Burns video builder | FastAPI + Thread worker | Ativo |
+| `services/se10-clothes-segmentation/` | 8010 | GroundingDINO+SAM2 (CPU) | FastAPI + ThreadPoolExecutor | Ativo |
+| `services/se11-clothes-removal/` | 8011 | SE10→SE8 inpaint pipeline | FastAPI + Celery | Ativo |
+| `shared/` | — | Biblioteca compartilhada | models, config, utils, middleware | Ativo |
 
 ### Caminhos Importantes
-- Host/local: `/root/PetCare`
-- MCP Repomix Docker: `/workspace`
-- Ao rodar comandos shell: usar caminhos do host.
-- Ao usar Repomix MCP: `directory = /workspace`
+- Root: `/root/YTCaption-Easy-Youtube-API`
+- Services: `/root/YTCaption-Easy-Youtube-API/services/`
+- Shared: `/root/YTCaption-Easy-Youtube-API/shared/`
+- FOOOCUS ref: `/root/YTCaption-Easy-Youtube-API/FOOOCUS/` (imutável)
 
-## Navegação
+### Regras Estruturais
+- Cada serviço é independente — não importar entre serviços diretamente.
+- Usar `shared/` para código comum (models, config, utils, middleware).
+- Redis: cada serviço usa DB diferente (SE1=DB1, SE2=DB2, ... SE11=DB11).
+- Docker compose para deploy e orquestração.
+- `FOOOCUS/` é referência imutável — nunca modificar.
 
-### Apps Vite (`PetCare/` e `PetCarePro/`)
-- `App.tsx` usa navegação manual baseada em state machine.
-- `switch` em uma string `AppState`.
-- Não usa React Router.
-- Histórico salvo em array no React state.
-- Histórico persistido em `localStorage`.
-- Namespaces: `PetCare → petcare_*`, `PetCarePro → petcarepro_*`.
-- Não substituir por React Router sem pedido explícito.
+## Arquitetura por Serviço
 
-### PetCareAdmin
-- Usa React Router v7 com layout aninhado (`AdminShell`).
-- Rotas em `src/router/routes.config.ts`.
-- Guards de role em `src/router/RouteGuard.tsx`.
+### SE1-SE6 (Pipeline clássico)
+- FastAPI + Celery + Redis
+- Worker assíncrono via Celery
+- Auth: `X-API-Key` header
+- Config: variáveis de ambiente (`.env`)
+- Health: `GET /health`, `GET /ping`
+- Jobs: `POST /jobs`, `GET /jobs`, `GET /jobs/{id}`, `DELETE /jobs/{id}`
 
-### Expo (`PetCareExpo/`)
-- Usa `@react-navigation/stack`.
-- Entry point: `expo/PetCareExpo/src/navigation/AppNavigator.js`.
+### SE7 (Audio Generation)
+- TTS Chatterbox (GPU obrigatório)
+- Voice profiles via `voice_seeder.py`
+- Container: nvidia/cuda base
 
-## Vite Base Paths
+### SE8 (Image Engine)
+- FOOOCUS rewrite completo (ldm_patched, modules, extras)
+- Container unificado (API + worker em thread)
+- 8 monkey-patches FOOOCUS replicados
+- Container: `image-engine`, nvidia/cuda:12.1.1
 
-Não remover nem alterar sem pedido explícito:
-- `PetCare`: `/petcare/`
-- `PetCarePro`: `/petcarepro/`
+### SE9 (Video IMG)
+- Ken Burns video builder
+- In-memory worker (não Celery)
+- Pipeline: script → áudio → imagens → vídeo
 
-Necessários para deploy em subpath e assets corretos em produção.
+### SE10-SE11 (Clothes)
+- SE10: GroundingDINO+SAM2 (CPU only)
+- SE11: SE10→SE8 inpaint pipeline
+- External deps: GroundingDINO, segment-anything-2
 
-## Theme System
+## Shared Library (`shared/`)
 
-- Apps Vite têm `theme.ts` semelhantes.
-- Brand primary: `#00B14F`.
-- Tailwind usa CSS variables em `styles/stylesglobals.css`.
-- PetCareAdmin: dark mode toggle no perfil, `localStorage` persistence, sync com `prefers-color-scheme`.
-- Preservar o sistema de tema atual.
+Biblioteca compartilhada entre todos os serviços:
+- `models/` — Pydantic v2 models (BaseJob, etc.)
+- `config_utils/` — Settings base, env parsing
+- `middleware/` — Auth, request logging
+- `health_utils/` — Health check helpers
+- `redis_utils/` — Redis connection helpers
+- `log_utils/` — Structured logging
+- `di.py` — Dependency injection container
 
-## Maps
+## Docker
 
-- Apps Vite: `react-leaflet`, `leaflet`, OpenStreetMap tiles.
-- `PetCareExpo`: Leaflet via `react-native-webview`; não usa `react-native-maps` diretamente.
-- PetCareAdmin: Leaflet para visualizações de mapa.
+Cada serviço tem seu próprio Dockerfile. Deploy via `docker-compose.yml` na raiz.
+- SE7, SE8: GPU (nvidia/cuda)
+- SE10: CPU only
+- Demais: CPU
+- Container naming: `ytcaption-se{N}-{service-name}`
 
-## Dados e Estado
+## Convenções
 
-Dados são locais/mock (não assumir backend):
-- `PetCare`: `localStorage`.
-- `PetCareExpo`: `AsyncStorage`, `StorageService`.
-- `PetCareAdmin`: Prisma + PostgreSQL + PostGIS (backend real), JWT HS256 com `jsonwebtoken`, bcrypt via `bcryptjs`.
-- Tokens access (15m) + refresh (7d) em `localStorage` com chaves `petcareadmin_*`.
-
-## Convenções Obrigatórias
-
-Preservar sempre:
-- `"use client"` no topo dos `App.tsx` dos apps Vite.
-- Alias `@/` apontando para a raiz do subprojeto.
-- `noUnusedLocals: false`.
-- `noUnusedParameters: false`.
-- Textos de UI em português do Brasil.
-- Estrutura de componentes existente.
-- Sistema de tema atual.
-- Responsividade existente.
-- Padrões de navegação existentes.
-- Vite base paths.
-- Nomes e namespaces de storage existentes.
-
-Diretórios comuns: `pages/`, `ui/`, `shared/`, `dialogs/`, `figma/`, `components/`, `styles/`.
-
-## PetCareAdmin — Arquitetura Específica
-
-### Stack
-- Vite + React + TypeScript + Tailwind + Prisma + PostgreSQL + PostGIS + Express 5.x.
-
-### Backend
-- Express 5.x como backend REST para rotas `/api/v1/*`.
-- Rotas admin: `/api/v1/admin/*`.
-- Rotas runtime: `/api/v1/app/*`.
-- Middleware `authMiddleware` + `requireRoles(...roles)` como guards centrais.
-- Singleton `PrismaClient` em `src/api/db.ts`.
-
-### Roles
-- `superadmin`, `operations`, `support`, `finance`, `moderation`.
-
-### Database
-- UUID PK, soft delete (`deletedAt`), `version` integer, valores em `*_cents`.
-- PostGIS requer extensão `postgis` habilitada no PostgreSQL.
-
-### UI Kit
-- Componentes `forwardRef`, fully typed, barrel export em `ui/index.ts`.
-- Toast DOM-based para chamadas imperativas fora de componentes.
-- Validadores compostos com `compose(...)` e padrão `ValidatorFn<T>`.
+- Python 3.10+, `from __future__ import annotations`
+- Pydantic v2 (não v1)
+- pathlib.Path para caminhos
+- Type hints completos
+- pytest para testes
+- Exceções específicas, não `except Exception` genérico

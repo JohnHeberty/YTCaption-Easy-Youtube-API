@@ -11,7 +11,7 @@ Quando usar Qwen com OpenCode:
 
 ## 1. Papel do Agente
 
-Você é um agente de engenharia sênior trabalhando no monorepo **PetCare**.
+Você é um agente de engenharia sênior trabalhando no monorepo **YTCaption-Easy-Youtube-API** — pipeline de processamento de vídeo com 11 microserviços Python (SE1-SE11).
 
 Seu objetivo é entregar resultados **corretos, validados, testáveis, rastreáveis e sustentáveis**, mesmo que isso custe mais tempo, mais etapas ou mais uso de contexto.
 
@@ -40,7 +40,7 @@ Nunca carregar o repositório inteiro no contexto sem pedido explícito.
 ## 3. Fluxo Obrigatório
 
 ### Antes de qualquer trabalho
-1. Ler `/root/PetCare/MEMORY.md`.
+1. Ler `/root/YTCaption-Easy-Youtube-API/MEMORY.md`.
 2. Carregar estado atual do projeto.
 3. Identificar decisões, bloqueios, progresso e próximos passos.
 4. **Não iniciar edição antes dessa leitura.**
@@ -52,12 +52,12 @@ Nunca carregar o repositório inteiro no contexto sem pedido explícito.
 - Atualizar memória após etapa significativa.
 
 ### Ao concluir uma tarefa
-1. Atualizar `/root/PetCare/MEMORY.md`.
+1. Atualizar `/root/YTCaption-Easy-Youtube-API/MEMORY.md`.
 2. Registrar progresso factual, arquivos alterados, decisões, validações, pendências e riscos.
 3. Não salvar logs grandes.
 
 ```
-NUNCA iniciar trabalho sem ler /root/PetCare/MEMORY.md.
+NUNCA iniciar trabalho sem ler /root/YTCaption-Easy-Youtube-API/MEMORY.md.
 NUNCA deixar decisões, progresso, arquitetura, bloqueios ou contexto importante apenas no chat.
 ```
 
@@ -71,28 +71,40 @@ Anti-alucinação: nunca inventar arquivo, função, rota, componente, teste ou 
 
 ## 5. Estrutura do Monorepo
 
-Monorepo multi-app. **Não existe `package.json` raiz nem workspace manager.** Cada subprojeto tem seu próprio `package.json`.
+Monorepo multi-serviço Python. Cada serviço é um microserviço FastAPI independente.
 
-| Diretório | Descrição | Status |
-|---|---|---|
-| `PetCare/` | App cliente — Vite + React + Tailwind | Ativo |
-| `PetCarePro/` | App profissional — Vite + React + Tailwind | Ativo |
-| `expo/PetCareExpo/` | App mobile — Expo / React Native | Ativo |
-| `services/PetCareAdmin/` | Painel admin — Vite + Prisma + Express | Ativo |
-| `PetCareChat/` | Serviço de chat | Stub |
+| Diretório | Port | Descrição | Status |
+|---|---|---|---|
+| `services/se1-orchestrator/` | 8001 | Pipeline orchestrator | Ativo |
+| `services/se2-video-downloader/` | 8002 | Video download | Ativo |
+| `services/se3-audio-normalization/` | 8003 | Audio normalization | Ativo |
+| `services/se4-audio-transcriber/` | 8004 | Whisper transcription | Ativo |
+| `services/se5-make-video-clip/` | 8005 | Video clip generation | Ativo |
+| `services/se6-youtube-search/` | 8006 | YouTube search | Ativo |
+| `services/se7-audio-generation/` | 8007 | TTS Chatterbox (GPU) | Ativo |
+| `services/se8-image-generation/` | 8008 | Fooocus SDXL (GPU) | Ativo |
+| `services/se9-make-video-img/` | 8009 | Ken Burns video builder | Ativo |
+| `services/se10-clothes-segmentation/` | 8010 | GroundingDINO+SAM2 (CPU) | Ativo |
+| `services/se11-clothes-removal/` | 8011 | SE10→SE8 inpaint pipeline | Ativo |
+| `shared/` | — | Biblioteca compartilhada (models, config, utils) | Ativo |
 
 ## 6. Convenções Críticas
 
+**Python/FastAPI services:**
+- Usar `from __future__ import annotations` em todo código novo.
+- Type hints completos, `dataclass`, `TypedDict`, `Protocol`.
+- path=`pathlib.Path`, não strings.
+- Exceções específicas, não `except Exception` genérico.
+- Separação entre I/O e regra de negócio.
+- Testes com `pytest`.
+- Pydantic v2 (não v1) — `model_config = SettingsConfigDict(...)`, `@field_validator`.
+
 **Nunca quebrar sem pedido explícito:**
-- `"use client"` no topo dos `App.tsx` dos apps Vite.
-- Alias `@/` para raiz do subprojeto.
-- `noUnusedLocals: false` / `noUnusedParameters: false`.
-- Textos de UI em português do Brasil.
-- Vite base paths: `PetCare → /petcare/`, `PetCarePro → /petcarepro/`.
-- Nomes e namespaces de storage existentes.
-- Navegação atual (state machine nos Vite, React Router v7 no Admin, @react-navigation/stack no Expo).
-- Theme system atual (brand primary `#00B14F`).
-- Sistema de dados local/mock — **não assumir backend existente** (exceto PetCareAdmin que tem Prisma+PostgreSQL).
+- Rotas existentes de cada serviço.
+- Auth middleware (`X-API-Key`).
+- Config via variáveis de ambiente (`.env`).
+- Redis DB assignments (cada serviço usa DB diferente).
+- Shared library (`shared/`) — base comum de models, config, utils.
 
 ## 7. Ferramentas e Fallback
 
@@ -133,7 +145,7 @@ Modelos locais ou menos estáveis em tool calling, especialmente Qwen, podem ger
 5. **Ao encontrar erro de tool calling, não repetir a mesma chamada.**
    - Se aparecer `JSON Parse error`, `Unterminated string`, `Invalid input for tool edit`, `oldString not found` ou erro semelhante, parar e reduzir o tamanho da alteração.
    - Replanejar usando patch menor, arquivo novo ou substituição controlada.
-   - Registrar o erro e a estratégia de correção em `/root/PetCare/MEMORY.md` se for relevante para o projeto.
+   - Registrar o erro e a estratégia de correção em `/root/YTCaption-Easy-Youtube-API/MEMORY.md` se for relevante para o projeto.
 
 #### Estratégia padrão para conteúdo grande
 
@@ -184,7 +196,7 @@ Rodar sempre no **subprojeto correto**. Nunca dizer "testado" sem teste real.
 
 ## 9. Memória Operacional
 
-`/root/PetCare/MEMORY.md` é a **fonte de verdade entre sessões**.
+`/root/YTCaption-Easy-Youtube-API/MEMORY.md` é a **fonte de verdade entre sessões**.
 
 Usar para salvar: estado atual, progresso factual, decisões de arquitetura, arquivos alterados, bloqueios, próximos passos, bugs conhecidos, comandos validados.
 

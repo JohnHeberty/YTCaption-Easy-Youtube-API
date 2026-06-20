@@ -160,10 +160,7 @@ class AsyncTask:
     debugging_inpaint_preprocessor: bool = False
     inpaint_disable_initial_latent: bool = False
     inpaint_engine: str = "v2.6"
-    inpaint_strength: float = 1.0
-    inpaint_respective_field: float = 0.5
     inpaint_mask_use_xor: bool = False
-    inpaint_erode_or_dilate: int = 0
     save_final_enhanced_image_only: bool = True
     save_metadata_to_images: bool = False
     metadata_scheme: str = "fooocus"

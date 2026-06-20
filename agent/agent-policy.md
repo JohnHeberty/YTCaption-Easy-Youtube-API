@@ -68,7 +68,7 @@ Só ampliar escopo se:
 - Houver risco claro de regressão.
 - O usuário pedir explicitamente.
 
-Se alterar `PetCare`, verificar se `PetCarePro` precisa espelhamento e vice-versa. Não espelhar automaticamente sem necessidade.
+Se alterar um serviço, verificar se outros serviços afetados precisam de ajustes. Não alterar automaticamente sem necessidade.
 
 ## Política de Bugs
 
@@ -88,7 +88,7 @@ Não fazer: refatoração ampla, troca de biblioteca, alteração visual fora do
 
 Fluxo:
 1. Ler `MEMORY.md`.
-2. Confirmar app alvo (`PetCare`, `PetCarePro`, `PetCareExpo`, `PetCareAdmin`, ou mais de um).
+2. Confirmar serviço alvo (`SE1`-`SE11`, ou `shared`).
 3. Localizar padrões existentes.
 4. Reutilizar componentes e estilos.
 5. Implementar menor escopo funcional.
