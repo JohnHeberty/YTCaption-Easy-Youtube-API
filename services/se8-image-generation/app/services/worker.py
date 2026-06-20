@@ -555,6 +555,7 @@ def process_generate(async_job: QueueTask) -> None:
 
     Decorated with @torch.no_grad() + @torch.inference_mode() in the caller.
     """
+    inpaint_worker_ref = None
     try:
         # Build async task from request params
         async_task = _build_async_task(async_job.req_param)
