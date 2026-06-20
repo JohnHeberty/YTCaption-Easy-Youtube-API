@@ -7,9 +7,9 @@ Segue princípios SOLID:
 
 CRÍTICO: Usa redis.from_url() em vez de parsing manual da URL.
 """
+from __future__ import annotations
 
 import shortuuid
-from typing import Optional
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
@@ -27,7 +27,7 @@ class DistributedLockManager:
     NÃO usa parsing manual frágil.
     """
 
-    def __init__(self, redis_url: str):
+    def __init__(self, redis_url: str) -> None:
         """
         Initialize lock manager.
 
@@ -35,7 +35,7 @@ class DistributedLockManager:
             redis_url: Redis connection URL (e.g., redis://host:port/db)
         """
         self.redis_url = redis_url
-        self._redis: Optional[aioredis.Redis] = None
+        self._redis: aioredis.Redis | None = None
 
         # Parse URL apenas para log/validação (não para conexão)
         try:
@@ -65,7 +65,7 @@ class DistributedLockManager:
         self,
         lock_name: str,
         timeout_seconds: int = 3600,
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Adquire lock distribuído.
 
@@ -250,7 +250,7 @@ class DistributedLockManager:
             logger.error(f"❌ Error extending lock {lock_name}: {e}")
             return False
 
-    async def close(self):
+    async def close(self) -> None:
         """Fecha conexão Redis."""
         if self._redis:
             await self._redis.close()

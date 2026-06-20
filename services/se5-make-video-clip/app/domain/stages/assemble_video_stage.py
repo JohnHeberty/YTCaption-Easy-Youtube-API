@@ -8,8 +8,10 @@ AssembleVideoStage - Concatenate shorts into single video
     - Create temporary video file
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
@@ -20,7 +22,7 @@ logger = get_logger(__name__)
 class AssembleVideoStage(JobStage):
     """Stage 5: Assemble video from shorts"""
     
-    def __init__(self, video_builder):
+    def __init__(self, video_builder) -> None:
         """
         Initialize stage
         
@@ -34,7 +36,7 @@ class AssembleVideoStage(JobStage):
         )
         self.video_builder = video_builder
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate selected shorts exist"""
         if not context.selected_shorts:
             raise VideoProcessingException(
@@ -43,7 +45,7 @@ class AssembleVideoStage(JobStage):
                 job_id=context.job_id,
             )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Assemble video from selected shorts
         
@@ -79,7 +81,7 @@ class AssembleVideoStage(JobStage):
             'aspect_ratio': context.aspect_ratio,
         }
     
-    async def compensate(self, context: StageContext):
+    async def compensate(self, context: StageContext) -> None:
         """Delete temporary video file"""
         if context.temp_video_path and context.temp_video_path.exists():
             logger.info(f"↩️  Deleting temporary video: {context.temp_video_path}")

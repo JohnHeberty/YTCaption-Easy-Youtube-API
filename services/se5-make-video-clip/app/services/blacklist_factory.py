@@ -5,13 +5,14 @@ DEPRECATED: Use video_status_factory.py instead
 Mantido para compatibilidade com código legado.
 Redireciona para VideoStatusStore.
 """
+from __future__ import annotations
 
-from .video_status_factory import get_video_status_store
+from .video_status_factory import VideoStatusStore, get_video_status_store
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
-def get_blacklist():
+def get_blacklist() -> VideoStatusStore:
     """
     LEGACY: Retorna VideoStatusStore (compatível com blacklist antiga)
     

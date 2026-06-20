@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Base detector interface for subtitle detection.
 
@@ -6,7 +8,7 @@ All subtitle detectors must implement this interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Any
 
 
 class BaseSubtitleDetector(ABC):
@@ -17,12 +19,12 @@ class BaseSubtitleDetector(ABC):
     to ensure consistent API and enable proper voting/aggregation.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize base detector with custom weight support."""
-        self._custom_weight = None  # Can be overridden by ensemble
+        self._custom_weight: float | None = None  # Can be overridden by ensemble
     
     @abstractmethod
-    def detect(self, video_path: str) -> Dict:
+    def detect(self, video_path: str) -> dict[str, Any]:
         """
         Detect subtitles in a video.
         

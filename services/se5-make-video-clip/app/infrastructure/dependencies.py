@@ -3,8 +3,10 @@ Dependency Injection for Make Video service.
 
 Factory functions that create and cache service dependencies.
 """
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Optional
+from typing import Any
 
 from app.core.config import get_settings
 from app.infrastructure.redis_store import MakeVideoJobStore as RedisJobStore
@@ -15,11 +17,11 @@ from app.api.api_client import MicroservicesClient
 
 
 @lru_cache(maxsize=1)
-def _get_settings():
+def _get_settings() -> Any:
     return get_settings()
 
 
-def get_settings_dep():
+def get_settings_dep() -> Any:
     return _get_settings()
 
 
@@ -65,37 +67,37 @@ _lock_manager_override = None
 _api_client_override = None
 
 
-def get_redis_store_override():
+def get_redis_store_override() -> RedisJobStore:
     if _redis_store_override is not None:
         return _redis_store_override
     return get_redis_store()
 
 
-def get_job_manager_override():
+def get_job_manager_override() -> JobManager:
     if _job_manager_override is not None:
         return _job_manager_override
     return get_job_manager()
 
 
-def get_cache_manager_override():
+def get_cache_manager_override() -> CacheManager:
     if _cache_manager_override is not None:
         return _cache_manager_override
     return get_cache_manager()
 
 
-def get_lock_manager_override():
+def get_lock_manager_override() -> DistributedLockManager:
     if _lock_manager_override is not None:
         return _lock_manager_override
     return get_lock_manager()
 
 
-def get_api_client_override():
+def get_api_client_override() -> MicroservicesClient:
     if _api_client_override is not None:
         return _api_client_override
     return get_api_client()
 
 
-def reset_overrides():
+def reset_overrides() -> None:
     global _redis_store_override, _job_manager_override, _cache_manager_override, _lock_manager_override, _api_client_override
     _redis_store_override = None
     _job_manager_override = None

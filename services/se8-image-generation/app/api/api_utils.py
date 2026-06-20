@@ -11,7 +11,7 @@ import io
 import os
 import random
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 from fastapi import Response
 
@@ -73,7 +73,7 @@ def get_task_type(req: CommonRequest) -> TaskType:
     return TaskType.TEXT_TO_IMAGE
 
 
-def req_to_params(req: CommonRequest) -> Dict[str, Any]:
+def req_to_params(req: CommonRequest) -> dict[str, Any]:
     """Convert a request model to a dict of AsyncTask parameters."""
     settings = get_settings()
     prompt = req.prompt
@@ -229,8 +229,8 @@ def _decode_image(data: str) -> Any:
 
 
 def call_worker(
-    req: CommonRequest, accept: Optional[str] = None
-) -> Union[Response, Dict[str, Any], List[Dict[str, Any]]]:
+    req: CommonRequest, accept: str | None = None
+) -> Response | dict[str, Any] | list[dict[str, Any]]:
     """Enqueue a generation task and return results (sync or async)."""
     streaming_output = False
     if accept and "image/png" in accept:
@@ -282,7 +282,7 @@ def call_worker(
 
 def generate_async_output(
     task: QueueTask, require_step_preview: bool = False
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate async job response."""
     job_stage = "RUNNING"
     job_result = None
@@ -310,7 +310,7 @@ def generate_async_output(
     }
 
 
-def _generate_streaming_output(results: List[ImageGenerationResult]) -> Response:
+def _generate_streaming_output(results: list[ImageGenerationResult]) -> Response:
     """Generate streaming image bytes response."""
     if not results:
         return Response(status_code=500)
@@ -327,8 +327,8 @@ def _generate_streaming_output(results: List[ImageGenerationResult]) -> Response
 
 
 def _generate_image_result_output(
-    results: List[ImageGenerationResult], require_base64: bool
-) -> List[Dict[str, Any]]:
+    results: list[ImageGenerationResult], require_base64: bool
+) -> list[dict[str, Any]]:
     """Convert ImageGenerationResult list to API response format."""
     settings = get_settings()
     output = []
@@ -352,7 +352,7 @@ def _generate_image_result_output(
     return output
 
 
-def _output_file_to_base64(filepath: str) -> Optional[str]:
+def _output_file_to_base64(filepath: str) -> str | None:
     """Read output file and return base64 string."""
     if not filepath:
         return None
@@ -365,7 +365,7 @@ def _output_file_to_base64(filepath: str) -> Optional[str]:
         return None
 
 
-def _output_file_to_bytes(filepath: str) -> Optional[bytes]:
+def _output_file_to_bytes(filepath: str) -> bytes | None:
     """Read output file and return raw bytes."""
     if not filepath:
         return None

@@ -6,8 +6,9 @@ optimized for YouTube Shorts. Supports dual-layer rendering for neon effects.
 
 Sprint: S-105 to S-118
 """
+from __future__ import annotations
 
-from typing import List, Dict, Optional
+from typing import Any
 from dataclasses import dataclass
 from pathlib import Path
 from common.log_utils import get_logger
@@ -54,7 +55,7 @@ class ASSGenerator:
         'magenta': '&H00FF00FF&',
     }
     
-    def __init__(self, video_width: int = 1080, video_height: int = 1920):
+    def __init__(self, video_width: int = 1080, video_height: int = 1920) -> None:
         """
         Initialize ASS generator
         
@@ -75,7 +76,7 @@ class ASSGenerator:
             f"ASSGenerator initialized (resolution={video_width}x{video_height})"
         )
     
-    def _create_neon_preset(self) -> Dict[str, ASSStyle]:
+    def _create_neon_preset(self) -> dict[str, ASSStyle]:
         """
         Create neon preset with dual layers (glow + text)
         
@@ -114,7 +115,7 @@ class ASSGenerator:
             ),
         }
     
-    def _create_classic_preset(self) -> Dict[str, ASSStyle]:
+    def _create_classic_preset(self) -> dict[str, ASSStyle]:
         """Create classic single-layer preset"""
         return {
             'default': ASSStyle(
@@ -135,7 +136,7 @@ class ASSGenerator:
     
     def generate_ass(
         self,
-        cues: List[Dict],
+        cues: list[dict[str, Any]],
         output_path: str,
         preset: str = 'neon'
     ) -> str:
@@ -233,7 +234,7 @@ PlayResY: {self.video_height}
             f"{style.alignment},10,10,{style.margin_v},1\n"
         )
     
-    def _generate_events_dual_layer(self, cues: List[Dict]) -> str:
+    def _generate_events_dual_layer(self, cues: list[dict[str, Any]]) -> str:
         """
         Generate events with dual-layer rendering (glow + text)
         
@@ -261,7 +262,7 @@ PlayResY: {self.video_height}
     
     def _generate_events_single_layer(
         self,
-        cues: List[Dict],
+        cues: list[dict[str, Any]],
         style_name: str
     ) -> str:
         """Generate events with single-layer rendering"""
@@ -295,11 +296,11 @@ PlayResY: {self.video_height}
         secs = seconds % 60
         return f"{hours}:{minutes:02d}:{secs:05.2f}"
     
-    def get_available_presets(self) -> List[str]:
+    def get_available_presets(self) -> list[str]:
         """Get list of available style presets"""
         return list(self.styles.keys())
     
-    def validate_cues(self, cues: List[Dict]) -> bool:
+    def validate_cues(self, cues: list[dict[str, Any]]) -> bool:
         """
         Validate cue structure
         
@@ -335,7 +336,7 @@ PlayResY: {self.video_height}
         return True
 
 def generate_subtitles_with_style(
-    cues: List[Dict],
+    cues: list[dict[str, Any]],
     output_path: str,
     style: str = 'neon',
     video_width: int = 1080,

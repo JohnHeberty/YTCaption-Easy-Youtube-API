@@ -19,10 +19,11 @@ Tracking:
 - File path atualizado no banco
 - Histórico completo de transições
 """
+from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Any
 from datetime import datetime
 from common.log_utils import get_logger
 
@@ -39,7 +40,7 @@ class FileOperations:
     - Validação de integridade
     """
     
-    def __init__(self, data_dir: str = "./data"):
+    def __init__(self, data_dir: str = "./data") -> None:
         """
         Args:
             data_dir: Diretório raiz dos dados
@@ -58,7 +59,7 @@ class FileOperations:
         
         logger.debug("FileOperations initialized")
     
-    def move_to_transform(self, video_id: str, source_path: Optional[Path] = None) -> Path:
+    def move_to_transform(self, video_id: str, source_path: Path | None = None) -> Path:
         """
         Move vídeo de raw/ para transform/
         
@@ -108,7 +109,7 @@ class FileOperations:
                 logger.info(f"Rollback: restored {source_path}")
             raise
     
-    def move_to_approved(self, video_id: str, source_path: Optional[Path] = None) -> Path:
+    def move_to_approved(self, video_id: str, source_path: Path | None = None) -> Path:
         """
         Move vídeo de transform/ para approved/
         
@@ -158,7 +159,7 @@ class FileOperations:
                 logger.info(f"Rollback: restored {source_path}")
             raise
     
-    def delete_rejected(self, video_id: str, source_path: Optional[Path] = None):
+    def delete_rejected(self, video_id: str, source_path: Path | None = None) -> None:
         """
         Remove arquivo de vídeo rejeitado
         
@@ -191,7 +192,7 @@ class FileOperations:
             logger.error(f"Failed to delete rejected {video_id}: {e}")
             raise
     
-    def find_file(self, video_id: str) -> Optional[Path]:
+    def find_file(self, video_id: str) -> Path | None:
         """
         Encontra arquivo em qualquer stage do pipeline
         
@@ -209,7 +210,7 @@ class FileOperations:
         
         return next((p for p in possible_paths if p.exists()), None)
     
-    def get_file_info(self, file_path: Path) -> Dict:
+    def get_file_info(self, file_path: Path) -> dict[str, Any]:
         """
         Retorna informações sobre um arquivo
         

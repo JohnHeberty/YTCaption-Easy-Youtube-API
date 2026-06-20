@@ -12,13 +12,14 @@ Benefícios:
 - Recuperação de aprovados se perder arquivos MP4
 - Auditoria completa do pipeline
 """
+from __future__ import annotations
 
 import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime
 from contextlib import contextmanager
-from typing import Optional, Dict, List, Tuple
+from typing import Any
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -26,41 +27,41 @@ logger = get_logger(__name__)
 class VideoStatusStore:
     """
     Gerencia status de vídeos (aprovados + reprovados) usando SQLite
-    
+
     Tabelas:
     - approved_videos: Vídeos aprovados (sem legendas)
     - rejected_videos: Vídeos reprovados (com legendas ou outros problemas)
-    
+
     Features:
     - Transações ACID
     - Concorrência nativa (WAL mode)
     - Histórico permanente
     - Recuperação de aprovados
     """
-    
-    def __init__(self, db_path: str):
+
+    def __init__(self, db_path: str) -> None:
         """
         Args:
             db_path: Caminho do arquivo SQLite (ex: data/database/video_status.db)
         """
         self.db_path = Path(db_path)
-        
+
         # Criar diretório se não existir
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Inicializar schema
         self._init_schema()
-        
+
         logger.info(f"✅ VideoStatusStore initialized: {self.db_path}")
-    
-    def _init_schema(self):
+
+    def _init_schema(self) -> None:
         """Cria schema se não existir"""
         with self._get_conn() as conn:
             self._ensure_schema(conn)
             logger.debug("Schema initialized successfully")
-    
+
     @contextmanager
-    def _get_conn(self):
+    def _get_conn(self) -> Any:
         """Context manager para conexões SQLite"""
         conn = sqlite3.connect(str(self.db_path), timeout=10.0)
         conn.row_factory = sqlite3.Row
@@ -74,14 +75,14 @@ class VideoStatusStore:
             raise
         finally:
             conn.close()
-    
-    def _ensure_schema(self, conn):
+
+    def _ensure_schema(self, conn: Any) -> None:
         """Garante que pragmas e tabelas existam (idempotente)"""
         # Habilitar WAL mode
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=10000")
         conn.execute("PRAGMA synchronous=NORMAL")
-        
+
         # Tabela de vídeos APROVADOS
         conn.execute(
             """
@@ -95,7 +96,7 @@ class VideoStatusStore:
             )
             """
         )
-        
+
         # Tabela de vídeos REPROVADOS
         conn.execute(
             """
@@ -110,7 +111,7 @@ class VideoStatusStore:
             )
             """
         )
-        
+
         # Tabela de vídeos com ERRO (não baixar novamente)
         conn.execute(
             """
@@ -129,22 +130,22 @@ class VideoStatusStore:
             )
             """
         )
-        
+
         # Índices para performance
         conn.execute("CREATE INDEX IF NOT EXISTS idx_approved_date ON approved_videos(approved_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_rejected_date ON rejected_videos(rejected_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_error_date ON error_videos(attempted_at)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_error_type ON error_videos(error_type)")
-    
+
     # ============================================================================
     # APPROVED VIDEOS
     # ============================================================================
-    
-    def add_approved(self, video_id: str, title: str = None, url: str = None, 
-                     file_path: str = None, metadata: Optional[Dict] = None):
+
+    def add_approved(self, video_id: str, title: str = None, url: str = None,
+                     file_path: str = None, metadata: dict[str, Any] | None = None) -> None:
         """
         Adiciona vídeo à lista de aprovados
-        
+
         Args:
             video_id: ID do vídeo
             title: Título do vídeo (opcional)
@@ -153,7 +154,7 @@ class VideoStatusStore:
             metadata: Dados adicionais
         """
         metadata_json = json.dumps(metadata or {})
-        
+
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -163,9 +164,9 @@ class VideoStatusStore:
                 """,
                 (video_id, title, url, file_path, metadata_json)
             )
-        
+
         logger.info(f"✅ APPROVED: {video_id} → {file_path}")
-    
+
     def is_approved(self, video_id: str) -> bool:
         """Verifica se vídeo já foi aprovado anteriormente"""
         with self._get_conn() as conn:
@@ -174,18 +175,18 @@ class VideoStatusStore:
                 (video_id,)
             ).fetchone()
             return row is not None
-    
-    def get_approved(self, video_id: str) -> Optional[Dict]:
+
+    def get_approved(self, video_id: str) -> dict[str, Any] | None:
         """Retorna dados completos de um vídeo aprovado"""
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM approved_videos WHERE video_id = ?",
                 (video_id,)
             ).fetchone()
-            
+
             if not row:
                 return None
-            
+
             return {
                 "video_id": row["video_id"],
                 "title": row["title"],
@@ -194,8 +195,8 @@ class VideoStatusStore:
                 "file_path": row["file_path"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
-    
-    def list_approved(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+
+    def list_approved(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Lista todos os vídeos aprovados"""
         with self._get_conn() as conn:
             rows = conn.execute(
@@ -206,7 +207,7 @@ class VideoStatusStore:
                 """,
                 (limit, offset)
             ).fetchall()
-            
+
             return [
                 {
                     "video_id": row["video_id"],
@@ -218,22 +219,22 @@ class VideoStatusStore:
                 }
                 for row in rows
             ]
-    
+
     def count_approved(self) -> int:
         """Conta total de vídeos aprovados"""
         with self._get_conn() as conn:
             row = conn.execute("SELECT COUNT(*) as count FROM approved_videos").fetchone()
             return row["count"] if row else 0
-    
+
     # ============================================================================
     # REJECTED VIDEOS
     # ============================================================================
-    
+
     def add_rejected(self, video_id: str, reason: str, confidence: float,
-                     title: str = None, url: str = None, metadata: Optional[Dict] = None):
+                     title: str = None, url: str = None, metadata: dict[str, Any] | None = None) -> None:
         """
         Adiciona vídeo à lista de reprovados
-        
+
         Args:
             video_id: ID do vídeo
             reason: Motivo da reprovação (ex: "embedded_subtitles")
@@ -243,7 +244,7 @@ class VideoStatusStore:
             metadata: Dados adicionais
         """
         metadata_json = json.dumps(metadata or {})
-        
+
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -253,9 +254,9 @@ class VideoStatusStore:
                 """,
                 (video_id, title, url, reason, confidence, metadata_json)
             )
-        
+
         logger.info(f"❌ REJECTED: {video_id} ({reason}, conf: {confidence:.2f})")
-    
+
     def is_rejected(self, video_id: str) -> bool:
         """Verifica se vídeo já foi reprovado anteriormente"""
         with self._get_conn() as conn:
@@ -264,18 +265,18 @@ class VideoStatusStore:
                 (video_id,)
             ).fetchone()
             return row is not None
-    
-    def get_rejected(self, video_id: str) -> Optional[Dict]:
+
+    def get_rejected(self, video_id: str) -> dict[str, Any] | None:
         """Retorna dados completos de um vídeo reprovado"""
         with self._get_conn() as conn:
             row = conn.execute(
                 "SELECT * FROM rejected_videos WHERE video_id = ?",
                 (video_id,)
             ).fetchone()
-            
+
             if not row:
                 return None
-            
+
             return {
                 "video_id": row["video_id"],
                 "title": row["title"],
@@ -285,8 +286,8 @@ class VideoStatusStore:
                 "confidence": row["confidence"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
-    
-    def list_rejected(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+
+    def list_rejected(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Lista todos os vídeos reprovados"""
         with self._get_conn() as conn:
             rows = conn.execute(
@@ -297,7 +298,7 @@ class VideoStatusStore:
                 """,
                 (limit, offset)
             ).fetchall()
-            
+
             return [
                 {
                     "video_id": row["video_id"],
@@ -310,24 +311,24 @@ class VideoStatusStore:
                 }
                 for row in rows
             ]
-    
+
     def count_rejected(self) -> int:
         """Conta total de vídeos reprovados"""
         with self._get_conn() as conn:
             row = conn.execute("SELECT COUNT(*) as count FROM rejected_videos").fetchone()
             return row["count"] if row else 0
-    
+
     # ============================================================================
     # ERROR VIDEOS (evitar retry de vídeos com erro)
     # ============================================================================
-    
+
     def add_error(self, video_id: str, error_type: str, error_message: str = None,
                   error_traceback: str = None, title: str = None, url: str = None,
                   file_path: str = None, stage: str = None, retry_count: int = 0,
-                  metadata: Optional[Dict] = None):
+                  metadata: dict[str, Any] | None = None) -> None:
         """
         Adiciona vídeo à lista de erros (não tentar baixar novamente)
-        
+
         Args:
             video_id: ID do vídeo
             error_type: Tipo do erro (ex: 'download_failed', 'transform_failed', 'api_error')
@@ -341,7 +342,7 @@ class VideoStatusStore:
             metadata: Dados adicionais (query, timestamp, etc)
         """
         metadata_json = json.dumps(metadata or {})
-        
+
         with self._get_conn() as conn:
             conn.execute(
                 """
@@ -350,12 +351,12 @@ class VideoStatusStore:
                  attempted_at, retry_count, title, url, file_path, stage, metadata)
                 VALUES (?, ?, ?, ?, datetime('now'), ?, ?, ?, ?, ?, ?)
                 """,
-                (video_id, error_type, error_message, error_traceback, 
+                (video_id, error_type, error_message, error_traceback,
                  retry_count, title, url, file_path, stage, metadata_json)
             )
-        
+
         logger.error(f"❌ ERROR: {video_id} ({error_type}) at {stage}: {error_message}")
-    
+
     def is_error(self, video_id: str) -> bool:
         """Verifica se vídeo já deu erro anteriormente (não tentar novamente)"""
         with self._get_conn() as conn:
@@ -364,8 +365,8 @@ class VideoStatusStore:
                 (video_id,)
             )
             return cursor.fetchone() is not None
-    
-    def get_error(self, video_id: str) -> Optional[Dict]:
+
+    def get_error(self, video_id: str) -> dict[str, Any] | None:
         """Retorna informações do erro de um vídeo"""
         with self._get_conn() as conn:
             cursor = conn.execute(
@@ -379,7 +380,7 @@ class VideoStatusStore:
             row = cursor.fetchone()
             if not row:
                 return None
-            
+
             return {
                 "video_id": row["video_id"],
                 "error_type": row["error_type"],
@@ -393,8 +394,8 @@ class VideoStatusStore:
                 "stage": row["stage"],
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
-    
-    def list_errors(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+
+    def list_errors(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Lista vídeos com erro paginado"""
         with self._get_conn() as conn:
             cursor = conn.execute(
@@ -407,7 +408,7 @@ class VideoStatusStore:
                 """,
                 (limit, offset)
             )
-            
+
             return [
                 {
                     "video_id": row["video_id"],
@@ -421,17 +422,17 @@ class VideoStatusStore:
                 }
                 for row in cursor.fetchall()
             ]
-    
+
     def count_errors(self) -> int:
         """Conta total de vídeos com erro"""
         with self._get_conn() as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM error_videos")
             return cursor.fetchone()[0]
-    
-    def clear_errors(self, older_than_days: int = None):
+
+    def clear_errors(self, older_than_days: int = None) -> None:
         """
         Remove erros do banco
-        
+
         Args:
             older_than_days: Remove apenas erros mais antigos que N dias (None = todos)
         """
@@ -448,36 +449,36 @@ class VideoStatusStore:
             else:
                 conn.execute("DELETE FROM error_videos")
                 logger.info("🧹 Cleared all errors")
-    
+
     # ============================================================================
     # COMPATIBILIDADE COM BLACKLIST (LEGACY)
     # ============================================================================
-    
+
     def is_blacklisted(self, video_id: str) -> bool:
         """
         Compatibilidade com código legado que usa is_blacklisted()
         Verifica se vídeo está reprovado
         """
         return self.is_rejected(video_id)
-    
-    def add(self, video_id: str, reason: str, confidence: float, metadata: Optional[Dict] = None):
+
+    def add(self, video_id: str, reason: str, confidence: float, metadata: dict[str, Any] | None = None) -> None:
         """
         Compatibilidade com código legado que usa add()
         Adiciona à lista de reprovados
         """
         self.add_rejected(video_id, reason, confidence, metadata=metadata)
-    
+
     # ============================================================================
     # ESTATÍSTICAS E UTILIDADES
     # ============================================================================
-    
-    def get_stats(self) -> Dict:
+
+    def get_stats(self) -> dict[str, Any]:
         """Retorna estatísticas gerais do banco"""
         approved = self.count_approved()
         rejected = self.count_rejected()
         errors = self.count_errors()
         total_processed = approved + rejected + errors
-        
+
         return {
             "approved_count": approved,
             "rejected_count": rejected,
@@ -486,20 +487,20 @@ class VideoStatusStore:
             "approval_rate": approved / max(1, approved + rejected),
             "error_rate": errors / max(1, total_processed)
         }
-    
-    def clear_approved(self):
+
+    def clear_approved(self) -> None:
         """CUIDADO: Limpa TODOS os vídeos aprovados"""
         with self._get_conn() as conn:
             conn.execute("DELETE FROM approved_videos")
         logger.warning("⚠️  ALL approved videos cleared from database")
-    
-    def clear_rejected(self):
+
+    def clear_rejected(self) -> None:
         """CUIDADO: Limpa TODOS os vídeos reprovados"""
         with self._get_conn() as conn:
             conn.execute("DELETE FROM rejected_videos")
         logger.warning("⚠️  ALL rejected videos cleared from database")
-    
-    def clear_all(self):
+
+    def clear_all(self) -> None:
         """CUIDADO: Limpa TODO o banco de dados"""
         self.clear_approved()
         self.clear_rejected()

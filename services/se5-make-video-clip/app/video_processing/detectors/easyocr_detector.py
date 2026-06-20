@@ -4,10 +4,11 @@ EasyOCR detector for ensemble.
 Sprint 06 - Ensemble Setup
 Alternative OCR detector using EasyOCR engine (supports 80+ languages).
 """
+from __future__ import annotations
 
 import cv2
 import numpy as np
-from typing import Dict, List
+from typing import Any
 import easyocr
 
 from common.log_utils import get_logger
@@ -31,7 +32,7 @@ class EasyOCRDetector(BaseSubtitleDetector):
         gpu: Whether to use GPU acceleration
     """
     
-    def __init__(self, languages: List[str] = None, gpu: bool = True, n_frames: int = 6):
+    def __init__(self, languages: list[str] | None = None, gpu: bool = True, n_frames: int = 6) -> None:
         """
         Initialize EasyOCR detector.
         
@@ -54,7 +55,7 @@ class EasyOCRDetector(BaseSubtitleDetector):
         self.reader = easyocr.Reader(languages, gpu=self.gpu)
         logger.info("[EasyOCR] Model loaded successfully")
     
-    def detect(self, video_path: str) -> Dict:
+    def detect(self, video_path: str) -> dict[str, Any]:
         """
         Detect subtitles using EasyOCR.
         
@@ -126,7 +127,7 @@ class EasyOCRDetector(BaseSubtitleDetector):
             }
         }
     
-    def _detect_in_frame(self, frame: np.ndarray) -> Dict:
+    def _detect_in_frame(self, frame: np.ndarray) -> dict[str, Any]:
         """
         Detect text in a single frame using EasyOCR.
         
@@ -208,7 +209,7 @@ class EasyOCRDetector(BaseSubtitleDetector):
             'text': combined_text
         }
     
-    def _extract_frames(self, video_path: str, n_frames: int = 6) -> List[np.ndarray]:
+    def _extract_frames(self, video_path: str, n_frames: int = 6) -> list[np.ndarray]:
         """
         Extract frames from video at evenly distributed timestamps.
         

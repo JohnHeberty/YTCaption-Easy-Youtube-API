@@ -6,7 +6,7 @@ V1 accepts multipart/form-data or JSON body for image inputs.
 from __future__ import annotations
 from common.log_utils import get_logger
 
-from typing import List, Optional
+from typing import Any
 
 from fastapi import APIRouter, File, Header, Query, Request, UploadFile
 
@@ -31,13 +31,13 @@ router = APIRouter(prefix="/v1/generation", tags=["GenerateV1"])
 )
 async def text_to_image(
     request: Request,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None,
         alias="accept",
         description="Override Accept header, 'image/png' for output bytes",
     ),
-):
+) -> Any:
     """Text to Image Generation."""
     if accept_query:
         accept = accept_query
@@ -52,11 +52,11 @@ async def text_to_image(
 )
 async def image_upscale_vary(
     request: Request,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image upscale or vary."""
     if accept_query:
         accept = accept_query
@@ -71,11 +71,11 @@ async def image_upscale_vary(
 )
 async def image_inpaint_outpaint(
     request: Request,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image inpaint or outpaint."""
     if accept_query:
         accept = accept_query
@@ -90,11 +90,11 @@ async def image_inpaint_outpaint(
 )
 async def image_prompt(
     request: Request,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image Prompt — prompt-based image generation."""
     if accept_query:
         accept = accept_query
@@ -109,11 +109,11 @@ async def image_prompt(
 )
 async def image_enhance(
     request: Request,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image Enhance."""
     if accept_query:
         accept = accept_query

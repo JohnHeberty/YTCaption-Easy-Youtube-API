@@ -19,6 +19,7 @@ usando YouTube Shorts + Áudio customizado + Legendas.
 
 Version: 2.0.0 (Refactored with modular architecture)
 """
+from __future__ import annotations
 
 __version__ = "2.0.0"
 

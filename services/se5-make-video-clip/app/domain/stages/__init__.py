@@ -1,4 +1,5 @@
 """Stages subpackage - Concrete stage implementations"""
+from __future__ import annotations
 
 from .analyze_audio_stage import AnalyzeAudioStage
 from .fetch_shorts_stage import FetchShortsStage

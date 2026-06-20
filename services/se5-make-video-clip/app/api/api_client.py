@@ -7,10 +7,11 @@ Ele apenas ORQUESTRA chamadas HTTP para os microserviços existentes:
 - video-downloader (Port 8002): Download de vídeos
 - audio-transcriber (Port 8005): Transcrição de áudio
 """
+from __future__ import annotations
 
 import httpx
 import asyncio
-from typing import Dict, List, Optional
+from typing import Any
 from pathlib import Path
 
 from common.log_utils import get_logger
@@ -39,7 +40,7 @@ class MicroservicesClient:
                  audio_transcriber_url: str = "http://localhost:8005",
                  timeout: float = 30.0,
                  max_retries: int = 3,
-                 api_key: Optional[str] = None):
+                 api_key: str | None = None) -> None:
         
         self.youtube_search_url = youtube_search_url.rstrip('/')
         self.video_downloader_url = video_downloader_url.rstrip('/')
@@ -63,11 +64,11 @@ class MicroservicesClient:
         logger.info(f"   ├─ Audio Transcriber: {self.audio_transcriber_url}")
         logger.info(f"   └─ Max retries: {max_retries}")
     
-    async def close(self):
+    async def close(self) -> None:
         """Fecha cliente HTTP"""
         await self.client.aclose()
     
-    async def search_shorts(self, query: str, max_results: int = 100) -> List[Dict]:
+    async def search_shorts(self, query: str, max_results: int = 100) -> list[dict[str, Any]]:
         """✅ Busca shorts usando youtube-search API.
         
         Args:
@@ -136,7 +137,7 @@ class MicroservicesClient:
                 cause=e
             )
     
-    async def download_video(self, video_id: str, output_path: str) -> Dict:
+    async def download_video(self, video_id: str, output_path: str) -> dict[str, Any]:
         """✅ Baixa vídeo usando video-downloader API.
         
         Args:
@@ -305,7 +306,7 @@ class MicroservicesClient:
                 cause=e
             )
     
-    async def transcribe_audio(self, audio_path: str, language: str = "pt") -> List[Dict]:
+    async def transcribe_audio(self, audio_path: str, language: str = "pt") -> list[dict[str, Any]]:
         """✅ Transcreve áudio usando audio-transcriber API.
         
         Args:

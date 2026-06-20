@@ -3,6 +3,7 @@ Services module - Business logic services
 
 Video building, subtitle generation, shorts management, blacklist.
 """
+from __future__ import annotations
 
 from .video_builder import VideoBuilder
 from .subtitle_generator import SubtitleGenerator

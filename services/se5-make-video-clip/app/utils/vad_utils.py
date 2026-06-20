@@ -4,8 +4,9 @@ Helpers vendorizados para Voice Activity Detection (VAD).
 Fornece funções compatíveis com silero-vad vendorizado (modelo JIT),
 sem dependência de torch.hub em runtime.
 """
+from __future__ import annotations
 
-from typing import List, Dict, Optional, Any
+from typing import Any
 import subprocess
 import os
 import tempfile
@@ -31,7 +32,7 @@ def get_speech_timestamps(
     min_silence_duration_ms: int = 100,
     window_size_samples: int = 512,
     speech_pad_ms: int = 30
-) -> List[Dict[str, int]]:
+) -> list[dict[str, int]]:
     """
     Detecta timestamps de fala usando modelo silero-vad.
     
@@ -103,13 +104,13 @@ def get_speech_timestamps(
         return [{'start': 0, 'end': len(wav[0]) if wav.dim() > 1 else len(wav)}]
 
 def _probs_to_timestamps(
-    speech_probs: List[Dict],
+    speech_probs: list[dict[str, Any]],
     threshold: float,
     sampling_rate: int,
     min_speech_duration_ms: int,
     min_silence_duration_ms: int,
     speech_pad_ms: int
-) -> List[Dict[str, int]]:
+) -> list[dict[str, int]]:
     """
     Converte probabilidades de fala em timestamps discretos.
     
@@ -164,9 +165,9 @@ def _probs_to_timestamps(
     return merged
 
 def _merge_close_segments(
-    timestamps: List[Dict[str, int]],
+    timestamps: list[dict[str, int]],
     min_gap_samples: int
-) -> List[Dict[str, int]]:
+) -> list[dict[str, int]]:
     """Merge segmentos com gap < min_gap_samples"""
     if not timestamps:
         return []
@@ -227,7 +228,7 @@ def load_audio_torch(
 
 def convert_to_16k_wav(
     input_path: str,
-    output_path: Optional[str] = None
+    output_path: str | None = None
 ) -> str:
     """
     Converte áudio para formato requerido por webrtcvad: 16kHz, mono, PCM16.
@@ -276,7 +277,7 @@ def convert_to_16k_wav(
         logger.error(f"Erro em convert_to_16k_wav: {e}")
         raise
 
-def validate_audio_format(audio_path: str) -> Dict[str, Any]:
+def validate_audio_format(audio_path: str) -> dict[str, Any]:
     """
     Valida formato de áudio usando ffprobe.
     

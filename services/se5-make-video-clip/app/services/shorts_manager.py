@@ -4,10 +4,11 @@ Shorts Cache Manager
 Gerencia cache LOCAL de shorts baixados via video-downloader API.
 NÃO baixa vídeos diretamente - apenas armazena e reutiliza.
 """
+from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Any
 from datetime import datetime, timedelta
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
@@ -21,7 +22,7 @@ class ShortsCache:
     chamadas à API do video-downloader para reutilização.
     """
     
-    def __init__(self, cache_dir: str):
+    def __init__(self, cache_dir: str) -> None:
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
@@ -31,7 +32,7 @@ class ShortsCache:
         logger.info(f"💾 Shorts cache initialized: {self.cache_dir}")
         logger.info(f"📊 Current cache size: {len(self.metadata)} shorts")
     
-    def _load_metadata(self) -> Dict:
+    def _load_metadata(self) -> dict[str, Any]:
         """Carrega metadata do cache"""
         if self.metadata_file.exists():
             try:
@@ -42,7 +43,7 @@ class ShortsCache:
                 return {}
         return {}
     
-    def _save_metadata(self):
+    def _save_metadata(self) -> None:
         """Salva metadata do cache"""
         try:
             with open(self.metadata_file, 'w', encoding='utf-8') as f:
@@ -50,7 +51,7 @@ class ShortsCache:
         except Exception as e:
             logger.error(f"Error saving metadata: {e}")
     
-    def get(self, video_id: str) -> Optional[Dict]:
+    def get(self, video_id: str) -> dict[str, Any] | None:
         """Retorna metadata se short existe em cache LOCAL
         
         Args:
@@ -81,7 +82,7 @@ class ShortsCache:
         logger.info(f"❌ Cache MISS: {video_id}")
         return None
     
-    def add(self, video_id: str, file_path: str, metadata: Dict):
+    def add(self, video_id: str, file_path: str, metadata: dict[str, Any]) -> None:
         """Adiciona short ao cache LOCAL (após download via video-downloader API)
         
         Args:
@@ -152,7 +153,7 @@ class ShortsCache:
         """
         return self.cache_dir / f"{video_id}.mp4"
     
-    def get_cache_stats(self) -> Dict:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Retorna estatísticas do cache"""
         if not self.metadata:
             return {
@@ -231,7 +232,7 @@ class ShortsCache:
         
         return removed_count
     
-    def list_all(self) -> List[Dict]:
+    def list_all(self) -> list[dict[str, Any]]:
         """Lista todos os shorts no cache
         
         Returns:
@@ -239,7 +240,7 @@ class ShortsCache:
         """
         return list(self.metadata.values())
     
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict[str, Any]:
         """Retorna estatísticas do cache (alias para get_cache_stats)
         
         Returns:

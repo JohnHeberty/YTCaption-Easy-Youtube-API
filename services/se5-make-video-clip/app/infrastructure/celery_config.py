@@ -1,6 +1,7 @@
 """
 Celery Configuration for Make-Video Service
 """
+from __future__ import annotations
 
 from celery import Celery
 import os

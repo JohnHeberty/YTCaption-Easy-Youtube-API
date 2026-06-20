@@ -16,8 +16,7 @@ JobProcessor - Chain of Responsibility pattern for job execution
     - Checkpoint-based recovery
     - Rich error context
 """
-
-from typing import List, Optional
+from __future__ import annotations
 
 from .job_stage import JobStage, StageContext, StageResult, StageStatus
 from ..shared.events import EventType
@@ -33,7 +32,7 @@ class JobProcessor:
     Executes stages in sequence with automatic compensation on failure
     """
     
-    def __init__(self, stages: List[JobStage]):
+    def __init__(self, stages: list[JobStage]) -> None:
         """
         Initialize processor with stages
         
@@ -41,7 +40,7 @@ class JobProcessor:
             stages: List of stages to execute in order
         """
         self.stages = stages
-        self.completed_stages: List[JobStage] = []
+        self.completed_stages: list[JobStage] = []
     
     async def process(self, context: StageContext) -> StageContext:
         """
@@ -135,7 +134,7 @@ class JobProcessor:
             
             raise error
     
-    async def _compensate_stages(self, context: StageContext):
+    async def _compensate_stages(self, context: StageContext) -> None:
         """
         Compensate completed stages in reverse order (Saga pattern)
         
@@ -170,7 +169,7 @@ class JobProcessor:
         
         logger.info("✅ Compensation completed")
     
-    def get_stage(self, name: str) -> Optional[JobStage]:
+    def get_stage(self, name: str) -> JobStage | None:
         """
         Get stage by name
         
@@ -185,7 +184,7 @@ class JobProcessor:
                 return stage
         return None
     
-    def get_completed_stages(self) -> List[str]:
+    def get_completed_stages(self) -> list[str]:
         """
         Get list of completed stage names
         

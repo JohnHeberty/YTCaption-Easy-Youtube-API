@@ -3,7 +3,7 @@
 from __future__ import annotations
 from common.log_utils import get_logger
 
-from typing import Optional
+from typing import Any
 
 from fastapi import APIRouter, Response
 
@@ -19,7 +19,7 @@ router = APIRouter(tags=["Health"])
     "/",
     include_in_schema=False,
 )
-def home():
+def home() -> Response:
     """Home page."""
     return Response(
         content=(
@@ -34,7 +34,7 @@ def home():
 
 
 @router.get("/health", tags=["Health"])
-def health():
+def health() -> dict[str, Any]:
     """Basic health check."""
     try:
         from app.services.worker import worker_queue
@@ -55,7 +55,7 @@ def health():
 
 
 @router.get("/health/deep", tags=["Health"])
-def health_deep():
+def health_deep() -> dict[str, Any]:
     """Deep health check with component status."""
     checks = {}
     try:
@@ -89,6 +89,6 @@ def health_deep():
 
 
 @router.get("/ping", tags=["Health"])
-async def ping():
+async def ping() -> str:
     """Ping — returns pong."""
     return "pong"

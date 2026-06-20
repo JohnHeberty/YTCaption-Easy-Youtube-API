@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Frame Extractor Otimizado (Sprint 05)
 
@@ -8,7 +10,6 @@ Elimina necessidade de transcode completo para codecs pesados (AV1).
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import List, Tuple, Optional
 import cv2
 import numpy as np
 from dataclasses import dataclass
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 @dataclass
 class ExtractionResult:
     """Resultado da extração de frames"""
-    frames: List[Tuple[np.ndarray, float]]  # [(frame, timestamp), ...]
+    frames: list[tuple[np.ndarray, float]]  # [(frame, timestamp), ...]
     extraction_time_ms: float
     method: str  # 'opencv' or 'ffmpeg'
 
@@ -30,7 +31,7 @@ class FFmpegFrameExtractor:
     Sprint 05: Usa FFmpeg para extrair frames específicos sem transcode completo
     """
     
-    def __init__(self, downscale_width: int = 640):
+    def __init__(self, downscale_width: int = 640) -> None:
         self.downscale_width = downscale_width
         self.ffmpeg_available = self._check_ffmpeg_available()
     
@@ -58,7 +59,7 @@ class FFmpegFrameExtractor:
     def extract_frames(
         self,
         video_path: str,
-        timestamps: List[float],
+        timestamps: list[float],
         timeout: int = 60
     ) -> ExtractionResult:
         """
@@ -152,8 +153,8 @@ class FFmpegFrameExtractor:
     def _extract_with_opencv(
         self,
         video_path: str,
-        timestamps: List[float]
-    ) -> List[Tuple[np.ndarray, float]]:
+        timestamps: list[float]
+    ) -> list[tuple[np.ndarray, float]]:
         """Extrai frames com OpenCV (método atual)"""
         cap = cv2.VideoCapture(video_path)
         
@@ -178,9 +179,9 @@ class FFmpegFrameExtractor:
     def _extract_with_ffmpeg(
         self,
         video_path: str,
-        timestamps: List[float],
+        timestamps: list[float],
         timeout: int = 60
-    ) -> List[Tuple[np.ndarray, float]]:
+    ) -> list[tuple[np.ndarray, float]]:
         """
         Extrai frames com FFmpeg (otimizado para codecs pesados)
         

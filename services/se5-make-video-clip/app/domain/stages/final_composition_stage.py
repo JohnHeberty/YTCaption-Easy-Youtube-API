@@ -8,8 +8,10 @@ FinalCompositionStage - Add audio, optional title card, and burn subtitles
     - Create final video file
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
@@ -20,7 +22,7 @@ logger = get_logger(__name__)
 class FinalCompositionStage(JobStage):
     """Stage 7: Final composition (optional title card + audio + optional subtitles)"""
     
-    def __init__(self, video_builder):
+    def __init__(self, video_builder) -> None:
         super().__init__(
             name="final_composition",
             progress_start=85.0,
@@ -28,7 +30,7 @@ class FinalCompositionStage(JobStage):
         )
         self.video_builder = video_builder
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate all required files exist"""
         if not context.temp_video_path or not context.temp_video_path.exists():
             raise VideoProcessingException(
@@ -53,7 +55,7 @@ class FinalCompositionStage(JobStage):
                     job_id=context.job_id,
                 )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Compose final video with optional title card, audio, and optional subtitles.
         
@@ -201,7 +203,7 @@ class FinalCompositionStage(JobStage):
         )
         return output_path
     
-    async def compensate(self, context: StageContext):
+    async def compensate(self, context: StageContext) -> None:
         """Delete intermediate and final video files"""
         for attr in ('video_with_audio_path', 'final_video_path'):
             path = getattr(context, attr, None)

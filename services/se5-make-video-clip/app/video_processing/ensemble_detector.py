@@ -1,4 +1,6 @@
-"""  
+from __future__ import annotations
+
+"""
 Ensemble detector that combines multiple subtitle detectors.
 
 Sprint 06 - Ensemble Setup
@@ -7,7 +9,7 @@ Sprint 07 - Advanced Voting & Conflict Detection
 Combines PaddleOCR, CLIP, and EasyOCR with weighted voting for robust detection.
 """
 
-from typing import Dict, List, Optional
+from typing import Any
 import time
 
 from common.log_utils import get_logger
@@ -48,12 +50,12 @@ class EnsembleSubtitleDetector:
     
     def __init__(
         self,
-        detectors: Optional[List[BaseSubtitleDetector]] = None,
+        detectors: list[BaseSubtitleDetector] | None = None,
         voting_method: str = 'weighted',
-        custom_weights: Optional[Dict[str, float]] = None,
+        custom_weights: dict[str, float] | None = None,
         enable_conflict_detection: bool = False,
         enable_uncertainty_estimation: bool = False
-    ):
+    ) -> None:
         """
         Initialize ensemble detector.
         
@@ -102,7 +104,7 @@ class EnsembleSubtitleDetector:
         # Confidence-weighted voting (Sprint 07)
         self.confidence_weighted_voting = ConfidenceWeightedVoting()
     
-    def detect(self, video_path: str) -> Dict:
+    def detect(self, video_path: str) -> dict[str, Any]:
         """
         Detect subtitles using ensemble of models.
         
@@ -191,7 +193,7 @@ class EnsembleSubtitleDetector:
         
         return final_result
     
-    def _weighted_voting(self, votes: Dict) -> Dict:
+    def _weighted_voting(self, votes: dict[str, Any]) -> dict[str, Any]:
         """
         Weighted average voting.
         
@@ -246,7 +248,7 @@ class EnsembleSubtitleDetector:
             }
         }
     
-    def _majority_voting(self, votes: Dict) -> Dict:
+    def _majority_voting(self, votes: dict[str, Any]) -> dict[str, Any]:
         """
         Simple majority voting (50%+ must agree).
         
@@ -282,7 +284,7 @@ class EnsembleSubtitleDetector:
             }
         }
     
-    def _unanimous_voting(self, votes: Dict) -> Dict:
+    def _unanimous_voting(self, votes: dict[str, Any]) -> dict[str, Any]:
         """
         Unanimous voting (all must agree).
         
@@ -323,7 +325,7 @@ class EnsembleSubtitleDetector:
             }
         }
     
-    def get_detector_weights(self) -> Dict[str, float]:
+    def get_detector_weights(self) -> dict[str, float]:
         """
         Get current weights for all detectors.
         
@@ -337,7 +339,7 @@ class EnsembleSubtitleDetector:
         
         return weights
     
-    def set_custom_weights(self, weights: Dict[str, float]) -> None:
+    def set_custom_weights(self, weights: dict[str, float]) -> None:
         """
         Set custom weights for detectors.
         

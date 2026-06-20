@@ -5,9 +5,10 @@ Segue princípios SOLID:
 - Interface Segregation: Interfaces pequenas e focadas
 - Dependency Inversion: Camadas superiores dependem de abstrações
 """
+from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Any
+from typing import Any
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,7 +31,7 @@ class JobInfo:
     progress: float
     created_at: Any  # datetime
     updated_at: Any  # datetime
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 class VideoBuilderInterface(ABC):
@@ -39,7 +40,7 @@ class VideoBuilderInterface(ABC):
     @abstractmethod
     async def concatenate_videos(
         self,
-        video_files: List[str],
+        video_files: list[str],
         output_path: str,
         aspect_ratio: str,
         crop_position: str,
@@ -66,7 +67,7 @@ class VideoBuilderInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_video_info(self, video_path: str) -> Dict[str, Any]:
+    async def get_video_info(self, video_path: str) -> dict[str, Any]:
         """Obtém informações do vídeo."""
         pass
 
@@ -93,33 +94,33 @@ class JobManagerInterface(ABC):
     """Interface para gerenciamento de jobs."""
 
     @abstractmethod
-    async def create_job(self, job_data: Dict[str, Any]) -> JobInfo:
+    async def create_job(self, job_data: dict[str, Any]) -> JobInfo:
         """Cria um novo job."""
         pass
 
     @abstractmethod
-    async def get_job(self, job_id: str) -> Optional[JobInfo]:
+    async def get_job(self, job_id: str) -> JobInfo | None:
         """Obtém informações de um job."""
         pass
 
     @abstractmethod
     async def update_job(self, job_id: str, status: str,
-                        progress: float, metadata: Optional[Dict] = None) -> bool:
+                        progress: float, metadata: dict[str, Any] | None = None) -> bool:
         """Atualiza status e progresso de um job."""
         pass
 
     @abstractmethod
-    async def complete_job(self, job_id: str, result: Dict[str, Any]) -> bool:
+    async def complete_job(self, job_id: str, result: dict[str, Any]) -> bool:
         """Marca job como completo com resultado."""
         pass
 
     @abstractmethod
-    async def fail_job(self, job_id: str, error: Dict[str, Any]) -> bool:
+    async def fail_job(self, job_id: str, error: dict[str, Any]) -> bool:
         """Marca job como falho com erro."""
         pass
 
     @abstractmethod
-    async def list_jobs(self, limit: int = 100) -> List[JobInfo]:
+    async def list_jobs(self, limit: int = 100) -> list[JobInfo]:
         """Lista todos os jobs."""
         pass
 
@@ -128,7 +129,7 @@ class CacheManagerInterface(ABC):
     """Interface para gerenciamento de cache de shorts."""
 
     @abstractmethod
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Retorna estatísticas do cache."""
         pass
 
@@ -138,7 +139,7 @@ class CacheManagerInterface(ABC):
         pass
 
     @abstractmethod
-    def get_approved_videos(self) -> List[Path]:
+    def get_approved_videos(self) -> list[Path]:
         """Retorna lista de vídeos aprovados."""
         pass
 
@@ -147,7 +148,7 @@ class RedisClientInterface(ABC):
     """Interface para cliente Redis."""
 
     @abstractmethod
-    async def get(self, key: str) -> Optional[str]:
+    async def get(self, key: str) -> str | None:
         """Obtém valor do Redis."""
         pass
 
@@ -162,7 +163,7 @@ class RedisClientInterface(ABC):
         pass
 
     @abstractmethod
-    def scan_iter(self, match: str):
+    def scan_iter(self, match: str) -> Any:
         """Itera sobre chaves."""
         pass
 
@@ -180,7 +181,7 @@ class LockManagerInterface(ABC):
     """Interface para gerenciamento de locks distribuídos."""
 
     @abstractmethod
-    async def acquire(self, lock_name: str, timeout_seconds: int) -> Optional[str]:
+    async def acquire(self, lock_name: str, timeout_seconds: int) -> str | None:
         """Adquire lock. Retorna token ou None se falhar."""
         pass
 
@@ -204,6 +205,6 @@ class HealthCheckerInterface(ABC):
         pass
 
     @abstractmethod
-    async def check_all(self) -> Dict[str, bool]:
+    async def check_all(self) -> dict[str, bool]:
         """Executa todos os checks."""
         pass

@@ -1,5 +1,7 @@
 """InpaintWorker — manages inpainting region, UNet patching, post-processing."""
-from typing import Optional, Tuple
+from __future__ import annotations
+
+from typing import Any
 from common.log_utils import get_logger
 
 import cv2
@@ -11,7 +13,7 @@ from PIL import Image, ImageFilter
 logger = get_logger(__name__)
 
 # Global singleton for current inpaint task
-current_task: Optional["InpaintWorker"] = None
+current_task: InpaintWorker | None = None
 inpaint_head_model = None
 
 
@@ -44,7 +46,7 @@ def up255(x: np.ndarray, t: float = 0) -> np.ndarray:
     return np.where(x > t, 255, 0).astype(np.uint8)
 
 
-def regulate_abcd(x: np.ndarray, a: int, b: int, c: int, d: int) -> Tuple[int, int, int, int]:
+def regulate_abcd(x: np.ndarray, a: int, b: int, c: int, d: int) -> tuple[int, int, int, int]:
     """Clamp bounding box to image dimensions."""
     h, w = x.shape[:2]
     a = max(0, min(a, w))
@@ -54,7 +56,7 @@ def regulate_abcd(x: np.ndarray, a: int, b: int, c: int, d: int) -> Tuple[int, i
     return a, b, c, d
 
 
-def compute_initial_abcd(x: np.ndarray) -> Tuple[int, int, int, int]:
+def compute_initial_abcd(x: np.ndarray) -> tuple[int, int, int, int]:
     """Find bounding box of non-zero mask, expand to square with 15% margin."""
     mask = (x > 0).astype(np.uint8)
     coords = np.where(mask)
@@ -94,7 +96,7 @@ def compute_initial_abcd(x: np.ndarray) -> Tuple[int, int, int, int]:
 
 def solve_abcd(
     x: np.ndarray, a: int, b: int, c: int, d: int, k: float = 0.618
-) -> Tuple[int, int, int, int]:
+) -> tuple[int, int, int, int]:
     """Expand bounding box until it covers k fraction of image (aspect-ratio aware)."""
     h, w = x.shape[:2]
     target_area = h * w * k
@@ -140,7 +142,7 @@ def fooocus_fill(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
 class InpaintHead(torch.nn.Module):
     """Tiny CNN head for inpainting: 5-channel input (4 latent + 1 mask) -> 320 channels."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.head = torch.nn.Parameter(torch.randn(320, 5, 3, 3) * 0.01)
 
@@ -164,7 +166,7 @@ class InpaintWorker:
         mask: np.ndarray,
         use_fill: bool = True,
         k: float = 0.618,
-    ):
+    ) -> None:
         """
         Args:
             image: Input image (HWC, RGB, uint8)
@@ -219,10 +221,10 @@ class InpaintWorker:
         self.interested_mask = morphological_open((self.interested_mask * 255).astype(np.uint8)).astype(np.float32) / 255.0
 
         # Latent storage
-        self.latent: Optional[torch.Tensor] = None
-        self.latent_fill: Optional[torch.Tensor] = None
-        self.latent_mask: Optional[torch.Tensor] = None
-        self.latent_after_swap: Optional[torch.Tensor] = None
+        self.latent: torch.Tensor | None = None
+        self.latent_fill: torch.Tensor | None = None
+        self.latent_mask: torch.Tensor | None = None
+        self.latent_after_swap: torch.Tensor | None = None
 
         self.current_device = "cpu"
         logger.info(
@@ -234,8 +236,8 @@ class InpaintWorker:
         self,
         latent_fill: torch.Tensor,
         latent_mask: torch.Tensor,
-        latent_swap: Optional[torch.Tensor] = None,
-    ):
+        latent_swap: torch.Tensor | None = None,
+    ) -> None:
         """Store latent representations."""
         self.latent_fill = latent_fill
         self.latent_mask = latent_mask
@@ -249,7 +251,7 @@ class InpaintWorker:
         inpaint_latent: torch.Tensor,
         inpaint_latent_mask: torch.Tensor,
         model,
-    ):
+    ) -> Any:
         """Load InpaintHead, run inference, patch UNet's input block 0."""
         global inpaint_head_model
 
@@ -282,12 +284,12 @@ class InpaintWorker:
 
         return model
 
-    def swap(self):
+    def swap(self) -> None:
         """Swap latent with latent_after_swap (for VAE-based refiner swap)."""
         if self.latent_after_swap is not None:
             self.latent, self.latent_after_swap = self.latent_after_swap, self.latent
 
-    def unswap(self):
+    def unswap(self) -> None:
         """Reverse the swap."""
         self.swap()
 
@@ -328,7 +330,7 @@ class InpaintWorker:
 
         return result
 
-    def visualize_mask_processing(self):
+    def visualize_mask_processing(self) -> list[Any]:
         """Return [interested_fill, interested_mask, interested_image] for debugging."""
         return [
             self.interested_fill,

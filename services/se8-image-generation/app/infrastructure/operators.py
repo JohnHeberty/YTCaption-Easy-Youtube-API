@@ -13,7 +13,7 @@ Design decisions:
 from __future__ import annotations
 from common.log_utils import get_logger
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 logger = get_logger(__name__)
 
@@ -24,7 +24,7 @@ class EmptyLatentImage:
     Wraps ldm_patched.contrib.external.EmptyLatentImage.
     """
 
-    def generate(self, width: int = 1024, height: int = 1024, batch_size: int = 1):
+    def generate(self, width: int = 1024, height: int = 1024, batch_size: int = 1) -> tuple[dict[str, Any]]:
         """Generate an empty latent tensor.
 
         Args:
@@ -52,7 +52,7 @@ class VAEDecode:
     Wraps ldm_patched.contrib.external.VAEDecode.
     """
 
-    def decode(self, samples: Dict[str, Any], vae=None, tile_size: int = 512, tiled: bool = False):
+    def decode(self, samples: dict[str, Any], vae: Any = None, tile_size: int = 512, tiled: bool = False) -> Any:
         """Decode latent tensor to pixels.
 
         Args:
@@ -73,8 +73,9 @@ class VAEDecode:
         else:
             return self._decode_standard(vae, latent)
 
-    def _decode_standard(self, vae, latent):
+    def _decode_standard(self, vae: Any, latent: Any) -> Any:
         """Standard VAE decode."""
+        import torch
         try:
             return vae.decode(latent)
         except Exception as e:
@@ -82,7 +83,7 @@ class VAEDecode:
             with torch.autocast("cuda", enabled=False):
                 return vae.decode(latent.float())
 
-    def _decode_tiled(self, vae, latent, tile_size: int = 512):
+    def _decode_tiled(self, vae: Any, latent: Any, tile_size: int = 512) -> Any:
         """Tiled VAE decode for large images."""
         import torch
 
@@ -106,7 +107,7 @@ class VAEEncode:
     Wraps ldm_patched.contrib.external.VAEEncode.
     """
 
-    def encode(self, pixels, vae=None, tile_size: int = 512, tiled: bool = False):
+    def encode(self, pixels: Any, vae: Any = None, tile_size: int = 512, tiled: bool = False) -> dict[str, Any]:
         """Encode pixel tensor to latent.
 
         Args:
@@ -131,14 +132,14 @@ class VAEEncode:
 class VAEDecodeTiled:
     """Decode with tiled mode for large images."""
 
-    def decode(self, samples, vae=None, tile_size: int = 512):
+    def decode(self, samples: Any, vae: Any = None, tile_size: int = 512) -> Any:
         return VAEDecode().decode(samples, vae=vae, tile_size=tile_size, tiled=True)
 
 
 class VAEEncodeTiled:
     """Encode with tiled mode for large images."""
 
-    def encode(self, pixels, vae=None, tile_size: int = 512):
+    def encode(self, pixels: Any, vae: Any = None, tile_size: int = 512) -> dict[str, Any]:
         return VAEEncode().encode(pixels, vae=vae, tile_size=tile_size, tiled=True)
 
 
@@ -151,8 +152,8 @@ class FreeU_V2:
     and applying Fourier filtering to the skip features.
     """
 
-    def patch(self, model, b1: float = 1.3, b2: float = 1.4,
-              s1: float = 0.9, s2: float = 0.2):
+    def patch(self, model: Any, b1: float = 1.3, b2: float = 1.4,
+              s1: float = 0.9, s2: float = 0.2) -> tuple[Any]:
         """Apply FreeU v2 patching to a model.
 
         Args:
@@ -222,9 +223,9 @@ class ControlNetApplyAdvanced:
     """
 
     def apply_controlnet(
-        self, positive, negative, control_net, image,
+        self, positive: Any, negative: Any, control_net: Any, image: Any,
         strength: float = 1.0, start_percent: float = 0.0, end_percent: float = 1.0
-    ):
+    ) -> tuple[Any, Any]:
         """Apply ControlNet to conditioning.
 
         Args:
@@ -250,7 +251,7 @@ class ModelSamplingDiscrete:
     Stub for Sprint 4 — full implementation in Sprint 8 (performance modes).
     """
 
-    def patch(self, model, sampling: str = "eps"):
+    def patch(self, model: Any, sampling: str = "eps") -> tuple[Any]:
         logger.debug(f"ModelSamplingDiscrete.patch(sampling={sampling}) — stub")
         return (model,)
 
@@ -261,6 +262,6 @@ class ModelSamplingContinuousEDM:
     Stub for Sprint 4 — full implementation in Sprint 8 (performance modes).
     """
 
-    def patch(self, model, sampling: str = "eps", sigma_max: float = 1.0):
+    def patch(self, model: Any, sampling: str = "eps", sigma_max: float = 1.0) -> tuple[Any]:
         logger.debug(f"ModelSamplingContinuousEDM.patch(sampling={sampling}) — stub")
         return (model,)

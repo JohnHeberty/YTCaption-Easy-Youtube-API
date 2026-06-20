@@ -4,8 +4,9 @@ PaddleOCR detector wrapper for ensemble.
 Sprint 06 - Ensemble Setup
 Wraps the existing SubtitleDetectorV2 (Sprint 00-04) into the ensemble interface.
 """
+from __future__ import annotations
 
-from typing import Dict
+from typing import Any
 from .base_detector import BaseSubtitleDetector
 from ..subtitle_detector_v2 import SubtitleDetectorV2
 
@@ -22,7 +23,7 @@ class PaddleDetector(BaseSubtitleDetector):
         roi_mode: ROI detection mode ('bottom', 'multi', 'all')
     """
     
-    def __init__(self, roi_mode: str = 'multi'):
+    def __init__(self, roi_mode: str = 'multi') -> None:
         """
         Initialize Paddle detector wrapper.
         
@@ -36,7 +37,7 @@ class PaddleDetector(BaseSubtitleDetector):
         self.roi_mode = roi_mode
         self.detector = SubtitleDetectorV2(roi_mode=roi_mode)
     
-    def detect(self, video_path: str) -> Dict:
+    def detect(self, video_path: str) -> dict[str, Any]:
         """
         Detect subtitles using PaddleOCR + Multi-ROI.
         

@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends
@@ -14,7 +17,7 @@ verify_api_key = create_api_key_dependency(api_key=settings.se8_api_key)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting %s v%s", settings.app_name, settings.version)
     import threading
     from app.services.task_queue import TaskQueue
@@ -49,7 +52,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down %s", settings.app_name)
 
 
-def setup_routers(app: FastAPI):
+def setup_routers(app: FastAPI) -> None:
     from app.api import (
         admin_routes,
         file_routes,

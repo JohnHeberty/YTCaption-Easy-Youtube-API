@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Visual Features Analyzer
 
@@ -6,7 +8,6 @@ Analisa características visuais de texto para distinguir legendas de outros ele
 
 import cv2
 import numpy as np
-from typing import Dict, Tuple, List
 from dataclasses import dataclass
 from common.log_utils import get_logger
 
@@ -32,8 +33,8 @@ class VisualFeatures:
     aspect_ratio: float  # largura / altura
     
     # Cor
-    dominant_text_color: Tuple[int, int, int]  # BGR
-    dominant_bg_color: Tuple[int, int, int]
+    dominant_text_color: tuple[int, int, int]  # BGR
+    dominant_bg_color: tuple[int, int, int]
     
     # Score de "legenda-likeness"
 subtitle_score: float  # 0-100
@@ -52,14 +53,14 @@ class VisualFeaturesAnalyzer:
     - Aspect ratio > 3 (horizontal)
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.frame_height = None
         self.frame_width = None
     
     def analyze_frame_with_text(
         self,
         frame: np.ndarray,
-        text_bboxes: List[List]
+        text_bboxes: list[list]
     ) -> VisualFeatures:
         """
         Analisa features visuais em frame com texto detectado
@@ -113,8 +114,8 @@ class VisualFeaturesAnalyzer:
     
     def _analyze_vertical_position(
         self,
-        text_bboxes: List[List]
-    ) -> Tuple[str, float]:
+        text_bboxes: list[list]
+    ) -> tuple[str, float]:
         """Analisa posição vertical do texto"""
         
         # Calcular centro Y de cada bbox
@@ -149,8 +150,8 @@ class VisualFeaturesAnalyzer:
     def _analyze_contrast(
         self,
         frame: np.ndarray,
-        text_bboxes: List[List]
-    ) -> Tuple[float, bool]:
+        text_bboxes: list[list]
+    ) -> tuple[float, bool]:
         """Analisa contraste do texto"""
         
         contrasts = []
@@ -199,7 +200,7 @@ class VisualFeaturesAnalyzer:
         
         return avg_contrast, has_outline
     
-    def _analyze_size(self, text_bboxes: List[List]) -> Tuple[float, float]:
+    def _analyze_size(self, text_bboxes: list[list]) -> tuple[float, float]:
         """Analisa tamanho do texto"""
         
         heights = []
@@ -253,8 +254,8 @@ class VisualFeaturesAnalyzer:
     def _analyze_colors(
         self,
         frame: np.ndarray,
-        text_bboxes: List[List]
-    ) -> Tuple[Tuple[int, int, int], Tuple[int, int, int]]:
+        text_bboxes: list[list]
+    ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
         """Analisa cores dominantes (texto e fundo)"""
         
         text_colors = []

@@ -7,8 +7,10 @@ SelectShortsStage - Randomly select shorts up to target duration
     - Validate selection
 """
 
-from typing import Dict, Any
+from __future__ import annotations
+
 import random
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
@@ -19,14 +21,14 @@ logger = get_logger(__name__)
 class SelectShortsStage(JobStage):
     """Stage 4: Select shorts randomly"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name="select_shorts",
             progress_start=70.0,
             progress_end=75.0
         )
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate downloaded shorts exist"""
         if not context.downloaded_shorts:
             raise VideoProcessingException(
@@ -35,7 +37,7 @@ class SelectShortsStage(JobStage):
                 job_id=context.job_id,
             )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Select shorts randomly up to target duration
         

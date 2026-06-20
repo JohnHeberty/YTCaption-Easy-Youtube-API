@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OCR Detection Module
 
@@ -9,7 +11,6 @@ import cv2
 import numpy as np
 import easyocr
 import re
-from typing import Tuple, Optional, List, Set
 from dataclasses import dataclass
 from app.infrastructure.metrics import ocr_confidence_distribution
 from common.log_utils import get_logger
@@ -49,13 +50,13 @@ class OCRResult:
     confidence: float
     word_count: int
     has_subtitle: bool
-    readable_words: List[str]  # Palavras legíveis detectadas
+    readable_words: list[str]  # Palavras legíveis detectadas
 
 # ===== SINGLETON PATTERN (P1 Optimization) =====
 _global_ocr_detector = None
 _detector_lock = None
 
-def get_ocr_detector() -> 'OCRDetector':
+def get_ocr_detector() -> OCRDetector:
     """
     Retorna instância singleton de OCRDetector (P1 Optimization)
     
@@ -113,7 +114,7 @@ class OCRDetector:
         'help', 'put', 'different', 'away', 'again', 'off', 'went', 'number'
     }
     
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Inicializa detector com EasyOCR configurado para PT e EN
         
@@ -231,7 +232,7 @@ class OCRDetector:
         
         return binary
     
-    def _process_easyocr_results(self, ocr_results: List, min_confidence: float = 60.0) -> Tuple[str, float, List[str]]:
+    def _process_easyocr_results(self, ocr_results: list, min_confidence: float = 60.0) -> tuple[str, float, list[str]]:
         """
         Processa resultados do EasyOCR aplicando pipeline de limpeza
         
@@ -299,7 +300,7 @@ class OCRDetector:
         self,
         video_path: str,
         timestamp: float
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """
         Extrai frame em um timestamp específico
         

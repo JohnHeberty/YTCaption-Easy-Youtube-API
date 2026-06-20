@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Detectors package for ensemble subtitle detection.
 

@@ -7,9 +7,10 @@ TrimVideoStage - Trim video to target duration with validation
     - Validate final output
     - Get video metadata
 """
+from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 import shutil
 
 from ..job_stage import JobStage, StageContext
@@ -44,7 +45,7 @@ class TrimVideoStage(JobStage):
                 job_id=context.job_id,
             )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Trim video to target duration
         

@@ -4,9 +4,10 @@ Granular Checkpoint System - Sprint-02
 Sistema de checkpoints granulares dentro de cada etapa do processamento.
 Permite recuperação precisa de jobs interrompidos.
 """
+from __future__ import annotations
 
 import json
-from typing import Dict, Any, Optional, List
+from typing import Any
 from datetime import datetime
 from common.datetime_utils import now_brazil
 
@@ -33,16 +34,16 @@ class CheckpointData:
     progress: float  # 0.0 - 1.0
     completed_items: int  # Items processados
     total_items: int  # Total de items
-    item_ids: List[str]  # IDs dos items completados (ex: video_ids)
-    metadata: Dict[str, Any]  # Dados adicionais específicos do estágio
+    item_ids: list[str]  # IDs dos items completados (ex: video_ids)
+    metadata: dict[str, Any]  # Dados adicionais específicos do estágio
     timestamp: str  # ISO timestamp
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Converte para dicionário"""
         return asdict(self)
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CheckpointData":
+    def from_dict(cls, data: dict[str, Any]) -> CheckpointData:
         """Cria instância a partir de dicionário"""
         return cls(**data)
 
@@ -62,7 +63,7 @@ class GranularCheckpointManager:
         Checkpoint básico teria que refazer todos os 50.
     """
     
-    def __init__(self, redis_store):
+    def __init__(self, redis_store: Any) -> None:
         """
         Args:
             redis_store: Instância do RedisJobStore
@@ -77,9 +78,9 @@ class GranularCheckpointManager:
         stage: CheckpointStage,
         completed_items: int,
         total_items: int,
-        item_ids: List[str],
-        metadata: Optional[Dict[str, Any]] = None
-    ):
+        item_ids: list[str],
+        metadata: dict[str, Any] | None = None
+    ) -> None:
         """
         Salva checkpoint granular.
         
@@ -116,7 +117,7 @@ class GranularCheckpointManager:
             f"({completed_items}/{total_items} = {progress:.1%})"
         )
     
-    async def load_checkpoint(self, job_id: str) -> Optional[CheckpointData]:
+    async def load_checkpoint(self, job_id: str) -> CheckpointData | None:
         """
         Carrega checkpoint granular.
         
@@ -176,9 +177,9 @@ class GranularCheckpointManager:
     async def get_remaining_items(
         self,
         job_id: str,
-        all_items: List[Any],
+        all_items: list[Any],
         item_id_extractor: callable
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Retorna items restantes baseado no checkpoint.
         
@@ -217,7 +218,7 @@ class GranularCheckpointManager:
         
         return remaining
     
-    async def clear_checkpoint(self, job_id: str):
+    async def clear_checkpoint(self, job_id: str) -> None:
         """
         Remove checkpoint após job completar com sucesso.
         
@@ -228,7 +229,7 @@ class GranularCheckpointManager:
         await self.redis_store.redis.delete(key)
         logger.debug(f"Granular checkpoint cleared for {job_id}")
     
-    def set_checkpoint_interval(self, interval: int):
+    def set_checkpoint_interval(self, interval: int) -> None:
         """
         Configura intervalo de checkpoint.
         
@@ -243,10 +244,10 @@ class GranularCheckpointManager:
 async def save_download_checkpoint(
     checkpoint_manager: GranularCheckpointManager,
     job_id: str,
-    downloaded_shorts: List[Any],
+    downloaded_shorts: list[Any],
     total_shorts: int,
-    shorts_list: List[Any]
-):
+    shorts_list: list[Any]
+) -> None:
     """
     Salva checkpoint durante download de shorts.
     
@@ -276,8 +277,8 @@ async def save_download_checkpoint(
 async def recover_download_progress(
     checkpoint_manager: GranularCheckpointManager,
     job_id: str,
-    shorts_list: List[Any]
-) -> List[Any]:
+    shorts_list: list[Any]
+) -> list[Any]:
     """
     Recupera progresso de download.
     
@@ -298,7 +299,7 @@ async def recover_download_progress(
 # Singleton global (inicializado com redis_store no celery_tasks.py)
 _checkpoint_manager = None
 
-def get_checkpoint_manager(redis_store=None) -> Optional[GranularCheckpointManager]:
+def get_checkpoint_manager(redis_store: Any = None) -> GranularCheckpointManager | None:
     """
     Retorna instância singleton do GranularCheckpointManager.
     

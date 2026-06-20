@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Feature Extractor Module - Sprint 03
 
@@ -18,7 +20,7 @@ Sprint: 03 - Feature Engineering
 
 import cv2
 import numpy as np
-from typing import Dict, List, Tuple, Optional
+from typing import Any
 import re
 from collections import Counter
 from common.log_utils import get_logger
@@ -42,12 +44,12 @@ class FeatureExtractor:
         # Returns dict with 56+ features
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize feature extractor"""
         self.feature_names = self._generate_feature_names()
         logger.info(f"FeatureExtractor initialized with {len(self.feature_names)} features")
     
-    def _generate_feature_names(self) -> List[str]:
+    def _generate_feature_names(self) -> list[str]:
         """Generate list of all feature names"""
         features = []
         
@@ -129,7 +131,7 @@ class FeatureExtractor:
         
         return features
     
-    def extract_position_features(self, bboxes: List[np.ndarray], frame_shape: Tuple[int, int]) -> Dict[str, float]:
+    def extract_position_features(self, bboxes: list[np.ndarray], frame_shape: tuple[int, int]) -> dict[str, float]:
         """
         Extract position-based features from bounding boxes.
         
@@ -183,7 +185,7 @@ class FeatureExtractor:
             'pos_consistency': consistency,
         }
     
-    def extract_temporal_features(self, frame_detections: List[Dict], duration: float) -> Dict[str, float]:
+    def extract_temporal_features(self, frame_detections: list[dict[str, Any]], duration: float) -> dict[str, float]:
         """
         Extract temporal features from frame-by-frame detections.
         
@@ -267,7 +269,7 @@ class FeatureExtractor:
             'temp_stability': stability,
         }
     
-    def extract_visual_features(self, frames: List[np.ndarray], bboxes_per_frame: List[List[np.ndarray]]) -> Dict[str, float]:
+    def extract_visual_features(self, frames: list[np.ndarray], bboxes_per_frame: list[list[np.ndarray]]) -> dict[str, float]:
         """
         Extract visual features from frames and bounding boxes.
         
@@ -378,7 +380,7 @@ class FeatureExtractor:
             'vis_size_consistency': size_consistency,
         }
     
-    def extract_text_features(self, texts: List[str]) -> Dict[str, float]:
+    def extract_text_features(self, texts: list[str]) -> dict[str, float]:
         """
         Extract text-based features.
         
@@ -441,7 +443,7 @@ class FeatureExtractor:
             'text_newline_ratio': newline_ratio,
         }
     
-    def extract_ocr_features(self, confidences: List[float]) -> Dict[str, float]:
+    def extract_ocr_features(self, confidences: list[float]) -> dict[str, float]:
         """
         Extract OCR confidence features.
         
@@ -477,11 +479,11 @@ class FeatureExtractor:
     
     def extract_all_features(
         self,
-        frame_detections: List[Dict],
+        frame_detections: list[dict[str, Any]],
         duration: float,
-        frames: Optional[List[np.ndarray]] = None,
-        frame_shape: Tuple[int, int] = (1080, 1920)
-    ) -> Dict[str, float]:
+        frames: list[np.ndarray] | None = None,
+        frame_shape: tuple[int, int] = (1080, 1920)
+    ) -> dict[str, float]:
         """
         Extract all 56 features from detection data.
         
@@ -537,11 +539,11 @@ class FeatureExtractor:
         
         return all_features
     
-    def get_feature_vector(self, features: Dict[str, float]) -> np.ndarray:
+    def get_feature_vector(self, features: dict[str, float]) -> np.ndarray:
         """Convert feature dict to numpy array in consistent order"""
         return np.array([features.get(name, 0.0) for name in self.feature_names])
     
-    def get_feature_names(self) -> List[str]:
+    def get_feature_names(self) -> list[str]:
         """Get list of feature names in order"""
         return self.feature_names.copy()
 

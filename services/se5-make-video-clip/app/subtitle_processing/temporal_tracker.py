@@ -4,9 +4,9 @@ TRSD - Temporal Tracking (Sprint 02)
 Sistema de tracking de texto através de frames para análise de dinâmica temporal.
 Rastreia regiões de texto entre frames para determinar se é legenda dinâmica ou texto estático.
 """
+from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 from collections import defaultdict
 import numpy as np
 from Levenshtein import distance as levenshtein_distance
@@ -27,7 +27,7 @@ class Track:
     """
     track_id: int
     roi_type: ROIType
-    detections: List[TextLine] = field(default_factory=list)
+    detections: list[TextLine] = field(default_factory=list)
     
     # Métricas calculadas
     presence_ratio: float = 0.0      # % de frames onde aparece
@@ -36,11 +36,11 @@ class Track:
     y_std: float = 0.0               # Desvio padrão Y (estabilidade vertical)
     avg_confidence: float = 0.0      # Confiança média OCR
     
-    def add_detection(self, text_line: TextLine):
+    def add_detection(self, text_line: TextLine) -> None:
         """Adiciona detecção ao track"""
         self.detections.append(text_line)
     
-    def compute_metrics(self, total_frames: int):
+    def compute_metrics(self, total_frames: int) -> None:
         """
         Calcula métricas temporais do track
         
@@ -89,7 +89,7 @@ class Track:
             f"change_rate={self.text_change_rate:.2f}, y_std={self.y_std:.1f}"
         )
     
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"Track(id={self.track_id}, roi={self.roi_type.value}, "
             f"presence={self.presence_ratio:.2f}, change_rate={self.text_change_rate:.2f})"
@@ -103,7 +103,7 @@ class TemporalTracker:
     para criar tracks temporais.
     """
     
-    def __init__(self, config: Optional[Settings] = None):
+    def __init__(self, config: Settings | None = None) -> None:
         self.config = config or Settings()
         
         # Parâmetros de associação
@@ -112,7 +112,7 @@ class TemporalTracker:
         
         # Estado interno
         self.next_track_id = 1
-        self.active_tracks: List[Track] = []
+        self.active_tracks: list[Track] = []
         self.total_frames = 0
         
         logger.info(
@@ -120,7 +120,7 @@ class TemporalTracker:
             f"max_distance={self.max_distance_px}px"
         )
     
-    def update(self, text_lines: List[TextLine], frame_idx: int):
+    def update(self, text_lines: list[TextLine], frame_idx: int) -> None:
         """
         Atualiza tracker com novas detecções
         
@@ -138,7 +138,7 @@ class TemporalTracker:
         # Associar detecções aos tracks existentes
         self._associate_detections(text_lines)
     
-    def finalize(self) -> List[Track]:
+    def finalize(self) -> list[Track]:
         """
         Finaliza tracking e retorna tracks completos com métricas
         
@@ -153,7 +153,7 @@ class TemporalTracker:
         
         return self.active_tracks
     
-    def _initialize_tracks(self, text_lines: List[TextLine]):
+    def _initialize_tracks(self, text_lines: list[TextLine]) -> None:
         """Cria tracks iniciais a partir do primeiro frame"""
         for text_line in text_lines:
             track = Track(
@@ -166,7 +166,7 @@ class TemporalTracker:
         
         logger.debug(f"Initialized {len(self.active_tracks)} tracks")
     
-    def _associate_detections(self, text_lines: List[TextLine]):
+    def _associate_detections(self, text_lines: list[TextLine]) -> None:
         """
         Associa detecções atuais aos tracks existentes
         
@@ -214,8 +214,8 @@ class TemporalTracker:
     
     def _compute_cost_matrix(
         self,
-        tracks: List[Track],
-        detections: List[TextLine]
+        tracks: list[Track],
+        detections: list[TextLine]
     ) -> np.ndarray:
         """
         Calcula matriz de custos para associação
@@ -260,9 +260,9 @@ class TemporalTracker:
     def _greedy_matching(
         self,
         cost_matrix: np.ndarray,
-        tracks: List[Track],
-        detections: List[TextLine]
-    ) -> Tuple[List[Tuple[int, int]], List[int]]:
+        tracks: list[Track],
+        detections: list[TextLine]
+    ) -> tuple[list[tuple[int, int]], list[int]]:
         """
         Matching guloso baseado em custo mínimo
         
@@ -303,8 +303,8 @@ class TemporalTracker:
     
     def _calculate_iou(
         self,
-        bbox1: Tuple[int, int, int, int],
-        bbox2: Tuple[int, int, int, int]
+        bbox1: tuple[int, int, int, int],
+        bbox2: tuple[int, int, int, int]
     ) -> float:
         """
         Calcula IoU (Intersection over Union) entre duas bboxes
@@ -348,8 +348,8 @@ class TemporalTracker:
     
     def _calculate_distance(
         self,
-        bbox1: Tuple[int, int, int, int],
-        bbox2: Tuple[int, int, int, int]
+        bbox1: tuple[int, int, int, int],
+        bbox2: tuple[int, int, int, int]
     ) -> float:
         """
         Calcula distância Euclidiana entre centros de duas bboxes

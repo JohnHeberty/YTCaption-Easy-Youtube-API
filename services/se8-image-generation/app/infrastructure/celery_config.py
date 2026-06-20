@@ -3,6 +3,7 @@
 SE8 IS the GPU engine (not a proxy).
 The Celery worker runs process_generate() directly.
 """
+from __future__ import annotations
 
 import os
 import sys

@@ -1,5 +1,7 @@
 """Face restoration — GFPGAN/CodeFormer via facexlib and ldm_patched."""
-from typing import Optional
+from __future__ import annotations
+
+from typing import Any
 from common.log_utils import get_logger
 
 import cv2
@@ -12,7 +14,7 @@ _face_restoration_model = None
 _face_restore_helper = None
 
 
-def _get_face_restore_helper():
+def _get_face_restore_helper() -> Any:
     """Lazy-load FaceRestoreHelper singleton."""
     global _face_restore_helper
     if _face_restore_helper is not None:
@@ -35,7 +37,7 @@ def _get_face_restore_helper():
         return None
 
 
-def _load_restoration_model(model_name: str = "CodeFormer"):
+def _load_restoration_model(model_name: str = "CodeFormer") -> Any:
     """Lazy-load face restoration model.
 
     Args:

@@ -3,11 +3,12 @@ TRSD Telemetry System (Sprint 07)
 
 Sistema completo de telemetria, métricas e debug artifacts para TRSD.
 """
+from __future__ import annotations
 
 import time
 import json
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from datetime import datetime
@@ -30,7 +31,7 @@ class PerformanceMetrics:
     tracks_created: int
     lines_detected: int
     
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 @dataclass
@@ -47,14 +48,14 @@ class DetectionEvent:
     metrics: PerformanceMetrics
     
     # Detalhes
-    tracks_by_category: Dict[str, int]
+    tracks_by_category: dict[str, int]
     decision_logic: str
     early_exit: bool
     
     # Debug
-    debug_info: Dict
+    debug_info: dict[str, Any]
     
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data['metrics'] = self.metrics.to_dict()
         return data
@@ -66,11 +67,11 @@ class TRSDTelemetry:
     Coleta métricas de performance, decisões e debugging
     """
     
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
         self.timers = {}
     
-    def start_timer(self, name: str):
+    def start_timer(self, name: str) -> None:
         """Inicia timer para uma etapa"""
         if not self.enabled:
             return
@@ -93,11 +94,11 @@ class TRSDTelemetry:
         reason: str,
         method: str,
         metrics: PerformanceMetrics,
-        tracks_by_category: Dict[str, int],
+        tracks_by_category: dict[str, int],
         decision_logic: str,
         early_exit: bool = False,
-        debug_info: Optional[Dict] = None
-    ):
+        debug_info: dict[str, Any] | None = None
+    ) -> None:
         """
         Registra decisão de detecção
         
@@ -129,7 +130,7 @@ class TRSDTelemetry:
         if os.getenv('TRSD_SAVE_DETECTION_EVENTS', 'false') == 'true':
             self._save_event(event)
     
-    def _save_event(self, event: DetectionEvent):
+    def _save_event(self, event: DetectionEvent) -> None:
         """Salva evento em arquivo JSON"""
         events_dir = Path('data/logs/debug/detection_events')
         events_dir.mkdir(parents=True, exist_ok=True)
@@ -152,7 +153,7 @@ class DebugArtifactSaver:
     - metrics.json com métricas
     """
     
-    def __init__(self, enabled: bool = False, base_dir: str = 'data/logs/debug/artifacts'):
+    def __init__(self, enabled: bool = False, base_dir: str = 'data/logs/debug/artifacts') -> None:
         self.enabled = enabled
         self.base_dir = Path(base_dir)
         if self.enabled:
@@ -161,11 +162,11 @@ class DebugArtifactSaver:
     def save_detection_artifacts(
         self,
         video_id: str,
-        frames: List[Tuple[np.ndarray, float]],
-        tracks: List,
-        result,
+        frames: list[tuple[np.ndarray, float]],
+        tracks: list[Any],
+        result: Any,
         metrics: PerformanceMetrics
-    ):
+    ) -> None:
         """
         Salva artifacts de uma detecção
         """
@@ -192,7 +193,7 @@ class DebugArtifactSaver:
         except Exception as e:
             logger.warning(f"Could not save debug artifacts: {e}")
     
-    def _save_tracks(self, video_dir: Path, tracks: List):
+    def _save_tracks(self, video_dir: Path, tracks: list[Any]) -> None:
         """Salva tracks como JSON (com truncamento para privacidade)"""
         tracks_data = []
         
@@ -222,7 +223,7 @@ class DebugArtifactSaver:
         with open(video_dir / 'tracks.json', 'w') as f:
             json.dump(tracks_data, f, indent=2)
     
-    def _save_metrics(self, video_dir: Path, metrics: PerformanceMetrics, result):
+    def _save_metrics(self, video_dir: Path, metrics: PerformanceMetrics, result: Any) -> None:
         """Salva métricas"""
         data = {
             'metrics': metrics.to_dict(),
@@ -240,9 +241,9 @@ class DebugArtifactSaver:
     def _save_frames_with_bboxes(
         self,
         video_dir: Path,
-        frames: List[Tuple[np.ndarray, float]],
-        tracks: List
-    ):
+        frames: list[tuple[np.ndarray, float]],
+        tracks: list[Any]
+    ) -> None:
         """Salva frames com bboxes desenhadas"""
         frames_dir = video_dir / 'frames'
         frames_dir.mkdir(exist_ok=True)

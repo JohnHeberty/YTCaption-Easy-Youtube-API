@@ -1,5 +1,8 @@
+from __future__ import annotations
+
+from typing import Any
+
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional, Any
 
 
 # =============================================================================
@@ -134,9 +137,9 @@ class EnhanceCtrlNets(BaseModel):
 # =============================================================================
 
 class ImagePromptJson(BaseModel):
-    cn_img: Optional[str] = Field(None, description="base64 image")
-    cn_stop: Optional[float] = Field(0, ge=0, le=1)
-    cn_weight: Optional[float] = Field(0, ge=0, le=2)
+    cn_img: str | None = Field(None, description="base64 image")
+    cn_stop: float | None = Field(0, ge=0, le=1)
+    cn_weight: float | None = Field(0, ge=0, le=2)
     cn_type: str = "ImagePrompt"
 
 
@@ -156,7 +159,7 @@ DEFAULT_LORAS = [
 class CommonRequest(BaseModel):
     prompt: str = ""
     negative_prompt: str = ""
-    style_selections: List[str] = Field(default_factory=lambda: ["Fooocus V2", "Fooocus Enhance", "Fooocus Sharp"])
+    style_selections: list[str] = Field(default_factory=lambda: ["Fooocus V2", "Fooocus Enhance", "Fooocus Sharp"])
     performance_selection: str = "Speed"
     aspect_ratios_selection: str = "1152*896"
     image_number: int = Field(default=1, ge=1, le=32)
@@ -166,8 +169,8 @@ class CommonRequest(BaseModel):
     base_model_name: str = "juggernautXL_v8Rundiffusion.safetensors"
     refiner_model_name: str = "None"
     refiner_switch: float = Field(default=0.5, ge=0.1, le=1.0)
-    loras: List[Lora] = Field(default_factory=lambda: DEFAULT_LORAS)
-    advanced_params: Optional[AdvancedParams] = None
+    loras: list[Lora] = Field(default_factory=lambda: DEFAULT_LORAS)
+    advanced_params: AdvancedParams | None = None
     save_meta: bool = True
     meta_scheme: str = "fooocus"
     save_extension: str = "png"
@@ -175,10 +178,10 @@ class CommonRequest(BaseModel):
     read_wildcards_in_order: bool = False
     require_base64: bool = False
     async_process: bool = False
-    webhook_url: Optional[str] = ""
+    webhook_url: str | None = ""
 
     @classmethod
-    def as_form(cls, prompt: str = "", negative_prompt: str = "", **kwargs):
+    def as_form(cls, prompt: str = "", negative_prompt: str = "", **kwargs: Any) -> CommonRequest:
         return cls(prompt=prompt, negative_prompt=negative_prompt, **kwargs)
 
 
@@ -193,7 +196,7 @@ class TextToImageRequest(CommonRequest):
 class ImgUpscaleVaryRequest(CommonRequest):
     input_image: str = ""
     uov_method: str = "Upscale (1.5x)"
-    upscale_value: Optional[float] = Field(None, ge=1.0, le=5.0)
+    upscale_value: float | None = Field(None, ge=1.0, le=5.0)
 
 
 ImgUpscaleOrVaryRequest = ImgUpscaleVaryRequest
@@ -201,17 +204,17 @@ ImgUpscaleOrVaryRequest = ImgUpscaleVaryRequest
 
 class ImgInpaintOrOutpaintRequest(CommonRequest):
     input_image: str = ""
-    input_mask: Optional[str] = ""
-    inpaint_additional_prompt: Optional[str] = ""
-    outpaint_selections: List[str] = []
-    outpaint_distance_left: Optional[int] = -1
-    outpaint_distance_right: Optional[int] = -1
-    outpaint_distance_top: Optional[int] = -1
-    outpaint_distance_bottom: Optional[int] = -1
+    input_mask: str | None = ""
+    inpaint_additional_prompt: str | None = ""
+    outpaint_selections: list[str] = []
+    outpaint_distance_left: int | None = -1
+    outpaint_distance_right: int | None = -1
+    outpaint_distance_top: int | None = -1
+    outpaint_distance_bottom: int | None = -1
 
 
 class ImgPromptRequest(ImgInpaintOrOutpaintRequest):
-    image_prompts: List[ImagePromptJson] = []
+    image_prompts: list[ImagePromptJson] = []
 
 
 class ImageEnhanceRequest(CommonRequest):
@@ -221,7 +224,7 @@ class ImageEnhanceRequest(CommonRequest):
     enhance_uov_processing_order: str = "Before First Enhancement"
     enhance_uov_prompt_type: str = "Original Prompts"
     save_final_enhanced_image_only: bool = True
-    enhance_ctrlnets: List[EnhanceCtrlNets] = []
+    enhance_ctrlnets: list[EnhanceCtrlNets] = []
 
 
 # =============================================================================
@@ -229,30 +232,30 @@ class ImageEnhanceRequest(CommonRequest):
 # =============================================================================
 
 class Text2ImgRequestWithPrompt(CommonRequest):
-    image_prompts: List[ImagePromptJson] = []
+    image_prompts: list[ImagePromptJson] = []
 
 
 class ImgUpscaleOrVaryRequestJson(CommonRequest):
     uov_method: str = "Upscale (2x)"
-    upscale_value: Optional[float] = Field(1.0, ge=1.0, le=5.0)
+    upscale_value: float | None = Field(1.0, ge=1.0, le=5.0)
     input_image: str = ""
-    image_prompts: List[ImagePromptJson] = []
+    image_prompts: list[ImagePromptJson] = []
 
 
 class ImgInpaintOrOutpaintRequestJson(CommonRequest):
     input_image: str = ""
-    input_mask: Optional[str] = ""
-    inpaint_additional_prompt: Optional[str] = ""
-    outpaint_selections: List[str] = []
-    outpaint_distance_left: Optional[int] = -1
-    outpaint_distance_right: Optional[int] = -1
-    outpaint_distance_top: Optional[int] = -1
-    outpaint_distance_bottom: Optional[int] = -1
-    image_prompts: List[Any] = []
+    input_mask: str | None = ""
+    inpaint_additional_prompt: str | None = ""
+    outpaint_selections: list[str] = []
+    outpaint_distance_left: int | None = -1
+    outpaint_distance_right: int | None = -1
+    outpaint_distance_top: int | None = -1
+    outpaint_distance_bottom: int | None = -1
+    image_prompts: list[Any] = []
 
 
 class ImgPromptRequestJson(ImgInpaintOrOutpaintRequestJson):
-    image_prompts: List[ImagePromptJson] = []
+    image_prompts: list[ImagePromptJson] = []
 
 
 class ImageEnhanceRequestJson(CommonRequest):
@@ -262,7 +265,7 @@ class ImageEnhanceRequestJson(CommonRequest):
     enhance_uov_processing_order: str = "Before First Enhancement"
     enhance_uov_prompt_type: str = "Original Prompts"
     save_final_enhanced_image_only: bool = True
-    enhance_ctrlnets: List[EnhanceCtrlNets] = []
+    enhance_ctrlnets: list[EnhanceCtrlNets] = []
 
 
 # =============================================================================
@@ -291,8 +294,8 @@ class DescribeImageRequest(BaseModel):
 # =============================================================================
 
 class GeneratedImageResult(BaseModel):
-    base64: Optional[str] = None
-    url: Optional[str] = None
+    base64: str | None = None
+    url: str | None = None
     seed: str = ""
     finish_reason: str = ""
 
@@ -302,9 +305,9 @@ class AsyncJobResponse(BaseModel):
     job_type: str = ""
     job_stage: str = "WAITING"
     job_progress: int = 0
-    job_status: Optional[str] = None
-    job_step_preview: Optional[str] = None
-    job_result: Optional[Any] = None
+    job_status: str | None = None
+    job_step_preview: str | None = None
+    job_result: Any | None = None
 
 
 class JobStatus(BaseModel):
@@ -312,9 +315,9 @@ class JobStatus(BaseModel):
     job_type: str = ""
     job_stage: str = ""
     job_progress: int = 0
-    job_status: Optional[str] = None
-    job_step_preview: Optional[str] = None
-    job_result: Optional[Any] = None
+    job_status: str | None = None
+    job_step_preview: str | None = None
+    job_result: Any | None = None
 
 
 class DescribeImageResponse(BaseModel):
@@ -328,7 +331,7 @@ class StopResponse(BaseModel):
 class JobQueueInfo(BaseModel):
     running_size: int
     finished_size: int
-    last_job_id: Optional[str] = None
+    last_job_id: str | None = None
 
 
 class JobHistoryInfo(BaseModel):
@@ -340,13 +343,13 @@ class JobHistoryInfo(BaseModel):
 
 
 class JobHistoryResponse(BaseModel):
-    queue: List[JobHistoryInfo] = []
-    history: List[JobHistoryInfo] = []
+    queue: list[JobHistoryInfo] = []
+    history: list[JobHistoryInfo] = []
 
 
 class AllModelNamesResponse(BaseModel):
-    model_filenames: List[str]
-    lora_filenames: List[str]
+    model_filenames: list[str]
+    lora_filenames: list[str]
 
 
 class QueryJobRequest(BaseModel):

@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Depends, Request
+from fastapi.responses import Response
 
 from common.log_utils import setup_structured_logging, get_logger
 from common.fastapi_utils import create_service_app, create_api_key_dependency
@@ -23,7 +27,7 @@ verify_api_key = create_api_key_dependency(api_key=settings.get("api_key"))
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Make-Video Service starting...")
 
     for dir_path in [
@@ -78,7 +82,7 @@ cors_config = {
 }
 
 
-def setup_routers(app):
+def setup_routers(app: FastAPI) -> None:
     app.include_router(api_router)
 
 
@@ -95,7 +99,7 @@ app = create_service_app(
 )
 
 
-async def cleanup_orphaned_videos_cron():
+async def cleanup_orphaned_videos_cron() -> None:
     try:
         from .pipeline import VideoPipeline
         pipeline = VideoPipeline()
@@ -105,7 +109,7 @@ async def cleanup_orphaned_videos_cron():
 
 
 @app.get("/metrics")
-async def prometheus_metrics(request: Request):
+async def prometheus_metrics(request: Request) -> Response:
     try:
         import shutil
         try:

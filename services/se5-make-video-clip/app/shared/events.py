@@ -4,13 +4,14 @@ Event System - Event-Driven Architecture
 Sistema de eventos baseado em CloudEvents specification.
 Pattern: Publisher-Subscriber / Observer
 """
+from __future__ import annotations
 
 from enum import Enum
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from common.datetime_utils import now_brazil
 
-from typing import Dict, Any, Optional, Callable, Coroutine
+from typing import Any, Callable, Coroutine
 import json
 import asyncio
 import shortuuid
@@ -69,12 +70,12 @@ class Event:
     type: EventType                   # Tipo do evento
     source: str                       # Origem (ex: "make-video/celery-worker")
     timestamp: datetime               # Quando ocorreu
-    data: Dict[str, Any]             # Payload do evento
-    subject: Optional[str] = None    # Recurso afetado (ex: job_id)
+    data: dict[str, Any]             # Payload do evento
+    subject: str | None = None    # Recurso afetado (ex: job_id)
     datacontenttype: str = "application/json"
     specversion: str = "1.0"
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serializa para CloudEvents format"""
         return {
             "id": self.id,
@@ -92,7 +93,7 @@ class Event:
         return json.dumps(self.to_dict())
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Event':
+    def from_dict(cls, data: dict[str, Any]) -> Event:
         """Deserializa de dicionário"""
         return cls(
             id=data['id'],
@@ -106,7 +107,7 @@ class Event:
         )
     
     @classmethod
-    def from_json(cls, json_str: str) -> 'Event':
+    def from_json(cls, json_str: str) -> Event:
         """Deserializa de JSON"""
         return cls.from_dict(json.loads(json_str))
 
@@ -117,7 +118,7 @@ class EventPublisher:
     Pattern: Observer/Publisher-Subscriber
     """
     
-    def __init__(self, redis_client, enabled: bool = True):
+    def __init__(self, redis_client, enabled: bool = True) -> None:
         """
         Args:
             redis_client: Cliente Redis (aioredis)
@@ -167,9 +168,9 @@ class EventPublisher:
         self,
         event_type: EventType,
         job_id: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         source: str = "make-video/celery-worker"
-    ):
+    ) -> None:
         """
         Helper para publicar eventos de job
         
@@ -200,17 +201,17 @@ class EventSubscriber:
     Usado por dashboards, alertas, analytics, etc.
     """
     
-    def __init__(self, redis_client):
+    def __init__(self, redis_client) -> None:
         """
         Args:
             redis_client: Cliente Redis (aioredis)
         """
         self.redis = redis_client
-        self.handlers: Dict[EventType, Callable] = {}
+        self.handlers: dict[EventType, Callable] = {}
         self._running = False
         self._task = None
     
-    def on(self, event_type: EventType, handler: Callable[[Event], Coroutine]):
+    def on(self, event_type: EventType, handler: Callable[[Event], Coroutine]) -> None:
         """
         Registra handler para tipo de evento
         
@@ -227,7 +228,7 @@ class EventSubscriber:
         self.handlers[event_type] = handler
         logger.info(f"Handler registered for: {event_type.value}")
     
-    async def start(self):
+    async def start(self) -> None:
         """
         Inicia listening de eventos (blocking)
         
@@ -269,7 +270,7 @@ class EventSubscriber:
             self._running = False
             logger.info("EventSubscriber stopped")
     
-    async def stop(self):
+    async def stop(self) -> None:
         """Para o subscriber"""
         self._running = False
         
@@ -280,7 +281,7 @@ class EventSubscriber:
             except asyncio.CancelledError:
                 pass
     
-    async def start_background(self):
+    async def start_background(self) -> asyncio.Task[None] | None:
         """Inicia subscriber em background task"""
         if self._running:
             logger.warning("EventSubscriber already running")
@@ -289,7 +290,7 @@ class EventSubscriber:
         self._task = asyncio.create_task(self.start())
         return self._task
     
-    async def _handle_message(self, message: Dict):
+    async def _handle_message(self, message: dict[str, Any]) -> None:
         """Processa mensagem recebida"""
         try:
             # Parse evento
@@ -333,7 +334,7 @@ def get_event_publisher(redis_client=None) -> EventPublisher:
 
 # Helper functions para facilitar uso
 
-async def publish_job_started(job_id: str, **kwargs):
+async def publish_job_started(job_id: str, **kwargs: Any) -> None:
     """Helper: Publica evento de job iniciado"""
     publisher = get_event_publisher()
     await publisher.publish_job_event(
@@ -342,7 +343,7 @@ async def publish_job_started(job_id: str, **kwargs):
         kwargs
     )
 
-async def publish_job_completed(job_id: str, duration_seconds: float, **kwargs):
+async def publish_job_completed(job_id: str, duration_seconds: float, **kwargs: Any) -> None:
     """Helper: Publica evento de job completado"""
     publisher = get_event_publisher()
     await publisher.publish_job_event(
@@ -354,7 +355,7 @@ async def publish_job_completed(job_id: str, duration_seconds: float, **kwargs):
         }
     )
 
-async def publish_job_failed(job_id: str, error: str, **kwargs):
+async def publish_job_failed(job_id: str, error: str, **kwargs: Any) -> None:
     """Helper: Publica evento de job falhado"""
     publisher = get_event_publisher()
     await publisher.publish_job_event(
@@ -366,7 +367,7 @@ async def publish_job_failed(job_id: str, error: str, **kwargs):
         }
     )
 
-async def publish_video_rejected(video_id: str, reason: str, **kwargs):
+async def publish_video_rejected(video_id: str, reason: str, **kwargs: Any) -> None:
     """Helper: Publica evento de vídeo rejeitado"""
     publisher = get_event_publisher()
     

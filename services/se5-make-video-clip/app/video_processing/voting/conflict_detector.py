@@ -3,8 +3,9 @@ Conflict detection for ensemble voting.
 
 Sprint 07 - Identifies when models strongly disagree and provides conflict analysis.
 """
+from __future__ import annotations
 
-from typing import Dict, List
+from typing import Any
 import statistics
 
 
@@ -31,10 +32,10 @@ class ConflictDetector:
         self,
         high_confidence_threshold: float = 0.80,
         conflict_margin: int = 1
-    ):
+    ) -> None:
         """
         Initialize conflict detector.
-        
+
         Args:
             high_confidence_threshold: Minimum confidence to consider "high" (default: 0.80)
             conflict_margin: Max vote difference to consider "divided" (default: 1)
@@ -42,8 +43,8 @@ class ConflictDetector:
         """
         self.high_confidence_threshold = high_confidence_threshold
         self.conflict_margin = conflict_margin
-    
-    def detect(self, votes: Dict) -> Dict:
+
+    def detect(self, votes: dict[str, Any]) -> dict[str, Any]:
         """
         Analyze votes for conflicts.
         
@@ -154,7 +155,7 @@ class ConflictDetector:
             }
         }
     
-    def should_fallback(self, conflict_analysis: Dict) -> bool:
+    def should_fallback(self, conflict_analysis: dict[str, Any]) -> bool:
         """
         Determine if ensemble should use fallback strategy based on conflict.
         
@@ -176,7 +177,7 @@ class ConflictDetector:
         
         return False
     
-    def get_conflict_summary(self, conflict_analysis: Dict) -> str:
+    def get_conflict_summary(self, conflict_analysis: dict[str, Any]) -> str:
         """
         Generate human-readable conflict summary.
         

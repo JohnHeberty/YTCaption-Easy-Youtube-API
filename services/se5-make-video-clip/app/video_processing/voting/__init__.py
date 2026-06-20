@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Voting package for ensemble decision making.
 

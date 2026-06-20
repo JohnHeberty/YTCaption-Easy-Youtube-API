@@ -9,11 +9,12 @@ Gerencia o pipeline completo de vídeos:
 5. Cleanup → Remove das pastas anteriores
 6. Blacklist → Vídeos reprovados não são reprocessados
 """
+from __future__ import annotations
 
 import asyncio
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Any
 import httpx
 from datetime import datetime
 from common.datetime_utils import now_brazil
@@ -44,7 +45,7 @@ class VideoPipeline:
     GARANTIA: Vídeos em approved/ estão SEMPRE cropados para 9:16
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.detector = SubtitleDetectorV2(show_log=True)
         self.status_store = get_video_status_store()  # Approved + Rejected tracking
         self.video_builder = VideoBuilder(
@@ -55,7 +56,7 @@ class VideoPipeline:
         # Criar diretórios
         self._ensure_directories()
     
-    def _ensure_directories(self):
+    def _ensure_directories(self) -> None:
         """Garantir que todos os diretórios existem"""
         dirs = [
             'data/raw/shorts',
@@ -105,7 +106,7 @@ class VideoPipeline:
         logger.info(f"🏷️  Processing tag added: {tagged_filename}")
         return str(tagged_path)
     
-    def finalize_validation(self, tagged_path: str, video_id: str, approved: bool, job_id: str = None) -> Optional[str]:
+    def finalize_validation(self, tagged_path: str, video_id: str, approved: bool, job_id: str = None) -> str | None:
         """
         Finaliza validação: remove tag e move/delete conforme resultado
         
@@ -173,7 +174,7 @@ class VideoPipeline:
                 pass
             return None
     
-    def cleanup_stale_validations(self, job_id: str, max_age_minutes: int = 30):
+    def cleanup_stale_validations(self, job_id: str, max_age_minutes: int = 30) -> None:
         """
         Remove arquivos de validação abandonados (órfãos de jobs crashados)
         
@@ -206,7 +207,7 @@ class VideoPipeline:
         if cleaned > 0:
             logger.info(f"🧹 Cleaned {cleaned} stale validation files")
     
-    def cleanup_rejected_video(self, video_id: str, job_id: str = None):
+    def cleanup_rejected_video(self, video_id: str, job_id: str = None) -> None:
         """
         Limpa vídeo rejeitado de TODAS as pastas do pipeline.
         
@@ -257,7 +258,7 @@ class VideoPipeline:
         except Exception as e:
             logger.error(f"❌ Error cleaning rejected video {video_id}: {e}")
     
-    def cleanup_orphaned_files(self, max_age_minutes: int = 30):
+    def cleanup_orphaned_files(self, max_age_minutes: int = 30) -> None:
         """
         Limpa arquivos órfãos de TODAS as pastas do pipeline.
         
@@ -310,7 +311,7 @@ class VideoPipeline:
         else:
             logger.debug(f"✅ No orphaned files found (age > {max_age_minutes} min)")
     
-    def cleanup_job_files(self, job_id: str):
+    def cleanup_job_files(self, job_id: str) -> None:
         """
         Limpa TODOS os arquivos relacionados a um job específico.
         
@@ -363,7 +364,7 @@ class VideoPipeline:
         else:
             logger.debug(f"✅ No files found for job {job_id} (already cleaned or no files created)")
     
-    async def download_shorts(self, query: str, max_count: int = 50, progress_callback=None) -> List[Dict]:
+    async def download_shorts(self, query: str, max_count: int = 50, progress_callback=None) -> list[dict[str, Any]]:
         """
         1. DOWNLOAD: Buscar e baixar shorts via youtube-search + video-downloader
         
@@ -582,7 +583,7 @@ class VideoPipeline:
             logger.error(f"❌ Erro no download: {e}", exc_info=True)
             return downloaded  # Return partial results
     
-    def transform_video(self, video_id: str, raw_path: str) -> Optional[str]:
+    def transform_video(self, video_id: str, raw_path: str) -> str | None:
         """
         2. TRANSFORM: Converter vídeo para H264 compatível
         
@@ -638,7 +639,7 @@ class VideoPipeline:
             logger.error(f"❌ Erro na conversão: {e}", exc_info=True)
             return None
     
-    async def crop_video_permanent(self, video_id: str, transform_path: str, aspect_ratio: str = "9:16", crop_position: str = "center") -> Optional[str]:
+    async def crop_video_permanent(self, video_id: str, transform_path: str, aspect_ratio: str = "9:16", crop_position: str = "center") -> str | None:
         """
         2.5 CROP PERMANENTE: Cropar vídeo para aspect ratio ANTES da validação
         
@@ -691,7 +692,7 @@ class VideoPipeline:
                 cropped_temp.unlink()
             return None
     
-    async def validate_video(self, video_id: str, validation_path: str, aspect_ratio: str = "9:16", crop_position: str = "center") -> Tuple[bool, Dict]:
+    async def validate_video(self, video_id: str, validation_path: str, aspect_ratio: str = "9:16", crop_position: str = "center") -> tuple[bool, dict[str, Any]]:
         """
         3. VALIDATE: Detectar texto/legendas nos frames do vídeo (OCR 100%)
         
@@ -757,7 +758,7 @@ class VideoPipeline:
             # Em caso de erro, rejeitar por segurança
             return False, {'error': str(e), 'video_id': video_id}
     
-    async def approve_video(self, video_id: str, transform_path: str, metadata: Dict):
+    async def approve_video(self, video_id: str, transform_path: str, metadata: dict[str, Any]) -> str | None:
         """
         4a. APPROVE: Mover vídeo aprovado para data/approved/ e registrar no banco
         
@@ -798,7 +799,7 @@ class VideoPipeline:
             logger.error(f"❌ Erro ao aprovar: {e}", exc_info=True)
             return None
     
-    async def reject_video(self, video_id: str, metadata: Dict):
+    async def reject_video(self, video_id: str, metadata: dict[str, Any]) -> None:
         """
         4b. REJECT: Adicionar aos reprovados e limpar
         
@@ -829,7 +830,7 @@ class VideoPipeline:
         except Exception as e:
             logger.error(f"❌ Erro ao rejeitar: {e}", exc_info=True)
     
-    async def _cleanup_previous_stages(self, video_id: str):
+    async def _cleanup_previous_stages(self, video_id: str) -> None:
         """
         5. CLEANUP: Remover vídeo de pastas anteriores (aprovado)
         
@@ -854,7 +855,7 @@ class VideoPipeline:
                 path.unlink()
                 logger.info(f"   🗑️  Removido: {path}")
     
-    async def _cleanup_all_stages(self, video_id: str):
+    async def _cleanup_all_stages(self, video_id: str) -> None:
         """
         5. CLEANUP: Remover vídeo de TODAS as pastas (rejeitado)
         
@@ -877,7 +878,7 @@ class VideoPipeline:
                     path.unlink()
                     logger.info(f"   🗑️  Removido: {path}")
     
-    async def process_pipeline(self, query: str, max_shorts: int = 50, progress_callback=None) -> Dict:
+    async def process_pipeline(self, query: str, max_shorts: int = 50, progress_callback=None) -> dict[str, Any]:
         """
         Pipeline completo: Download → Transform → Validate → Approve/Reject
         

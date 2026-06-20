@@ -7,10 +7,11 @@ para alcançar 90%+ de precisão na detecção de legendas hardcoded.
 Autor: Reescrito do zero para eliminar falsos positivos
 Data: 2026-02-07
 """
+from __future__ import annotations
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Tuple, Any
+from typing import Any
 import numpy as np
 from collections import Counter
 
@@ -66,9 +67,9 @@ class ClassificationResult:
     decision_logic: str
     
     # Detalhamento
-    tracks_by_category: Dict[str, int]
-    subtitle_tracks: List[Track]
-    metrics_summary: Dict[str, Any]
+    tracks_by_category: dict[str, int]
+    subtitle_tracks: list[Track]
+    metrics_summary: dict[str, Any]
 
 class SubtitleClassifierV2:
     """
@@ -78,7 +79,7 @@ class SubtitleClassifierV2:
     através de análise profunda de padrões temporais.
     """
     
-    def __init__(self, config: Optional[Settings] = None, fps: float = 3.0):
+    def __init__(self, config: Settings | None = None, fps: float = 3.0) -> None:
         self.config = config or Settings()
         self.fps = fps
         
@@ -111,7 +112,7 @@ class SubtitleClassifierV2:
         
         logger.info("SubtitleClassifierV2 initialized with advanced metrics")
     
-    def decide(self, tracks: List[Track]) -> ClassificationResult:
+    def decide(self, tracks: list[Track]) -> ClassificationResult:
         """
         Classifica tracks e decide bloqueio
         
@@ -228,7 +229,7 @@ class SubtitleClassifierV2:
             text_changes_per_second=text_changes_per_sec
         )
     
-    def _calculate_gaps(self, frame_indices: List[int]) -> List[int]:
+    def _calculate_gaps(self, frame_indices: list[int]) -> list[int]:
         """
         Calcula gaps (intervalos) entre detecções consecutivas
         
@@ -246,7 +247,7 @@ class SubtitleClassifierV2:
         
         return gaps
     
-    def _calculate_regularity(self, values: List[float]) -> float:
+    def _calculate_regularity(self, values: list[float]) -> float:
         """
         Calcula regularidade de uma série (0-1)
         
@@ -269,7 +270,7 @@ class SubtitleClassifierV2:
         
         return regularity
     
-    def _calculate_text_lifespans(self, detections: List) -> List[float]:
+    def _calculate_text_lifespans(self, detections: list) -> list[float]:
         """
         Calcula duração de cada texto único
         
@@ -440,9 +441,9 @@ class SubtitleClassifierV2:
     
     def _make_final_decision(
         self,
-        subtitle_tracks: List[Tuple[Track, AdvancedMetrics]],
-        other_tracks: List[Tuple[Track, AdvancedMetrics, TrackCategory]],
-        all_tracks: List[Track]
+        subtitle_tracks: list[tuple[Track, AdvancedMetrics]],
+        other_tracks: list[tuple[Track, AdvancedMetrics, TrackCategory]],
+        all_tracks: list[Track]
     ) -> ClassificationResult:
         """
         Toma decisão final baseada em todos os tracks classificados

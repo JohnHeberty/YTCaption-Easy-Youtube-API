@@ -4,10 +4,11 @@ TRSD - Classificador de Tracks (Sprint 03)
 Sistema de classificação de tracks baseado em regras usando métricas temporais.
 Classifica texto em: SUBTITLE, STATIC_OVERLAY, SCREENCAST, ou AMBIGUOUS.
 """
+from __future__ import annotations
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Optional, Dict
+from typing import Any
 import numpy as np
 
 from .temporal_tracker import Track
@@ -33,11 +34,11 @@ class ClassificationResult:
     decision_logic: str                  # Lógica da decisão (para debug)
     
     # Detalhamento por categoria
-    tracks_by_category: Dict[str, int]   # {category: count}
-    subtitle_tracks: List[Track]
-    static_tracks: List[Track]
-    screencast_tracks: List[Track]
-    ambiguous_tracks: List[Track]
+    tracks_by_category: dict[str, int]   # {category: count}
+    subtitle_tracks: list[Track]
+    static_tracks: list[Track]
+    screencast_tracks: list[Track]
+    ambiguous_tracks: list[Track]
 
 class SubtitleClassifier:
     """
@@ -47,7 +48,7 @@ class SubtitleClassifier:
     classifica cada track em uma categoria.
     """
     
-    def __init__(self, config: Optional[Settings] = None):
+    def __init__(self, config: Settings | None = None) -> None:
         self.config = config or Settings()
         
         # Política de classificação
@@ -64,7 +65,7 @@ class SubtitleClassifier:
             f"static_threshold={self.static_min_presence:.2f}"
         )
     
-    def decide(self, tracks: List[Track]) -> ClassificationResult:
+    def decide(self, tracks: list[Track]) -> ClassificationResult:
         """
         Classifica tracks e decide se vídeo deve ser bloqueado
         
@@ -189,11 +190,11 @@ class SubtitleClassifier:
     
     def _make_decision(
         self,
-        subtitle_tracks: List[Track],
-        static_tracks: List[Track],
-        screencast_tracks: List[Track],
-        ambiguous_tracks: List[Track]
-    ) -> Dict:
+        subtitle_tracks: list[Track],
+        static_tracks: list[Track],
+        screencast_tracks: list[Track],
+        ambiguous_tracks: list[Track]
+    ) -> dict[str, Any]:
         """
         Toma decisão final baseada em políticas
         

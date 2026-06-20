@@ -3,8 +3,9 @@ Uncertainty estimation for ensemble decisions.
 
 Sprint 07 - Measures how uncertain the ensemble is about its decision.
 """
+from __future__ import annotations
 
-from typing import Dict
+from typing import Any
 import statistics
 import math
 
@@ -30,11 +31,11 @@ class UncertaintyEstimator:
     - Clear margin of victory
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize uncertainty estimator."""
         pass
-    
-    def estimate(self, votes: Dict, final_result: Dict) -> Dict:
+
+    def estimate(self, votes: dict[str, Any], final_result: dict[str, Any]) -> dict[str, Any]:
         """
         Estimate uncertainty of ensemble decision.
         
@@ -150,7 +151,7 @@ class UncertaintyEstimator:
             }
         }
     
-    def should_flag_uncertain(self, uncertainty_analysis: Dict) -> bool:
+    def should_flag_uncertain(self, uncertainty_analysis: dict[str, Any]) -> bool:
         """
         Determine if decision should be flagged as uncertain.
         
@@ -166,7 +167,7 @@ class UncertaintyEstimator:
             not uncertainty_analysis['is_reliable']
         )
     
-    def get_uncertainty_summary(self, uncertainty_analysis: Dict) -> str:
+    def get_uncertainty_summary(self, uncertainty_analysis: dict[str, Any]) -> str:
         """
         Generate human-readable uncertainty summary.
         

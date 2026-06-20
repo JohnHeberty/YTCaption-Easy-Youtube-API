@@ -15,12 +15,13 @@ Design:
 - Relatório de ações realizadas
 - Não para o serviço em caso de erro
 """
+from __future__ import annotations
 
 import asyncio
 import traceback
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 import re
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
@@ -45,7 +46,7 @@ class CleanupService:
         cleanup_interval_minutes: int = 10,
         orphan_retention_hours: int = 24,
         temp_retention_hours: int = 6
-    ):
+    ) -> None:
         """
         Args:
             video_status_store: VideoStatusStore instance
@@ -66,12 +67,12 @@ class CleanupService:
         self.approved_dir = self.data_dir / "approved" / "videos"
         self.temp_dir = self.data_dir / "raw" / "temp"
         
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._running = False
         
         logger.info(f"🧹 CleanupService initialized (interval: {cleanup_interval_minutes}min)")
     
-    async def start(self):
+    async def start(self) -> None:
         """Inicia o serviço de limpeza em background"""
         if self._running:
             logger.warning("CleanupService already running")
@@ -81,7 +82,7 @@ class CleanupService:
         self._task = asyncio.create_task(self._cleanup_loop())
         logger.info("✅ CleanupService started")
     
-    async def stop(self):
+    async def stop(self) -> None:
         """Para o serviço de limpeza"""
         self._running = False
         if self._task:
@@ -92,7 +93,7 @@ class CleanupService:
                 pass
         logger.info("🛑 CleanupService stopped")
     
-    async def _cleanup_loop(self):
+    async def _cleanup_loop(self) -> None:
         """Loop principal de limpeza"""
         while self._running:
             try:
@@ -120,7 +121,7 @@ class CleanupService:
                 # Continuar mesmo com erro
                 await asyncio.sleep(60)  # Wait 1min antes de retry
     
-    async def run_cleanup(self) -> Dict:
+    async def run_cleanup(self) -> dict[str, Any]:
         """
         Executa um ciclo completo de limpeza
         
@@ -171,7 +172,7 @@ class CleanupService:
         
         return report
     
-    async def _find_orphans(self, directory: Path, stage: str) -> List[Tuple[str, Path, str]]:
+    async def _find_orphans(self, directory: Path, stage: str) -> list[tuple[str, Path, str]]:
         """
         Encontra arquivos órfãos em um diretório
         
@@ -219,7 +220,7 @@ class CleanupService:
         
         return orphans
     
-    def _catalog_orphan(self, video_id: str, file_path: Path, stage: str, reason: str):
+    def _catalog_orphan(self, video_id: str, file_path: Path, stage: str, reason: str) -> None:
         """
         Cataloga um arquivo órfão no banco de erros e o remove
         
@@ -302,7 +303,7 @@ class CleanupService:
         
         return total_bytes / (1024 * 1024)  # Convert to MB
     
-    async def manual_cleanup(self) -> Dict:
+    async def manual_cleanup(self) -> dict[str, Any]:
         """
         Executa limpeza manual (fora do schedule)
         

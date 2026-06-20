@@ -2,11 +2,12 @@
 
 License: Algorithm by Lvmin Zhang at Stanford, 2023. CC-By NC 4.0 for external use.
 """
+from __future__ import annotations
+
 import math
 from common.log_utils import get_logger
 import os
 import re
-from typing import Optional
 
 import numpy as np
 import torch
@@ -32,7 +33,7 @@ def remove_pattern(x: str, pattern: str) -> str:
 class FooocusExpansion:
     """GPT-2 based prompt expansion. Takes short prompts and generates expanded versions."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         from transformers import AutoTokenizer, AutoModelForCausalLM
 
         from app.core.config import get_settings
@@ -74,7 +75,7 @@ class FooocusExpansion:
         self.model.eval()
         logger.info("FooocusExpansion loaded")
 
-    def _build_vocab_mask(self, model_path: str):
+    def _build_vocab_mask(self, model_path: str) -> None:
         """Build logits bias tensor that masks non-positive vocabulary tokens."""
         vocab_size = self.model.config.vocab_size
 

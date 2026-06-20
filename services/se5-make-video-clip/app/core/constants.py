@@ -5,6 +5,8 @@ Elimina magic numbers e strings hardcoded.
 Pattern: Constants as Configuration
 """
 
+from __future__ import annotations
+
 from enum import Enum
 
 

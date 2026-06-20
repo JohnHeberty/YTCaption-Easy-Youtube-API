@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 SubtitleDetectorV2 - FORÇA BRUTA (Fevereiro 2026)
 
@@ -26,8 +28,8 @@ Esta é a ÚNICA abordagem mantida.
 import cv2
 from paddleocr import PaddleOCR
 from pathlib import Path
-from typing import Tuple, Dict
 import os
+from typing import Any
 from common.log_utils import get_logger
 
 # 🔧 CONSTANTS: OCR Frame Limits (R-005)
@@ -56,7 +58,7 @@ class SubtitleDetectorV2:
     - ❌ Heurísticas de otimização
     """
     
-    def __init__(self, show_log: bool = False, max_frames: int = MAX_OCR_FRAMES_DEFAULT):
+    def __init__(self, show_log: bool = False, max_frames: int = MAX_OCR_FRAMES_DEFAULT) -> None:
         """
         Inicializa PaddleOCR em modo força bruta
         
@@ -80,7 +82,7 @@ class SubtitleDetectorV2:
                 f"(~{max_frames / 30:.1f}s @ 30fps) to prevent OOM"
             )
     
-    def detect(self, video_path: str) -> Tuple[bool, float, str, Dict]:
+    def detect(self, video_path: str) -> tuple[bool, float, str, dict[str, Any]]:
         """
         Detecta legendas usando FORÇA BRUTA
         
@@ -172,7 +174,7 @@ class SubtitleDetectorV2:
         
         return has_subtitles, detection_ratio, sample_text, metadata
     
-    def detect_resolution(self, video_path: str) -> Tuple[int, int, float, int]:
+    def detect_resolution(self, video_path: str) -> tuple[int, int, float, int]:
         """
         Obter resolução e informações básicas do vídeo
         
@@ -207,7 +209,7 @@ class SubtitleDetectorV2:
 # Nova abordagem força bruta: 97.73% de acurácia ✅
 # ============================================================================
 
-    def detect_in_video(self, video_path: str, roi_crop: Tuple[float, float, float, float] = (0, 0, 1, 1)) -> Tuple[bool, float, str, Dict]:
+    def detect_in_video(self, video_path: str, roi_crop: tuple[float, float, float, float] = (0, 0, 1, 1)) -> tuple[bool, float, str, dict[str, Any]]:
         """
         ⚠️  OBSOLETO - Usa detect() força bruta (ignora roi_crop)
         
@@ -216,7 +218,7 @@ class SubtitleDetectorV2:
         """
         return self.detect(video_path)
     
-    def detect_in_video_with_multi_roi(self, video_path: str, roi_modes: list = None) -> Tuple[bool, float, str, Dict]:
+    def detect_in_video_with_multi_roi(self, video_path: str, roi_modes: list | None = None) -> tuple[bool, float, str, dict[str, Any]]:
         """
         ⚠️  OBSOLETO - Usa detect() força bruta (ignora roi_modes)
         

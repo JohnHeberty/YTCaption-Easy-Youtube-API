@@ -9,9 +9,11 @@ DownloadShortsStage - Download and validate shorts with OCR detection
     - Retry logic with multiple rounds
 """
 
-from pathlib import Path
-from typing import Dict, Any, List
+from __future__ import annotations
+
 import asyncio
+from pathlib import Path
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
@@ -22,7 +24,7 @@ logger = get_logger(__name__)
 class DownloadShortsStage(JobStage):
     """Stage 3: Download and validate shorts"""
     
-    def __init__(self, api_client, shorts_cache, video_validator, blacklist):
+    def __init__(self, api_client, shorts_cache, video_validator, blacklist) -> None:
         """
         Initialize stage
         
@@ -42,7 +44,7 @@ class DownloadShortsStage(JobStage):
         self.video_validator = video_validator
         self.blacklist = blacklist
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate shorts list exists"""
         if not context.shorts_list:
             raise VideoProcessingException(
@@ -51,7 +53,7 @@ class DownloadShortsStage(JobStage):
                 job_id=context.job_id,
             )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Download shorts with cache checking and OCR validation
         
@@ -206,7 +208,7 @@ class DownloadShortsStage(JobStage):
             'total_duration': sum(s.get('duration_seconds', 0) for s in downloaded_shorts),
         }
     
-    async def _download_with_retry(self, short_info: Dict, context: StageContext) -> Dict[str, Any]:
+    async def _download_with_retry(self, short_info: dict[str, Any], context: StageContext) -> dict[str, Any]:
         """Download single video with retry logic"""
         video_id = short_info['video_id']
         # FIXED: Organizar shorts por job_id para evitar arquivos soltos

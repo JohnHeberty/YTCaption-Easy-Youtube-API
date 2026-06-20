@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -18,7 +20,7 @@ class ImageEngineSettings(BaseServiceSettings):
 
     # GPU
     gpu_mode: str = Field(default="lazy", env="GPU_MODE")  # lazy | eager | auto
-    gpu_device_id: Optional[int] = Field(default=None, env="GPU_DEVICE_ID")
+    gpu_device_id: int | None = Field(default=None, env="GPU_DEVICE_ID")
     max_vram_mb: int = Field(default=0, env="MAX_VRAM_MB")  # 0 = auto-detect
     model_idle_timeout: int = Field(default=300, env="MODEL_IDLE_TIMEOUT")  # seconds
 
@@ -31,14 +33,14 @@ class ImageEngineSettings(BaseServiceSettings):
     max_queue_size: int = 100
 
     # Auth
-    se8_api_key: Optional[str] = Field(default=None, env="SE8_API_KEY")
+    se8_api_key: str | None = Field(default=None, env="SE8_API_KEY")
 
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/8", env="REDIS_URL")
 
     # Celery
-    celery_broker_url: Optional[str] = Field(default=None, env="CELERY_BROKER_URL")
-    celery_result_backend: Optional[str] = Field(default=None, env="CELERY_RESULT_BACKEND")
+    celery_broker_url: str | None = Field(default=None, env="CELERY_BROKER_URL")
+    celery_result_backend: str | None = Field(default=None, env="CELERY_RESULT_BACKEND")
 
     # Generation defaults
     default_performance: str = Field(default="Speed", env="DEFAULT_PERFORMANCE")

@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 from pydantic import Field
 
@@ -122,10 +124,10 @@ class Settings(BaseServiceSettings):
     # Video Fetch
     max_fetch_rounds: int = 10
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Any:
         return getattr(self, key, None)
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
 
 
@@ -135,7 +137,7 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def ensure_directories():
+def ensure_directories() -> None:
     """Cria diretórios necessários se não existirem"""
     settings = get_settings()
     for dir_path in [settings.audio_upload_dir, settings.shorts_cache_dir,

@@ -15,6 +15,8 @@ JobStage - Template Method pattern for processing stages
 📊 StageContext: Rich domain context shared between stages
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -22,7 +24,7 @@ from common.datetime_utils import now_brazil
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..shared.events import Event, EventType, EventPublisher
 from ..shared.exceptions import EnhancedMakeVideoException, ErrorCode
@@ -41,17 +43,17 @@ class StageStatus(str, Enum):
 class StageResult:
     """Result of stage execution"""
     status: StageStatus
-    data: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[EnhancedMakeVideoException] = None
+    data: dict[str, Any] = field(default_factory=dict)
+    error: EnhancedMakeVideoException | None = None
     duration_seconds: float = 0.0
-    checkpoint_name: Optional[str] = None
+    checkpoint_name: str | None = None
     
     @property
     def success(self) -> bool:
         """Check if stage succeeded"""
         return self.status == StageStatus.COMPLETED
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary"""
         return {
             'status': self.status.value,
@@ -78,57 +80,57 @@ class StageContext:
     aspect_ratio: str
     crop_position: str
     subtitle_language: str
-    subtitle_style: Dict[str, Any]
+    subtitle_style: dict[str, Any]
     
     # Settings
-    settings: Dict[str, Any]
+    settings: dict[str, Any]
     
     # Event publisher
-    event_publisher: Optional[EventPublisher] = None
+    event_publisher: EventPublisher | None = None
     
     # Stage results (accumulated)
-    results: Dict[str, StageResult] = field(default_factory=dict)
+    results: dict[str, StageResult] = field(default_factory=dict)
     
     # Audio processing
-    audio_path: Optional[Path] = None
-    audio_duration: Optional[float] = None
-    target_video_duration: Optional[float] = None
+    audio_path: Path | None = None
+    audio_duration: float | None = None
+    target_video_duration: float | None = None
     
     # Shorts fetching
-    shorts_list: List[Dict[str, Any]] = field(default_factory=list)
-    downloaded_shorts: List[Dict[str, Any]] = field(default_factory=list)
-    selected_shorts: List[Dict[str, Any]] = field(default_factory=list)
+    shorts_list: list[dict[str, Any]] = field(default_factory=list)
+    downloaded_shorts: list[dict[str, Any]] = field(default_factory=list)
+    selected_shorts: list[dict[str, Any]] = field(default_factory=list)
     
     # Video assembly
-    temp_video_path: Optional[Path] = None
-    video_with_audio_path: Optional[Path] = None
-    final_video_path: Optional[Path] = None
+    temp_video_path: Path | None = None
+    video_with_audio_path: Path | None = None
+    final_video_path: Path | None = None
     
     # Subtitles
-    subtitle_path: Optional[Path] = None
-    raw_cues: List[Dict[str, Any]] = field(default_factory=list)
-    gated_cues: List[Dict[str, Any]] = field(default_factory=list)
+    subtitle_path: Path | None = None
+    raw_cues: list[dict[str, Any]] = field(default_factory=list)
+    gated_cues: list[dict[str, Any]] = field(default_factory=list)
     burn_subtitles: bool = True  # FIX-ERROS Fase 2: flag para queimar legendas no conteúdo
 
     # Title card
-    hook_text: Optional[str] = None  # FIX-ERROS Fase 1: texto do title card
+    hook_text: str | None = None  # FIX-ERROS Fase 1: texto do title card
     
     # Video info
-    video_info: Optional[Dict[str, Any]] = None
-    file_size: Optional[int] = None
+    video_info: dict[str, Any] | None = None
+    file_size: int | None = None
     
     # Timestamps
     started_at: datetime = field(default_factory=datetime.utcnow)
     
-    def add_result(self, stage_name: str, result: StageResult):
+    def add_result(self, stage_name: str, result: StageResult) -> None:
         """Add stage result to context"""
         self.results[stage_name] = result
     
-    def get_result(self, stage_name: str) -> Optional[StageResult]:
+    def get_result(self, stage_name: str) -> StageResult | None:
         """Get stage result from context"""
         return self.results.get(stage_name)
     
-    async def publish_event(self, event_type: EventType, data: Dict[str, Any]):
+    async def publish_event(self, event_type: EventType, data: dict[str, Any]) -> None:
         """Publish event if publisher available"""
         if self.event_publisher:
             event = Event(
@@ -158,7 +160,7 @@ class JobStage(ABC):
         - Checkpoint saving for recovery
     """
     
-    def __init__(self, name: str, progress_start: float, progress_end: float):
+    def __init__(self, name: str, progress_start: float, progress_end: float) -> None:
         """
         Initialize stage
         
@@ -273,7 +275,7 @@ class JobStage(ABC):
             raise error
     
     @abstractmethod
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """
         Validate pre-conditions (Hook Method)
         
@@ -283,7 +285,7 @@ class JobStage(ABC):
         pass
     
     @abstractmethod
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Execute main processing logic (Hook Method)
         
@@ -295,7 +297,7 @@ class JobStage(ABC):
         """
         pass
     
-    async def compensate(self, context: StageContext):
+    async def compensate(self, context: StageContext) -> None:
         """
         Compensate/rollback stage (Saga Pattern)
         

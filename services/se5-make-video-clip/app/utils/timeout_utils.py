@@ -3,9 +3,11 @@ Timeout utilities
 
 Wrappers para operações com timeout garantido
 """
+from __future__ import annotations
 
 import signal
-from typing import Callable, Any, Optional
+from typing import Any
+from collections.abc import Callable
 from functools import wraps
 
 
@@ -19,7 +21,7 @@ def timeout_handler(signum, frame):
     raise TimeoutError("Operation timed out")
 
 
-def with_timeout(seconds: int):
+def with_timeout(seconds: int) -> Callable[[Any], Any]:
     """
     Decorator para adicionar timeout a funções
     
@@ -30,9 +32,9 @@ def with_timeout(seconds: int):
     
     Note: Apenas funciona em Unix/Linux (usa signal.SIGALRM)
     """
-    def decorator(func):
+    def decorator(func: Any) -> Callable[..., Any]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Setup alarm
             old_handler = signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(seconds)

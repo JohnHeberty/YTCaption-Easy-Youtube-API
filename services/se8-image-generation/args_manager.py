@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ldm_patched.modules.args_parser as args_parser
 
 args_parser.parser.add_argument("--share", action='store_true', help="Set whether to share on Gradio.")

@@ -5,11 +5,12 @@ Segue princípios SOLID:
 - Single Responsibility: Cada rota tem uma responsabilidade clara
 - Separation of Concerns: Rotas apenas recebem requests e delegam
 """
+from __future__ import annotations
 
 import json
 from pathlib import Path
 from datetime import timedelta
-from typing import Optional
+from typing import Any
 
 import shortuuid
 
@@ -102,7 +103,7 @@ async def download_and_validate_shorts(
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
     lock_mgr: DistributedLockManager = Depends(get_lock_manager_override),
     api_cli: MicroservicesClient = Depends(get_api_client_override),
-):
+) -> dict[str, Any]:
     """
     🆕 Pipeline completo de download e validação de shorts.
 
@@ -196,7 +197,7 @@ async def create_video(
         description="Posição do crop no frame: center, top ou bottom.",
         examples=["center", "top", "bottom"],
     ),
-    hook_text: Optional[str] = Form(
+    hook_text: str | None = Form(
         None,
         description="Texto do title card (FIX-ERROS Fase 1). Se definido, cria title card de 0.2s.",
     ),
@@ -209,7 +210,7 @@ async def create_video(
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
     lock_mgr: DistributedLockManager = Depends(get_lock_manager_override),
     api_cli: MicroservicesClient = Depends(get_api_client_override),
-):
+) -> dict[str, Any]:
     """
     🎬 Criar vídeo com áudio + shorts APROVADOS.
 
@@ -327,7 +328,7 @@ async def get_job_status(
     job_id: str,
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
-):
+) -> dict[str, Any]:
     try:
         job = store.get_job(job_id)
         if not job:
@@ -358,7 +359,7 @@ async def download_video(
     job_id: str,
     store: RedisJobStore = Depends(get_redis_store_override),
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
-):
+) -> FileResponse:
     try:
         job = store.get_job(job_id)
         if not job:
@@ -392,7 +393,7 @@ async def download_video(
     response_model=JobListHintResponse,
 )
 async def list_jobs(
-    status: Optional[str] = Query(
+    status: str | None = Query(
         None,
         description="Filtrar por status do job.",
         examples=["queued", "processing", "completed", "failed"],
@@ -406,7 +407,7 @@ async def list_jobs(
     ),
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
-):
+) -> dict[str, Any]:
     try:
         jobs = store.list_jobs(limit=limit)
 
@@ -434,7 +435,7 @@ async def delete_job(
     job_id: str,
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
-):
+) -> dict[str, Any]:
     try:
         job = store.get_job(job_id)
         if not job:
@@ -465,7 +466,7 @@ async def delete_job(
 )
 async def get_cache_stats(
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
-):
+) -> dict[str, Any]:
     try:
         stats = cache_mgr.get_stats()
         return {
@@ -484,7 +485,7 @@ async def get_cache_stats(
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse, "description": "Service unhealthy"}},
 )
-async def health_check():
+async def health_check() -> JSONResponse:
     """
     Health check endpoint.
     """
@@ -516,7 +517,7 @@ async def health_check():
     description="Resumo do serviço com foco em descoberta rápida da API pública.",
     response_model=RootInfoResponse,
 )
-async def root():
+async def root() -> dict[str, Any]:
     """Informações do serviço."""
     return {
         "service": "make-video-clip",
