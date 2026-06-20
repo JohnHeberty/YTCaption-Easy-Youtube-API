@@ -133,6 +133,30 @@ class VideoJobStore:
     def __init__(self):
         self.redis = get_redis()
 
+    @property
+    def _use_raw(self) -> bool:
+        return hasattr(self.redis, "redis")
+
+    def _pipe(self):
+        """Get a pipeline — works for both ResilientRedisStore and _FakeRedis."""
+        return self.redis.redis.pipeline() if self._use_raw else self.redis.pipeline()
+
+    def _get(self, key: str):
+        """Get a value — works for both backends."""
+        return self.redis.redis.get(key) if self._use_raw else self.redis.get(key)
+
+    def _mget(self, *keys):
+        """Multi-get — works for both backends."""
+        return self.redis.redis.mget(*keys) if self._use_raw else self.redis.mget(*keys)
+
+    def _zrevrange(self, name, start, end):
+        """ZRANGEBYSCORE — works for both backends."""
+        return self.redis.redis.zrevrange(name, start, end) if self._use_raw else self.redis.zrevrange(name, start, end)
+
+    def _zrem(self, name, *values):
+        """ZREM — works for both backends."""
+        return self.redis.redis.zrem(name, *values) if self._use_raw else self.redis.zrem(name, *values)
+
     def save_job(self, job_id: str, job_data: dict) -> None:
         key = f"{JOB_PREFIX}{job_id}"
         data = json.dumps(job_data, default=str)
@@ -142,23 +166,14 @@ class VideoJobStore:
         elif isinstance(created_at, str):
             created_at = time.time()
 
-        try:
-            pipe = self.redis.redis.pipeline()
-            pipe.setex(key, JOB_TTL, data)
-            pipe.zadd(_LIST_KEY, {job_id: float(created_at)})
-            pipe.execute()
-        except AttributeError:
-            pipe = self.redis.pipeline()
-            pipe.setex(key, JOB_TTL, data)
-            pipe.zadd(_LIST_KEY, {job_id: float(created_at)})
-            pipe.execute()
+        pipe = self._pipe()
+        pipe.setex(key, JOB_TTL, data)
+        pipe.zadd(_LIST_KEY, {job_id: float(created_at)})
+        pipe.execute()
 
     def get_job(self, job_id: str) -> Optional[dict]:
         key = f"{JOB_PREFIX}{job_id}"
-        try:
-            data = self.redis.redis.get(key)
-        except AttributeError:
-            data = self.redis.get(key)
+        data = self._get(key)
         if data:
             return json.loads(data)
         return None
@@ -171,32 +186,19 @@ class VideoJobStore:
 
     def delete_job(self, job_id: str) -> None:
         key = f"{JOB_PREFIX}{job_id}"
-        try:
-            pipe = self.redis.redis.pipeline()
-            pipe.delete(key)
-            pipe.zrem(_LIST_KEY, job_id)
-            pipe.execute()
-        except AttributeError:
-            pipe = self.redis.pipeline()
-            pipe.delete(key)
-            pipe.zrem(_LIST_KEY, job_id)
-            pipe.execute()
+        pipe = self._pipe()
+        pipe.delete(key)
+        pipe.zrem(_LIST_KEY, job_id)
+        pipe.execute()
 
     def list_jobs(self) -> list[dict]:
-        try:
-            job_ids = self.redis.redis.zrevrange(_LIST_KEY, 0, -1)
-        except AttributeError:
-            job_ids = self.redis.zrevrange(_LIST_KEY, 0, -1)
+        job_ids = self._zrevrange(_LIST_KEY, 0, -1)
 
         if not job_ids:
             return []
 
-        # Batch fetch with MGET instead of N individual GETs
         keys = [f"{JOB_PREFIX}{jid.decode() if isinstance(jid, bytes) else jid}" for jid in job_ids]
-        try:
-            raw = self.redis.redis.mget(*keys)
-        except AttributeError:
-            raw = self.redis.mget(*keys)
+        raw = self._mget(*keys)
 
         jobs = []
         stale_ids = []
@@ -207,15 +209,11 @@ class VideoJobStore:
             else:
                 stale_ids.append(jid_str)
 
-        # Clean stale entries from sorted set (best-effort)
         if stale_ids:
             try:
-                self.redis.redis.zrem(_LIST_KEY, *stale_ids)
+                self._zrem(_LIST_KEY, *stale_ids)
             except Exception:
-                try:
-                    self.redis.zrem(_LIST_KEY, *stale_ids)
-                except Exception:
-                    logger.warning("Failed to clean %d stale entries from sorted set", len(stale_ids))
+                logger.warning("Failed to clean %d stale entries from sorted set", len(stale_ids))
 
         return jobs
 
@@ -225,18 +223,12 @@ class VideoJobStore:
         Iterates the sorted set lazily — stops at the first QUEUED job found.
         Much more efficient than list_jobs() when there are many completed jobs.
         """
-        try:
-            job_ids = self.redis.redis.zrevrange(_LIST_KEY, 0, -1)
-        except AttributeError:
-            job_ids = self.redis.zrevrange(_LIST_KEY, 0, -1)
+        job_ids = self._zrevrange(_LIST_KEY, 0, -1)
 
         for jid in job_ids:
             jid_str = jid.decode() if isinstance(jid, bytes) else jid
             key = f"{JOB_PREFIX}{jid_str}"
-            try:
-                data = self.redis.redis.get(key)
-            except AttributeError:
-                data = self.redis.get(key)
+            data = self._get(key)
             if data:
                 job = json.loads(data)
                 if job.get("status") == "queued":

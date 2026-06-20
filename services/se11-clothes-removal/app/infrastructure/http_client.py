@@ -149,7 +149,7 @@ class SE8Client(ServiceClient):
             "input_mask": mask_b64,
             "inpaint_additional_prompt": prompt,
             "async_process": False,
-            "require_base64": True,
+            "require_base64": False,
         }
 
         if inpaint_strength != 1.0:
@@ -168,12 +168,28 @@ class SE8Client(ServiceClient):
             item = result[0]
         else:
             item = result
-        # SE8 sometimes returns base64 in 'url' field (with or without prefix)
+
+        # SE8 returns file URL when require_base64=False — download image bytes
+        url_val = item.get("url", "")
+        if url_val and not url_val.startswith("data:"):
+            file_url = url_val if url_val.startswith("http") else f"{self.base_url}{url_val}"
+            logger.info("SE8: downloading result from %s", file_url)
+            try:
+                dl_resp = await self._request_with_retry("GET", url_val)
+                img_bytes = dl_resp.content
+                item["base64"] = base64.b64encode(img_bytes).decode("utf-8")
+                logger.info("SE8: downloaded %d bytes", len(img_bytes))
+            except Exception as e:
+                logger.error("SE8: failed to download from %s: %s", file_url, e)
+                raise
+
+        # Fallback: SE8 sometimes returns base64 in 'url' field as data URI
         if not item.get("base64") and item.get("url"):
             url_val = item["url"]
             data_idx = url_val.find("data:image")
             if data_idx >= 0:
                 item["base64"] = url_val[data_idx:]
+
         return item
 
     async def health(self) -> dict:

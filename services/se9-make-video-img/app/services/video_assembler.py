@@ -88,23 +88,23 @@ class VideoAssembler:
         title_path = None
         if hook_text:
             title_path = os.path.join(output_dir, "title_card.mp4")
-            logger.info(f"Creating title card: {title_duration}s")
+            logger.info("Creating title card: %.1fs", title_duration)
             await ffmpeg_utils.create_title_card(
                 image_path=image_paths[0],
                 output_path=title_path,
-                hook_text=hook_text,
                 duration=title_duration,
                 width=width,
                 height=height,
                 fps=fps,
             )
 
-        # Loop images cyclically to fill all scenes
-        cycled_images = [image_paths[i % len(image_paths)] for i in range(num_scenes_needed)]
+        chosen_seq = random.choice(_STYLE_SEQUENCES)
 
         logger.info(
-            f"Assembling video: {len(image_paths)} source images → {num_scenes_needed} scenes "
-            f"(per_scene={per_scene_duration:.1f}s), {audio_duration:.1f}s audio, title={title_duration:.1f}s"
+            "Assembling video: %d source images → %d scenes "
+            "(per_scene=%.1fs), %.1fs audio, title=%.1fs, seq=%s",
+            len(image_paths), num_scenes_needed,
+            per_scene_duration, audio_duration, title_duration, chosen_seq,
         )
 
         segment_paths = await self._create_segments(
