@@ -75,7 +75,7 @@ def convert_to_mono_wav(input_path: str, output_path: str,
     return output_path
 
 
-def chunk_text(text: str, chunk_size: int = 250) -> list[str]:
+def chunk_text(text: str, chunk_size: int = 1000) -> list[str]:
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     chunks = []
     for para in paragraphs:
@@ -105,7 +105,7 @@ def chunk_text(text: str, chunk_size: int = 250) -> list[str]:
 
 
 def assemble_audio(wave_arrays: list, sample_rate: int,
-                   silence_between_paras_ms: int = 500) -> bytes:
+                   silence_between_paras_ms: int = 0) -> bytes:
     import tempfile
     import torch
     from pydub import AudioSegment
@@ -122,6 +122,7 @@ def assemble_audio(wave_arrays: list, sample_rate: int,
         if isinstance(wav, np.ndarray):
             if wav.ndim > 1:
                 wav = wav.squeeze()
+            wav = np.clip(wav, -1.0, 1.0)
             wav_int16 = (wav * 32767).astype(np.int16)
             tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             try:

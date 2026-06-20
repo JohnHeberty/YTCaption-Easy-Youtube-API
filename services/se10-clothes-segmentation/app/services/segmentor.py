@@ -94,9 +94,7 @@ class ClothesSegmentor:
         )
         logger.info("GroundingDINO loaded")
 
-        # SAM2
-        sam2_repo = self._external_dir / "segment-anything-2"
-        sam2_config = sam2_repo / SAM2_CONFIG_TINY
+        # SAM2 — config name must be relative to the sam2 package for Hydra
         sam2_checkpoint = self._checkpoints_dir / CHECKPOINT_SAM2_TINY
 
         if not sam2_checkpoint.exists():
@@ -106,7 +104,7 @@ class ClothesSegmentor:
         from sam2.sam2_image_predictor import SAM2ImagePredictor
 
         sam2_model = build_sam2(
-            str(sam2_config),
+            SAM2_CONFIG_TINY,
             str(sam2_checkpoint),
             device=self._device,
             apply_postprocessing=False,
@@ -245,19 +243,19 @@ class ClothesSegmentor:
             binary_masks.append(mask_b64_str)
 
         # 7. Build response
+        areas = final_detections.area if len(final_detections) > 0 else np.array([])
         detected_objects = [
             {
                 "class_name": classes[cls_id],
                 "confidence": round(float(conf), 4),
                 "bbox": [int(b) for b in xyxy],
-                "area_pct": round(float(d.area / image_area) * 100, 2),
+                "area_pct": round(float(areas[i] / image_area) * 100, 2),
             }
-            for cls_id, conf, xyxy, d in zip(
+            for i, (cls_id, conf, xyxy) in enumerate(zip(
                 final_detections.class_id,
                 final_detections.confidence,
                 final_detections.xyxy,
-                final_detections,
-            )
+            ))
         ]
 
         _, buffer = cv2.imencode(".jpg", annotated)

@@ -50,8 +50,8 @@ class JobDetailResponse(FlexibleSchema):
     completed_at: Optional[str] = None
     voice_id: Optional[str] = None
     has_voice_cloning: bool = False
-    exaggeration: float = 0.75
-    cfg_weight: float = 0.35
+    exaggeration: float = 0.5
+    cfg_weight: float = 0.5
     temperature: float = 0.8
     output_duration_seconds: Optional[float] = None
     error_message: Optional[str] = None

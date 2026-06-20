@@ -126,8 +126,8 @@ class ChatterboxModelManager:
             logger.info("Chatterbox model unloaded")
 
     def generate(self, text: str, audio_prompt_path: Optional[str] = None,
-                 exaggeration: float = 0.75, temperature: float = 0.8,
-                 cfg_weight: float = 0.35):
+                 exaggeration: float = 0.5, temperature: float = 0.8,
+                 cfg_weight: float = 0.5):
         self.load_model()
         if self._model is None:
             raise ModelNotAvailable(device=self._device)

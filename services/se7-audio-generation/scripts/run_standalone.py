@@ -57,9 +57,9 @@ def main():
         text=TEST_TEXT,
         audio_prompt_path=VOICE_PATH,
         language_id="pt",
-        exaggeration=0.75,
+        exaggeration=0.5,
         temperature=0.8,
-        cfg_weight=0.35,
+        cfg_weight=0.5,
     )
     gen_time = time.time() - t1
     print(f"Generated in {gen_time:.1f}s")

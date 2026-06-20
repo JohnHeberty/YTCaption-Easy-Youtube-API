@@ -25,7 +25,7 @@ class AudioGenSettings(BaseServiceSettings):
     default_cfg_weight: float = Field(default=0.5, ge=0.0, le=1.0)
     default_temperature: float = Field(default=0.8, ge=0.0, le=2.0)
     max_text_length: int = Field(default=5000, ge=100, le=50000)
-    chunk_size: int = Field(default=250, ge=50, le=1000)
+    chunk_size: int = Field(default=1000, ge=50, le=5000)
 
     output_dir: str = "./data/outputs"
     voices_dir: str = "./data/voices"
