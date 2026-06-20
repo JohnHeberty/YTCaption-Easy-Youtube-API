@@ -4,12 +4,14 @@ Background pipeline execution service.
 Extracted from main.py to eliminate dependency on module-level globals.
 Uses DI factories for redis_store and orchestrator.
 """
+from __future__ import annotations
+
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
 
-async def execute_pipeline_background(job_id: str):
+async def execute_pipeline_background(job_id: str) -> None:
     """Executa pipeline em background"""
     from app.infrastructure.dependency_injection import get_pipeline_orchestrator
     from app.infrastructure.redis_store import get_store

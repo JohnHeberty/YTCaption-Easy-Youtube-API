@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Video Downloader Service application package."""
 
 # Avoid importing from main at package level

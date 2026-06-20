@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Sliding-window in-memory rate limiter middleware.
 
@@ -19,12 +21,14 @@ Usage (in main.py)::
 import asyncio
 from collections import deque
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Any
 
 from common.log_utils import get_logger
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
+from starlette.types import ASGIApp
 
 logger = get_logger(__name__)
 
@@ -65,16 +69,16 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: ASGIApp,
         max_requests: int = 100,
         window_seconds: int = 60,
-        exclude_paths: tuple = ("/health", "/metrics", "/docs", "/openapi.json"),
+        exclude_paths: tuple[str, ...] = ("/health", "/metrics", "/docs", "/openapi.json"),
     ) -> None:
         super().__init__(app)
         self.max_requests = max_requests
         self.window = timedelta(seconds=window_seconds)
         self.exclude_paths = tuple(exclude_paths)
-        self._buckets: Dict[str, _IPBucket] = {}
+        self._buckets: dict[str, _IPBucket] = {}
         self._buckets_lock = asyncio.Lock()
 
     async def _get_bucket(self, ip: str) -> _IPBucket:
@@ -83,7 +87,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
                 self._buckets[ip] = _IPBucket()
             return self._buckets[ip]
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
         # Skip rate limiting for excluded paths
         if request.url.path.startswith(self.exclude_paths):
             return await call_next(request)

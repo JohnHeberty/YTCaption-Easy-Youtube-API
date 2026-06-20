@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Re-exports from shared middleware for backward compatibility.
 

@@ -3,11 +3,13 @@ Cliente para comunicação com microserviços.
 
 Implementa retry, circuit breaker e logging estruturado.
 """
+from __future__ import annotations
+
 import asyncio
 import random
 import re
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable
 
 import httpx
 from common.log_utils import get_logger
@@ -21,7 +23,7 @@ from app.core.exceptions import CircuitBreakerOpenError, PipelineStageError
 logger = get_logger(__name__)
 
 
-def _filename_from_cd(cd: Optional[str]) -> Optional[str]:
+def _filename_from_cd(cd: str | None) -> str | None:
     """Extrai filename do header Content-Disposition."""
     if not cd:
         return None
@@ -41,7 +43,7 @@ class MicroserviceClient(MicroserviceClientInterface):
     - Logging estruturado
     """
 
-    def __init__(self, service_name: str):
+    def __init__(self, service_name: str) -> None:
         """
         Inicializa cliente.
 
@@ -57,7 +59,7 @@ class MicroserviceClient(MicroserviceClientInterface):
         self.retry_delay = self.config.get("retry_delay", 2)
 
         settings = get_settings()
-        self._headers = {}
+        self._headers: dict[str, str] = {}
         if settings.api_key:
             self._headers["X-API-Key"] = settings.api_key
 
@@ -69,7 +71,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             name=service_name,
         )
 
-    async def check_health(self) -> Dict[str, Any]:
+    async def check_health(self) -> dict[str, Any]:
         """
         Verifica health do microserviço.
 
@@ -103,7 +105,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             logger.warning(f"[{self.service_name}] Health check unexpected error: {unexpected_error}")
             return {"status": "unhealthy", "error": str(unexpected_error)}
 
-    async def submit_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_job(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
         Submete job via JSON.
 
@@ -123,7 +125,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             >>> response = await client.submit_job(payload)
             >>> print(response["job_id"])
         """
-        async def _do_request() -> Dict[str, Any]:
+        async def _do_request() -> dict[str, Any]:
             url = self._url("submit")
             logger.info(f"Submitting JSON to {self.service_name}: {url}")
             ssl_verify = get_ssl_context()
@@ -148,8 +150,8 @@ class MicroserviceClient(MicroserviceClientInterface):
             ) from request_error
 
     async def submit_multipart(
-        self, files: Dict[str, Any], data: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, files: dict[str, Any], data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Submete arquivo via multipart/form-data.
 
@@ -170,7 +172,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             >>> data = {"language": "pt"}
             >>> response = await client.submit_multipart(files, data)
         """
-        async def _do_request() -> Dict[str, Any]:
+        async def _do_request() -> dict[str, Any]:
             url = self._url("submit")
             logger.info(f"Submitting multipart to {self.service_name}: {url}")
             ssl_verify = get_ssl_context()
@@ -194,7 +196,7 @@ class MicroserviceClient(MicroserviceClientInterface):
                 "submit", f"Request failed: {str(request_error)}", request_error, self.service_name
             ) from request_error
 
-    async def get_job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+    async def get_job_status(self, job_id: str) -> dict[str, Any] | None:
         """
         Consulta status de um job.
 
@@ -217,7 +219,7 @@ class MicroserviceClient(MicroserviceClientInterface):
         url = self._url("status", job_id=job_id)
         ssl_verify = get_ssl_context()
 
-        async def _do_request() -> Dict[str, Any]:
+        async def _do_request() -> dict[str, Any]:
             async with httpx.AsyncClient(timeout=self.timeout, verify=ssl_verify) as client:
                 response = await client.get(url, headers=self._headers)
                 response.raise_for_status()
@@ -232,7 +234,7 @@ class MicroserviceClient(MicroserviceClientInterface):
             logger.error(f"[{self.service_name}] get_job_status request error for job {job_id}: {request_error}")
             raise
 
-    async def download_file(self, job_id: str) -> Tuple[bytes, str]:
+    async def download_file(self, job_id: str) -> tuple[bytes, str]:
         """
         Baixa resultado do job.
 
@@ -259,7 +261,7 @@ class MicroserviceClient(MicroserviceClientInterface):
         download_timeout = httpx.Timeout(300.0, read=900.0, write=300.0, connect=30.0)
         ssl_verify = get_ssl_context()
 
-        async def _download() -> Tuple[bytes, str]:
+        async def _download() -> tuple[bytes, str]:
             try:
                 async with asyncio.timeout(960):  # 16 minutos total
                     async with httpx.AsyncClient(timeout=download_timeout, verify=ssl_verify) as client:

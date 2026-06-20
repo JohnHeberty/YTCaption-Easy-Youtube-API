@@ -4,8 +4,10 @@ Interfaces abstratas para o orquestrador.
 Define contratos que devem ser implementados pelos componentes,
 permitindo injeção de dependência e testes unitários.
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Protocol, Tuple
+from typing import Any, Protocol
 
 
 class MicroserviceClientInterface(ABC):
@@ -17,7 +19,7 @@ class MicroserviceClientInterface(ABC):
     """
 
     @abstractmethod
-    async def submit_job(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def submit_job(self, payload: dict[str, Any]) -> dict[str, Any]:
         """
         Submete um job para o microserviço.
 
@@ -34,8 +36,8 @@ class MicroserviceClientInterface(ABC):
 
     @abstractmethod
     async def submit_multipart(
-        self, files: Dict[str, Any], data: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, files: dict[str, Any], data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Submete arquivo via multipart/form-data.
 
@@ -52,7 +54,7 @@ class MicroserviceClientInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+    async def get_job_status(self, job_id: str) -> dict[str, Any] | None:
         """
         Consulta status de um job.
 
@@ -68,7 +70,7 @@ class MicroserviceClientInterface(ABC):
         pass
 
     @abstractmethod
-    async def check_health(self) -> Dict[str, Any]:
+    async def check_health(self) -> dict[str, Any]:
         """
         Verifica saúde do serviço.
 
@@ -78,7 +80,7 @@ class MicroserviceClientInterface(ABC):
         pass
 
     @abstractmethod
-    async def download_file(self, job_id: str) -> Tuple[bytes, str]:
+    async def download_file(self, job_id: str) -> tuple[bytes, str]:
         """
         Baixa resultado do job.
 
@@ -135,7 +137,7 @@ class PipelineStageInterface(ABC):
 class HealthCheckable(Protocol):
     """Protocol para serviços que podem ser verificados."""
 
-    async def check_health(self) -> Dict[str, Any]:
+    async def check_health(self) -> dict[str, Any]:
         """
         Verifica saúde do serviço.
 
@@ -149,7 +151,7 @@ class CircuitBreakerInterface(ABC):
     """Interface para Circuit Breaker."""
 
     @abstractmethod
-    async def call(self, func: callable, *args: Any, **kwargs: Any) -> Any:
+    async def call(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """
         Executa função com proteção do circuit breaker.
 

@@ -3,7 +3,9 @@ Health Checker para microserviços.
 
 Verifica saúde de todos os serviços e reporta status consolidado.
 """
-from typing import Dict
+from __future__ import annotations
+
+from typing import Any
 
 from common.log_utils import get_logger
 from app.domain.interfaces import HealthCheckable
@@ -18,7 +20,7 @@ class HealthChecker:
     Responsabilidade única: verificar saúde de serviços externos.
     """
 
-    def __init__(self, clients: Dict[str, HealthCheckable]) -> None:
+    def __init__(self, clients: dict[str, HealthCheckable]) -> None:
         """
         Inicializa HealthChecker.
 
@@ -27,14 +29,14 @@ class HealthChecker:
         """
         self.clients = clients
 
-    async def check_all(self) -> Dict[str, str]:
+    async def check_all(self) -> dict[str, str]:
         """
         Verifica saúde de todos os serviços.
 
         Returns:
             Dict com nome do serviço -> status
         """
-        results: Dict[str, str] = {}
+        results: dict[str, str] = {}
         for name, client in self.clients.items():
             try:
                 health = await client.check_health()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Video downloader service implementation.
 
 This module implements the VideoDownloaderInterface with yt-dlp
@@ -10,7 +12,7 @@ import os
 import shutil
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yt_dlp
 from tenacity import (
@@ -52,7 +54,7 @@ logger = get_logger(__name__)
     retry=retry_if_exception_type((IOError, OSError, ConnectionError)),
     reraise=True,
 )
-def _extract_video_info(ydl: yt_dlp.YoutubeDL, url: str) -> dict:
+def _extract_video_info(ydl: yt_dlp.YoutubeDL, url: str) -> dict[str, Any]:
     """Extract video metadata with retry for transient network errors.
 
     Args:
@@ -79,7 +81,7 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
         self,
         cache_dir: str = "./cache",
         ssl_verify: bool = True,
-    ):
+    ) -> None:
         """Initialize the downloader.
 
         Args:
@@ -101,10 +103,10 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
         )
 
         # Job store reference (injected)
-        self._job_store: Optional[Any] = None
+        self._job_store: Any = None
 
     @property
-    def job_store(self) -> Optional[Any]:
+    def job_store(self) -> Any:
         """Get the job store reference."""
         return self._job_store
 
@@ -153,7 +155,7 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
         """
         return QUALITY_FORMATS.get(quality, QUALITY_FORMATS["best"])
 
-    def _progress_hook(self, d: Dict[str, Any], job: VideoDownloadJob) -> None:
+    def _progress_hook(self, d: dict[str, Any], job: VideoDownloadJob) -> None:
         """Handle download progress updates.
 
         Args:
@@ -244,8 +246,8 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
         if self._job_store:
             self._job_store.update_job(job)
 
-        last_error: Optional[Exception] = None
-        current_ua: Optional[str] = None
+        last_error: Exception | None = None
+        current_ua: str | None = None
 
         for ua_index in range(MAX_USER_AGENTS):
             current_ua = self.ua_manager.get_user_agent()
@@ -378,7 +380,7 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
 
         return job
 
-    def _get_ydl_opts(self, job: VideoDownloadJob, user_agent: str) -> Dict[str, Any]:
+    def _get_ydl_opts(self, job: VideoDownloadJob, user_agent: str) -> dict[str, Any]:
         """Build yt-dlp options.
 
         Args:
@@ -417,7 +419,7 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
 
         return opts
 
-    def get_file_path(self, job: VideoDownloadJob) -> Optional[Path]:
+    def get_file_path(self, job: VideoDownloadJob) -> Path | None:
         """Get file path for a completed job.
 
         Args:
@@ -432,7 +434,7 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
                 return path
         return None
 
-    def get_user_agent_stats(self) -> Dict[str, Any]:
+    def get_user_agent_stats(self) -> dict[str, Any]:
         """Get user agent statistics.
 
         Returns:

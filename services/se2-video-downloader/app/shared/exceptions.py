@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Service-specific exceptions for Video Downloader.
 
@@ -11,33 +13,33 @@ from common.exception_handlers import BaseServiceException
 class VideoDownloadException(BaseServiceException):
     """Base exception for video download errors."""
 
-    def __init__(self, message: str = "Video download error", status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR):
+    def __init__(self, message: str = "Video download error", status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR) -> None:
         super().__init__(message=message, status_code=status_code, error_code="VIDEO_DOWNLOAD_ERROR")
 
 
 class ServiceException(BaseServiceException):
     """Service-level exception."""
 
-    def __init__(self, message: str = "Service error"):
+    def __init__(self, message: str = "Service error") -> None:
         super().__init__(message=message, error_code="SERVICE_ERROR")
 
 
 class ResourceError(BaseServiceException):
     """Resource not found or unavailable."""
 
-    def __init__(self, message: str = "Resource error"):
+    def __init__(self, message: str = "Resource error") -> None:
         super().__init__(message=message, status_code=status.HTTP_404_NOT_FOUND, error_code="RESOURCE_ERROR")
 
 
 class ProcessingTimeoutError(BaseServiceException):
     """Processing exceeded time limit."""
 
-    def __init__(self, message: str = "Processing timeout"):
+    def __init__(self, message: str = "Processing timeout") -> None:
         super().__init__(message=message, status_code=status.HTTP_408_REQUEST_TIMEOUT, error_code="PROCESSING_TIMEOUT")
 
 
 class AudioProcessingError(BaseServiceException):
     """Audio processing error (compatibility)."""
 
-    def __init__(self, message: str = "Audio processing error"):
+    def __init__(self, message: str = "Audio processing error") -> None:
         super().__init__(message=message, error_code="AUDIO_PROCESSING_ERROR")

@@ -20,11 +20,12 @@ Example:
     ... except CircuitBreakerOpenError:
     ...     print("Service unavailable - circuit breaker is open")
 """
+from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
@@ -83,7 +84,7 @@ class CircuitBreaker(CircuitBreakerInterface):
         recovery_timeout: int = 60,
         half_open_max_calls: int = 3,
         name: str = "default",
-    ):
+    ) -> None:
         """Inicializa Circuit Breaker.
 
         Args:
@@ -98,7 +99,7 @@ class CircuitBreaker(CircuitBreakerInterface):
         self.name = name
 
         self._failure_count: int = 0
-        self._last_failure_time: Optional[datetime] = None
+        self._last_failure_time: datetime | None = None
         self._state: CircuitState = CircuitState.CLOSED
         self._half_open_calls: int = 0
 
@@ -119,7 +120,7 @@ class CircuitBreaker(CircuitBreakerInterface):
         """
         return self._state.value
 
-    async def call(self, func: Callable, *args: Any, **kwargs: Any) -> Any:
+    async def call(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """Executa função com proteção do circuit breaker.
 
         Executa a função assíncrona fornecida, aplicando as regras

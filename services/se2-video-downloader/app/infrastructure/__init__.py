@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Infrastructure module for video-downloader service."""
 
 # Import celery tasks to ensure registration

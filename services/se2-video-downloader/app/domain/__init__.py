@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Domain layer for Video Downloader Service.
 
 This package contains domain models, interfaces, and business logic

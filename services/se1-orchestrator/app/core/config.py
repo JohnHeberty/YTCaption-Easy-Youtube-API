@@ -2,8 +2,11 @@
 Configurações da API Orquestradora usando Pydantic Settings.
 Carrega variáveis de ambiente e configurações dos microserviços.
 """
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
+
 from pydantic import Field, field_validator, model_validator
 
 from common.config_utils.base_settings import BaseServiceSettings
@@ -103,7 +106,7 @@ class OrchestratorSettings(BaseServiceSettings):
         return v.rstrip("/")
 
     @model_validator(mode='after')
-    def validate_required_urls(self):
+    def validate_required_urls(self) -> OrchestratorSettings:
         """Valida que URLs obrigatórias foram fornecidas."""
         if self.video_downloader_url is None:
             raise ValueError("video_downloader_url is required")
@@ -113,11 +116,11 @@ class OrchestratorSettings(BaseServiceSettings):
             raise ValueError("audio_transcriber_url is required")
         return self
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Any:
         """Backward compatibility: allow dict-style access settings["key"]."""
         return getattr(self, key)
 
-    def get(self, key: str, default=None):
+    def get(self, key: str, default: Any = None) -> Any:
         """Backward compatibility: allow settings.get("key", default)."""
         return getattr(self, key, default)
 
@@ -133,7 +136,7 @@ def get_settings() -> OrchestratorSettings:
     return OrchestratorSettings()
 
 
-def get_microservice_config(service_name: str) -> dict:
+def get_microservice_config(service_name: str) -> dict[str, Any]:
     """
     Retorna configuração específica de um microserviço.
 

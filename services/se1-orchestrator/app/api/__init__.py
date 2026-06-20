@@ -1,6 +1,7 @@
 """
 API routes for the orchestrator service.
 """
+from __future__ import annotations
 
 from .health_routes import router as health_router
 from .admin_routes import router as admin_router

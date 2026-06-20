@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
@@ -20,7 +22,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 logger = get_logger(__name__)
 
 
-async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Settings):
+async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Settings) -> dict[str, Any]:
     from redis import Redis
     import json
 
@@ -102,7 +104,7 @@ async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Setting
         return {"error": str(e)}
 
 
-async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Settings, purge_celery_queue: bool = False):
+async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Settings, purge_celery_queue: bool = False) -> dict[str, Any]:
     from redis import Redis
     from urllib.parse import urlparse
 
@@ -328,7 +330,7 @@ async def manual_cleanup(
     ),
     store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
-):
+) -> dict[str, Any]:
     """Perform system cleanup: basic (expired jobs) or total (factory reset)."""
     cleanup_type = "TOTAL" if deep else "básica"
     logger.warning(f"🔥 Iniciando limpeza {cleanup_type} SÍNCRONA (purge_celery={purge_celery_queue})")
@@ -351,7 +353,7 @@ async def manual_cleanup(
 async def get_stats(
     store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
-):
+) -> dict[str, Any]:
     """Retrieve download service statistics including Redis, cache, and Celery info."""
     from app.infrastructure.celery_config import celery_app
 
@@ -386,7 +388,7 @@ async def get_stats(
 
 
 @router.get("/queue", summary="Get queue info", response_model=QueueInfoResponse, responses={500: {"description": "Internal server error"}})
-async def get_queue_info_endpoint(store: VideoDownloadJobStore = Depends(job_store)):
+async def get_queue_info_endpoint(store: VideoDownloadJobStore = Depends(job_store)) -> dict[str, Any]:
     """Retrieve Celery queue information for the download service."""
     try:
         queue_info = await store.get_queue_info()
@@ -411,7 +413,7 @@ async def fix_stuck_jobs(
     ),
     store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
-):
+) -> dict[str, Any]:
     """Mark download jobs stuck in QUEUED status beyond a threshold as FAILED."""
     from datetime import timedelta
     import json

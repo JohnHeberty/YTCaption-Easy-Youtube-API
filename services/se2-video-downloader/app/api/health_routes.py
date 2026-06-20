@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
 
 from common.health_utils import ServiceHealthChecker
 from common.log_utils import get_logger
@@ -26,8 +29,7 @@ logger = get_logger(__name__)
 async def health_check(
     store: VideoDownloadJobStore = Depends(job_store),
     settings: Settings = Depends(get_settings_dep),
-):
-    """Check service health including Redis, Celery worker, and cache directory status."""
+) -> JSONResponse:
     from app.infrastructure.celery_config import celery_app
 
     checker = ServiceHealthChecker("video-downloader", version=settings.get("version", "3.0.0"))
@@ -46,7 +48,7 @@ async def health_check(
     return JSONResponse(content=result, status_code=status_code)
 
 
-def _check_cache_dir(cache_dir: str) -> dict:
+def _check_cache_dir(cache_dir: str) -> dict[str, str]:
     path = Path(cache_dir)
     if path.exists() and path.is_dir():
         return {"status": "ok"}
@@ -54,10 +56,10 @@ def _check_cache_dir(cache_dir: str) -> dict:
 
 
 @router.get("/metrics", summary="Prometheus metrics", response_class=Response)
-async def prometheus_metrics(store: VideoDownloadJobStore = Depends(job_store)):
+async def prometheus_metrics(store: VideoDownloadJobStore = Depends(job_store)) -> Response:
     """Expose Prometheus-format metrics for the download service."""
     svc = "video_downloader"
-    stats: dict = {}
+    stats: dict[str, Any] = {}
     try:
         stats = store.get_stats()
     except Exception as _e:
@@ -86,8 +88,7 @@ async def prometheus_metrics(store: VideoDownloadJobStore = Depends(job_store)):
     description="Retorna estatísticas de uso, quarentena e qualidade média dos User-Agents disponíveis.",
     response_model=UserAgentStatsResponse,
 )
-async def get_user_agent_stats(downloader: YDLPVideoDownloader = Depends(downloader)):
-    """Retrieve user agent usage statistics and quarantine status."""
+async def get_user_agent_stats(downloader: YDLPVideoDownloader = Depends(downloader)) -> dict[str, Any]:
     return downloader.get_user_agent_stats()
 
 
@@ -97,7 +98,7 @@ async def get_user_agent_stats(downloader: YDLPVideoDownloader = Depends(downloa
     description="Remove um User-Agent da quarentena para que ele volte a ser elegível para novos downloads.",
     response_model=UserAgentResetResponse,
 )
-async def reset_user_agent(user_agent_id: str, downloader: YDLPVideoDownloader = Depends(downloader)):
+async def reset_user_agent(user_agent_id: str, downloader: YDLPVideoDownloader = Depends(downloader)) -> dict[str, Any]:
     """Reset a quarantined user agent so it can be used again for downloads."""
     stats = downloader.get_user_agent_stats()
     matching_ua = None

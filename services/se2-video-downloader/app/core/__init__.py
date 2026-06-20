@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Core module for Video Downloader Service.
 
 This package contains core domain-independent components like

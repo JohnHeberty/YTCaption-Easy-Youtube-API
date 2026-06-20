@@ -1,5 +1,7 @@
 """Builders para respostas do orchestrator."""
-from typing import Dict, Any, Optional
+from __future__ import annotations
+
+from typing import Any
 
 # Try to import from common.job_utils, fall back to None if not available
 try:
@@ -18,7 +20,7 @@ class StageResponseBuilder:
     """
     
     @staticmethod
-    def build_stage_response(stage) -> Dict[str, Any]:
+    def build_stage_response(stage: Any) -> dict[str, Any]:
         """Constroi resposta para um stage.
         
         Args:
@@ -44,7 +46,7 @@ class StageResponseBuilder:
         }
 
     @staticmethod
-    def build_all_stages(job) -> Dict[str, Any]:
+    def build_all_stages(job: Any) -> dict[str, Any]:
         """Constroi respostas para todos os stages de um job.
         
         Args:

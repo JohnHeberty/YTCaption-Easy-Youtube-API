@@ -4,7 +4,9 @@ Exceções específicas do orquestrador.
 Hierarquia única de exceções — todas herdam de OrchestratorError
 para permitir captura genérica quando necessário.
 """
-from typing import Optional
+from __future__ import annotations
+
+from typing import Any, Optional
 
 
 class OrchestratorError(Exception):
@@ -20,8 +22,8 @@ class OrchestratorError(Exception):
         self,
         message: str,
         error_code: str = None,
-        details: Optional[dict] = None,
-    ):
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.error_code = error_code or "ORCHESTRATOR_ERROR"
@@ -36,7 +38,7 @@ class OrchestratorError(Exception):
 class ValidationError(OrchestratorError):
     """Erro de validação de dados de entrada."""
 
-    def __init__(self, message: str, field: str = None):
+    def __init__(self, message: str, field: str = None) -> None:
         self.field = field
         super().__init__(message, "VALIDATION_ERROR")
 
@@ -44,7 +46,7 @@ class ValidationError(OrchestratorError):
 class JobCreationError(OrchestratorError):
     """Erro ao criar job."""
 
-    def __init__(self, message: str, original_error: Exception = None):
+    def __init__(self, message: str, original_error: Exception = None) -> None:
         self.original_error = original_error
         super().__init__(message, "JOB_CREATION_ERROR")
 
@@ -52,7 +54,7 @@ class JobCreationError(OrchestratorError):
 class RedisConnectionError(OrchestratorError):
     """Erro de conexão com Redis."""
 
-    def __init__(self, message: str, redis_url: str = None):
+    def __init__(self, message: str, redis_url: str = None) -> None:
         self.redis_url = redis_url
         super().__init__(message, "REDIS_CONNECTION_ERROR")
 
@@ -66,7 +68,7 @@ class PipelineStageError(OrchestratorError):
         message: str,
         original: Optional[Exception] = None,
         service_name: Optional[str] = None,
-    ):
+    ) -> None:
         super().__init__(message)
         self.stage = stage
         self.original = original
@@ -82,7 +84,7 @@ class PipelineStageError(OrchestratorError):
 class CircuitBreakerOpenError(OrchestratorError):
     """Circuit breaker está aberto."""
 
-    def __init__(self, service_name: str, message: Optional[str] = None):
+    def __init__(self, service_name: str, message: Optional[str] = None) -> None:
         msg = message or f"Circuit breaker is OPEN for service '{service_name}'"
         super().__init__(msg, "CIRCUIT_BREAKER_OPEN")
         self.service_name = service_name

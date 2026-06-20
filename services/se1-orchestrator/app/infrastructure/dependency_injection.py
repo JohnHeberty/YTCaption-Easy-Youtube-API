@@ -3,9 +3,11 @@ Injeção de Dependência para o orquestrador.
 
 Gerencia a criação e lifecycle das dependências.
 """
+from __future__ import annotations
+
 from datetime import datetime
 from functools import lru_cache
-from typing import Optional
+from typing import Any
 
 from app.core.config import get_settings
 from app.domain.interfaces import MicroserviceClientInterface
@@ -15,7 +17,7 @@ from app.infrastructure.redis_store import RedisStore, get_store
 from app.services.health_checker import HealthChecker
 from app.services.pipeline_orchestrator import PipelineOrchestrator
 
-_app_start_time: Optional[datetime] = None
+_app_start_time: datetime | None = None
 
 
 def set_app_start_time(dt: datetime) -> None:
@@ -23,14 +25,14 @@ def set_app_start_time(dt: datetime) -> None:
     _app_start_time = dt
 
 
-def get_app_start_time() -> Optional[datetime]:
+def get_app_start_time() -> datetime | None:
     return _app_start_time
 
 
 @lru_cache()
 def get_circuit_breaker(
-    failure_threshold: Optional[int] = None,
-    recovery_timeout: Optional[int] = None,
+    failure_threshold: int | None = None,
+    recovery_timeout: int | None = None,
     name: str = "default"
 ) -> CircuitBreaker:
     """
@@ -81,7 +83,7 @@ def get_health_checker() -> HealthChecker:
     return HealthChecker(clients)
 
 
-def get_pipeline_orchestrator(redis_store: Optional[RedisStore] = None) -> PipelineOrchestrator:
+def get_pipeline_orchestrator(redis_store: RedisStore | None = None) -> PipelineOrchestrator:
     """
     Factory para PipelineOrchestrator com todas as dependências.
 
@@ -109,10 +111,10 @@ def get_pipeline_orchestrator(redis_store: Optional[RedisStore] = None) -> Pipel
 
 
 def get_orchestrator_with_custom_clients(
-    video_client: Optional[MicroserviceClientInterface] = None,
-    audio_client: Optional[MicroserviceClientInterface] = None,
-    transcription_client: Optional[MicroserviceClientInterface] = None,
-    redis_store: Optional[RedisStore] = None,
+    video_client: MicroserviceClientInterface | None = None,
+    audio_client: MicroserviceClientInterface | None = None,
+    transcription_client: MicroserviceClientInterface | None = None,
+    redis_store: RedisStore | None = None,
 ) -> PipelineOrchestrator:
     """
     Factory para PipelineOrchestrator com clients customizáveis (útil para testes).

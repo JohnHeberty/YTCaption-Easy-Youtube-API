@@ -1,7 +1,10 @@
 """
 Health check routes for the orchestrator service.
 """
+from __future__ import annotations
+
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -22,19 +25,19 @@ router = APIRouter(tags=["Health"])
 settings = get_settings()
 
 
-def _get_redis_store():
+def _get_redis_store() -> Any:
     return get_store()
 
 
-def _get_orchestrator():
+def _get_orchestrator() -> Any:
     return get_pipeline_orchestrator()
 
 
 @router.get("/health", summary="Verificar saude", response_model=HealthResponse, tags=["Health"], responses={503: {"description": "Service unavailable"}})
 async def health_check(
-    redis_store=Depends(_get_redis_store),
-    orchestrator=Depends(_get_orchestrator),
-):
+    redis_store: Any = Depends(_get_redis_store),
+    orchestrator: Any = Depends(_get_orchestrator),
+) -> HealthResponse:
     """Verifica a saúde do orchestrator e dos microserviços dependentes."""
     try:
         app_start_time = get_app_start_time()
@@ -47,7 +50,7 @@ async def health_check(
             except Exception as e:
                 logger.error(f"Redis health check failed: {e}")
 
-        microservices_status = {}
+        microservices_status: dict[str, Any] = {}
         if orchestrator:
             try:
                 microservices_status = await orchestrator.check_services_health()

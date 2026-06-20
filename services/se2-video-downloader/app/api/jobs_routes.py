@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 """
 Standardized job API routes for video-downloader service using common.job_utils.
 """
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
@@ -41,7 +43,7 @@ logger = get_logger(__name__)
     response_model=VideoDownloadJobCreatedResponse,
     responses={400: {"model": ErrorResponse}, 503: {"model": ErrorResponse}, 500: {"description": "Internal server error"}},
 )
-async def create_download_job(request: VideoDownloadJobRequest, store: VideoDownloadJobStore = Depends(job_store)):
+async def create_download_job(request: VideoDownloadJobRequest, store: VideoDownloadJobStore = Depends(job_store)) -> VideoDownloadJobCreatedResponse:
     """Create a new video download job.
 
     Request body intentionally accepts only:
@@ -92,7 +94,7 @@ async def create_download_job(request: VideoDownloadJobRequest, store: VideoDown
 
 
 @router.get("/jobs/{job_id}", summary="Get job status", response_model=VideoDownloadJob, responses={404: {"model": ErrorResponse}, 410: {"model": ErrorResponse}})
-async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(job_store)):
+async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(job_store)) -> VideoDownloadJob:
     """Retrieve the current status and details of a download job."""
     job = store.get_job(job_id)
     if not job:
@@ -103,7 +105,7 @@ async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(job
 
 
 @router.get("/jobs/{job_id}/download", summary="Download video file", responses={404: {"description": "Job or file not found"}, 410: {"description": "Job expired"}, 425: {"description": "Download not ready"}})
-async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(job_store), downloader: YDLPVideoDownloader = Depends(downloader)):
+async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(job_store), downloader: YDLPVideoDownloader = Depends(downloader)) -> FileResponse:
     """Download the video file for a completed job."""
     job = store.get_job(job_id)
     if not job:
@@ -121,13 +123,13 @@ async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(job_
 
 
 @router.get("/jobs", summary="List jobs", response_model=List[VideoDownloadJob])
-async def list_jobs(limit: int = Query(20, ge=1, le=200), store: VideoDownloadJobStore = Depends(job_store)):
+async def list_jobs(limit: int = Query(20, ge=1, le=200), store: VideoDownloadJobStore = Depends(job_store)) -> list[VideoDownloadJob]:
     """List recent download jobs."""
     return store.list_jobs(limit)
 
 
 @router.delete("/jobs/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"model": ErrorResponse}})
-async def delete_job(job_id: str, store: VideoDownloadJobStore = Depends(job_store)):
+async def delete_job(job_id: str, store: VideoDownloadJobStore = Depends(job_store)) -> dict[str, Any]:
     """Delete a download job and its associated files."""
     job = store.get_job(job_id)
     if not job:
@@ -154,7 +156,7 @@ async def get_orphaned_jobs(
         examples=[30, 60],
     ),
     store: VideoDownloadJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     """Find download jobs stuck in processing beyond the specified age."""
     orphaned = await store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
     orphaned_info = []
@@ -187,7 +189,7 @@ async def cleanup_orphaned_jobs(
         examples=[True, False],
     ),
     store: VideoDownloadJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     """Mark or delete orphaned download jobs stuck in processing."""
     orphaned = await store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
     if not orphaned:

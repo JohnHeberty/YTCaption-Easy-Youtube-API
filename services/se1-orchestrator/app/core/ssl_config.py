@@ -1,13 +1,14 @@
 """
 Configuração SSL para requisições HTTP.
 """
+from __future__ import annotations
+
 import os
 import ssl
 from pathlib import Path
-from typing import Union
 
 
-def get_ssl_context() -> Union[ssl.SSLContext, bool]:
+def get_ssl_context() -> ssl.SSLContext | bool:
     """
     Retorna contexto SSL configurável baseado em variáveis de ambiente.
 

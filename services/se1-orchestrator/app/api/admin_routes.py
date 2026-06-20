@@ -1,8 +1,11 @@
 """
 Admin routes for the orchestrator service.
 """
+from __future__ import annotations
+
 from pathlib import Path
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -19,11 +22,11 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 settings = get_settings()
 
 
-def _get_redis_store():
+def _get_redis_store() -> Any:
     return get_store()
 
 
-def _get_orchestrator():
+def _get_orchestrator() -> Any:
     return get_pipeline_orchestrator()
 
 
@@ -33,7 +36,7 @@ def _get_orchestrator():
     description="Retorna estatísticas do orchestrator, métricas do Redis e o snapshot das configurações relevantes da pipeline.",
     response_model=AdminStatsResponse,
 )
-async def get_stats(redis_store=Depends(_get_redis_store)):
+async def get_stats(redis_store: Any = Depends(_get_redis_store)) -> dict[str, Any]:
     """Retorna estatísticas do orchestrator, incluindo Redis e configurações ativas."""
     try:
         stats = redis_store.get_stats()
@@ -82,11 +85,11 @@ async def cleanup_old_jobs(
         description="Quando true, remove explicitamente os arquivos de log do orchestrator.",
         examples=[False, True],
     ),
-    redis_store=Depends(_get_redis_store),
-):
+    redis_store: Any = Depends(_get_redis_store),
+) -> dict[str, Any]:
     """Remove jobs antigos do Redis e, opcionalmente, limpa arquivos de log."""
     try:
-        result = {
+        result: dict[str, Any] = {
             "message": "Cleanup executado com sucesso",
             "jobs_removed": 0,
             "logs_cleaned": False,
@@ -124,16 +127,16 @@ async def cleanup_old_jobs(
     responses={500: {"description": "Internal server error"}},
 )
 async def factory_reset(
-    redis_store=Depends(_get_redis_store),
-    orchestrator=Depends(_get_orchestrator),
-):
+    redis_store: Any = Depends(_get_redis_store),
+    orchestrator: Any = Depends(_get_orchestrator),
+) -> dict[str, Any]:
     """Executa limpeza destrutiva completa no orchestrator e aciona cleanup nos microserviços."""
     try:
         from redis import Redis
         from urllib.parse import urlparse
         import httpx
 
-        result = {
+        result: dict[str, Any] = {
             "message": "Factory reset executado SINCronamente em todos os servicos",
             "orchestrator": {
                 "jobs_removed": 0,
@@ -179,7 +182,7 @@ async def factory_reset(
             result["orchestrator"]["logs_cleaned"] = True
             logger.warning("Factory reset: All orchestrator logs cleaned")
 
-        microservices = []
+        microservices: list[tuple[str, Any]] = []
         if orchestrator:
             microservices = [
                 ("se2-video-downloader", orchestrator.video_client),
