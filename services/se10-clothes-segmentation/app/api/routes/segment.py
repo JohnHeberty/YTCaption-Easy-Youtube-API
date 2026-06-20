@@ -1,6 +1,7 @@
 """Segmentation routes for SE10 Clothes Segmentation."""
 
 import asyncio
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -10,6 +11,8 @@ from app.state import get_segmentor
 from app.core.config import get_settings
 from app.core.constants import ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB
 from app.domain.models import SegmentResponse, SegmentResult, DetectedObject
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Segment"])
 executor = ThreadPoolExecutor(max_workers=get_settings().worker_threads)
@@ -89,8 +92,7 @@ async def segment_clothes(
             ),
         )
     except Exception as e:
-        import traceback as tb
-        tb.print_exc()
+        logger.error("Segmentation failed: %s", e, exc_info=True)
         return SegmentResponse(
             success=False,
             message=f"Segmentation failed: {str(e)}",

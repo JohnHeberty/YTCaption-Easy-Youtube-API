@@ -191,7 +191,7 @@ Retry: 3 tentativas com backoff exponencial (2s, 4s, 8s).
 
 ## 3. Arquitetura Interna
 
-### 3.1 Árvore de arquivos (22 arquivos)
+### 3.1 Árvore de arquivos (~32 arquivos)
 
 ```
 services/se9-make-video-img/
@@ -300,17 +300,16 @@ services/se9-make-video-img/
 
 2. Loop circular de imagens: image_paths[i % len(image_paths)]
 
-3. Criar title card (3s) se hook_text:
-   - Imagem 2x rescaled → zoompan lento → darkened (black@0.6)
-   - Texto branco centralizado com fade-in (0.8s)
-   - Fallback sem texto se drawtext indisponível
+3. Criar title card (0.5s) se hook_text:
+   - Imagem 2x rescaled → zoompan lento → darkened (black@0.5)
+   - Sem texto overlay — apenas imagem escurecida como transição de abertura
 
 4. Para cada cena, criar segmento Ken Burns:
    - zoom_in: 1.0 → 1.20 (linear, contínuo)
    - zoom_out: 1.20 → 1.0 (linear, contínuo)
-   - Alternância: sequências A/B por segmento
+   - Alternância: sequências [zoom_in, zoom_out] ou [zoom_out, zoom_in] por segmento
    - Velocidade auto-calculada: (ZOOM_MAX - ZOOM_MIN) / n_frames
-   - Filter chain: scale 2x → zoompan → format yuv420p
+   - Filter chain: scale force_original_aspect_ratio → crop → zoompan → format yuv420p
 
 5. Concatenar segmentos:
    - ≤8 segmentos: xfade com transições aleatórias (32 tipos)
@@ -363,7 +362,7 @@ class VideoJob(BaseModel):
     error: Optional[str]                  # Mensagem de erro se FAILED
 ```
 
-### 5.3 CreateVideoRequest (16 campos)
+### 5.3 CreateVideoRequest (17 campos)
 
 | Campo | Tipo | Obrigatório | Default |
 |---|---|---|---|
@@ -382,6 +381,7 @@ class VideoJob(BaseModel):
 | aspect_ratio | str | Não | "9:16" |
 | zoom_style | str | Não | "random" |
 | webhook_url | Optional[str] | Não | None |
+| normalize_text | bool | Não | True |
 
 ### 5.4 StageInfo
 
@@ -432,10 +432,10 @@ DEFAULT_CROSSFADE_DURATION=0.3
 DEFAULT_IMAGE_STEPS=30
 DEFAULT_IMAGE_PERFORMANCE=Quality
 
-# TTS PARAMS (passed to SE7)
+# TTS PARAMS (passed to SE7 — idênticos ao Chatterbox oficial)
 TTS_EXAGGERATION=0.5
-TTS_CFG_WEIGHT=0.7
-TTS_TEMPERATURE=0.5
+TTS_CFG_WEIGHT=0.5
+TTS_TEMPERATURE=0.8
 
 # TIMEOUTS
 SE7_POLL_INTERVAL=5
@@ -607,13 +607,13 @@ Delimiter: `;`, quotechar: `"`.
 | Worker in-memory | ✅ | Thread com event loop + efficient queued job lookup |
 | Audio generator | ✅ | SE7 client, chunking, WAV concat, retry |
 | Image generator | ✅ | SE8 sync mode, cinematic suffix |
-| Video assembler | ✅ | Ken Burns linear, title card 3s, crossfade, batched concat |
+| Video assembler | ✅ | Ken Burns linear, title card 0.5s, crossfade, batched concat |
 | Pipeline orchestrator | ✅ | 3 stages, progress tracking, webhook |
 | Redis store | ✅ | ZSET + pipeline + get_next_queued_job, _FakeRedis fallback |
 | Docker | ✅ | Non-root, healthcheck, 2G memory |
 | Unit tests (27) | ✅ | models, store, chunking, duration |
 | E2E tests | ✅ | Mock + real (CSV fixtures) |
-| INVESTIGACAO.md | ✅ | Documentação reflete código real |
+| ARCHITECTURE.md | ✅ | Documentação reflete código real (v3) |
 
 ---
 
@@ -641,6 +641,6 @@ Delimiter: `;`, quotechar: `"`.
 | 3 | Média | Paralelizar imagens SE8 (asyncio.gather) quando SE8 suportar | 3h |
 | 4 | Média | Adicionar métricas Prometheus (requests, latency, jobs_by_status) | 2h |
 | 5 | Média | Rate limiting no /jobs (evitar abuse) | 1h |
-| 6 | Baixa | Limpar `rbg_` prefix → `se9_` (consistência) | 30min |
-| 7 | Baixa | Testes de integração com SE7/SE8 reais no CI | 2h |
-| 8 | Baixa | Dashboard web para monitorar jobs em tempo real | 4h |
+| 6 | Baixa | Unificar instâncias VideoJobStore via DI (3 instâncias separadas) | 30min |
+| 7 | Baixa | Mover webhook.py para services/ (resolver circular import) | 20min |
+| 8 | Baixa | Testes de integração com SE7/SE8 reais no CI | 2h |

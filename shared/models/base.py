@@ -1,7 +1,7 @@
 """
 Base models shared across all microservices
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 from datetime import datetime, timedelta
 from typing import Optional
@@ -64,12 +64,9 @@ class BaseJob(BaseModel):
     )
     retry_count: int = 0
     
-    model_config = {
-        "use_enum_values": True,
-        "json_encoders": {
-            datetime: lambda v: v.isoformat()
-        },
-    }
+    model_config = ConfigDict(
+        use_enum_values=True,
+    )
     
     @property
     def is_expired(self) -> bool:
@@ -154,7 +151,4 @@ class BaseHealthResponse(BaseModel):
     active_jobs: int = 0
     total_processed: int = 0
     
-    class Config:
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict()

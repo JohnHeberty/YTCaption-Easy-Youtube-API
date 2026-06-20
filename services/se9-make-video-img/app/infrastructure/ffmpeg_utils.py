@@ -46,7 +46,6 @@ async def get_audio_duration(audio_path: str) -> float:
 async def create_title_card(
     image_path: str,
     output_path: str,
-    hook_text: str,
     duration: float = 0.5,
     width: int = 1080,
     height: int = 1920,

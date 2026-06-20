@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.core.constants import CHATTERBOX_MAX_CHARS
 from app.core.models import NarrationSegment
+from app.infrastructure.ffmpeg_utils import get_audio_duration
 from app.infrastructure.http_client import SE7Client
 
 logger = get_logger(__name__)
@@ -103,7 +104,6 @@ class AudioGenerator:
                 if os.path.exists(p):
                     os.remove(p)
 
-        from app.infrastructure.ffmpeg_utils import get_audio_duration
         duration = await get_audio_duration(audio_path)
         logger.info(f"Audio generated: {audio_path} ({duration:.1f}s)")
         return audio_path, duration

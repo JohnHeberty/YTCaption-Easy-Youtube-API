@@ -27,7 +27,7 @@ def _decode_image(image_input: str) -> bytes:
     if "," in image_input and image_input.startswith("data:"):
         image_input = image_input.split(",", 1)[1]
 
-    return base64.b64decode(image_input)
+    return base64.b64decode(_fix_b64_padding(image_input))
 
 
 def _to_data_uri(b64_str: str, mime: str = "image/png") -> str:
@@ -44,6 +44,14 @@ def _strip_data_uri(data_uri: str) -> str:
     return data_uri
 
 
+def _fix_b64_padding(s: str) -> str:
+    """Fix base64 padding if missing."""
+    missing = len(s) % 4
+    if missing:
+        s += "=" * (4 - missing)
+    return s
+
+
 def combine_masks(masks: list[str]) -> str:
     """Combine multiple binary masks into one using OpenCV union.
 
@@ -57,9 +65,9 @@ def combine_masks(masks: list[str]) -> str:
     import numpy as np
 
     combined = None
-    for mask_b64 in masks:
+    for i, mask_b64 in enumerate(masks):
         raw = _strip_data_uri(mask_b64)
-        mask_bytes = base64.b64decode(raw)
+        mask_bytes = base64.b64decode(_fix_b64_padding(raw))
         nparr = np.frombuffer(mask_bytes, np.uint8)
         mask_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
         if mask_img is None:
@@ -163,6 +171,14 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         logger.info("Job %s: SE8 inpainting completed in %.1fs", job.job_id, inpaint_time)
 
         # === Stage 5: Save result ===
+        logger.info(
+            "Job %s: SE8 response keys=%s, base64_len=%s, url_len=%s, finish_reason=%s",
+            job.job_id,
+            list(inpaint_result.keys()),
+            len(inpaint_result.get("base64", "")) if inpaint_result.get("base64") else 0,
+            len(inpaint_result.get("url", "")) if inpaint_result.get("url") else 0,
+            inpaint_result.get("finish_reason"),
+        )
         result_b64 = inpaint_result.get("base64", "")
         if not result_b64:
             job.status = ClothesRemovalJobStatus.FAILED
@@ -173,14 +189,36 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             await se8.close()
             return
 
-        # Save to file
+        # Save to file — base64 from SE8 file download is valid PNG
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
         result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
 
-        result_bytes = base64.b64decode(_strip_data_uri(result_b64))
-        with open(result_path, "wb") as f:
-            f.write(result_bytes)
+        logger.info("Job %s: result_b64 length=%d", job.job_id, len(result_b64))
+        raw_decode = _strip_data_uri(result_b64)
+        result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
+        logger.info("Job %s: decoded %d bytes", job.job_id, len(result_bytes))
+
+        # Validate and ensure RGB output
+        try:
+            import cv2
+            import numpy as np
+            nparr = np.frombuffer(result_bytes, np.uint8)
+            decoded = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+            if decoded is not None:
+                if decoded.ndim == 3 and decoded.shape[2] == 4:
+                    logger.info("Job %s: converting BGRA → BGR", job.job_id)
+                    bgr = cv2.cvtColor(decoded, cv2.COLOR_BGRA2BGR)
+                    cv2.imwrite(result_path, bgr)
+                else:
+                    cv2.imwrite(result_path, decoded)
+            else:
+                with open(result_path, "wb") as f:
+                    f.write(result_bytes)
+        except Exception as e:
+            logger.warning("Job %s: cv2 convert failed (%s), saving raw bytes", job.job_id, e)
+            with open(result_path, "wb") as f:
+                f.write(result_bytes)
 
         job.result_path = result_path
         job.status = ClothesRemovalJobStatus.COMPLETED
