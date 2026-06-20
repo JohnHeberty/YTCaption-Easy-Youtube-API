@@ -9,6 +9,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+from starlette.requests import Request
+
 from fastapi import Depends
 from fastapi.responses import JSONResponse
 
@@ -86,7 +88,7 @@ app = create_service_app(
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse, "description": "Service unhealthy"}},
 )
-async def health_check(request: Any) -> JSONResponse:
+async def health_check(request: Request) -> JSONResponse:
     """Deep health check - validates critical resources."""
     import shutil
 
