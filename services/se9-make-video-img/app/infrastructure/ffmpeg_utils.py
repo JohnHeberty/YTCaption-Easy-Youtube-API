@@ -1,9 +1,12 @@
 """FFmpeg utilities for video assembly."""
+from __future__ import annotations
+
 import asyncio
-from common.log_utils import get_logger
 import os
 import random
-from typing import Optional
+from typing import Any
+
+from common.log_utils import get_logger
 
 from app.core.config import settings
 from app.core.constants import TRANSITIONS
@@ -11,7 +14,7 @@ from app.core.constants import TRANSITIONS
 logger = get_logger(__name__)
 
 
-async def run_ffmpeg(args: list[str], timeout: int = None) -> bytes:
+async def run_ffmpeg(args: list[str], timeout: int | None = None) -> bytes:
     """Run an FFmpeg command asynchronously."""
     timeout = timeout or settings.ffmpeg_total_timeout
     proc = await asyncio.create_subprocess_exec(
@@ -164,14 +167,14 @@ async def concat_segments(
         await run_ffmpeg(args)
         return
 
-    inputs = []
+    inputs: list[str] = []
     for path in segment_paths:
         inputs.extend(["-i", path])
 
     n = len(segment_paths)
 
     # Pre-probe all segment durations
-    seg_durs = []
+    seg_durs: list[float] = []
     for path in segment_paths:
         probe = await asyncio.create_subprocess_exec(
             "ffprobe", "-v", "error",
@@ -187,8 +190,8 @@ async def concat_segments(
     # Calculate correct offsets for chained xfade
     # offset = time in the CURRENT chain output where the transition starts
     # chain_output grows as: seg[0] + seg[1] - xfade + seg[2] - xfade + ...
-    offsets = []
-    xfade_durations = []
+    offsets: list[float] = []
+    xfade_durations: list[float] = []
     chain_output = seg_durs[0]
     for i in range(n - 1):
         # Clamp crossfade to 15% of segment duration for quick transitions
@@ -203,7 +206,7 @@ async def concat_segments(
         # Chain output grows by the next segment minus crossfade overlap
         chain_output = chain_output + seg_durs[i + 1] - effective_xfade
 
-    filter_complex = []
+    filter_complex: list[str] = []
     prev = "[0:v]"
     for i in range(1, n):
         out = f"[vout{i}]" if i < n - 1 else "[vout]"
@@ -296,7 +299,7 @@ async def concat_batched(
         return
 
     # Split into batches
-    batches = []
+    batches: list[list[str]] = []
     for i in range(0, n, batch_size):
         batches.append(segment_paths[i:i + batch_size])
 
@@ -306,7 +309,7 @@ async def concat_batched(
     )
 
     # Process each batch with xfade
-    batch_paths = []
+    batch_paths: list[str] = []
     for batch_idx, batch in enumerate(batches):
         batch_output = output_path.replace(".mp4", f"_batch{batch_idx}.mp4")
         batch_transitions = [random.choice(TRANSITIONS) for _ in range(len(batch) - 1)]

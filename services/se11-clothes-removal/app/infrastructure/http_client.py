@@ -1,8 +1,10 @@
 """HTTP clients for communicating with SE10 and SE8."""
+from __future__ import annotations
+
 import asyncio
 import base64
 import io
-from typing import Optional
+from typing import Any
 
 import httpx
 from common.log_utils import get_logger
@@ -23,7 +25,7 @@ def _fix_b64_padding(s: str) -> str:
 class ServiceClient:
     """Base HTTP client with retry logic."""
 
-    def __init__(self, base_url: str, api_key: str, timeout: int = 30):
+    def __init__(self, base_url: str, api_key: str, timeout: int = 30) -> None:
         self.base_url = base_url
         self.api_key = api_key
         self.timeout = timeout
@@ -33,7 +35,7 @@ class ServiceClient:
             timeout=timeout,
         )
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.aclose()
 
     async def _request_with_retry(
@@ -41,7 +43,7 @@ class ServiceClient:
         method: str,
         url: str,
         max_retries: int = 3,
-        **kwargs,
+        **kwargs: Any,
     ) -> httpx.Response:
         last_error = None
         for attempt in range(max_retries):
@@ -66,7 +68,7 @@ class ServiceClient:
 class SE10Client(ServiceClient):
     """Client for SE10 Clothes Segmentation."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             base_url=settings.se10_url,
             api_key=settings.se10_api_key,
@@ -77,15 +79,15 @@ class SE10Client(ServiceClient):
         self,
         image_bytes: bytes,
         filename: str = "image.jpg",
-        classes: Optional[str] = None,
-        box_threshold: Optional[float] = None,
-        text_threshold: Optional[float] = None,
-    ) -> dict:
+        classes: str | None = None,
+        box_threshold: float | None = None,
+        text_threshold: float | None = None,
+    ) -> dict[str, Any]:
         """Send image to SE10 for clothing segmentation.
 
         Returns dict with keys: detected, objects, masks, mask_image, processing_time_ms
         """
-        form_data = {}
+        form_data: dict[str, str] = {}
         files = {"file": (filename, image_bytes, "image/jpeg")}
         if classes:
             form_data["classes"] = classes
@@ -105,7 +107,7 @@ class SE10Client(ServiceClient):
             raise Exception(f"SE10 segmentation failed: {result.get('message', 'Unknown error')}")
         return result.get("result", {})
 
-    async def health(self) -> dict:
+    async def health(self) -> dict[str, Any]:
         """Check SE10 health."""
         response = await self._request_with_retry("GET", "/health")
         return response.json()
@@ -114,7 +116,7 @@ class SE10Client(ServiceClient):
 class SE8Client(ServiceClient):
     """Client for SE8 Image Generation (inpainting)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             base_url=settings.se8_url,
             api_key=settings.se8_api_key,
@@ -129,7 +131,7 @@ class SE8Client(ServiceClient):
         negative_prompt: str = "",
         inpaint_strength: float = 1.0,
         style: str = "Fooocus Inpaint",
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
         Args:
@@ -149,7 +151,7 @@ class SE8Client(ServiceClient):
         if not negative_prompt:
             negative_prompt = "deformed, blurry, low quality, extra limbs, disfigured, poorly drawn face, watermark, text, ugly"
 
-        payload = {
+        payload: dict[str, Any] = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "style_selections": [style],
@@ -207,7 +209,7 @@ class SE8Client(ServiceClient):
 
         return item
 
-    async def health(self) -> dict:
+    async def health(self) -> dict[str, Any]:
         """Check SE8 health."""
         response = await self._request_with_retry("GET", "/health")
         return response.json()

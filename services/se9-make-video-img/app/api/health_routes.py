@@ -1,4 +1,8 @@
 """Health check routes using shared ServiceHealthChecker."""
+from __future__ import annotations
+
+from typing import Any
+
 import httpx
 
 from fastapi import APIRouter
@@ -10,11 +14,11 @@ router = APIRouter()
 
 
 @router.get("/health")
-async def health_check():
+async def health_check() -> dict[str, Any]:
     """Check service health including SE7, SE8, disk, and ffmpeg."""
     checker = ServiceHealthChecker("make-video-img", version=settings.app_version)
 
-    async def check_se7():
+    async def check_se7() -> dict[str, str]:
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(f"{settings.se7_url}/health")
@@ -24,7 +28,7 @@ async def health_check():
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    async def check_se8():
+    async def check_se8() -> dict[str, str]:
         try:
             async with httpx.AsyncClient(timeout=5) as client:
                 resp = await client.get(f"{settings.se8_url}/health")
@@ -43,6 +47,6 @@ async def health_check():
 
 
 @router.get("/ping")
-async def ping():
+async def ping() -> dict[str, bool]:
     """Simple ping endpoint."""
     return {"pong": True}

@@ -3,10 +3,12 @@
 Redis connection is deferred to first request — tests run without Redis.
 Routes ordered: static paths (/, /stats) BEFORE parameterized (/{job_id}).
 """
+from __future__ import annotations
 
 import threading
+from typing import Any
+
 from common.log_utils import get_logger
-from typing import List, Optional
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
@@ -18,11 +20,11 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/jobs", tags=["Jobs"])
 
-_job_manager = None
+_job_manager: Any = None
 _job_manager_lock = threading.Lock()
 
 
-def _get_job_manager(job_manager=None):
+def _get_job_manager(job_manager: Any = None) -> Any:
     """Lazy-create JobManager with Redis connection (thread-safe).
 
     Args:
@@ -56,7 +58,7 @@ def _get_job_manager(job_manager=None):
         return _job_manager
 
 
-def _unavailable():
+def _unavailable() -> JSONResponse:
     return JSONResponse(
         status_code=503,
         content=ErrorResponse(error="SERVICE_UNAVAILABLE", message="Job service unavailable").model_dump(),
@@ -72,10 +74,10 @@ def _unavailable():
     },
 )
 async def list_jobs(
-    status: Optional[str] = Query(None),
+    status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-):
+) -> Any:
     """List jobs with optional status filter."""
     try:
         mgr = _get_job_manager()
@@ -95,7 +97,7 @@ async def list_jobs(
         503: {"model": ErrorResponse, "description": "Redis unavailable"},
     },
 )
-async def get_stats():
+async def get_stats() -> Any:
     """Get job statistics."""
     try:
         mgr = _get_job_manager()
@@ -115,7 +117,7 @@ async def get_stats():
         503: {"model": ErrorResponse, "description": "Redis unavailable"},
     },
 )
-async def get_job(job_id: str):
+async def get_job(job_id: str) -> Any:
     """Get job status by ID."""
     from common.job_utils.exceptions import JobNotFoundError, JobExpiredError
 
@@ -140,7 +142,7 @@ async def get_job(job_id: str):
         503: {"model": ErrorResponse, "description": "Redis unavailable"},
     },
 )
-async def delete_job(job_id: str):
+async def delete_job(job_id: str) -> Any:
     """Delete a job by ID."""
     from common.job_utils.exceptions import JobNotFoundError
 

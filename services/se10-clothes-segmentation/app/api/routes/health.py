@@ -1,4 +1,5 @@
 """Health check routes for SE10 Clothes Segmentation."""
+from __future__ import annotations
 
 import time
 from pathlib import Path
@@ -19,7 +20,7 @@ def _get_uptime() -> float:
 
 
 @router.get("/", response_model=HealthResponse)
-async def root():
+async def root() -> HealthResponse:
     seg = get_segmentor()
     return HealthResponse(
         status="ok",
@@ -30,7 +31,7 @@ async def root():
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health():
+async def health() -> HealthResponse:
     seg = get_segmentor()
     return HealthResponse(
         status="ok",
@@ -41,12 +42,12 @@ async def health():
 
 
 @router.get("/health/deep", response_model=DeepHealthResponse)
-async def health_deep():
+async def health_deep() -> DeepHealthResponse:
     settings = get_settings()
     seg = get_segmentor()
     checkpoints_dir = Path(settings.checkpoint_dir).resolve()
 
-    checkpoint_status = {}
+    checkpoint_status: dict[str, dict[str, object]] = {}
     for name in ["groundingdino_swint_ogc.pth", "sam2_hiera_tiny.pt", "sam2_hiera_large.pt"]:
         fpath = checkpoints_dir / name
         if fpath.exists():
@@ -65,5 +66,5 @@ async def health_deep():
 
 
 @router.get("/ping")
-async def ping():
+async def ping() -> dict[str, bool]:
     return {"pong": True}

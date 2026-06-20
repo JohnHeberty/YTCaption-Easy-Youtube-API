@@ -5,12 +5,13 @@ Refactored from the original clothes-segmentation prototype.
 - SAM2 image set once per request, all boxes predicted in batch
 - Structured logging, GPU auto-detect, error handling
 """
+from __future__ import annotations
 
 import base64
 import io
 import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Any
 
 import cv2
 import numpy as np
@@ -38,7 +39,7 @@ logger = get_logger(__name__)
 class ClothesSegmentor:
     """GroundingDINO + SAM2 pipeline for clothing segmentation."""
 
-    def __init__(self, settings: ClothesSegSettings):
+    def __init__(self, settings: ClothesSegSettings) -> None:
         self.settings = settings
         self._device = self._resolve_device(settings.device)
         self._checkpoints_dir = Path(settings.checkpoint_dir).resolve()
@@ -49,8 +50,8 @@ class ClothesSegmentor:
             self._device, self._checkpoints_dir,
         )
 
-        self._gd_model = None
-        self._sam2_predictor = None
+        self._gd_model: Any = None
+        self._sam2_predictor: Any = None
         self._load_models()
 
     @property
@@ -72,7 +73,7 @@ class ClothesSegmentor:
     #  Model loading
     # ------------------------------------------------------------------ #
 
-    def _load_models(self):
+    def _load_models(self) -> None:
         t0 = time.time()
 
         # GroundingDINO
@@ -119,7 +120,7 @@ class ClothesSegmentor:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _is_inside(box1, box2) -> bool:
+    def _is_inside(box1: Any, box2: Any) -> bool:
         x1, y1, x2, y2 = box1
         x1i, y1i, x2i, y2i = box2
         return x1 >= x1i and y1 >= y1i and x2 <= x2i and y2 <= y2i
@@ -131,12 +132,12 @@ class ClothesSegmentor:
     def segment(
         self,
         image_bytes: bytes,
-        classes: Optional[List[str]] = None,
-        box_threshold: Optional[float] = None,
-        text_threshold: Optional[float] = None,
-        max_area_pct: Optional[float] = None,
-        max_objects: Optional[int] = None,
-    ) -> dict:
+        classes: list[str] | None = None,
+        box_threshold: float | None = None,
+        text_threshold: float | None = None,
+        max_area_pct: float | None = None,
+        max_objects: int | None = None,
+    ) -> dict[str, Any]:
         """Run full segmentation pipeline on image bytes.
 
         Returns:
@@ -167,7 +168,9 @@ class ClothesSegmentor:
         area_filtered = detections[(detections.area / image_area) < max_area_pct]
 
         # 3. Nesting filtering (remove boxes inside other boxes)
-        filtered_boxes, filtered_confidences, filtered_class_ids = [], [], []
+        filtered_boxes: list[Any] = []
+        filtered_confidences: list[Any] = []
+        filtered_class_ids: list[Any] = []
         for i, box1 in enumerate(area_filtered.xyxy):
             is_inside = False
             for j, box2 in enumerate(area_filtered.xyxy):
@@ -202,7 +205,7 @@ class ClothesSegmentor:
         rgb_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
         self._sam2_predictor.set_image(rgb_image)
 
-        result_masks = []
+        result_masks: list[Any] = []
         for box in final_detections.xyxy:
             masks, scores, _ = self._sam2_predictor.predict(
                 point_coords=None,
@@ -235,7 +238,7 @@ class ClothesSegmentor:
             )
 
         # 6. Build binary masks (one per object, for inpainting)
-        binary_masks = []
+        binary_masks: list[str] = []
         for mask_arr in final_detections.mask:
             mask_uint8 = (mask_arr.astype(np.uint8)) * 255
             _, mask_buffer = cv2.imencode(".png", mask_uint8)
@@ -244,7 +247,7 @@ class ClothesSegmentor:
 
         # 7. Build response
         areas = final_detections.area if len(final_detections) > 0 else np.array([])
-        detected_objects = [
+        detected_objects: list[dict[str, Any]] = [
             {
                 "class_name": classes[cls_id],
                 "confidence": round(float(conf), 4),

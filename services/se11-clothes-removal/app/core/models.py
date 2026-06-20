@@ -1,7 +1,9 @@
 """Pydantic models for SE11 Clothes Removal."""
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -34,20 +36,20 @@ class StageStatus(str, Enum):
 class StageInfo(BaseModel):
     status: StageStatus = StageStatus.PENDING
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
-    def start(self):
+    def start(self) -> None:
         self.status = StageStatus.PROCESSING
         self.started_at = now_brazil()
 
-    def complete(self):
+    def complete(self) -> None:
         self.status = StageStatus.COMPLETED
         self.completed_at = now_brazil()
         self.progress = 100.0
 
-    def fail(self, error: str):
+    def fail(self, error: str) -> None:
         self.status = StageStatus.FAILED
         self.completed_at = now_brazil()
         self.error = error
@@ -60,7 +62,7 @@ class StageInfo(BaseModel):
 class CreateClothesRemovalRequest(BaseModel):
     """Request to create a clothes removal job."""
     image: str = Field(description="Image as base64 string or HTTP URL")
-    classes: Optional[str] = Field(
+    classes: str | None = Field(
         default=None,
         description="Comma-separated clothing classes to detect (e.g. 'shirt,pants,dress'). None = all clothing.",
     )
@@ -69,7 +71,7 @@ class CreateClothesRemovalRequest(BaseModel):
     box_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 detection threshold")
     text_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 text matching threshold")
     inpaint_strength: float = Field(default=1.0, ge=0.0, le=1.0, description="SE8 inpaint strength")
-    webhook_url: Optional[str] = Field(default=None, description="Webhook URL for completion notification")
+    webhook_url: str | None = Field(default=None, description="Webhook URL for completion notification")
 
 
 class CreateClothesRemovalResponse(BaseModel):
@@ -84,10 +86,10 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: str
     progress: float
-    stages: dict
-    objects_detected: Optional[int] = None
+    stages: dict[str, Any]
+    objects_detected: int | None = None
     created_at: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # =============================================================================
@@ -99,18 +101,18 @@ class ClothesRemovalJob(BaseModel):
     job_id: str
     status: ClothesRemovalJobStatus = ClothesRemovalJobStatus.QUEUED
     progress: float = 0.0
-    stages: dict = {
+    stages: dict[str, Any] = {
         "detecting": StageInfo().model_dump(),
         "inpainting": StageInfo().model_dump(),
     }
     request: CreateClothesRemovalRequest
-    result_path: Optional[str] = None
-    objects_detected: Optional[int] = None
+    result_path: str | None = None
+    objects_detected: int | None = None
     created_at: datetime = Field(default_factory=now_brazil)
     updated_at: datetime = Field(default_factory=now_brazil)
-    error: Optional[str] = None
+    error: str | None = None
 
-    def update_progress(self):
+    def update_progress(self) -> None:
         stage_progress = {
             "detecting": (0, 40),
             "inpainting": (40, 100),
@@ -128,7 +130,7 @@ class ClothesRemovalJob(BaseModel):
         self.progress = round(total, 1)
         self.updated_at = now_brazil()
 
-    def update_stage(self, stage_name: str, status: str, progress: float = 0.0, error: Optional[str] = None):
+    def update_stage(self, stage_name: str, status: str, progress: float = 0.0, error: str | None = None) -> None:
         if stage_name in self.stages:
             stage = StageInfo(**self.stages[stage_name])
             if status == "processing":

@@ -1,4 +1,6 @@
 """Application configuration for SE11 Clothes Removal."""
+from __future__ import annotations
+
 from functools import lru_cache
 
 from pydantic import ConfigDict, Field
@@ -38,7 +40,7 @@ class ClothesRemovalSettings(BaseServiceSettings):
     # === MAX CONCURRENT JOBS ===
     max_concurrent_jobs: int = 2
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> object:
         return getattr(self, key, None)
 
 

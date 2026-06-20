@@ -1,9 +1,11 @@
 """Pipeline orchestrator for video generation."""
-import asyncio
-from common.log_utils import get_logger
-import os
-from typing import Optional
+from __future__ import annotations
 
+import asyncio
+import os
+from typing import Any
+
+from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
 
 from app.core.config import settings
@@ -28,7 +30,13 @@ RETRY_BACKOFF_BASE = 2
 class VideoPipeline:
     """Orchestrate the full video generation pipeline."""
 
-    def __init__(self, store=None, audio_generator_cls=None, image_generator_cls=None, assembler_cls=None):
+    def __init__(
+        self,
+        store: VideoJobStore | None = None,
+        audio_generator_cls: type[AudioGenerator] | None = None,
+        image_generator_cls: type[ImageGenerator] | None = None,
+        assembler_cls: type[VideoAssembler] | None = None,
+    ) -> None:
         self.store = store or VideoJobStore()
         self._audio_generator_cls = audio_generator_cls or AudioGenerator
         self._image_generator_cls = image_generator_cls or ImageGenerator
@@ -67,11 +75,12 @@ class VideoPipeline:
             self.store.save_job(job.job_id, job.model_dump(mode="json"))
             raise
 
-    async def _generate_audio(self, job: VideoJob, output_dir: str) -> tuple:
+    async def _generate_audio(self, job: VideoJob, output_dir: str) -> tuple[str, float]:
         """Generate audio with retry logic. Returns (audio_path, audio_duration)."""
         await self._update_stage(job, "generating_audio", "start")
-        audio_path, audio_duration = None, 0.0
-        last_audio_error = None
+        audio_path: str | None = None
+        audio_duration = 0.0
+        last_audio_error: Exception | None = None
         for attempt in range(MAX_AUDIO_RETRIES + 1):
             audio_gen = self._audio_generator_cls()
             try:
@@ -104,7 +113,7 @@ class VideoPipeline:
         await self._update_stage(job, "generating_images", "start")
         img_gen = self._image_generator_cls()
 
-        async def on_image_progress(progress: float):
+        async def on_image_progress(progress: float) -> None:
             job.stages["generating_images"].progress = progress
             job.update_progress()
             self.store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -169,7 +178,7 @@ class VideoPipeline:
         job.update_progress()
         self.store.save_job(job.job_id, job.model_dump(mode="json"))
 
-async def run_video_pipeline(job: VideoJob, pipeline: Optional[VideoPipeline] = None) -> None:
+async def run_video_pipeline(job: VideoJob, pipeline: VideoPipeline | None = None) -> None:
     """Entry point for running the video pipeline."""
     pipeline = pipeline or VideoPipeline()
     await pipeline.run(job)

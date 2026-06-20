@@ -1,7 +1,10 @@
 """API routes for video job management."""
+from __future__ import annotations
+
 import os
 import shutil
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Depends
 
@@ -22,7 +25,7 @@ store = VideoJobStore()
 
 
 @router.get("/")
-async def root():
+async def root() -> dict[str, Any]:
     """Service info endpoint."""
     return {
         "service": "make-video-img",
@@ -41,7 +44,7 @@ async def root():
 
 
 @router.post("/jobs", response_model=CreateVideoResponse)
-async def create_job(request: CreateVideoRequest):
+async def create_job(request: CreateVideoRequest) -> CreateVideoResponse:
     """Create a new video generation job."""
     job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
 
@@ -67,7 +70,7 @@ async def create_job(request: CreateVideoRequest):
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str) -> JobStatusResponse:
     """Get the status of a video job."""
     job_data = store.get_job(job_id)
     if not job_data:
@@ -84,7 +87,7 @@ async def get_job_status(job_id: str):
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
+async def delete_job(job_id: str) -> dict[str, str]:
     """Delete a video job and its output directory."""
     job_data = store.get_job(job_id)
     if not job_data:
@@ -99,7 +102,7 @@ async def delete_job(job_id: str):
 
 
 @router.get("/jobs")
-async def list_jobs():
+async def list_jobs() -> dict[str, Any]:
     """List all video jobs."""
     jobs = store.list_jobs()
     return {

@@ -1,7 +1,8 @@
 """SE10 Clothes Segmentation — service settings."""
+from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -35,7 +36,7 @@ class ClothesSegSettings(BaseServiceSettings):
     worker_threads: int = Field(default=2, env="WORKER_THREADS")
 
     # Auth
-    se10_api_key: Optional[str] = Field(default=None, env="SE10_API_KEY")
+    se10_api_key: str | None = Field(default=None, env="SE10_API_KEY")
 
     # Redis
     redis_url: str = Field(default="redis://localhost:6379/10", env="REDIS_URL")

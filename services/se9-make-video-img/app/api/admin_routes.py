@@ -1,6 +1,9 @@
 """Admin routes for stats and cleanup."""
+from __future__ import annotations
+
 import os
 import shutil
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -15,15 +18,15 @@ _TERMINAL_STATUSES = {"completed", "failed"}
 
 
 @router.get("/admin/stats")
-async def stats():
+async def stats() -> dict[str, Any]:
     """System statistics."""
     jobs = store.list_jobs()
-    status_counts = {}
+    status_counts: dict[str, int] = {}
     for job in jobs:
         s = job.get("status", "unknown")
         status_counts[s] = status_counts.get(s, 0) + 1
 
-    disk_usage = {}
+    disk_usage: dict[str, dict[str, float]] = {}
     for d in [settings.temp_dir, settings.output_dir]:
         if os.path.exists(d):
             total, used, free = shutil.disk_usage(d)
@@ -45,7 +48,7 @@ async def stats():
 
 
 @router.post("/admin/cleanup")
-async def cleanup():
+async def cleanup() -> dict[str, str]:
     """Cleanup failed jobs: remove output dirs AND Redis keys."""
     cleaned = 0
 

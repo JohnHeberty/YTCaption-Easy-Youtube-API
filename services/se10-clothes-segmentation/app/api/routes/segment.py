@@ -1,9 +1,10 @@
 """Segmentation routes for SE10 Clothes Segmentation."""
+from __future__ import annotations
 
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Any
 
 from fastapi import APIRouter, File, Form, UploadFile
 
@@ -21,10 +22,10 @@ executor = ThreadPoolExecutor(max_workers=get_settings().worker_threads)
 @router.post("/segment", response_model=SegmentResponse)
 async def segment_clothes(
     file: UploadFile = File(..., description="Image file (JPG, JPEG, PNG)"),
-    classes: Optional[str] = Form(None, description="Comma-separated class override"),
-    box_threshold: Optional[float] = Form(None, description="Detection confidence threshold"),
-    text_threshold: Optional[float] = Form(None, description="Text matching threshold"),
-):
+    classes: str | None = Form(None, description="Comma-separated class override"),
+    box_threshold: float | None = Form(None, description="Detection confidence threshold"),
+    text_threshold: float | None = Form(None, description="Text matching threshold"),
+) -> SegmentResponse:
     if not file.filename:
         return SegmentResponse(
             success=False,
@@ -76,13 +77,13 @@ async def segment_clothes(
             error="MODEL_NOT_LOADED",
         )
 
-    class_list = None
+    class_list: list[str] | None = None
     if classes:
         class_list = [c.strip() for c in classes.split(",") if c.strip()]
 
     try:
         loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
+        result: dict[str, Any] = await loop.run_in_executor(
             executor,
             lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold: segmentor.segment(
                 image_bytes=_img,

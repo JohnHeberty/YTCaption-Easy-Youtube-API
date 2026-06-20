@@ -1,6 +1,9 @@
 """Admin routes for SE11 Clothes Removal."""
+from __future__ import annotations
+
 import os
 import shutil
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -12,10 +15,10 @@ store = ClothesRemovalJobStore()
 
 
 @router.get("/stats")
-async def stats():
+async def stats() -> dict[str, Any]:
     """Get system statistics."""
     jobs = store.list_jobs()
-    status_counts = {}
+    status_counts: dict[str, int] = {}
     for job in jobs:
         s = job.get("status", "unknown")
         status_counts[s] = status_counts.get(s, 0) + 1
@@ -44,7 +47,7 @@ async def stats():
 
 
 @router.post("/cleanup")
-async def cleanup():
+async def cleanup() -> dict[str, int]:
     """Cleanup temp files and failed jobs."""
     jobs = store.list_jobs()
     cleaned = 0

@@ -1,8 +1,10 @@
 """Audio generation service using SE7."""
+from __future__ import annotations
+
 import os
-from common.log_utils import get_logger
 import re
-from typing import Optional
+
+from common.log_utils import get_logger
 
 from app.core.constants import CHATTERBOX_MAX_CHARS
 from app.core.models import NarrationSegment
@@ -15,10 +17,10 @@ logger = get_logger(__name__)
 class AudioGenerator:
     """Generate audio from narration segments using SE7."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.client = SE7Client()
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.close()
 
     def _chunk_text(self, text: str) -> list[str]:
@@ -26,7 +28,7 @@ class AudioGenerator:
         if len(text) <= CHATTERBOX_MAX_CHARS:
             return [text]
 
-        chunks = []
+        chunks: list[str] = []
         paragraphs = re.split(r"\n\s*\n", text)
 
         current_chunk = ""
@@ -88,7 +90,7 @@ class AudioGenerator:
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
         else:
-            chunk_paths = []
+            chunk_paths: list[str] = []
             for i, chunk in enumerate(chunks):
                 logger.info(f"Generating chunk {i + 1}/{len(chunks)}")
                 audio_bytes = await self._generate_single(chunk, voice_id, normalize_text)
@@ -121,7 +123,7 @@ class AudioGenerator:
         for p in input_paths:
             args.extend(["-i", p])
 
-        filter_parts = []
+        filter_parts: list[str] = []
         for i in range(len(input_paths)):
             filter_parts.append(f"[{i}:a]")
         filter_str = f"{''.join(filter_parts)}concat=n={len(input_paths)}:v=0:a=1[out]"

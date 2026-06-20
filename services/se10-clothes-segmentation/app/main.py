@@ -1,5 +1,7 @@
 """SE10 Clothes Segmentation — FastAPI application."""
+from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends
@@ -17,7 +19,7 @@ verify_api_key = create_api_key_dependency(api_key=settings.se10_api_key)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting %s v%s", settings.app_name, settings.version)
 
     import time
@@ -49,7 +51,7 @@ async def lifespan(app: FastAPI):
     clear_segmentor()
 
 
-def setup_routers(app: FastAPI):
+def setup_routers(app: FastAPI) -> None:
     from app.api.routes import health, segment, jobs
 
     app.include_router(health.router)

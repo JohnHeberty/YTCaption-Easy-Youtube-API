@@ -1,8 +1,9 @@
 """Pipeline for SE11 Clothes Removal — orchestrates SE10 → SE8."""
+from __future__ import annotations
+
 import base64
 import os
 import time
-from typing import Optional
 
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
@@ -93,7 +94,7 @@ def combine_masks(masks: list[str]) -> str:
     return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 
-async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobStore):
+async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
     """Main pipeline: image → SE10 (detect) → combine masks → SE8 (inpaint) → result."""
     logger.info("Starting clothes removal pipeline for job %s", job.job_id)
 
