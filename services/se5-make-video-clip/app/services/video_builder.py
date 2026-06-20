@@ -34,6 +34,23 @@ from ..infrastructure.subprocess_utils import (
 
 logger = get_logger(__name__)
 
+ASPECT_MAP = {
+    "9:16": (1080, 1920),
+    "16:9": (1920, 1080),
+    "1:1": (1080, 1080),
+    "4:5": (1080, 1350),
+}
+
+
+def _build_crop_filter(position: str, width: int, height: int) -> str:
+    """Build FFmpeg crop filter based on position."""
+    if position == "top":
+        return f"crop={width}:{height}:0:0"
+    elif position == "bottom":
+        return f"crop={width}:{height}:0:(ih-{height})"
+    else:
+        return f"crop={width}:{height}"
+
 class VideoBuilder:
     """Construtor de vídeos usando FFmpeg"""
     
@@ -216,37 +233,19 @@ class VideoBuilder:
             raise  # Re-raise to prevent concatenation of incompatible videos
         
         # Mapear aspect ratios para resoluções
-        aspect_map = {
-            "9:16": (1080, 1920),   # Vertical (Shorts, Stories)
-            "16:9": (1920, 1080),   # Horizontal (YouTube padrão)
-            "1:1": (1080, 1080),    # Quadrado (Instagram)
-            "4:5": (1080, 1350),    # Instagram Feed
-        }
-        
-        if aspect_ratio not in aspect_map:
+        if aspect_ratio not in ASPECT_MAP:
             raise VideoInvalidResolutionException(
                 aspect_ratio=aspect_ratio,
-                valid_ratios=list(aspect_map.keys())
+                valid_ratios=list(ASPECT_MAP.keys())
             )
         
-        target_width, target_height = aspect_map[aspect_ratio]
+        target_width, target_height = ASPECT_MAP[aspect_ratio]
         
         # Calcular crop filter baseado na posição
         # IMPORTANTE: scale aumenta o vídeo para cobrir o target, depois crop corta o excesso
         scale_filter = f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase"
         
-        if crop_position == "center":
-            # Auto-center crop (padrão FFmpeg)
-            crop_filter = f"crop={target_width}:{target_height}"
-        elif crop_position == "top":
-            # Crop do topo
-            crop_filter = f"crop={target_width}:{target_height}:0:0"
-        elif crop_position == "bottom":
-            # Crop do fundo (calcula posição Y)
-            crop_filter = f"crop={target_width}:{target_height}:0:(ih-{target_height})"
-        else:
-            # Default: center
-            crop_filter = f"crop={target_width}:{target_height}"
+        crop_filter = _build_crop_filter(crop_position, target_width, target_height)
         
         # Combinar filtros: scale → crop → setsar (garantir aspect ratio)
         video_filter = f"{scale_filter},{crop_filter},setsar=1"
@@ -419,33 +418,19 @@ class VideoBuilder:
         logger.info(f"   └─ Crop position: {crop_position}")
         
         # Mapear aspect ratios para resoluções
-        aspect_map = {
-            "9:16": (1080, 1920),   # Vertical (Shorts, Stories)
-            "16:9": (1920, 1080),   # Horizontal (YouTube padrão)
-            "1:1": (1080, 1080),    # Quadrado (Instagram)
-            "4:5": (1080, 1350),    # Instagram Feed
-        }
-        
-        if aspect_ratio not in aspect_map:
+        if aspect_ratio not in ASPECT_MAP:
             raise VideoInvalidResolutionException(
                 aspect_ratio=aspect_ratio,
-                valid_ratios=list(aspect_map.keys())
+                valid_ratios=list(ASPECT_MAP.keys())
             )
         
-        target_width, target_height = aspect_map[aspect_ratio]
+        target_width, target_height = ASPECT_MAP[aspect_ratio]
         
         # 🚨 USAR OS MESMOS FILTROS DA CONCATENAÇÃO
         # Isso garante que o OCR analisa EXATAMENTE o mesmo frame final
         scale_filter = f"scale={target_width}:{target_height}:force_original_aspect_ratio=increase"
         
-        if crop_position == "center":
-            crop_filter = f"crop={target_width}:{target_height}"
-        elif crop_position == "top":
-            crop_filter = f"crop={target_width}:{target_height}:0:0"
-        elif crop_position == "bottom":
-            crop_filter = f"crop={target_width}:{target_height}:0:(ih-{target_height})"
-        else:
-            crop_filter = f"crop={target_width}:{target_height}"
+        crop_filter = _build_crop_filter(crop_position, target_width, target_height)
         
         # Combinar filtros: scale → crop → setsar
         video_filter = f"{scale_filter},{crop_filter},setsar=1"
@@ -809,13 +794,7 @@ class VideoBuilder:
 
         logger.info(f"🎬 Concatenating {len(segments)} segments with transitions")
 
-        aspect_map = {
-            "9:16": (1080, 1920),
-            "16:9": (1920, 1080),
-            "1:1": (1080, 1080),
-            "4:5": (1080, 1350),
-        }
-        target_w, target_h = aspect_map.get(aspect_ratio, (1080, 1920))
+        target_w, target_h = ASPECT_MAP.get(aspect_ratio, (1080, 1920))
 
         cmd = [self.ffmpeg_path, "-y"]
 

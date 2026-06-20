@@ -31,13 +31,17 @@ setup_structured_logging(
 )
 logger = get_logger(__name__)
 
-job_store = get_job_store()
+
+def _get_job_store():
+    return get_job_store()
 
 
 @asynccontextmanager
 async def lifespan(app):
+    store = _get_job_store()
+    app.state.job_store = store
     try:
-        await job_store.start_cleanup_task()
+        await store.start_cleanup_task()
         logger.info("YouTube Search Service started successfully")
     except Exception as exc:
         logger.error("Error during startup: %s", exc)
@@ -46,7 +50,7 @@ async def lifespan(app):
     yield
 
     try:
-        await job_store.stop_cleanup_task()
+        await store.stop_cleanup_task()
         logger.info("YouTube Search Service stopped gracefully")
     except Exception as exc:
         logger.error("Error during shutdown: %s", exc)
@@ -79,9 +83,11 @@ app = create_service_app(
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse, "description": "Service unhealthy"}},
 )
-async def health_check():
+async def health_check(request):
     """Deep health check - validates critical resources."""
     import shutil
+
+    job_store = request.app.state.job_store
 
     health_status = {
         "status": "healthy",

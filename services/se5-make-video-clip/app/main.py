@@ -1,19 +1,13 @@
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 
 from common.log_utils import setup_structured_logging, get_logger
 from common.fastapi_utils import create_service_app, create_api_key_dependency
 
 from .core.config import get_settings
-from .infrastructure.redis_store import MakeVideoJobStore as RedisJobStore
-from .infrastructure.lock_manager import DistributedLockManager
-from .services.job_manager import JobManager
-from .services.cache_manager import CacheManager
-from .api.api_client import MicroservicesClient
 from .api.routes import router as api_router
 from .infrastructure.dependencies import (
     get_redis_store, get_job_manager, get_cache_manager,
@@ -25,18 +19,11 @@ logger = get_logger(__name__)
 settings = get_settings()
 verify_api_key = create_api_key_dependency(api_key=settings.get("api_key"))
 
-redis_store: Optional[RedisJobStore] = None
-job_manager: Optional[JobManager] = None
-cache_manager: Optional[CacheManager] = None
-lock_manager: Optional[DistributedLockManager] = None
-api_client: Optional[MicroservicesClient] = None
-_scheduler = None
+
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global redis_store, job_manager, cache_manager, lock_manager, api_client, _scheduler
-
     logger.info("Make-Video Service starting...")
 
     for dir_path in [
@@ -48,27 +35,28 @@ async def lifespan(app: FastAPI):
     ]:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
 
-    redis_store = get_redis_store()
-    job_manager = get_job_manager()
-    cache_manager = get_cache_manager()
-    lock_manager = get_lock_manager()
-    api_client = get_api_client()
+    app.state.redis_store = get_redis_store()
+    app.state.job_manager = get_job_manager()
+    app.state.cache_manager = get_cache_manager()
+    app.state.lock_manager = get_lock_manager()
+    app.state.api_client = get_api_client()
+    app.state._scheduler = None
 
-    await redis_store.start_cleanup_task() if hasattr(redis_store, 'start_cleanup_task') else None
+    await app.state.redis_store.start_cleanup_task() if hasattr(app.state.redis_store, 'start_cleanup_task') else None
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.interval import IntervalTrigger
 
-        _scheduler = AsyncIOScheduler()
-        _scheduler.add_job(
+        app.state._scheduler = AsyncIOScheduler()
+        app.state._scheduler.add_job(
             cleanup_orphaned_videos_cron,
             trigger=IntervalTrigger(minutes=5),
             id='cleanup_orphaned_videos',
             name='Cleanup orphaned videos every 5 minutes',
             replace_existing=True,
         )
-        _scheduler.start()
+        app.state._scheduler.start()
     except Exception as e:
         logger.error("Failed to start APScheduler: %s", e, exc_info=True)
 
@@ -76,10 +64,10 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Make-Video Service shutting down...")
-    if _scheduler is not None:
-        _scheduler.shutdown(wait=False)
-    await redis_store.stop_cleanup_task()
-    await lock_manager.close()
+    if app.state._scheduler is not None:
+        app.state._scheduler.shutdown(wait=False)
+    await app.state.redis_store.stop_cleanup_task()
+    await app.state.lock_manager.close()
 
 
 cors_config = {
@@ -117,7 +105,7 @@ async def cleanup_orphaned_videos_cron():
 
 
 @app.get("/metrics")
-async def prometheus_metrics():
+async def prometheus_metrics(request: Request):
     try:
         import shutil
         try:
@@ -127,7 +115,7 @@ async def prometheus_metrics():
         except Exception:
             disk_free_gb = 0
             disk_used_pct = 100
-        job_stats = job_manager.get_stats() if job_manager else {}
+        job_stats = request.app.state.job_manager.get_stats() if hasattr(request.app.state, 'job_manager') and request.app.state.job_manager else {}
         metrics_output = f"""# HELP makevideo_jobs_total Total jobs
 # TYPE makevideo_jobs_total counter
 makevideo_jobs_queued {job_stats.get('queued', 0)}

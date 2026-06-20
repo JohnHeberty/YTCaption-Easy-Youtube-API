@@ -28,6 +28,20 @@ from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
+_ENGINE_MAP = {
+    WhisperEngine.FASTER_WHISPER: FasterWhisperModelManager,
+    WhisperEngine.OPENAI_WHISPER: OpenAIWhisperManager,
+    WhisperEngine.WHISPERX: WhisperXManager,
+}
+
+WHISPER_MODEL_SIZES = {
+    'tiny': 75,
+    'base': 150,
+    'small': 500,
+    'medium': 1500,
+    'large': 3000,
+}
+
 class TranscriptionProcessor:
     def __init__(self, output_dir=None, model_dir=None):
         self.job_store = None  # Will be injected
@@ -63,15 +77,11 @@ class TranscriptionProcessor:
         """
         if engine not in self.model_managers:
             logger.info(f"🔧 Criando manager para engine: {engine.value}")
-            
-            if engine == WhisperEngine.FASTER_WHISPER:
-                self.model_managers[engine] = FasterWhisperModelManager(model_dir=Path(self.model_dir))
-            elif engine == WhisperEngine.OPENAI_WHISPER:
-                self.model_managers[engine] = OpenAIWhisperManager(model_dir=Path(self.model_dir))
-            elif engine == WhisperEngine.WHISPERX:
-                self.model_managers[engine] = WhisperXManager(model_dir=Path(self.model_dir))
-            else:
+
+            manager_cls = _ENGINE_MAP.get(engine)
+            if manager_cls is None:
                 raise AudioTranscriptionException(f"Engine não suportado: {engine}")
+            self.model_managers[engine] = manager_cls(model_dir=Path(self.model_dir))
         
         return self.model_managers[engine]
     
@@ -208,16 +218,7 @@ class TranscriptionProcessor:
                 logger.info(f"📊 VRAM depois do unload: {vram_after:.2f} MB")
                 logger.info(f"✅ VRAM liberada: {report['memory_freed']['vram_mb']} MB")
             
-            # Estima RAM liberada baseado no modelo
-            # tiny: ~75MB, base: ~150MB, small: ~500MB, medium: ~1.5GB, large: ~3GB
-            model_sizes = {
-                'tiny': 75,
-                'base': 150,
-                'small': 500,
-                'medium': 1500,
-                'large': 3000
-            }
-            report["memory_freed"]["ram_mb"] = model_sizes.get(report['model_name'], 150)
+            report["memory_freed"]["ram_mb"] = WHISPER_MODEL_SIZES.get(report['model_name'], 150)
             
             report["success"] = True
             report["message"] = (
@@ -293,15 +294,7 @@ class TranscriptionProcessor:
                 report["memory_used"]["vram_mb"] = round(vram_after - vram_before, 2)
                 logger.info(f"📊 VRAM usada: {report['memory_used']['vram_mb']} MB")
             
-            # Estima RAM usada baseado no modelo
-            model_sizes = {
-                'tiny': 75,
-                'base': 150,
-                'small': 500,
-                'medium': 1500,
-                'large': 3000
-            }
-            report["memory_used"]["ram_mb"] = model_sizes.get(report['model_name'], 150)
+            report["memory_used"]["ram_mb"] = WHISPER_MODEL_SIZES.get(report['model_name'], 150)
             
             report["message"] = (
                 f"✅ Modelo '{report['model_name']}' carregado com sucesso no {self.device.upper()}. "

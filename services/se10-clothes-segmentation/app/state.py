@@ -8,8 +8,16 @@ if TYPE_CHECKING:
 _segmentor: Optional["ClothesSegmentor"] = None
 
 
-def get_segmentor() -> Optional["ClothesSegmentor"]:
-    """Return the loaded segmentor instance."""
+def get_segmentor(segmentor: Optional["ClothesSegmentor"] = None) -> Optional["ClothesSegmentor"]:
+    """Return the loaded segmentor instance.
+
+    Args:
+        segmentor: Optional override for DI/testing. If provided, sets the
+                   global instance and returns it.
+    """
+    global _segmentor
+    if segmentor is not None:
+        _segmentor = segmentor
     return _segmentor
 
 

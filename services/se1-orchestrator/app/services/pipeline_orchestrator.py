@@ -16,6 +16,14 @@ from app.services.health_checker import HealthChecker
 
 logger = get_logger(__name__)
 
+# Service name → settings attribute for job timeout (OCP: dict instead of if/elif chain)
+_SERVICE_TIMEOUTS: Dict[str, str] = {
+    "se2": "video_downloader_job_timeout",
+    "se3-audio-normalization": "audio_normalization_job_timeout",
+    "se4-audio-transcriber": "audio_transcriber_job_timeout",
+}
+_DEFAULT_TIMEOUT_ATTR = "video_downloader_job_timeout"
+
 
 def _bool_to_str(v: bool) -> str:
     """Converte bool para string 'true'/'false'."""
@@ -411,13 +419,9 @@ class PipelineOrchestrator:
         consecutive_errors = 0
         max_consecutive_errors = 5
 
-        # Timeout baseado no serviço
-        if service_name == "se3-audio-normalization":
-            max_wait_time = settings.audio_normalization_job_timeout
-        elif service_name == "se4-audio-transcriber":
-            max_wait_time = settings.audio_transcriber_job_timeout
-        else:
-            max_wait_time = settings.video_downloader_job_timeout
+        # Timeout baseado no serviço — OCP: lookup via dict
+        timeout_attr = _SERVICE_TIMEOUTS.get(service_name, _DEFAULT_TIMEOUT_ATTR)
+        max_wait_time = getattr(settings, timeout_attr)
 
         start_time = asyncio.get_event_loop().time()
 

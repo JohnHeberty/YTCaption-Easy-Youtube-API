@@ -103,13 +103,11 @@ class CleanupService:
 
         logger.warning("🔥 INICIANDO LIMPEZA PROFUNDA - TUDO SERÁ REMOVIDO!")
 
-        # 1. Flush Redis
+        # 1. Flush Redis via store abstraction
         try:
-            keys_before = self.job_store.redis.keys("audio_job:*")
-            report["jobs_removed"] = len(keys_before)
-            self.job_store.redis.flushdb()
+            report["jobs_removed"] = self.job_store.cleanup_all()
             report["redis_flushed"] = True
-            logger.info(f"✅ Redis FLUSHDB: {len(keys_before)} jobs removidos")
+            logger.info(f"✅ Redis FLUSHDB: {report['jobs_removed']} jobs removidos")
         except Exception as e:
             logger.error(f"❌ Erro ao limpar Redis: {e}")
             report["errors"].append(f"redis: {str(e)}")

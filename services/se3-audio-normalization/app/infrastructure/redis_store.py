@@ -125,6 +125,12 @@ class AudioNormJobStore:
             except asyncio.CancelledError:
                 break
 
+    def cleanup_all(self) -> int:
+        total = self.redis.zcard(self.list_key)
+        self.redis.delete(self.list_key)
+        self.redis.flushdb()
+        return total
+
     async def get_queue_info(self) -> dict:
         jobs = self.list_jobs(limit=10000)
         by_status = {"queued": 0, "processing": 0, "completed": 0, "failed": 0}
