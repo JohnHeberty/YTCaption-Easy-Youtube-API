@@ -28,7 +28,11 @@ class RedisSettings(BaseSettings):
 
 
 class CelerySettings(BaseSettings):
-    """Configurações Celery padronizadas"""
+    """Configurações Celery padronizadas.
+
+    If broker/backend are not set, they fall back to ``redis_url`` at the
+    BaseServiceSettings level (not here, since this sub-model doesn't have it).
+    """
     
     celery_broker_url: Optional[str] = Field(default=None, env='CELERY_BROKER_URL')
     celery_result_backend: Optional[str] = Field(default=None, env='CELERY_RESULT_BACKEND')
@@ -42,20 +46,6 @@ class CelerySettings(BaseSettings):
     celery_task_soft_time_limit: int = Field(default=1500, env='CELERY_TASK_SOFT_TIME_LIMIT')
     celery_worker_prefetch_multiplier: int = Field(default=1, env='CELERY_WORKER_PREFETCH_MULTIPLIER')
     celery_worker_max_tasks_per_child: int = Field(default=100, env='CELERY_WORKER_MAX_TASKS_PER_CHILD')
-    
-    @validator('celery_broker_url', always=True)
-    def set_broker_from_redis(cls, v, values):
-        """Se broker não definido, usa Redis URL"""
-        if v is None and 'redis_url' in values:
-            return values.get('redis_url')
-        return v
-    
-    @validator('celery_result_backend', always=True)
-    def set_backend_from_redis(cls, v, values):
-        """Se backend não definido, usa Redis URL"""
-        if v is None and 'redis_url' in values:
-            return values.get('redis_url')
-        return v
     
     class Config:
         env_file = '.env'
@@ -143,6 +133,10 @@ class BaseServiceSettings(BaseSettings):
     log_level: str = Field(default='INFO', env='LOG_LEVEL')
     log_format: str = Field(default='json', env='LOG_FORMAT')
     
+    # Celery (fallback para redis_url)
+    celery_broker_url: Optional[str] = Field(default=None, env='CELERY_BROKER_URL')
+    celery_result_backend: Optional[str] = Field(default=None, env='CELERY_RESULT_BACKEND')
+    
     # API Key (autenticacao)
     api_key: Optional[str] = Field(default=None, env='API_KEY')
     
@@ -178,6 +172,20 @@ class BaseServiceSettings(BaseSettings):
             raise ValueError('workers must be at least 1')
         return v
     
+    @validator('celery_broker_url', always=True)
+    def set_broker_from_redis(cls, v, values):
+        """Fallback: se broker não definido, usa redis_url."""
+        if v is None and 'redis_url' in values:
+            return values.get('redis_url')
+        return v
+    
+    @validator('celery_result_backend', always=True)
+    def set_backend_from_redis(cls, v, values):
+        """Fallback: se backend não definido, usa redis_url."""
+        if v is None and 'redis_url' in values:
+            return values.get('redis_url')
+        return v
+    
     @validator('cache_ttl_hours')
     def validate_cache_ttl(cls, v):
         """Valida cache TTL"""
@@ -193,7 +201,11 @@ class BaseServiceSettings(BaseSettings):
         return v
     
     def create_directories(self):
-        """Cria diretórios necessários"""
+        """Cria diretórios necessários.
+
+        NOTE: Side-effect removed from settings constructor. Call explicitly
+        in lifespan/startup.
+        """
         for dir_path in [
             self.upload_dir,
             self.processed_dir,

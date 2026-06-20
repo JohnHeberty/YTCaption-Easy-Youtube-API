@@ -46,6 +46,7 @@ def create_service_app(
     cors_options: Optional[Dict[str, Any]] = None,
     rate_limit_options: Optional[Dict[str, Any]] = None,
     body_size_mb: Optional[int] = None,
+    extra_middleware: Optional[List[tuple]] = None,
     **fastapi_kwargs: Any,
 ) -> FastAPI:
     """Create a configured FastAPI application.
@@ -70,6 +71,9 @@ def create_service_app(
         body_size_mb: Max request body in MB. Passed to
             ``BodySizeMiddleware``. When None, extracted from
             ``settings["max_file_size_mb"]`` if available.
+        extra_middleware: List of ``(MiddlewareClass, kwargs_dict)`` tuples
+            to add after the default middleware stack. Enables callers to
+            inject custom middleware without modifying this factory.
         **fastapi_kwargs: Additional kwargs forwarded to ``FastAPI()``.
 
     Returns:
@@ -106,6 +110,11 @@ def create_service_app(
     body_bytes = _resolve_body_size(body_size_mb, settings)
     if body_bytes is not None:
         app.add_middleware(BodySizeMiddleware, max_size=body_bytes)
+
+    # --- Extra middleware (DIP: caller controls the stack) ------------
+    if extra_middleware:
+        for mw_class, mw_kwargs in extra_middleware:
+            app.add_middleware(mw_class, **(mw_kwargs or {}))
 
     # --- Routers ------------------------------------------------------
     if setup_routers is not None:

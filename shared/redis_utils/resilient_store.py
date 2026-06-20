@@ -1,6 +1,7 @@
 """
 Resilient Redis store with connection pooling and circuit breaker
 """
+import inspect
 import socket
 import logging
 from typing import Optional, Any
@@ -97,12 +98,7 @@ class RedisCircuitBreaker:
                 )
     
     def call(self, func, *args, **kwargs) -> Any:
-        """
-        Executa função com circuit breaker.
-        
-        Raises:
-            CircuitBreakerOpenError: Se circuit está aberto
-        """
+        """Executa função com circuit breaker (sync)."""
         if self.is_open():
             raise CircuitBreakerOpenError(
                 f"Circuit breaker is {self.state} - Redis unavailable"
@@ -113,6 +109,26 @@ class RedisCircuitBreaker:
         
         try:
             result = func(*args, **kwargs)
+            self.record_success()
+            return result
+        except Exception as e:
+            self.record_failure()
+            raise
+
+    async def acall(self, func, *args, **kwargs) -> Any:
+        """Executa função async com circuit breaker."""
+        if self.is_open():
+            raise CircuitBreakerOpenError(
+                f"Circuit breaker is {self.state} - Redis unavailable"
+            )
+        
+        if self.state == "HALF_OPEN":
+            self.half_open_attempts += 1
+        
+        try:
+            result = func(*args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
             self.record_success()
             return result
         except Exception as e:
@@ -132,11 +148,12 @@ class ResilientRedisStore:
     - Circuit breaker
     - Retry automático
     - Graceful degradation
+    - Dependency injection (accepts external Redis client)
     """
     
     def __init__(
         self,
-        redis_url: str,
+        redis_url: str = "",
         max_connections: int = 50,
         socket_keepalive: bool = True,
         socket_connect_timeout: int = 5,
@@ -145,7 +162,8 @@ class ResilientRedisStore:
         health_check_interval: int = 30,
         circuit_breaker_enabled: bool = True,
         circuit_breaker_max_failures: int = 5,
-        circuit_breaker_timeout: int = 60
+        circuit_breaker_timeout: int = 60,
+        redis_client: Optional[Any] = None,
     ):
         """
         Inicializa Redis store resiliente.
@@ -164,28 +182,33 @@ class ResilientRedisStore:
         """
         self.redis_url = redis_url
         
-        # Configura connection pool
-        keepalive_options = {}
-        if socket_keepalive:
-            keepalive_options = {
-                socket.TCP_KEEPIDLE: 60,
-                socket.TCP_KEEPINTVL: 10,
-                socket.TCP_KEEPCNT: 3
-            }
-        
-        self.pool = ConnectionPool.from_url(
-            redis_url,
-            max_connections=max_connections,
-            socket_connect_timeout=socket_connect_timeout,
-            socket_timeout=socket_timeout,
-            socket_keepalive=socket_keepalive,
-            socket_keepalive_options=keepalive_options,
-            retry_on_timeout=retry_on_timeout,
-            health_check_interval=health_check_interval,
-            decode_responses=True
-        )
-        
-        self.redis = Redis(connection_pool=self.pool)
+        if redis_client is not None:
+            # DI: caller provides the Redis client (useful for testing)
+            self.redis = redis_client
+            self.pool = getattr(redis_client, 'connection_pool', None)
+        else:
+            # Configura connection pool
+            keepalive_options = {}
+            if socket_keepalive:
+                keepalive_options = {
+                    socket.TCP_KEEPIDLE: 60,
+                    socket.TCP_KEEPINTVL: 10,
+                    socket.TCP_KEEPCNT: 3
+                }
+            
+            self.pool = ConnectionPool.from_url(
+                redis_url,
+                max_connections=max_connections,
+                socket_connect_timeout=socket_connect_timeout,
+                socket_timeout=socket_timeout,
+                socket_keepalive=socket_keepalive,
+                socket_keepalive_options=keepalive_options,
+                retry_on_timeout=retry_on_timeout,
+                health_check_interval=health_check_interval,
+                decode_responses=True
+            )
+            
+            self.redis = Redis(connection_pool=self.pool)
         
         # Circuit breaker
         self.circuit_breaker = None

@@ -112,6 +112,16 @@ class TTSGenerator(ITTSGenerator):
         self._store.update_job(job)
         return wave_arrays
 
+    def _cleanup_gpu_cache(self) -> None:
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def _get_audio_metadata(self, output_path: Path) -> float:
+        import soundfile as sf
+
+        info = sf.info(str(output_path))
+        return info.duration
+
     def _finalize_job(
         self, job: AudioGenerationJob, output_path: Path, total_chunks: int
     ) -> None:
@@ -119,19 +129,16 @@ class TTSGenerator(ITTSGenerator):
         if stage:
             stage.start()
 
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        self._cleanup_gpu_cache()
+        duration = self._get_audio_metadata(output_path)
 
-        import soundfile as sf
-
-        info = sf.info(str(output_path))
-        job.output_duration_seconds = info.duration
+        job.output_duration_seconds = duration
         job.output_file = str(output_path)
 
         if stage:
             stage.complete()
         job.mark_as_completed(
-            f"Generated {total_chunks} chunk(s), {info.duration:.1f}s"
+            f"Generated {total_chunks} chunk(s), {duration:.1f}s"
         )
         self._store.update_job(job)
         logger.info(f"Job {job.id} completed: {output_path}")

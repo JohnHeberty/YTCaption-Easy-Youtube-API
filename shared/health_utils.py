@@ -12,6 +12,8 @@ Usage:
     result = await checker.check_all()
     # result = {"status": "healthy", "service": "audio-normalization", "checks": {...}, ...}
 """
+import asyncio
+import inspect
 import shutil
 import subprocess
 import time
@@ -92,7 +94,10 @@ class ServiceHealthChecker:
         for name, check_fn in self._checks.items():
             start = time.monotonic()
             try:
-                result = check_fn()
+                if inspect.iscoroutinefunction(check_fn):
+                    result = await check_fn()
+                else:
+                    result = check_fn()
                 if isinstance(result, CheckResult):
                     checks_results[name] = result.to_dict()
                     status = result.status

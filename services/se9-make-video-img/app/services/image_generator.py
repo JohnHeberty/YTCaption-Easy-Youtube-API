@@ -1,38 +1,34 @@
 """Image generation service using SE8."""
 import os
 from common.log_utils import get_logger
-from typing import Optional
 
+from app.core.constants import IMAGE_ASPECT_RATIOS
 from app.core.models import SceneSuggestion
 from app.infrastructure.http_client import SE8Client
 
 logger = get_logger(__name__)
 
-# Cinematic suffix added to every prompt for depth, lighting, and detail
-_CINEMATIC_SUFFIX = (
-    ", cinematic composition, depth of field, "
-    "volumetric lighting, high detail, "
-    "professional photography, 8k resolution"
-)
-
 
 class ImageGenerator:
     """Generate images from scene suggestions using SE8."""
 
-    def __init__(self):
-        self.client = SE8Client()
+    cinematic_suffix: str = (
+        ", cinematic composition, depth of field, "
+        "volumetric lighting, high detail, "
+        "professional photography, 8k resolution"
+    )
+
+    def __init__(self, client=None, cinematic_suffix: str = None):
+        self.client = client or SE8Client()
+        if cinematic_suffix is not None:
+            self.cinematic_suffix = cinematic_suffix
 
     async def close(self):
         await self.client.close()
 
     def _get_dimensions(self, aspect_ratio: str) -> tuple[int, int]:
         """Get width/height from aspect ratio."""
-        ratios = {
-            "9:16": (1024, 1792),
-            "16:9": (1792, 1024),
-            "1:1": (1024, 1024),
-        }
-        return ratios.get(aspect_ratio, (1024, 1792))
+        return IMAGE_ASPECT_RATIOS.get(aspect_ratio, (1024, 1792))
 
     async def generate_all(
         self,
@@ -51,7 +47,7 @@ class ImageGenerator:
 
         for i, scene in enumerate(sorted_scenes):
             # Frente C: Add cinematic suffix for depth and visual quality
-            enhanced_prompt = scene.visual + _CINEMATIC_SUFFIX
+            enhanced_prompt = scene.visual + self.cinematic_suffix
             logger.info(f"Generating image {i + 1}/{len(sorted_scenes)}: {scene.visual[:50]}...")
 
             images = await self.client.generate_image(

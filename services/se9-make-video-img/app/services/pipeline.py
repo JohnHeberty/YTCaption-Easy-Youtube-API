@@ -28,8 +28,11 @@ RETRY_BACKOFF_BASE = 2
 class VideoPipeline:
     """Orchestrate the full video generation pipeline."""
 
-    def __init__(self):
-        self.store = VideoJobStore()
+    def __init__(self, store=None, audio_generator_cls=None, image_generator_cls=None, assembler_cls=None):
+        self.store = store or VideoJobStore()
+        self._audio_generator_cls = audio_generator_cls or AudioGenerator
+        self._image_generator_cls = image_generator_cls or ImageGenerator
+        self._assembler_cls = assembler_cls or VideoAssembler
 
     async def run(self, job: VideoJob) -> None:
         """Run the complete pipeline for a video job.
@@ -41,72 +44,12 @@ class VideoPipeline:
         os.makedirs(output_dir, exist_ok=True)
 
         try:
-            await self._update_stage(job, "generating_audio", "start")
-            audio_path, audio_duration = None, 0.0
-            last_audio_error = None
-            for attempt in range(MAX_AUDIO_RETRIES + 1):
-                audio_gen = AudioGenerator()
-                try:
-                    audio_path, audio_duration = await audio_gen.generate(
-                        narration=job.request.narration,
-                        voice_id=job.request.voice_id,
-                        output_dir=output_dir,
-                        normalize_text=getattr(job.request, 'normalize_text', settings.default_normalize_text),
-                    )
-                    last_audio_error = None
-                    break
-                except Exception as e:
-                    last_audio_error = e
-                    logger.warning("Audio attempt %d/%d failed: %s",
-                                   attempt + 1, MAX_AUDIO_RETRIES + 1, e)
-                finally:
-                    await audio_gen.close()
-                if attempt < MAX_AUDIO_RETRIES:
-                    wait = RETRY_BACKOFF_BASE ** (attempt + 1)
-                    logger.info("Retrying audio in %ds...", wait)
-                    await asyncio.sleep(wait)
-            if last_audio_error is not None:
-                raise last_audio_error
-            job.audio_path = audio_path
-            await self._update_stage(job, "generating_audio", "complete")
+            audio_path = await self._generate_audio(job, output_dir)
 
-            await self._update_stage(job, "generating_images", "start")
-            img_gen = ImageGenerator()
+            image_paths = await self._generate_images(job, output_dir)
 
-            async def on_image_progress(progress: float):
-                job.stages["generating_images"].progress = progress
-                job.update_progress()
-                self.store.save_job(job.job_id, job.model_dump(mode="json"))
-
-            image_paths = await img_gen.generate_all(
-                scenes=job.request.scene_suggestions,
-                aspect_ratio=job.request.aspect_ratio,
-                steps=settings.default_image_steps,
-                performance=settings.default_image_performance,
-                output_dir=output_dir,
-                progress_callback=on_image_progress,
-            )
-            await img_gen.close()
-            job.images = image_paths
-            await self._update_stage(job, "generating_images", "complete")
-
-            await self._update_stage(job, "assembling_video", "start")
-            assembler = VideoAssembler()
-            final_video = await assembler.assemble(
-                audio_path=audio_path,
-                image_paths=image_paths,
-                narration=job.request.narration,
-                output_dir=output_dir,
-                job_id=job.job_id,
-                width=settings.default_width,
-                height=settings.default_height,
-                fps=settings.default_fps,
-                zoom_style=job.request.zoom_style,
-                crossfade_duration=settings.default_crossfade_duration,
-                hook_text=job.request.hook,
-            )
+            final_video = await self._assemble_video(job, audio_path, image_paths, output_dir)
             job.video_path = final_video
-            await self._update_stage(job, "assembling_video", "complete")
 
             job.status = VideoJobStatus.COMPLETED
             job.progress = 100.0
@@ -114,9 +57,7 @@ class VideoPipeline:
             self.store.save_job(job.job_id, job.model_dump(mode="json"))
             logger.info("Job %s completed: %s", job.job_id, final_video)
 
-            if job.request.webhook_url:
-                from app.api.webhook import send_webhook
-                await send_webhook(job)
+            await self._notify_webhook(job)
 
         except Exception as e:
             logger.error("Job %s failed: %s", job.job_id, e, exc_info=True)
@@ -125,6 +66,89 @@ class VideoPipeline:
             job.updated_at = now_brazil()
             self.store.save_job(job.job_id, job.model_dump(mode="json"))
             raise
+
+    async def _generate_audio(self, job: VideoJob, output_dir: str) -> tuple:
+        """Generate audio with retry logic. Returns (audio_path, audio_duration)."""
+        await self._update_stage(job, "generating_audio", "start")
+        audio_path, audio_duration = None, 0.0
+        last_audio_error = None
+        for attempt in range(MAX_AUDIO_RETRIES + 1):
+            audio_gen = self._audio_generator_cls()
+            try:
+                audio_path, audio_duration = await audio_gen.generate(
+                    narration=job.request.narration,
+                    voice_id=job.request.voice_id,
+                    output_dir=output_dir,
+                    normalize_text=getattr(job.request, 'normalize_text', settings.default_normalize_text),
+                )
+                last_audio_error = None
+                break
+            except Exception as e:
+                last_audio_error = e
+                logger.warning("Audio attempt %d/%d failed: %s",
+                               attempt + 1, MAX_AUDIO_RETRIES + 1, e)
+            finally:
+                await audio_gen.close()
+            if attempt < MAX_AUDIO_RETRIES:
+                wait = RETRY_BACKOFF_BASE ** (attempt + 1)
+                logger.info("Retrying audio in %ds...", wait)
+                await asyncio.sleep(wait)
+        if last_audio_error is not None:
+            raise last_audio_error
+        job.audio_path = audio_path
+        await self._update_stage(job, "generating_audio", "complete")
+        return audio_path, audio_duration
+
+    async def _generate_images(self, job: VideoJob, output_dir: str) -> list[str]:
+        """Generate images for all scenes. Returns list of image paths."""
+        await self._update_stage(job, "generating_images", "start")
+        img_gen = self._image_generator_cls()
+
+        async def on_image_progress(progress: float):
+            job.stages["generating_images"].progress = progress
+            job.update_progress()
+            self.store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        image_paths = await img_gen.generate_all(
+            scenes=job.request.scene_suggestions,
+            aspect_ratio=job.request.aspect_ratio,
+            steps=settings.default_image_steps,
+            performance=settings.default_image_performance,
+            output_dir=output_dir,
+            progress_callback=on_image_progress,
+        )
+        await img_gen.close()
+        job.images = image_paths
+        await self._update_stage(job, "generating_images", "complete")
+        return image_paths
+
+    async def _assemble_video(
+        self, job: VideoJob, audio_path: str, image_paths: list[str], output_dir: str
+    ) -> str:
+        """Assemble final video from audio and images."""
+        await self._update_stage(job, "assembling_video", "start")
+        assembler = self._assembler_cls()
+        final_video = await assembler.assemble(
+            audio_path=audio_path,
+            image_paths=image_paths,
+            narration=job.request.narration,
+            output_dir=output_dir,
+            job_id=job.job_id,
+            width=settings.default_width,
+            height=settings.default_height,
+            fps=settings.default_fps,
+            zoom_style=job.request.zoom_style,
+            crossfade_duration=settings.default_crossfade_duration,
+            hook_text=job.request.hook,
+        )
+        await self._update_stage(job, "assembling_video", "complete")
+        return final_video
+
+    async def _notify_webhook(self, job: VideoJob) -> None:
+        """Send webhook notification if configured."""
+        if job.request.webhook_url:
+            from app.api.webhook import send_webhook
+            await send_webhook(job)
 
     async def _update_stage(self, job: VideoJob, stage: str, action: str) -> None:
         """Update stage status."""
@@ -145,7 +169,7 @@ class VideoPipeline:
         job.update_progress()
         self.store.save_job(job.job_id, job.model_dump(mode="json"))
 
-async def run_video_pipeline(job: VideoJob) -> None:
+async def run_video_pipeline(job: VideoJob, pipeline: Optional[VideoPipeline] = None) -> None:
     """Entry point for running the video pipeline."""
-    pipeline = VideoPipeline()
+    pipeline = pipeline or VideoPipeline()
     await pipeline.run(job)

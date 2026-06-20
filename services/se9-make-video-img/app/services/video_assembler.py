@@ -11,6 +11,11 @@ from app.infrastructure import ffmpeg_utils
 
 logger = get_logger(__name__)
 
+MAX_SEGMENTS = 12
+MIN_SCENE_DURATION = 3.0
+MAX_SCENE_DURATION = 15.0
+MAX_XFAD_BATCH_SIZE = 8
+
 # Alternating zoom styles — alternates between zoom_in and zoom_out
 _STYLE_SEQUENCES = [
     ["zoom_in", "zoom_out"],
@@ -30,7 +35,6 @@ class VideoAssembler:
 
         Caps at MAX_SEGMENTS scenes. Last segment absorbs any remainder.
         """
-        MAX_SEGMENTS = 12
         num_scenes_needed = min(num_scenes_needed, MAX_SEGMENTS)
         if num_scenes_needed < 1:
             num_scenes_needed = 1
@@ -69,8 +73,8 @@ class VideoAssembler:
             per_scene_duration = audio_duration
 
         # Clamp per_scene_duration to reasonable range
-        per_scene_duration = max(per_scene_duration, 3.0)
-        per_scene_duration = min(per_scene_duration, 15.0)
+        per_scene_duration = max(per_scene_duration, MIN_SCENE_DURATION)
+        per_scene_duration = min(per_scene_duration, MAX_SCENE_DURATION)
 
         # How many scenes do we need to cover the full audio?
         num_scenes_needed = max(1, int(audio_duration / per_scene_duration) + 1)
@@ -103,17 +107,29 @@ class VideoAssembler:
             f"(per_scene={per_scene_duration:.1f}s), {audio_duration:.1f}s audio, title={title_duration:.1f}s"
         )
 
+        segment_paths = await self._create_segments(
+            image_paths, output_dir, scene_durations, width, height, fps, chosen_seq
+        )
+
+        concat_path = os.path.join(output_dir, "video_concat.mp4")
+        await self._concatenate(concat_path, segment_paths, crossfade_duration)
+
+        padded_audio_path = os.path.join(output_dir, "audio_padded.wav")
+        final_path = await self._merge_audio_video(
+            audio_path, padded_audio_path, concat_path,
+            title_duration, output_dir, job_id,
+        )
+
+        logger.info(f"Video assembled: {final_path}")
+        return final_path
+
+    async def _create_segments(
+        self, image_paths: list[str], output_dir: str, scene_durations: list[float],
+        width: int, height: int, fps: int, chosen_seq: list[str],
+    ) -> list[str]:
+        """Create individual video segments from images."""
+        cycled_images = [image_paths[i % len(image_paths)] for i in range(len(scene_durations))]
         segment_paths = []
-        if title_path:
-            segment_paths.append(title_path)
-
-        # Alternating zoom_in/zoom_out
-        if zoom_style == "random":
-            chosen_seq = random.choice(_STYLE_SEQUENCES)
-        else:
-            chosen_seq = [zoom_style]
-        logger.info(f"Style sequence: {chosen_seq}")
-
         for i, (img_path, dur) in enumerate(zip(cycled_images, scene_durations)):
             segment_path = os.path.join(output_dir, f"segment_{i}.mp4")
             scene_style = chosen_seq[i % len(chosen_seq)]
@@ -128,16 +144,17 @@ class VideoAssembler:
                 zoom_style=scene_style,
             )
             segment_paths.append(segment_path)
+        return segment_paths
 
-        concat_path = os.path.join(output_dir, "video_concat.mp4")
-
-        # Pick random transitions for variety — one per segment pair
+    async def _concatenate(
+        self, concat_path: str, segment_paths: list[str], crossfade_duration: float,
+    ) -> None:
+        """Concatenate segments with crossfade transitions."""
         first_xfade = random.choice(["circleopen", "dissolve", "radial", "zoomin", "smoothleft"])
         num_transitions = len(segment_paths) - 1
         transition_list = [first_xfade] + [random.choice(TRANSITIONS) for _ in range(num_transitions - 1)]
 
-        if len(segment_paths) <= 8:
-            # Fits in one xfade batch
+        if len(segment_paths) <= MAX_XFAD_BATCH_SIZE:
             logger.info(f"Concatenating {len(segment_paths)} segments with crossfade transitions: {transition_list}")
             await ffmpeg_utils.concat_segments(
                 segment_paths=segment_paths,
@@ -146,9 +163,8 @@ class VideoAssembler:
                 transitions=transition_list,
             )
         else:
-            # Too many for one xfade — batch into groups of 8 with xfade each
             logger.info(
-                f"Concatenating {len(segment_paths)} segments in batches of 8 "
+                f"Concatenating {len(segment_paths)} segments in batches of {MAX_XFAD_BATCH_SIZE} "
                 f"(transitions within batches, hard cut between batches)"
             )
             await ffmpeg_utils.concat_batched(
@@ -156,10 +172,14 @@ class VideoAssembler:
                 output_path=concat_path,
                 crossfade_duration=crossfade_duration,
                 transitions=transition_list,
-                batch_size=8,
+                batch_size=MAX_XFAD_BATCH_SIZE,
             )
 
-        padded_audio_path = os.path.join(output_dir, "audio_padded.wav")
+    async def _merge_audio_video(
+        self, audio_path: str, padded_audio_path: str, concat_path: str,
+        title_duration: float, output_dir: str, job_id: str,
+    ) -> str:
+        """Pad audio, add to video, and trim to final duration."""
         await self._pad_audio_start(audio_path, padded_audio_path, title_duration)
 
         audio_video_path = os.path.join(output_dir, "video_audio.mp4")
@@ -170,7 +190,6 @@ class VideoAssembler:
             output_path=audio_video_path,
         )
 
-        # Get actual padded audio duration for trimming
         padded_duration = await ffmpeg_utils.get_audio_duration(padded_audio_path)
         final_name = f"{job_id}_final.mp4" if job_id else "final.mp4"
         final_path = os.path.join(output_dir, final_name)
@@ -180,9 +199,25 @@ class VideoAssembler:
             duration=padded_duration,
             output_path=final_path,
         )
-
-        logger.info(f"Video assembled: {final_path}")
         return final_path
+
+    async def _probe_audio_properties(self, audio_path: str) -> tuple[str, str]:
+        """Probe audio file for sample rate and channels. Returns (sample_rate, channel_layout)."""
+        probe = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=sample_rate,channels",
+            "-of", "csv=p=0",
+            audio_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await probe.communicate()
+        parts = stdout.decode().strip().split(",")
+        sr = parts[0].strip() if parts else "24000"
+        ch = int(parts[1].strip()) if len(parts) > 1 else 1
+        cl = "stereo" if ch > 1 else "mono"
+        return sr, cl
 
     async def _pad_audio_start(
         self, audio_path: str, output_path: str, silence_seconds: float
@@ -199,21 +234,7 @@ class VideoAssembler:
 
         import asyncio
 
-        # Detect source audio properties
-        probe = await asyncio.create_subprocess_exec(
-            "ffprobe", "-v", "error",
-            "-select_streams", "a:0",
-            "-show_entries", "stream=sample_rate,channels",
-            "-of", "csv=p=0",
-            audio_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await probe.communicate()
-        parts = stdout.decode().strip().split(",")
-        sr = parts[0].strip() if parts else "24000"
-        ch = int(parts[1].strip()) if len(parts) > 1 else 1
-        cl = "stereo" if ch > 1 else "mono"
+        sr, cl = await self._probe_audio_properties(audio_path)
 
         logger.info("Padding audio: silence at %s Hz %s for %.3fs", sr, cl, silence_seconds)
 

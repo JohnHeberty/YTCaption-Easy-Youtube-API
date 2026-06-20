@@ -6,8 +6,11 @@ from celery import Task
 
 from app.domain.models import AudioGenerationJob
 from app.infrastructure.celery_config import celery_app
+from app.core.constants import CELERY_MAX_RETRIES, CELERY_SOFT_TIME_LIMIT, CELERY_TIME_LIMIT
 
 logger = get_logger(__name__)
+
+CLEANUP_BATCH_SIZE = 100
 
 
 class GenerationTask(Task):
@@ -65,9 +68,9 @@ def _mark_job_failed(job_dict: dict, error_message: str, store) -> None:
     retry_backoff=True,
     retry_backoff_max=600,
     retry_jitter=True,
-    max_retries=3,
-    soft_time_limit=2700,
-    time_limit=3600,
+    max_retries=CELERY_MAX_RETRIES,
+    soft_time_limit=CELERY_SOFT_TIME_LIMIT,
+    time_limit=CELERY_TIME_LIMIT,
 )
 def generate_audio_task(self, job_dict: dict) -> dict:
     job_id = job_dict.get("id", "unknown")
@@ -94,7 +97,7 @@ def cleanup_expired_jobs_task():
 
     store = get_job_store()
     expired = []
-    for job in store.list_jobs(100):
+    for job in store.list_jobs(CLEANUP_BATCH_SIZE):
         if job.is_expired:
             store.delete_job(job.id)
             expired.append(job.id)

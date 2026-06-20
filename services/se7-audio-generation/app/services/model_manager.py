@@ -7,6 +7,7 @@ from common.log_utils import get_logger
 
 from app.core.config import get_settings
 from app.domain.exceptions import ModelNotAvailable, ResourceExhausted
+from app.domain.interfaces import IModelManager
 
 logger = get_logger(__name__)
 
@@ -17,7 +18,7 @@ S3GEN_FILENAME = "s3gen_v3.pt"
 REQUIRED_FILES = ["ve.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt", T3_FILENAME, S3GEN_FILENAME]
 
 
-class ChatterboxModelManager:
+class ChatterboxModelManager(IModelManager):
     def __init__(self):
         settings = get_settings()
         self._model_name = settings.model_name
