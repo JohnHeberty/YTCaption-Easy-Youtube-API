@@ -10,6 +10,7 @@ JOB_TTL_SECONDS = JOB_TTL_HOURS * 3600
 VOICE_ID_PREFIX = "vc_"
 VOICE_PREFIX = "ag_voice:"
 VOICE_INDEX_KEY = "ag_voices:all"
+VOICE_LIST_KEY = "ag_jobs:list"
 
 # ===== STAGES =====
 STAGE_MODEL_LOADING = "model_loading"

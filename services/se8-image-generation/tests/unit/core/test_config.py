@@ -13,7 +13,7 @@ class TestImageEngineSettings:
     def test_default_network(self):
         settings = ImageEngineSettings()
         assert settings.host == "0.0.0.0"
-        assert settings.port == 8009
+        assert settings.port == 8008
         assert settings.workers == 1
 
     def test_default_generation(self):
@@ -36,14 +36,14 @@ class TestImageEngineSettings:
 
     def test_getitem(self):
         settings = ImageEngineSettings()
-        assert settings["port"] == 8009
+        assert settings["port"] == 8008
         assert settings["nonexistent"] is None
 
     def test_settings_from_env(self, monkeypatch):
         monkeypatch.setenv("SE8_API_KEY", "custom-key-9")
         get_settings.cache_clear()
         settings = get_settings()
-        assert settings.se9_api_key == "custom-key-9"
+        assert settings.se8_api_key == "custom-key-9"
         get_settings.cache_clear()
 
     def test_gpu_mode_from_env(self, monkeypatch):

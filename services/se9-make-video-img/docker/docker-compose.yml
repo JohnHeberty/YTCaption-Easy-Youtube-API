@@ -5,7 +5,7 @@ services:
       dockerfile: services/se9-make-video-img/docker/Dockerfile
     container_name: se9-make-video-img
     ports:
-      - "8009:8009"
+      - "${HOST_PORT:-8009}:${CONTAINER_PORT:-8009}"
     env_file:
       - ../.env
     environment:
@@ -14,7 +14,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - se9-output:/app/data/outputs
+      - ../data/outputs:/app/data/outputs
+      - ../data/logs:/app/data/logs
     networks:
       - ytcaption-network
     restart: unless-stopped
@@ -23,14 +24,11 @@ services:
         limits:
           memory: 2G
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8009/ping"]
+      test: ["CMD", "curl", "-f", "http://localhost:${CONTAINER_PORT:-8009}/ping"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
-
-volumes:
-  se9-output:
 
 networks:
   ytcaption-network:

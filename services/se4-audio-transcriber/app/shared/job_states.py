@@ -1,11 +1,11 @@
 """Formal state pattern for audio transcription job lifecycle transitions."""
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from enum import Enum, StrEnum
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class InvalidStateTransitionError(Exception):

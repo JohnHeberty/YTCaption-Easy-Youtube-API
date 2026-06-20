@@ -1,10 +1,10 @@
 """Image preprocessors for ControlNet — Canny pyramid + CPDS."""
-import logging
 
 import cv2
+from common.log_utils import get_logger
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def centered_canny(

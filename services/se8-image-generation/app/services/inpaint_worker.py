@@ -1,6 +1,6 @@
 """InpaintWorker — manages inpainting region, UNet patching, post-processing."""
-import logging
 from typing import Optional, Tuple
+from common.log_utils import get_logger
 
 import cv2
 import numpy as np
@@ -8,7 +8,7 @@ import torch
 import torch.nn.functional as F
 from PIL import Image, ImageFilter
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Global singleton for current inpaint task
 current_task: Optional["InpaintWorker"] = None

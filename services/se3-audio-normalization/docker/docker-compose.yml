@@ -22,6 +22,8 @@ services:
       - NUMBA_CACHE_DIR=${NUMBA_CACHE_DIR}
       - NUMBA_DISABLE_JIT=${NUMBA_DISABLE_JIT}
     restart: unless-stopped
+    networks:
+      - ytcaption-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
       interval: 30s
@@ -56,6 +58,8 @@ services:
     depends_on:
       audio-normalization-service:
         condition: service_started
+    networks:
+      - ytcaption-network
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.infrastructure.celery_config inspect ping --timeout=1 || exit 1"]
       interval: 30s
@@ -65,3 +69,7 @@ services:
     labels:
       - "com.example.service=audio-normalization-worker"
       - "com.example.version=2.0.0-cpu"
+
+networks:
+  ytcaption-network:
+    external: true

@@ -25,7 +25,7 @@ class AudioChunker:
     The caller is responsible for transcribing each chunk and merging results.
     """
 
-    def __init__(self, temp_dir: str = "./temp", chunk_length_seconds: float = 30, overlap_seconds: float = 1.0):
+    def __init__(self, temp_dir: str = "./data/temp", chunk_length_seconds: float = 30, overlap_seconds: float = 1.0):
         self.temp_dir = Path(temp_dir)
         self.chunk_length_ms = int(chunk_length_seconds * 1000)
         self.overlap_ms = int(overlap_seconds * 1000)

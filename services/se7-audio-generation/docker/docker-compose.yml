@@ -28,6 +28,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - LD_LIBRARY_PATH=/nvidia/lib:/usr/local/cuda/lib64
     restart: unless-stopped
+    networks:
+      - ytcaption-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
       interval: 30s
@@ -64,9 +66,15 @@ services:
     depends_on:
       audio-generation-service:
         condition: service_healthy
+    networks:
+      - ytcaption-network
     healthcheck:
       test: ["CMD-SHELL", "python -m celery -A app.infrastructure.celery_config.celery_app inspect ping --timeout=3 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 120s
+
+networks:
+  ytcaption-network:
+    external: true

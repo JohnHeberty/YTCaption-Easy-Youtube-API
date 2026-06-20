@@ -543,7 +543,7 @@ async def health_check(
     store: AudioNormJobStore = Depends(job_store),
 ) -> JSONResponse:
     """Health check profundo usando ServiceHealthChecker compartilhado."""
-    checker = ServiceHealthChecker("audio-normalization", version=settings['version'])
+    checker = ServiceHealthChecker("audio-normalization", version=settings.app_version)
 
     checker.add_check("redis", lambda: ServiceHealthChecker.check_redis(store.redis))
     checker.add_check("disk", lambda: _check_disk_space(settings['temp_dir']))

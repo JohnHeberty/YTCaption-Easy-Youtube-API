@@ -75,6 +75,7 @@ class CreateVideoRequest(BaseModel):
     aspect_ratio: str = "9:16"
     zoom_style: str = "random"
     webhook_url: Optional[str] = None
+    normalize_text: bool = True
 
 
 class VideoJob(BaseModel):

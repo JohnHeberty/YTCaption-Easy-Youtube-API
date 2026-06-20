@@ -66,7 +66,7 @@ class LoggingSettings(BaseSettings):
     """Configurações de logging padronizadas"""
     
     log_level: str = Field(default='INFO', env='LOG_LEVEL')
-    log_dir: str = Field(default='./logs', env='LOG_DIR')
+    log_dir: str = Field(default='./data/logs', env='LOG_DIR')
     log_format: str = Field(default='json', env='LOG_FORMAT')  # 'json' ou 'text'
     log_to_console: bool = Field(default=True, env='LOG_TO_CONSOLE')
     log_to_file: bool = Field(default=True, env='LOG_TO_FILE')
@@ -134,10 +134,10 @@ class BaseServiceSettings(BaseSettings):
     job_timeout_minutes: int = Field(default=60, env='JOB_TIMEOUT_MINUTES')
     
     # Diretórios
-    upload_dir: str = Field(default='./uploads', env='UPLOAD_DIR')
-    processed_dir: str = Field(default='./processed', env='PROCESSED_DIR')
-    temp_dir: str = Field(default='./temp', env='TEMP_DIR')
-    log_dir: str = Field(default='./logs', env='LOG_DIR')
+    upload_dir: str = Field(default='./data/uploads', env='UPLOAD_DIR')
+    processed_dir: str = Field(default='./data/processed', env='PROCESSED_DIR')
+    temp_dir: str = Field(default='./data/temp', env='TEMP_DIR')
+    log_dir: str = Field(default='./data/logs', env='LOG_DIR')
     
     # Logging
     log_level: str = Field(default='INFO', env='LOG_LEVEL')
@@ -198,7 +198,8 @@ class BaseServiceSettings(BaseSettings):
             self.upload_dir,
             self.processed_dir,
             self.temp_dir,
-            self.log_dir
+            self.log_dir,
+            self.output_dir,
         ]:
             Path(dir_path).mkdir(parents=True, exist_ok=True)
     

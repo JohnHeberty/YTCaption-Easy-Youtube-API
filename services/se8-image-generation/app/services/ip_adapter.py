@@ -1,12 +1,12 @@
 """IP-Adapter — CLIP vision encoding + cross-attention injection."""
-import logging
 from typing import Dict, List, Optional, Tuple
+from common.log_utils import get_logger
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Channel dimensions for attention layers
 SD_V12_CHANNELS = [320, 320, 640, 640, 1280, 1280, 1280]

@@ -46,14 +46,14 @@ logger = get_logger(__name__)
 class AudioConfig:
     """Configuração para processamento de áudio."""
 
-    def __init__(self, settings: Dict[str, Any]):
+    def __init__(self, settings):
         self.temp_dir = Path(settings.get('temp_dir', './temp'))
-        self.streaming_threshold_mb = settings.get('audio_chunking', {}).get('streaming_threshold_mb', 50)
-        self.chunking_enabled = settings.get('audio_chunking', {}).get('enabled', True)
-        self.chunk_duration_sec = settings.get('audio_chunking', {}).get('chunk_duration_sec', 60)
-        self.chunk_overlap_sec = settings.get('audio_chunking', {}).get('chunk_overlap_sec', 1)
-        self.noise_reduction_max_duration = settings.get('noise_reduction', {}).get('max_duration_sec', 300)
-        self.noise_reduction_sample_rate = settings.get('noise_reduction', {}).get('sample_rate', 22050)
+        self.streaming_threshold_mb = settings.get('audio_chunk_streaming_threshold_mb', 50)
+        self.chunking_enabled = settings.get('audio_enable_chunking', True)
+        self.chunk_duration_sec = settings.get('audio_chunk_duration_sec', 60)
+        self.chunk_overlap_sec = settings.get('audio_chunk_overlap_sec', 1)
+        self.noise_reduction_max_duration = settings.get('noise_reduction_max_duration_sec', 300)
+        self.noise_reduction_sample_rate = settings.get('noise_reduction_sample_rate', 22050)
 
 
 class FileOperations:
@@ -417,7 +417,7 @@ class AudioProcessor:
 
     async def _save_result(self, job: AudioNormJob, audio: AudioSegment) -> Path:
         """Salva áudio processado."""
-        output_dir = Path("./processed")
+        output_dir = Path("./data/processed")
         self.file_ops.ensure_dir(output_dir)
 
         suffix = f"_{job.processing_operations}" if job.processing_operations != "none" else ""

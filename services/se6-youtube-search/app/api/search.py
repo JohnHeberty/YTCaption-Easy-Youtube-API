@@ -16,7 +16,7 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 
 from app.core.config import get_settings
 from app.core.constants import SearchType, SearchLimits
-from app.core.models import Job
+from app.domain.models import Job
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
 from app.infrastructure.celery_tasks import youtube_search_task
 from app.infrastructure.dependencies import job_store

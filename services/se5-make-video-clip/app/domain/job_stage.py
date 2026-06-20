@@ -119,6 +119,10 @@ class StageContext:
     subtitle_path: Optional[Path] = None
     raw_cues: List[Dict[str, Any]] = field(default_factory=list)
     gated_cues: List[Dict[str, Any]] = field(default_factory=list)
+    burn_subtitles: bool = True  # FIX-ERROS Fase 2: flag para queimar legendas no conteúdo
+
+    # Title card
+    hook_text: Optional[str] = None  # FIX-ERROS Fase 1: texto do title card
     
     # Video info
     video_info: Optional[Dict[str, Any]] = None

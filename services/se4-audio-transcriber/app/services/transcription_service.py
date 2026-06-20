@@ -60,7 +60,7 @@ class TranscriptionService(ITranscriptionService):
         model_manager: Optional[ModelManager] = None,
         storage_manager: Optional[IStorageManager] = None,
         output_dir: str = "./transcriptions",
-        upload_dir: str = "./uploads"
+        upload_dir: str = "./data/uploads"
     ):
         """
         Inicializa o serviço.

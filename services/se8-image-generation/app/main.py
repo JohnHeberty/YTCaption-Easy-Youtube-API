@@ -21,7 +21,22 @@ async def lifespan(app: FastAPI):
     import app.services.worker as worker_mod
 
     if worker_mod.worker_queue is None:
-        worker_mod.worker_queue = TaskQueue(queue_size=settings.max_queue_size)
+        redis_store = None
+        try:
+            from common.redis_utils.resilient_store import ResilientRedisStore
+            redis_store = ResilientRedisStore(
+                redis_url=settings.redis_url,
+                max_connections=10,
+                circuit_breaker_enabled=True,
+            )
+            logger.info("Redis-backed history enabled")
+        except Exception as e:
+            logger.warning("Redis unavailable, history will be in-memory only: %s", e)
+
+        worker_mod.worker_queue = TaskQueue(
+            queue_size=settings.max_queue_size,
+            redis_store=redis_store,
+        )
 
     _worker_thread = threading.Thread(
         target=worker_mod.task_schedule_loop, daemon=True, name="se8-worker"
@@ -36,6 +51,7 @@ async def lifespan(app: FastAPI):
 
 def setup_routers(app: FastAPI):
     from app.api import (
+        admin_routes,
         file_routes,
         generate_routes,
         generate_v2_routes,
@@ -46,6 +62,7 @@ def setup_routers(app: FastAPI):
     )
 
     app.include_router(health_routes.router)
+    app.include_router(admin_routes.router, dependencies=[Depends(verify_api_key)])
     app.include_router(query_routes.router, dependencies=[Depends(verify_api_key)])
     app.include_router(
         generate_routes.router, dependencies=[Depends(verify_api_key)]

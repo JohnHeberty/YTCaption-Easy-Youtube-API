@@ -57,11 +57,8 @@ class TestJobHistory:
         assert data["history"] == []
 
     def test_job_history_delete(self, client, auth_header):
-        mock_task = MagicMock()
-        mock_task.job_id = "del-123"
         with patch("app.services.worker.worker_queue") as mock_q:
-            mock_q.get_task.return_value = mock_task
-            mock_q.history = [mock_task]
+            mock_q.get_history.return_value = {"deleted": "del-123"}
             resp = client.get(
                 "/v1/generation/job-history?job_id=del-123&delete=true",
                 headers=auth_header,

@@ -2,13 +2,13 @@
 
 Uses facexlib for face detection and alignment.
 """
-import logging
 from typing import Optional
+from common.log_utils import get_logger
 
 import cv2
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _face_restore_helper = None
 

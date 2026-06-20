@@ -20,10 +20,10 @@ def audio_config():
     """Fixture para configuração de áudio."""
     return AudioConfig({
         'temp_dir': './temp',
-        'streaming_threshold_mb': 50,
-        'chunking_enabled': True,
-        'chunk_duration_sec': 60,
-        'chunk_overlap_sec': 1,
+        'audio_chunk_streaming_threshold_mb': 50,
+        'audio_enable_chunking': True,
+        'audio_chunk_duration_sec': 60,
+        'audio_chunk_overlap_sec': 1,
     })
 
 

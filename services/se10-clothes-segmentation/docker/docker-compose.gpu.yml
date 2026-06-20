@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  se10-clothes-segmentation:
+    build:
+      context: ../..
+      dockerfile: services/se10-clothes-segmentation/docker/Dockerfile.gpu
+      target: api
+    container_name: ytcaption-se10-clothes-segmentation-gpu
+    ports:
+      - "8010:8010"
+    volumes:
+      - ../shared/:/app/common:ro
+      - ../../services/se10-clothes-segmentation/app/:/app/app:rw
+      - ../../services/se10-clothes-segmentation/external/:/app/external:ro
+      - ../../services/se10-clothes-segmentation/checkpoints/:/app/checkpoints:ro
+      - se10-data:/app/data
+    env_file:
+      - ../.env
+    environment:
+      - REDIS_URL=redis://host.docker.internal:6379/10
+      - DEVICE=cuda
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - ytcaption-network
+
+volumes:
+  se10-data:
+
+networks:
+  ytcaption-network:
+    external: true

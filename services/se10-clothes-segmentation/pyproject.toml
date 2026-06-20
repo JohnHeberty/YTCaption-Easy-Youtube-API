@@ -1,0 +1,16 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests",
+    "api: API route tests",
+    "integration: Integration tests",
+    "e2e: End-to-end tests",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "external/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

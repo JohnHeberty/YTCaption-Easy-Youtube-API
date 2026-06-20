@@ -20,7 +20,6 @@ from app.services.pipeline_background import execute_pipeline_background
 from app.infrastructure.microservice_client import MicroserviceClient
 from app.core.config import get_settings
 from app.core.exceptions import ValidationError, JobCreationError, RedisConnectionError
-from app.core.constants import Timeouts, HealthStatus
 from app.api.health_routes import router as health_router
 from app.api.admin_routes import router as admin_router
 from app.api.jobs_routes import router as jobs_router

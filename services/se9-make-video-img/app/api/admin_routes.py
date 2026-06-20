@@ -10,6 +10,9 @@ from app.infrastructure.redis_store import VideoJobStore
 router = APIRouter()
 store = VideoJobStore()
 
+# Statuses considered terminal (safe to clean up)
+_TERMINAL_STATUSES = {"completed", "failed"}
+
 
 @router.get("/admin/stats")
 async def stats():
@@ -43,14 +46,16 @@ async def stats():
 
 @router.post("/admin/cleanup")
 async def cleanup():
-    """Cleanup old temp files and failed jobs."""
+    """Cleanup failed jobs: remove output dirs AND Redis keys."""
     cleaned = 0
 
     for job in store.list_jobs():
-        if job.get("status") in ("failed", "completed"):
-            temp_dir = os.path.join(settings.temp_dir, f"rbg_{job['job_id']}")
-            if os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                cleaned += 1
+        if job.get("status") == "failed":
+            job_id = job.get("job_id", "")
+            output_dir = os.path.join(settings.output_dir, job_id)
+            if os.path.exists(output_dir):
+                shutil.rmtree(output_dir, ignore_errors=True)
+            store.delete_job(job_id)
+            cleaned += 1
 
-    return {"detail": f"Cleaned up {cleaned} temp directories"}
+    return {"detail": f"Cleaned up {cleaned} failed jobs (dirs + Redis keys)"}

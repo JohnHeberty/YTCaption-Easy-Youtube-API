@@ -15,7 +15,7 @@ from common.test_utils.mock_celery import mock_celery_app
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 os.environ.update({
-    "ENVIRONMENT": "test",
+    "ENVIRONMENT": "development",
     "DEBUG": "false",
     "LOG_LEVEL": "DEBUG",
     "REDIS_URL": "redis://localhost:6379/15",

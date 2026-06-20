@@ -8,74 +8,67 @@ from app.core.config import get_settings
 
 class TestConfigSettings:
     """Testes para as configurações gerais"""
-    
-    def test_get_settings_returns_dict(self):
-        """Configurações devem retornar um dicionário"""
+
+    def test_get_settings_returns_instance(self):
+        """Configurações devem retornar instância Pydantic"""
         settings = get_settings()
-        assert isinstance(settings, dict)
-    
-    def test_required_keys_present(self):
-        """Configurações devem conter chaves essenciais"""
+        assert hasattr(settings, 'app_name')
+
+    def test_required_fields_present(self):
+        """Configurações devem conter campos essenciais"""
         settings = get_settings()
-        required_keys = [
-            "app_name", "version", "redis_url",
-            "upload_dir", "processed_dir", "temp_dir"
-        ]
-        for key in required_keys:
-            assert key in settings, f"Key '{key}' missing from settings"
-    
+        assert settings.app_name is not None
+        assert settings.app_version is not None
+        assert settings.redis_url is not None
+
     def test_default_values(self):
         """Testa valores padrão das configurações"""
         settings = get_settings()
-        assert settings["app_name"] == "Audio Normalization Service"
-        assert settings["version"] is not None
+        assert settings.app_name == "Audio Normalization Service"
+        assert settings.app_version is not None
 
 
 class TestDirectoryConfiguration:
     """Testes para configuração de diretórios"""
-    
+
     def test_directories_are_strings(self):
         """Diretórios devem ser strings"""
         settings = get_settings()
-        directories = ["upload_dir", "processed_dir", "temp_dir"]
-        for dir_key in directories:
-            assert isinstance(settings[dir_key], str)
-    
-    def test_directories_are_absolute_paths(self):
-        """Diretórios devem ser caminhos absolutos ou relativos válidos"""
+        assert isinstance(settings.upload_dir, str)
+        assert isinstance(settings.processed_dir, str)
+        assert isinstance(settings.temp_dir, str)
+
+    def test_directories_are_non_empty(self):
+        """Diretórios devem ser caminhos não vazios"""
         settings = get_settings()
-        directories = ["upload_dir", "processed_dir", "temp_dir"]
-        for dir_key in directories:
-            path = settings[dir_key]
-            assert len(path) > 0, f"{dir_key} is empty"
+        assert len(settings.upload_dir) > 0
+        assert len(settings.processed_dir) > 0
+        assert len(settings.temp_dir) > 0
 
 
 class TestRedisConfiguration:
     """Testes para configuração do Redis"""
-    
+
     def test_redis_url_format(self):
         """URL do Redis deve ter formato válido"""
         settings = get_settings()
-        redis_url = settings["redis_url"]
-        assert redis_url.startswith("redis://")
-    
+        assert settings.redis_url.startswith("redis://")
+
     def test_redis_url_not_empty(self):
         """URL do Redis não deve estar vazia"""
         settings = get_settings()
-        assert len(settings["redis_url"]) > 0
+        assert len(settings.redis_url) > 0
 
 
 class TestNormalizationSettings:
     """Testes para parâmetros de normalização"""
-    
-    def test_default_sample_rate(self):
-        """Taxa de amostragem padrão deve ser 16000"""
-        settings = get_settings()
-        if "default_sample_rate" in settings:
-            assert settings["default_sample_rate"] == 16000
-    
+
     def test_chunk_duration_is_positive(self):
         """Duração do chunk deve ser positiva"""
         settings = get_settings()
-        if "chunk_duration_ms" in settings:
-            assert settings["chunk_duration_ms"] > 0
+        assert settings.audio_chunk_duration_sec > 0
+
+    def test_noise_reduction_sample_rate(self):
+        """Taxa de amostragem de redução de ruído deve ser positiva"""
+        settings = get_settings()
+        assert settings.noise_reduction_sample_rate > 0

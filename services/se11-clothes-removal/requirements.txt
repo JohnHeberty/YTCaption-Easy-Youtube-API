@@ -1,0 +1,19 @@
+# Core
+fastapi==0.120.0
+uvicorn[standard]==0.34.0
+pydantic==2.12.3
+pydantic-settings==2.9.1
+httpx==0.28.1
+
+# Redis (optional, has in-memory fallback)
+redis==5.2.1
+
+# Image processing
+opencv-python-headless>=4.10.0
+Pillow>=11.0.0
+numpy>=1.26.0
+
+python-multipart>=0.0.18
+
+# Common library (installed separately in Dockerfile: pip install -e /app/shared)
+# For local dev: pip install -e ../shared

@@ -12,8 +12,8 @@ Design decisions:
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import sys
 import threading
 import time
@@ -23,7 +23,7 @@ from typing import Any, List, Optional, Protocol, runtime_checkable
 
 import psutil
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Lazy torch import — only load when first needed
 _torch = None

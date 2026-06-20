@@ -25,6 +25,8 @@ services:
       timeout: 10s
       start_period: 60s
       retries: 3
+    networks:
+      - ytcaption-network
 
   image-engine-worker:
     build:
@@ -60,7 +62,13 @@ services:
       timeout: 30s
       start_period: 120s
       retries: 3
+    networks:
+      - ytcaption-network
 
 volumes:
   se8-models:
   se8-outputs:
+
+networks:
+  ytcaption-network:
+    external: true

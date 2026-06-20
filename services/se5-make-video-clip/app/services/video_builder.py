@@ -81,6 +81,10 @@ class VideoBuilder:
             self.ffmpeg_path,
             "-i", input_path,
             "-c:v", self.video_codec,
+            "-profile:v", "main",     # FIX-ERROS Fase 3: compatibilidade Windows
+            "-level", "4.0",
+            "-g", "30",
+            "-bf", "2",
             "-preset", self.preset,
             "-crf", str(self.crf),
             "-c:a", "copy",  # Copy audio stream
@@ -305,6 +309,10 @@ class VideoBuilder:
             "-filter_complex", filter_complex,
             "-map", "[vout]",
             "-c:v", self.video_codec,
+            "-profile:v", "main",
+            "-level", "4.0",
+            "-g", "30",
+            "-bf", "2",
             "-preset", self.preset,
             "-crf", str(self.crf),
         ])
@@ -514,9 +522,8 @@ class VideoBuilder:
             "-i", str(audio_path),
             "-c:v", "copy",  # Não re-encode vídeo
             "-c:a", self.audio_codec,
+            "-profile:a", "aac_low",  # FIX-ERROS Fase 3: evita 0x80004005 no Windows
             "-b:a", "192k",
-            # REMOVIDO -shortest: O vídeo já foi montado com duração correta
-            # e será trimmed no Step 8 para audio_duration + padding
             str(output_path)
         ]
         
@@ -677,8 +684,243 @@ class VideoBuilder:
         
         logger.info(f"✅ Subtitles burned: {output_path_obj}")
         return str(output_path_obj)
-    
-    async def trim_video(self, video_path: str, output_path: str, 
+
+    async def create_title_card(
+        self,
+        first_frame_path: str,
+        text: str,
+        output_path: str,
+        duration: float = 0.2,
+        width: int = 1080,
+        height: int = 1920,
+    ) -> str:
+        """Cria title card curto (0.2s) com texto sobre primeira imagem.
+
+        Args:
+            first_frame_path: Caminho para imagem de referência (1 frame do primeiro short).
+            text: Texto do hook a ser exibido.
+            output_path: Caminho do vídeo de saída.
+            duration: Duração em segundos (padrão 0.2s = 6 frames).
+            width: Largura do vídeo de saída.
+            height: Altura do vídeo de saída.
+
+        Returns:
+            Caminho do title card gerado.
+
+        Raises:
+            FFmpegFailedException: Se FFmpeg falhar.
+            FFmpegTimeoutException: Se operação exceder timeout.
+        """
+        logger.info(f"🎬 Creating title card ({duration}s)")
+
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Escapar texto para FFmpeg drawtext
+        escaped_text = text.replace("'", "\\'").replace(":", "\\:").replace('"', '\\"')
+
+        cmd = [
+            self.ffmpeg_path,
+            "-y",
+            "-loop", "1",
+            "-i", first_frame_path,
+            "-t", str(duration),
+            "-vf", (
+                f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+                f"crop={width}:{height},"
+                f"drawtext=text='{escaped_text}'"
+                f":fontsize=48:fontcolor=white:borderw=3:bordercolor=black"
+                f":x=(w-text_w)/2:y=(h-text_h)/2"
+            ),
+            "-c:v", "libx264",
+            "-profile:v", "main",
+            "-level", "4.0",
+            "-g", "30",
+            "-bf", "2",
+            "-r", "30",
+            "-pix_fmt", "yuv420p",
+            "-an",  # Sem áudio no title card
+            output_path,
+        ]
+
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=60,
+                check=False,
+                capture_output=True,
+            )
+
+            if returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                raise FFmpegFailedException(
+                    operation="title card creation",
+                    stderr=error_msg,
+                    returncode=returncode,
+                    details={"output": output_path},
+                )
+
+            logger.info(f"✅ Title card created: {output_path}")
+            return output_path
+
+        except SubprocessTimeoutException as e:
+            raise FFmpegTimeoutException(
+                operation="title card creation",
+                timeout=60,
+                details={"output": output_path},
+                cause=e,
+            )
+
+    async def concat_with_transitions(
+        self,
+        segments: List[str],
+        output_path: str,
+        transition: str = "circleopen",
+        transition_duration: float = 0.2,
+        aspect_ratio: str = "9:16",
+    ) -> str:
+        """Concatena segmentos com transições xfade.
+
+        O primeiro segmento (title card) usa transição chamativa (circleopen).
+        Segmentos seguintes usam fade.
+
+        Args:
+            segments: Lista de caminhos de vídeo [title, content].
+            output_path: Caminho do vídeo de saída.
+            transition: Transição do title card (padrão circleopen).
+            transition_duration: Duração da transição em segundos.
+            aspect_ratio: Aspect ratio alvo.
+
+        Returns:
+            Caminho do vídeo concatenado.
+
+        Raises:
+            ConcatenationException: Se falhar.
+            FFmpegFailedException: Se FFmpeg falhar.
+        """
+        if len(segments) < 2:
+            raise ConcatenationException(
+                video_count=len(segments),
+                expected_duration=0,
+                actual_duration=0,
+                reason="Need at least 2 segments for transitions",
+            )
+
+        logger.info(f"🎬 Concatenating {len(segments)} segments with transitions")
+
+        aspect_map = {
+            "9:16": (1080, 1920),
+            "16:9": (1920, 1080),
+            "1:1": (1080, 1080),
+            "4:5": (1080, 1350),
+        }
+        target_w, target_h = aspect_map.get(aspect_ratio, (1080, 1920))
+
+        cmd = [self.ffmpeg_path, "-y"]
+
+        # Inputs
+        for seg in segments:
+            cmd.extend(["-i", seg])
+
+        n = len(segments)
+        filter_parts = []
+
+        # Scale + pad cada input
+        for i in range(n):
+            filter_parts.append(
+                f"[{i}:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                f"crop={target_w}:{target_h},setsar=1,format=yuv420p[v{i}]"
+            )
+
+        # xfade chain
+        if n == 2:
+            # Title → Content com circleopen
+            offset = 0  # Title card is very short
+            filter_parts.append(
+                f"[v0][v1]xfade=transition={transition}:duration={transition_duration}:offset={offset}[vout]"
+            )
+        else:
+            # Chain of xfades
+            # First xfade
+            filter_parts.append(
+                f"[v0][v1]xfade=transition={transition}:duration={transition_duration}:offset=0[xf0]"
+            )
+            # Subsequent xfades with fade transition
+            cumulative_offset = 0
+            # Get duration of first segment to compute offset
+            info = await self.get_video_info(segments[0])
+            cumulative_offset = info["duration"] - transition_duration
+
+            for i in range(2, n):
+                prev_label = f"xf{i - 2}"
+                info = await self.get_video_info(segments[i - 1])
+                seg_duration = info["duration"]
+                if i < n - 1:
+                    cumulative_offset += seg_duration - transition_duration
+                    out_label = f"xf{i - 1}"
+                    filter_parts.append(
+                        f"[{prev_label}][v{i}]xfade=transition=fade:duration={transition_duration}:offset={cumulative_offset}[{out_label}]"
+                    )
+                else:
+                    cumulative_offset += seg_duration - transition_duration
+                    filter_parts.append(
+                        f"[{prev_label}][v{i}]xfade=transition=fade:duration={transition_duration}:offset={cumulative_offset}[vout]"
+                    )
+
+        # Audio: pega do último segmento (conteúdo tem áudio, title card não)
+        cmd.extend(["-filter_complex", ";".join(filter_parts)])
+        cmd.extend(["-map", "[vout]"])
+
+        # Verificar se algum segmento tem áudio
+        has_audio = False
+        for seg in segments:
+            try:
+                info = await self.get_video_info(seg)
+                # If the video info has audio streams, the file has audio
+                # get_video_info doesn't track audio, so try to detect
+            except Exception:
+                pass
+
+        # Usar áudio do segundo segmento (conteúdo) se disponível
+        if len(segments) >= 2:
+            cmd.extend(["-map", "1:a?", "-c:a", self.audio_codec, "-profile:a", "aac_low", "-b:a", "192k"])
+            cmd.extend(["-shortest"])
+
+        cmd.append(output_path)
+
+        try:
+            from ..infrastructure.subprocess_utils import run_subprocess_with_timeout
+
+            returncode, stdout, stderr = await run_subprocess_with_timeout(
+                cmd=cmd,
+                timeout=300,
+                check=False,
+                capture_output=True,
+            )
+
+            if returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                logger.error(f"❌ FFmpeg concat with transitions error: {error_msg}")
+                raise FFmpegFailedException(
+                    operation="concat with transitions",
+                    stderr=error_msg,
+                    returncode=returncode,
+                    details={"segment_count": len(segments)},
+                )
+
+            logger.info(f"✅ Concatenated with transitions: {output_path}")
+            return output_path
+
+        except SubprocessTimeoutException as e:
+            raise FFmpegTimeoutException(
+                operation="concat with transitions",
+                timeout=300,
+                details={"segment_count": len(segments)},
+                cause=e,
+            )
+
+    async def trim_video(self, video_path: str, output_path: str,
                         max_duration: float) -> str:
         """Trim vídeo para duração máxima especificada
         
@@ -709,7 +951,12 @@ class VideoBuilder:
             "-i", str(video_path),
             "-t", str(max_duration),  # Duração máxima de saída
             "-c:v", "libx264",        # Re-encode vídeo (preciso)
+            "-profile:v", "main",     # FIX-ERROS Fase 3: compatibilidade Windows
+            "-level", "4.0",
+            "-g", "30",
+            "-bf", "2",
             "-c:a", "aac",            # Re-encode áudio
+            "-profile:a", "aac_low",  # FIX-ERROS Fase 3: evita 0x80004005
             "-preset", "fast",        # Balanço velocidade/qualidade
             "-crf", "23",             # Qualidade boa (18=melhor, 28=menor)
             "-map", "0:v:0",          # Mapear APENAS primeiro stream de vídeo

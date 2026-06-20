@@ -169,7 +169,9 @@ class DomainJobProcessor:
                 subtitle_language=getattr(job, 'subtitle_language', 'pt-BR'),
                 subtitle_style=job.subtitle_style,
                 settings=self.settings,
-                event_publisher=self.event_publisher
+                event_publisher=self.event_publisher,
+                hook_text=getattr(job, 'hook_text', None),
+                burn_subtitles=getattr(job, 'burn_subtitles', True),
             )
             
             # Publicar evento de início

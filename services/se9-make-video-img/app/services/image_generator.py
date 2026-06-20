@@ -1,12 +1,19 @@
 """Image generation service using SE8."""
-import logging
 import os
+from common.log_utils import get_logger
 from typing import Optional
 
 from app.core.models import SceneSuggestion
 from app.infrastructure.http_client import SE8Client
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# Cinematic suffix added to every prompt for depth, lighting, and detail
+_CINEMATIC_SUFFIX = (
+    ", cinematic composition, depth of field, "
+    "volumetric lighting, high detail, "
+    "professional photography, 8k resolution"
+)
 
 
 class ImageGenerator:
@@ -43,18 +50,24 @@ class ImageGenerator:
         sorted_scenes = sorted(scenes, key=lambda s: s.t)
 
         for i, scene in enumerate(sorted_scenes):
+            # Frente C: Add cinematic suffix for depth and visual quality
+            enhanced_prompt = scene.visual + _CINEMATIC_SUFFIX
             logger.info(f"Generating image {i + 1}/{len(sorted_scenes)}: {scene.visual[:50]}...")
 
-            job_id = await self.client.create_job(
-                prompt=scene.visual,
+            images = await self.client.generate_image(
+                prompt=enhanced_prompt,
                 width=width,
                 height=height,
                 steps=steps,
                 performance=performance,
             )
-            result = await self.client.poll_job(job_id)
 
-            image_data = await self._download_image(result)
+            first = images[0]
+            file_path = first.get("url") or first.get("path")
+            if not file_path:
+                raise ValueError(f"No URL in SE8 response: {first}")
+            image_data = await self.client.download_image(file_path)
+
             image_path = os.path.join(output_dir, f"scene_{int(scene.t)}.png")
             with open(image_path, "wb") as f:
                 f.write(image_data)
@@ -68,20 +81,4 @@ class ImageGenerator:
 
         return image_paths
 
-    async def _download_image(self, job_result: dict) -> bytes:
-        """Download image from SE8 result."""
-        file_path = job_result.get("file_path") or job_result.get("output_path")
-        if file_path:
-            return await self.client.download_image(file_path)
 
-        images = job_result.get("images") or job_result.get("output", [])
-        if images and isinstance(images, list) and len(images) > 0:
-            first_image = images[0]
-            if isinstance(first_image, dict):
-                file_path = first_image.get("path") or first_image.get("url")
-            else:
-                file_path = str(first_image)
-            if file_path:
-                return await self.client.download_image(file_path)
-
-        raise ValueError("No image found in SE8 response")

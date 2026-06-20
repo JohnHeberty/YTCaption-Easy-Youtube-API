@@ -1,4 +1,3 @@
-import os
 from typing import Optional
 
 from common.log_utils import get_logger
@@ -7,52 +6,40 @@ from celery import Task
 
 from app.domain.models import AudioGenerationJob
 from app.infrastructure.celery_config import celery_app
-from app.infrastructure.redis_store import JobRedisStore
 
 logger = get_logger(__name__)
 
 
 class GenerationTask(Task):
     _generator = None
-    _store: Optional[JobRedisStore] = None
+    _store = None
 
     @property
-    def store(self) -> JobRedisStore:
+    def store(self):
         if self._store is None:
-            redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-            self._store = JobRedisStore(redis_url=redis_url)
+            from app.infrastructure.dependencies import get_job_store
+            self._store = get_job_store()
         return self._store
 
     @property
     def generator(self):
         if self._generator is None:
-            from app.core.config import get_settings
-            from app.services.model_manager import ChatterboxModelManager
-            from app.services.generator import TTSGenerator
-
-            settings = get_settings()
-            model_mgr = ChatterboxModelManager()
-            self._generator = TTSGenerator(
-                model_manager=model_mgr,
-                job_store=self.store,
-                output_dir=settings.output_dir,
-                max_text_length=settings.max_text_length,
-                chunk_size=settings.chunk_size,
-            )
+            from app.infrastructure.dependencies import get_generator
+            self._generator = get_generator()
         return self._generator
 
 
-def _resolve_audio_prompt_path(voice_id: str, store: JobRedisStore) -> Optional[str]:
+def _resolve_audio_prompt_path(voice_id: str, store) -> Optional[str]:
     """Resolve voice_id to audio file path for voice cloning."""
     if not voice_id:
         return None
     try:
+        from app.infrastructure.dependencies import get_voice_store
         from app.core.config import get_settings
-        from app.infrastructure.redis_store import VoiceRedisStore
         from app.services.voice_manager import VoiceProfileManager
 
         settings = get_settings()
-        voice_store = VoiceRedisStore(redis_url=os.getenv("REDIS_URL", "redis://localhost:6379/0"))
+        voice_store = get_voice_store()
         vm = VoiceProfileManager(voice_store, settings.voices_dir)
         return vm.get_profile_audio_path(voice_id)
     except Exception as e:
@@ -60,7 +47,7 @@ def _resolve_audio_prompt_path(voice_id: str, store: JobRedisStore) -> Optional[
         return None
 
 
-def _mark_job_failed(job_dict: dict, error_message: str, store: JobRedisStore) -> None:
+def _mark_job_failed(job_dict: dict, error_message: str, store) -> None:
     """Mark a job as FAILED in the store."""
     try:
         job = AudioGenerationJob(**job_dict)
@@ -103,8 +90,9 @@ def generate_audio_task(self, job_dict: dict) -> dict:
 
 @celery_app.task(name="cleanup_expired_jobs")
 def cleanup_expired_jobs_task():
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    store = JobRedisStore(redis_url=redis_url)
+    from app.infrastructure.dependencies import get_job_store
+
+    store = get_job_store()
     expired = []
     for job in store.list_jobs(100):
         if job.is_expired:

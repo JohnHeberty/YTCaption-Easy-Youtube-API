@@ -81,6 +81,17 @@ class YouTubeSearchJobStore:
         except Exception:
             return False
 
+    def cleanup_expired(self) -> int:
+        """Remove expired jobs from the sorted set index."""
+        removed = 0
+        all_ids = self.redis.zrevrange(self.list_key, 0, -1)
+        for job_id in all_ids:
+            key = self._job_key(job_id)
+            if not self.redis.exists(key):
+                self.redis.zrem(self.list_key, job_id)
+                removed += 1
+        return removed
+
     async def start_cleanup_task(self):
         pass
 

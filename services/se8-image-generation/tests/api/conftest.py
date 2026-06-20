@@ -14,7 +14,7 @@ def client():
 
 @pytest.fixture
 def api_key():
-    return get_settings().se9_api_key
+    return get_settings().se8_api_key
 
 
 @pytest.fixture

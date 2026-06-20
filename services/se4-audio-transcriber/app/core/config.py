@@ -127,9 +127,9 @@ def get_core() -> CoreSettings:
 
 
 @lru_cache(maxsize=1)
-def get_settings() -> Dict[str, Any]:
-    """Backward-compatible wrapper — returns a plain dict from the Pydantic model."""
-    return _core.model_dump()
+def get_settings() -> CoreSettings:
+    """Returns the typed Pydantic settings instance."""
+    return _core
 
 
 # Linguagens suportadas pelo Whisper

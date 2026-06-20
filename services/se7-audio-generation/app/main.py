@@ -6,7 +6,7 @@ from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger
 
 from app.core.config import get_settings
-from app.api import jobs_routes, voices_routes, health_routes
+from app.api import jobs_routes, voices_routes, health_routes, admin_routes
 
 settings = get_settings()
 setup_structured_logging(service_name="audio-generation", log_level=settings.log_level, log_dir=settings.log_dir)
@@ -32,6 +32,7 @@ def setup_routers(app: FastAPI):
     app.include_router(jobs_routes.router)
     app.include_router(voices_routes.router)
     app.include_router(health_routes.router)
+    app.include_router(admin_routes.router)
 
 
 app = create_service_app(

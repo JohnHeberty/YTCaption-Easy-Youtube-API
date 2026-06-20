@@ -247,13 +247,13 @@ def test_full_pipeline_from_csv(
                 audio_path=audio_path,
                 image_paths=image_paths,
                 narration=request.narration,
-                on_screen_text=request.on_screen_text,
                 output_dir=test_dir,
                 width=1080,
                 height=1920,
                 fps=30,
                 zoom_style=request.zoom_style,
                 crossfade_duration=0.5,
+                hook_text=request.hook,
             )
         )
         asm_time = time.time() - t0

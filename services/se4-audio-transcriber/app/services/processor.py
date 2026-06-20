@@ -400,7 +400,7 @@ class TranscriptionProcessor:
             possible_paths = [
                 input_path,  # Caminho original
                 upload_dir / input_path.name,  # Usando upload_dir configurável
-                Path("./uploads") / input_path.name,  # ./uploads/filename
+                Path("./data/uploads") / input_path.name,  # ./data/uploads/filename
             ]
             
             actual_file_path = None

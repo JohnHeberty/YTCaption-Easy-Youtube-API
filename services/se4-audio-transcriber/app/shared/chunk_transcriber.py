@@ -1,5 +1,5 @@
-import logging
 from pathlib import Path
+from common.log_utils import get_logger
 from typing import Callable, Dict, List, Optional
 
 from pydub import AudioSegment
@@ -7,7 +7,7 @@ from pydub import AudioSegment
 from .audio_chunker import AudioChunker
 from ..shared.exceptions import AudioTranscriptionException
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ChunkTranscriber:
@@ -80,7 +80,7 @@ class ChunkTranscriber:
 
             # AudioChunker: split + temp file management
             chunker = AudioChunker(
-                temp_dir=self.settings.get("temp_dir", "./temp"),
+                temp_dir=self.settings.get("temp_dir", "./data/temp"),
                 chunk_length_seconds=chunk_length_seconds,
                 overlap_seconds=overlap_seconds,
             )

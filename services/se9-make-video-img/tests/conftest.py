@@ -11,7 +11,7 @@ from app.core.config import settings
 
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
-OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "..", "output")
+OUTPUT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "outputs"))
 
 
 @pytest.fixture(scope="session")
@@ -37,10 +37,13 @@ def temp_dir():
 
 
 async def _check_service(url: str, timeout: float = 3.0) -> bool:
-    """Check if a service is reachable."""
+    """Check if a service is reachable via /ping or /health."""
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(f"{url}/ping")
+            if r.status_code == 200:
+                return True
+            r = await client.get(f"{url}/health")
             return r.status_code == 200
     except Exception:
         return False

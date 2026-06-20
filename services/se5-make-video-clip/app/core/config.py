@@ -36,7 +36,7 @@ class Settings(BaseServiceSettings):
     validate_dir: str = "./data/validate"
     approved_dir: str = "./data/approved/videos"
     output_dir: str = "./data/approved/output"
-    log_dir: str = "./logs"
+    log_dir: str = "./data/logs"
 
     # Logging
     log_format: str = "json"
@@ -130,71 +130,14 @@ class Settings(BaseServiceSettings):
 
 
 @lru_cache(maxsize=1)
-def get_settings() -> Dict[str, Any]:
-    """Returns backward-compatible dict."""
-    s = Settings()
-    return {
-        "service_name": s.app_name,
-        "version": s.app_version,
-        "api_key": s.api_key,
-        "port": s.port,
-        "debug": s.debug,
-        "redis_url": s.redis_url,
-        "cache_ttl_hours": s.cache_ttl_hours,
-        "max_cache_size_gb": s.max_cache_size_gb,
-        "youtube_search_url": s.youtube_search_url,
-        "video_downloader_url": s.video_downloader_url,
-        "audio_transcriber_url": s.audio_transcriber_url,
-        "audio_upload_dir": s.audio_upload_dir,
-        "shorts_cache_dir": s.shorts_cache_dir,
-        "transform_dir": s.transform_dir,
-        "validate_dir": s.validate_dir,
-        "approved_dir": s.approved_dir,
-        "output_dir": s.output_dir,
-        "log_level": s.log_level,
-        "logs_dir": s.log_dir,
-        "log_dir": s.log_dir,
-        "log_format": s.log_format,
-        "default_aspect_ratio": s.default_aspect_ratio,
-        "default_crop_position": s.default_crop_position,
-        "default_video_quality": s.default_video_quality,
-        "cleanup_temp_after_hours": s.cleanup_temp_after_hours,
-        "cleanup_output_after_hours": s.cleanup_output_after_hours,
-        "cleanup_shorts_cache_after_days": s.cleanup_shorts_cache_after_days,
-        "target_video_height": s.target_video_height,
-        "target_video_width": s.target_video_width,
-        "target_video_fps": s.target_video_fps,
-        "target_video_codec": s.target_video_codec,
-        "sqlite_db_path": s.sqlite_db_path,
-        "video_status_db_path": s.video_status_db_path,
-        "subtitle_font_size": s.subtitle_font_size,
-        "subtitle_font_name": s.subtitle_font_name,
-        "subtitle_color": s.subtitle_color,
-        "subtitle_outline_color": s.subtitle_outline_color,
-        "subtitle_outline": s.subtitle_outline,
-        "subtitle_alignment": s.subtitle_alignment,
-        "subtitle_margin_v": s.subtitle_margin_v,
-        "words_per_caption": s.words_per_caption,
-        "ocr_confidence_threshold": s.ocr_confidence_threshold,
-        "ocr_frames_per_second": s.ocr_frames_per_second,
-        "ocr_max_frames": s.ocr_max_frames,
-        "vad_threshold": s.vad_threshold,
-        "vad_model": s.vad_model,
-        "ffmpeg_video_codec": s.ffmpeg_video_codec,
-        "ffmpeg_audio_codec": s.ffmpeg_audio_codec,
-        "ffmpeg_preset": s.ffmpeg_preset,
-        "ffmpeg_crf": s.ffmpeg_crf,
-        "celery_worker_concurrency": s.celery_worker_concurrency,
-        "celery_worker_prefetch_multiplier": s.celery_worker_prefetch_multiplier,
-        "celery_task_time_limit": s.celery_task_time_limit,
-        "max_fetch_rounds": s.max_fetch_rounds,
-        "video_trim_padding_ms": s.video_trim_padding_ms,
-    }
+def get_settings() -> Settings:
+    """Returns the typed Pydantic settings instance."""
+    return Settings()
 
 
 def ensure_directories():
     """Cria diretórios necessários se não existirem"""
     settings = get_settings()
-    for dir_path in [settings["audio_upload_dir"], settings["shorts_cache_dir"],
-                     settings["output_dir"], settings["log_dir"]]:
+    for dir_path in [settings.audio_upload_dir, settings.shorts_cache_dir,
+                     settings.output_dir, settings.log_dir]:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
