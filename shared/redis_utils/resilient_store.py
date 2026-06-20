@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Resilient Redis store with connection pooling and circuit breaker
 """
@@ -5,7 +7,7 @@ import inspect
 import socket
 import logging
 import time
-from typing import Optional, Any
+from typing import Any
 from datetime import datetime
 from redis import Redis
 from redis.connection import ConnectionPool
@@ -29,14 +31,14 @@ class RedisCircuitBreaker:
         self,
         max_failures: int = 5,
         timeout_seconds: int = 60,
-        half_open_max_requests: int = 3
-    ):
+        half_open_max_requests: int = 3,
+    ) -> None:
         self.max_failures = max_failures
         self.timeout_seconds = timeout_seconds
         self.half_open_max_requests = half_open_max_requests
         
         self.failure_count = 0
-        self.last_failure_time: Optional[datetime] = None
+        self.last_failure_time: datetime | None = None
         self.state = "CLOSED"  # CLOSED, OPEN, HALF_OPEN
         self.half_open_attempts = 0
     
@@ -65,7 +67,7 @@ class RedisCircuitBreaker:
         
         return False
     
-    def record_success(self):
+    def record_success(self) -> None:
         """Registra sucesso - fecha circuit completamente"""
         previous_state = self.state
         if previous_state != "CLOSED":
@@ -76,7 +78,7 @@ class RedisCircuitBreaker:
         self.half_open_attempts = 0
         self.last_failure_time = None
     
-    def record_failure(self):
+    def record_failure(self) -> None:
         """Registra falha - pode abrir circuit"""
         self.last_failure_time = now_brazil()
         
@@ -163,8 +165,8 @@ class ResilientRedisStore:
         circuit_breaker_enabled: bool = True,
         circuit_breaker_max_failures: int = 5,
         circuit_breaker_timeout: int = 60,
-        redis_client: Optional[Any] = None,
-    ):
+        redis_client: Any = None,
+    ) -> None:
         """
         Inicializa Redis store resiliente.
         
@@ -221,7 +223,7 @@ class ResilientRedisStore:
         # Testa conexão inicial
         self._test_connection()
     
-    def _test_connection(self):
+    def _test_connection(self) -> None:
         """Testa conexão inicial com retry"""
         max_retries = 3
         for attempt in range(max_retries):
@@ -248,7 +250,7 @@ class ResilientRedisStore:
         else:
             return func(*args, **kwargs)
 
-    def _safe_call(self, operation: str, func, *args, default=None, **kwargs):
+    def _safe_call(self, operation: str, func: Any, *args: Any, default: Any = None, **kwargs: Any) -> Any:
         """Execute a Redis operation with circuit breaker and error handling.
 
         Args:
@@ -279,7 +281,7 @@ class ResilientRedisStore:
         """
         return self._safe_call("PING", self.redis.ping, default=False)
 
-    def get(self, key: str) -> Optional[str]:
+    def get(self, key: str) -> str | None:
         """
         Obtém valor do Redis.
 
@@ -295,8 +297,8 @@ class ResilientRedisStore:
         self,
         key: str,
         value: str,
-        ex: Optional[int] = None,
-        px: Optional[int] = None,
+        ex: int | None = None,
+        px: int | None = None,
         nx: bool = False,
         xx: bool = False,
     ) -> bool:
@@ -368,7 +370,7 @@ class ResilientRedisStore:
         """
         return self._safe_call(f"EXISTS {keys}", self.redis.exists, *keys, default=0)
 
-    def keys(self, pattern: str = "*") -> list:
+    def keys(self, pattern: str = "*") -> list[str]:
         """
         Lista chaves por pattern.
 
@@ -380,7 +382,7 @@ class ResilientRedisStore:
         """
         return self._safe_call(f"KEYS {pattern}", self.redis.keys, pattern, default=[])
     
-    def close(self):
+    def close(self) -> None:
         """Fecha conexões do pool"""
         try:
             self.pool.disconnect()

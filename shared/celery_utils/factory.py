@@ -4,31 +4,34 @@ Standardized Celery application factory.
 Eliminates duplicated celery_config.py across microservices by providing
 a single factory with sensible defaults and service-specific overrides.
 """
+from __future__ import annotations
+
 import os
-from typing import Optional
+from typing import Any
+
 from celery import Celery
 
 
 def create_celery_app(
     service_name: str,
     *,
-    redis_url: Optional[str] = None,
-    broker_url: Optional[str] = None,
-    backend_url: Optional[str] = None,
-    task_default_queue: Optional[str] = None,
-    task_routes: Optional[dict[str, str]] = None,
-    task_time_limit: Optional[int] = None,
-    task_soft_time_limit: Optional[int] = None,
-    cache_ttl_hours: Optional[int] = None,
+    redis_url: str | None = None,
+    broker_url: str | None = None,
+    backend_url: str | None = None,
+    task_default_queue: str | None = None,
+    task_routes: dict[str, str] | None = None,
+    task_time_limit: int | None = None,
+    task_soft_time_limit: int | None = None,
+    cache_ttl_hours: int | None = None,
     timezone: str = "UTC",
     enable_utc: bool = True,
     worker_prefetch_multiplier: int = 1,
     worker_max_tasks_per_child: int = 50,
     task_acks_late: bool = True,
     task_reject_on_worker_lost: bool = True,
-    include: Optional[list[str]] = None,
-    beat_schedule: Optional[dict] = None,
-    **extra_conf,
+    include: list[str] | None = None,
+    beat_schedule: dict[str, Any] | None = None,
+    **extra_conf: Any,
 ) -> Celery:
     _redis_url = redis_url or os.getenv("REDIS_URL", "redis://localhost:6379/0")
     _broker_url = broker_url or os.getenv("CELERY_BROKER_URL", _redis_url)
@@ -55,7 +58,7 @@ def create_celery_app(
         backend=_backend_url,
     )
 
-    conf = dict(
+    conf: dict[str, Any] = dict(
         task_serializer="json",
         accept_content=["json"],
         result_serializer="json",

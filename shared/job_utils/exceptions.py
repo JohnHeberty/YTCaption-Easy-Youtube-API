@@ -4,13 +4,17 @@ Standard exception hierarchy for job operations.
 Extends the common exception_handlers with job-specific exceptions
 that produce consistent error responses across all services.
 """
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import status
 
 from common.exception_handlers import BaseServiceException
 
 
 class JobNotFoundError(BaseServiceException):
-    def __init__(self, job_id: str):
+    def __init__(self, job_id: str) -> None:
         super().__init__(
             message=f"Job not found: {job_id}",
             status_code=status.HTTP_404_NOT_FOUND,
@@ -20,7 +24,7 @@ class JobNotFoundError(BaseServiceException):
 
 
 class JobExpiredError(BaseServiceException):
-    def __init__(self, job_id: str):
+    def __init__(self, job_id: str) -> None:
         super().__init__(
             message=f"Job expired: {job_id}",
             status_code=status.HTTP_410_GONE,
@@ -30,7 +34,7 @@ class JobExpiredError(BaseServiceException):
 
 
 class JobAlreadyExistsError(BaseServiceException):
-    def __init__(self, job_id: str):
+    def __init__(self, job_id: str) -> None:
         super().__init__(
             message=f"Job already exists: {job_id}",
             status_code=status.HTTP_409_CONFLICT,
@@ -40,7 +44,7 @@ class JobAlreadyExistsError(BaseServiceException):
 
 
 class JobCreationError(BaseServiceException):
-    def __init__(self, reason: str, details: dict = None):
+    def __init__(self, reason: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             message=f"Failed to create job: {reason}",
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -50,7 +54,7 @@ class JobCreationError(BaseServiceException):
 
 
 class JobSubmissionError(BaseServiceException):
-    def __init__(self, reason: str, details: dict = None):
+    def __init__(self, reason: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             message=f"Failed to submit job: {reason}",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -60,8 +64,8 @@ class JobSubmissionError(BaseServiceException):
 
 
 class JobProcessingError(BaseServiceException):
-    def __init__(self, job_id: str, reason: str, details: dict = None):
-        full_details = {"job_id": job_id}
+    def __init__(self, job_id: str, reason: str, details: dict[str, Any] | None = None) -> None:
+        full_details: dict[str, Any] = {"job_id": job_id}
         if details:
             full_details.update(details)
         super().__init__(
@@ -73,7 +77,7 @@ class JobProcessingError(BaseServiceException):
 
 
 class JobValidationError(BaseServiceException):
-    def __init__(self, message: str, details: dict = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             message=message,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -83,7 +87,7 @@ class JobValidationError(BaseServiceException):
 
 
 class WorkerUnavailableError(BaseServiceException):
-    def __init__(self, worker_type: str = "celery"):
+    def __init__(self, worker_type: str = "celery") -> None:
         super().__init__(
             message=f"{worker_type} worker unavailable",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

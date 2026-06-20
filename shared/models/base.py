@@ -4,6 +4,8 @@ Base models shared across all microservices.
 HealthStatus and BaseHealthResponse are defined here.
 JobStatus and BaseJob are canonical in common.job_utils.models.
 """
+from __future__ import annotations
+
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 from datetime import datetime

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Utilitários para manipulação de datetime com timezone.
 
@@ -6,7 +8,6 @@ consistência nos timestamps, usando o horário de Brasília (America/Sao_Paulo)
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 try:
     from zoneinfo import ZoneInfo
@@ -70,7 +71,7 @@ def to_brazil_tz(dt: datetime) -> datetime:
     return dt.astimezone(BRAZIL_TZ)
 
 
-def brazil_timestamp_str(dt: Optional[datetime] = None) -> str:
+def brazil_timestamp_str(dt: datetime | None = None) -> str:
     """
     Retorna string formatada com timestamp de Brasília.
     

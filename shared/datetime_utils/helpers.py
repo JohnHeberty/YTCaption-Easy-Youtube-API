@@ -1,12 +1,14 @@
+from __future__ import annotations
+
 """
 Timezone helpers para garantir operações seguras com datetime.
 
 Funções auxiliares para lidar com timezone-aware e timezone-naive datetimes,
-prevenindo erros comuns ao misturar os dois tipos.
+prevenindo erros comum ao misturar os dois tipos.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Any
+from typing import Any
 
 try:
     from zoneinfo import ZoneInfo
@@ -17,7 +19,7 @@ except ImportError:
 BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
 
 
-def ensure_timezone_aware(dt: Optional[datetime]) -> Optional[datetime]:
+def ensure_timezone_aware(dt: datetime | None) -> datetime | None:
     """
     Garante que um datetime tem timezone (converte para Brasília se naive).
     
@@ -44,7 +46,7 @@ def ensure_timezone_aware(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
-def ensure_timezone_aware_utc_base(dt: Optional[datetime]) -> Optional[datetime]:
+def ensure_timezone_aware_utc_base(dt: datetime | None) -> datetime | None:
     """
     Garante timezone-aware assumindo que naive datetime está em UTC.
     
@@ -128,7 +130,7 @@ def safe_datetime_compare(dt1: datetime, dt2: datetime) -> int:
         return 0
 
 
-def normalize_model_datetimes(obj: Any, fields: list = None) -> Any:
+def normalize_model_datetimes(obj: Any, fields: list[str] | None = None) -> Any:
     """
     Normaliza todos os campos datetime de um objeto para timezone-aware.
     
@@ -181,7 +183,7 @@ def normalize_model_datetimes(obj: Any, fields: list = None) -> Any:
     return obj
 
 
-def format_duration_safe(start: datetime, end: Optional[datetime] = None) -> str:
+def format_duration_safe(start: datetime, end: datetime | None = None) -> str:
     """
     Formata duração entre dois datetimes de forma segura.
     

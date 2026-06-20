@@ -1,6 +1,8 @@
 """
 Exception handling utilities
 """
+from __future__ import annotations
+
 from common.exceptions import ServiceError
 from .handlers import (
     BaseServiceException,

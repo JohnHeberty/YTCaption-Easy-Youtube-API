@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Structured logging with JSON format and correlation IDs
 """
@@ -5,21 +7,20 @@ import logging
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 from contextvars import ContextVar
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 # Context var para correlation ID (thread-safe)
-_correlation_id: ContextVar[Optional[str]] = ContextVar('correlation_id', default=None)
+_correlation_id: ContextVar[str | None] = ContextVar('correlation_id', default=None)
 
 
-def set_correlation_id(correlation_id: str):
+def set_correlation_id(correlation_id: str) -> None:
     """Define correlation ID para o contexto atual"""
     _correlation_id.set(correlation_id)
 
 
-def get_correlation_id() -> Optional[str]:
+def get_correlation_id() -> str | None:
     """Obtém correlation ID do contexto atual"""
     return _correlation_id.get()
 
@@ -116,8 +117,8 @@ def setup_structured_logging(
     log_dir: str = "./logs",
     enable_console: bool = True,
     enable_file: bool = True,
-    json_format: bool = True
-):
+    json_format: bool = True,
+) -> None:
     """
     Configura logging estruturado para o serviço.
     

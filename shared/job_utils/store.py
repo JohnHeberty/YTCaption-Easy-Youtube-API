@@ -4,13 +4,13 @@ Standard Redis store for job persistence.
 Provides a unified interface for saving, retrieving, updating,
 and deleting jobs in Redis with consistent key naming and TTL.
 """
+from __future__ import annotations
+
 import json
 import logging
-from typing import Optional
-from datetime import timedelta
 
 from common.redis_utils import ResilientRedisStore
-from common.job_utils.models import StandardJob
+from common.job_utils.models import StandardJob, JobStatus
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class JobRedisStore:
         redis_store: ResilientRedisStore,
         service_name: str,
         ttl_hours: int = 24,
-    ):
+    ) -> None:
         self.redis = redis_store
         self.service_name = service_name
         self.key_prefix = f"{service_name}:job:"
@@ -39,7 +39,7 @@ class JobRedisStore:
             self.redis.redis.zadd(self.list_key, {job.id: job.created_at.timestamp()})
         return saved
 
-    def get_job(self, job_id: str) -> Optional[StandardJob]:
+    def get_job(self, job_id: str) -> StandardJob | None:
         key = self._job_key(job_id)
         data = self.redis.get(key)
         if not data:
@@ -65,12 +65,12 @@ class JobRedisStore:
 
     def list_jobs(
         self,
-        status: Optional[str] = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[StandardJob]:
         all_ids = self.list_job_ids()
-        jobs = []
+        jobs: list[StandardJob] = []
         for job_id in all_ids:
             job = self.get_job(job_id)
             if job is None:
@@ -82,10 +82,10 @@ class JobRedisStore:
                 break
         return jobs[offset : offset + limit] if offset else jobs[:limit]
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, int | dict[str, int]]:
         all_ids = self.list_job_ids()
         total = len(all_ids)
-        by_status = {}
+        by_status: dict[str, int] = {}
         for job_id in all_ids:
             job = self.get_job(job_id)
             if job:
@@ -104,7 +104,7 @@ class JobRedisStore:
 
     def find_orphaned(self, max_age_hours: int = 2) -> list[StandardJob]:
         all_ids = self.list_job_ids()
-        orphaned = []
+        orphaned: list[StandardJob] = []
         for job_id in all_ids:
             job = self.get_job(job_id)
             if job and not job.is_terminal:

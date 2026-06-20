@@ -4,6 +4,8 @@ Common job utilities for all microservices.
 Provides standardized models, exceptions, storage, management,
 Celery integration, and FastAPI route factories for job lifecycle.
 """
+from __future__ import annotations
+
 from common.job_utils.models import (
     JobStatus,
     StageStatus,

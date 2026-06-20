@@ -5,10 +5,12 @@ Provides a unified pattern for submitting jobs to Celery workers
 with automatic fallback to async processing when Celery is unavailable,
 and a callback base class for consistent task lifecycle management.
 """
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any, Callable, Optional
-from datetime import datetime
+from typing import Any, Callable
+from collections.abc import Awaitable
 
 from celery import Task
 
@@ -27,9 +29,9 @@ class CallbackTask(Task):
     The associated JobManager must be set as `job_manager` on the class.
     """
 
-    job_manager: Optional[JobManager] = None
+    job_manager: JobManager | None = None
 
-    def on_success(self, retval, task_id, args, kwargs):
+    def on_success(self, retval: Any, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> None:
         if not self.job_manager:
             return
         try:
@@ -39,7 +41,7 @@ class CallbackTask(Task):
         except Exception as e:
             logger.error(f"CallbackTask on_success error: {e}")
 
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
+    def on_failure(self, exc: BaseException, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any) -> None:
         if not self.job_manager:
             return
         try:
@@ -53,7 +55,7 @@ class CallbackTask(Task):
         except Exception as e:
             logger.error(f"CallbackTask on_failure error: {e}")
 
-    def on_retry(self, exc, task_id, args, kwargs, einfo):
+    def on_retry(self, exc: BaseException, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any) -> None:
         if not self.job_manager:
             return
         try:
@@ -69,15 +71,15 @@ class CallbackTask(Task):
 
 
 def submit_task(
-    celery_app,
+    celery_app: Any,
     task_name: str,
     job_id: str,
-    job_data: dict,
+    job_data: dict[str, Any],
     *,
     celery_available: bool = True,
-    fallback_fn: Optional[Callable] = None,
-    task_kwargs: Optional[dict] = None,
-) -> dict:
+    fallback_fn: Callable[..., Awaitable[None]] | None = None,
+    task_kwargs: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Submit a task to Celery with optional fallback to async processing.
 
@@ -93,7 +95,7 @@ def submit_task(
     Returns:
         dict with 'submitted' (bool), 'method' (str), 'task_id' or 'error'.
     """
-    async_kwargs = task_kwargs or {}
+    async_kwargs: dict[str, Any] = task_kwargs or {}
     async_kwargs["task_id"] = job_id
 
     if celery_available:
@@ -137,11 +139,11 @@ def submit_task(
     raise ConnectionError(f"Cannot submit job {job_id}: Celery unavailable and no fallback provided")
 
 
-def reconstitute_job(job_data: dict) -> StandardJob:
+def reconstitute_job(job_data: dict[str, Any]) -> StandardJob:
     """Reconstitute a StandardJob from serialized dict for use in Celery tasks."""
     return StandardJob.model_validate(job_data)
 
 
-def serialize_job(job: StandardJob) -> dict:
+def serialize_job(job: StandardJob) -> dict[str, Any]:
     """Serialize a StandardJob to dict for passing to Celery tasks."""
     return job.model_dump(mode="json")

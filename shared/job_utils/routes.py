@@ -11,8 +11,9 @@ Usage:
     router = create_job_router(job_manager=my_manager, service_name="video-downloader")
     app.include_router(router)
 """
+from __future__ import annotations
+
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
@@ -56,7 +57,7 @@ def create_job_router(
             410: {"model": ErrorResponse},
         },
     )
-    async def get_job(job_id: str):
+    async def get_job(job_id: str) -> StandardJob | JSONResponse:
         """Get job status by ID."""
         try:
             return job_manager.get_job(job_id)
@@ -81,10 +82,10 @@ def create_job_router(
 
         @router.get("/", response_model=JobListResponse)
         async def list_jobs(
-            status_filter: Optional[str] = Query(None, alias="status"),
+            status_filter: str | None = Query(None, alias="status"),
             limit: int = Query(50, ge=1, le=200),
             offset: int = Query(0, ge=0),
-        ):
+        ) -> JobListResponse:
             """List jobs with optional status filter."""
             jobs = job_manager.list_jobs(status=status_filter, limit=limit, offset=offset)
             return JobListResponse(
@@ -100,7 +101,7 @@ def create_job_router(
             "/{job_id}",
             responses={404: {"model": ErrorResponse}},
         )
-        async def delete_job(job_id: str):
+        async def delete_job(job_id: str) -> dict[str, str] | JSONResponse:
             """Delete a job by ID."""
             try:
                 job_manager.delete_job(job_id)
@@ -117,7 +118,7 @@ def create_job_router(
     if enable_stats:
 
         @router.get("/stats")
-        async def get_stats():
+        async def get_stats() -> dict[str, int | dict[str, int]]:
             """Get job statistics."""
             return job_manager.get_stats()
 

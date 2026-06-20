@@ -4,8 +4,9 @@ Standard job manager providing CRUD operations and lifecycle management.
 Wraps JobRedisStore with business logic for creating, submitting,
 updating, and managing job state transitions.
 """
+from __future__ import annotations
+
 import logging
-from typing import Optional
 
 from common.job_utils.models import StandardJob, JobStatus, generate_job_id, generate_random_job_id
 from common.job_utils.store import JobRedisStore
@@ -19,17 +20,17 @@ logger = logging.getLogger(__name__)
 
 
 class JobManager:
-    def __init__(self, store: JobRedisStore):
+    def __init__(self, store: JobRedisStore) -> None:
         self.store = store
 
     def create_job(
         self,
-        id_parts: Optional[list[str]] = None,
+        id_parts: list[str] | None = None,
         prefix: str = "",
         use_deterministic_id: bool = True,
-        correlation_id: Optional[str] = None,
-        stages: Optional[list[str]] = None,
-        stage_display_names: Optional[dict[str, str]] = None,
+        correlation_id: str | None = None,
+        stages: list[str] | None = None,
+        stage_display_names: dict[str, str] | None = None,
     ) -> StandardJob:
         if use_deterministic_id and id_parts:
             job_id = generate_job_id(*id_parts, prefix=prefix)
@@ -59,42 +60,42 @@ class JobManager:
             raise JobExpiredError(job_id)
         return job
 
-    def get_job_optional(self, job_id: str) -> Optional[StandardJob]:
+    def get_job_optional(self, job_id: str) -> StandardJob | None:
         return self.store.get_job(job_id)
 
     def update_job(self, job: StandardJob) -> StandardJob:
         self.store.update_job(job)
         return job
 
-    def complete_job(self, job_id: str, message: Optional[str] = None) -> StandardJob:
+    def complete_job(self, job_id: str, message: str | None = None) -> StandardJob:
         job = self.get_job(job_id)
         job.mark_as_completed(message)
         self.store.update_job(job)
         logger.info(f"Job {job_id} completed")
         return job
 
-    def fail_job(self, job_id: str, error: str, error_type: Optional[str] = None) -> StandardJob:
+    def fail_job(self, job_id: str, error: str, error_type: str | None = None) -> StandardJob:
         job = self.get_job(job_id)
         job.mark_as_failed(error, error_type)
         self.store.update_job(job)
         logger.error(f"Job {job_id} failed: {error}")
         return job
 
-    def cancel_job(self, job_id: str, reason: Optional[str] = None) -> StandardJob:
+    def cancel_job(self, job_id: str, reason: str | None = None) -> StandardJob:
         job = self.get_job(job_id)
         job.mark_as_cancelled(reason)
         self.store.update_job(job)
         logger.info(f"Job {job_id} cancelled: {reason}")
         return job
 
-    def start_processing(self, job_id: str, message: Optional[str] = None) -> StandardJob:
+    def start_processing(self, job_id: str, message: str | None = None) -> StandardJob:
         job = self.get_job(job_id)
         job.mark_as_processing(message)
         self.store.update_job(job)
         logger.info(f"Job {job_id} started processing")
         return job
 
-    def update_progress(self, job_id: str, progress: float, message: Optional[str] = None) -> StandardJob:
+    def update_progress(self, job_id: str, progress: float, message: str | None = None) -> StandardJob:
         job = self.get_job(job_id)
         job.update_progress(progress, message)
         self.store.update_job(job)
@@ -107,7 +108,7 @@ class JobManager:
             self.store.update_job(job)
         return job
 
-    def complete_stage(self, job_id: str, stage_name: str, message: Optional[str] = None) -> StandardJob:
+    def complete_stage(self, job_id: str, stage_name: str, message: str | None = None) -> StandardJob:
         job = self.get_job(job_id)
         if stage_name in job.stages:
             job.stages[stage_name].complete(message)
@@ -130,13 +131,13 @@ class JobManager:
 
     def list_jobs(
         self,
-        status: Optional[str] = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[StandardJob]:
         return self.store.list_jobs(status=status, limit=limit, offset=offset)
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, int | dict[str, int]]:
         return self.store.get_stats()
 
     def cleanup_expired(self) -> int:
