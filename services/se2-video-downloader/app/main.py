@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator
 
 from fastapi import Depends
 from common.datetime_utils import now_brazil
@@ -31,7 +34,7 @@ redis_url = settings.redis_url
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: Any) -> AsyncGenerator[None, None]:
     try:
         _store = get_job_store()
         await _store.start_cleanup_task()
@@ -73,7 +76,7 @@ app = create_service_app(
     description="Retorna a visão geral do serviço e o catálogo resumido dos endpoints públicos.",
     response_model=RootResponse,
 )
-async def root():
+async def root() -> dict[str, Any]:
     return {
         "service": "Video Downloader Service",
         "version": "3.0.0",
@@ -104,7 +107,7 @@ async def root():
     }
 
 
-def submit_celery_task(job: VideoDownloadJob):
+def submit_celery_task(job: VideoDownloadJob) -> Any:
     """Submete job para o Celery"""
     job_dict = job.model_dump(mode="json")
 
@@ -116,12 +119,12 @@ def submit_celery_task(job: VideoDownloadJob):
     return task
 
 
-def execute_pipeline_background(job: VideoDownloadJob):
+def execute_pipeline_background(job: VideoDownloadJob) -> None:
     """Executa pipeline em background (fallback se Celery não disponível)"""
     import asyncio
     from common.job_utils.models import JobStatus
 
-    async def _run():
+    async def _run() -> None:
         try:
             _store = get_job_store()
             _downloader = get_downloader()

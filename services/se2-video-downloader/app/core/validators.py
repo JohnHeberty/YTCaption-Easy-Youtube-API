@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Core validators for Video Downloader Service.
 
 This module provides validation classes for various inputs to ensure
@@ -5,7 +7,6 @@ security and data integrity.
 """
 
 import re
-from typing import Optional
 from urllib.parse import urlparse
 
 
@@ -64,7 +65,7 @@ class JobIdValidator:
         return job_id
 
     @classmethod
-    def sanitize(cls, job_id: str) -> Optional[str]:
+    def sanitize(cls, job_id: str) -> str | None:
         """Sanitize job_id by truncating if too long.
 
         Args:
@@ -119,7 +120,7 @@ class URLValidator:
         return any(pattern.match(url) for pattern in cls.YOUTUBE_PATTERNS)
 
     @classmethod
-    def extract_video_id(cls, url: str) -> Optional[str]:
+    def extract_video_id(cls, url: str) -> str | None:
         """Extract YouTube video ID from URL.
 
         Args:

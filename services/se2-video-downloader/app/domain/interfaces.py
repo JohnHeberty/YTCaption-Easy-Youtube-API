@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Domain interfaces for Video Downloader Service.
 
 This module defines the abstract interfaces used throughout the service,
@@ -6,7 +8,7 @@ following the Dependency Inversion Principle (DIP) from SOLID.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 from app.core import models
 
@@ -34,7 +36,7 @@ class VideoDownloaderInterface(ABC):
         pass
 
     @abstractmethod
-    def get_file_path(self, job: VideoDownloadJob) -> Optional[Path]:
+    def get_file_path(self, job: VideoDownloadJob) -> Path | None:
         """Get the file path for a completed job.
 
         Args:
@@ -78,7 +80,7 @@ class JobStoreInterface(ABC):
         pass
 
     @abstractmethod
-    def get_job(self, job_id: str) -> Optional[VideoDownloadJob]:
+    def get_job(self, job_id: str) -> VideoDownloadJob | None:
         """Retrieve a job by ID.
 
         Args:
@@ -145,7 +147,7 @@ class CeleryTaskInterface(ABC):
         pass
 
     @abstractmethod
-    def check_workers(self) -> Dict[str, Any]:
+    def check_workers(self) -> dict[str, Any]:
         """Check status of Celery workers.
 
         Returns:
@@ -161,7 +163,7 @@ class UserAgentManagerInterface(ABC):
     """
 
     @abstractmethod
-    def get_user_agent(self) -> Optional[str]:
+    def get_user_agent(self) -> str | None:
         """Get next available user agent.
 
         Returns:
@@ -180,7 +182,7 @@ class UserAgentManagerInterface(ABC):
         pass
 
     @abstractmethod
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get user agent statistics.
 
         Returns:

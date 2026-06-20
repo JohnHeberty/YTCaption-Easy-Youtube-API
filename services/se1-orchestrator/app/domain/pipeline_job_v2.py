@@ -1,4 +1,6 @@
-from typing import Optional, List, Dict, Any
+from __future__ import annotations
+
+from typing import Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 import hashlib
@@ -17,15 +19,15 @@ class TranscriptionSegment(BaseModel):
 class PipelineJobV2(StandardJob):
     youtube_url: str = ""
     language: str = "auto"
-    language_out: Optional[str] = None
+    language_out: str | None = None
     remove_noise: bool = True
     convert_to_mono: bool = True
     apply_highpass_filter: bool = False
     set_sample_rate_16k: bool = True
     isolate_vocals: bool = False
-    transcription_text: Optional[str] = None
-    transcription_file: Optional[str] = None
-    audio_file: Optional[str] = None
+    transcription_text: str | None = None
+    transcription_file: str | None = None
+    audio_file: str | None = None
 
     _STATUS_MAP = {
         PipelineStatus.QUEUED: JobStatus.QUEUED,
@@ -48,7 +50,7 @@ class PipelineJobV2(StandardJob):
     # json_encoders removed — Pydantic v2 handles datetime natively
 
     @classmethod
-    def create_new(cls, youtube_url: str, **kwargs) -> "PipelineJobV2":
+    def create_new(cls, youtube_url: str, **kwargs: Any) -> PipelineJobV2:
         unique_str = f"{youtube_url}_{now_brazil().isoformat()}"
         job_id = hashlib.sha256(unique_str.encode()).hexdigest()[:16]
 

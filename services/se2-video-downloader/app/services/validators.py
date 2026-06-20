@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Service-level validators for Video Downloader Service.
 
 This module provides validation classes for service-level operations
@@ -5,7 +7,7 @@ such as file uploads, downloads, and job processing.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from common.log_utils import get_logger
 from app.core.constants import MAX_FILE_SIZE_BYTES, MIN_DISK_SPACE_GB
@@ -26,9 +28,9 @@ class VideoValidationResult:
     def __init__(
         self,
         is_valid: bool,
-        error_message: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ):
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         self.is_valid = is_valid
         self.error_message = error_message
         self.metadata = metadata or {}
@@ -53,7 +55,7 @@ class JobValidator:
         return JobIdValidator.validate(job_id)
 
     @staticmethod
-    def validate_job_exists(job: Optional[Job]) -> Tuple[bool, Optional[str]]:
+    def validate_job_exists(job: Job | None) -> tuple[bool, str | None]:
         """Validate job exists.
 
         Args:
@@ -67,7 +69,7 @@ class JobValidator:
         return True, None
 
     @staticmethod
-    def validate_job_not_expired(job: Job) -> Tuple[bool, Optional[str]]:
+    def validate_job_not_expired(job: Job) -> tuple[bool, str | None]:
         """Validate job has not expired.
 
         Args:
@@ -81,7 +83,7 @@ class JobValidator:
         return True, None
 
     @staticmethod
-    def validate_job_completed(job: Job) -> Tuple[bool, Optional[str]]:
+    def validate_job_completed(job: Job) -> tuple[bool, str | None]:
         """Validate job is completed.
 
         Args:
@@ -197,7 +199,7 @@ class SystemValidator:
     """Validator for system resources."""
 
     @staticmethod
-    def check_disk_space(path: Path, min_gb: float = MIN_DISK_SPACE_GB) -> Tuple[bool, float]:
+    def check_disk_space(path: Path, min_gb: float = MIN_DISK_SPACE_GB) -> tuple[bool, float]:
         """Check available disk space.
 
         Args:
@@ -222,7 +224,7 @@ class CeleryValidator:
     """Validator for Celery operations."""
 
     @staticmethod
-    def validate_workers(celery_app) -> Tuple[bool, Optional[str]]:
+    def validate_workers(celery_app: Any) -> tuple[bool, str | None]:
         """Validate Celery workers are available.
 
         Args:

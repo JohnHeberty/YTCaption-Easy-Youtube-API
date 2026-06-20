@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Celery configuration for video-downloader service.
 

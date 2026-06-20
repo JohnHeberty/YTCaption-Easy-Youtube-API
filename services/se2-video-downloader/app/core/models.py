@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Video Downloader job model extending the standard common job.
 
@@ -88,7 +90,7 @@ class VideoDownloadJob(StandardJob):
         return normalized
 
     @classmethod
-    def create_new(cls, url: str, quality: str = DEFAULT_QUALITY) -> "VideoDownloadJob":
+    def create_new(cls, url: str, quality: str = DEFAULT_QUALITY) -> VideoDownloadJob:
         import re
         video_id = None
         patterns = [
@@ -185,7 +187,7 @@ class VideoDownloadJobCreatedResponse(BaseModel):
     })
 
     @classmethod
-    def from_job(cls, job: VideoDownloadJob) -> "VideoDownloadJobCreatedResponse":
+    def from_job(cls, job: VideoDownloadJob) -> VideoDownloadJobCreatedResponse:
         return cls(
             id=job.id,
             status=job.status,
@@ -205,7 +207,7 @@ class LegacyJobAdapter:
     """
 
     @staticmethod
-    def to_response(job: VideoDownloadJob) -> dict:
+    def to_response(job: VideoDownloadJob) -> dict[str, Any]:
         return job.model_dump(mode="json")
 
 

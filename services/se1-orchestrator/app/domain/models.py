@@ -3,9 +3,11 @@ Modelos de domínio do orquestrador.
 
 Modelos Pydantic para representação de jobs e estágios do pipeline.
 """
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from common.datetime_utils import now_brazil
 
@@ -49,12 +51,12 @@ class PipelineStage(BaseModel):
 
     name: str
     status: StageStatus = StageStatus.PENDING
-    job_id: Optional[str] = None
+    job_id: str | None = None
     received_at: datetime = Field(default_factory=now_brazil)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
-    output_file: Optional[str] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
+    output_file: str | None = None
     progress: float = 0.0
 
     def start(self) -> None:
@@ -63,7 +65,7 @@ class PipelineStage(BaseModel):
         if not self.started_at:
             self.started_at = now_brazil()
 
-    def complete(self, output_file: Optional[str] = None) -> None:
+    def complete(self, output_file: str | None = None) -> None:
         """Marca estágio como completo."""
         self.status = StageStatus.COMPLETED
         self.completed_at = now_brazil()
@@ -86,13 +88,13 @@ class PipelineJob(BaseModel):
     status: PipelineStatus = PipelineStatus.QUEUED
     received_at: datetime = Field(default_factory=now_brazil)
     created_at: datetime = Field(default_factory=now_brazil)
-    started_at: Optional[datetime] = None
+    started_at: datetime | None = None
     updated_at: datetime = Field(default_factory=now_brazil)
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     # Parâmetros de configuração
     language: str = "auto"
-    language_out: Optional[str] = None
+    language_out: str | None = None
     remove_noise: bool = True
     convert_to_mono: bool = True
     apply_highpass_filter: bool = False
@@ -111,23 +113,23 @@ class PipelineJob(BaseModel):
     )
 
     # Resultado final
-    transcription_text: Optional[str] = None
-    transcription_segments: Optional[List[Union[TranscriptionSegment, Dict[str, Any]]]] = None
-    transcription_file: Optional[str] = None
-    audio_file: Optional[str] = None
-    error_message: Optional[str] = None
+    transcription_text: str | None = None
+    transcription_segments: list[TranscriptionSegment | dict[str, Any]] | None = None
+    transcription_file: str | None = None
+    audio_file: str | None = None
+    error_message: str | None = None
 
     # Progresso geral
     overall_progress: float = 0.0
 
     @field_validator("transcription_segments", mode="before")
     @classmethod
-    def convert_segments(cls, v: Any) -> Optional[List[TranscriptionSegment]]:
+    def convert_segments(cls, v: Any) -> list[TranscriptionSegment] | None:
         """Converte dicts em TranscriptionSegment se necessário."""
         if v is None:
             return None
 
-        result: List[TranscriptionSegment] = []
+        result: list[TranscriptionSegment] = []
         for item in v:
             if isinstance(item, dict):
                 result.append(TranscriptionSegment(**item))
@@ -136,7 +138,7 @@ class PipelineJob(BaseModel):
         return result
 
     @classmethod
-    def create_new(cls, youtube_url: str, **kwargs: Any) -> "PipelineJob":
+    def create_new(cls, youtube_url: str, **kwargs: Any) -> PipelineJob:
         """
         Cria novo job do pipeline.
 
@@ -176,7 +178,7 @@ class PipelineJob(BaseModel):
         self.overall_progress = min(100.0, base_progress)
         self.updated_at = now_brazil()
 
-    def get_current_stage(self) -> Optional[PipelineStage]:
+    def get_current_stage(self) -> PipelineStage | None:
         """Retorna estágio atual em processamento."""
         stages = [
             self.download_stage,
@@ -208,12 +210,12 @@ class PipelineRequest(BaseModel):
         description="URL do vídeo do YouTube para iniciar o pipeline completo.",
         examples=["https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
     )
-    language: Optional[str] = Field(default="auto", description="Idioma para transcrição (auto, pt, en, es, ...)", examples=["auto", "pt", "en"])
-    language_out: Optional[str] = Field(default=None, description="Idioma de saída para tradução (quando aplicável).", examples=["pt", "en"])
-    remove_noise: Optional[bool] = Field(default=True, description="Remover ruído de fundo do áudio.")
-    convert_to_mono: Optional[bool] = Field(default=True, description="Converter áudio para canal mono.")
-    apply_highpass_filter: Optional[bool] = Field(default=False, description="Aplicar filtro passa-alta no áudio.")
-    set_sample_rate_16k: Optional[bool] = Field(default=True, description="Forçar sample rate em 16kHz.")
+    language: str | None = Field(default="auto", description="Idioma para transcrição (auto, pt, en, es, ...)", examples=["auto", "pt", "en"])
+    language_out: str | None = Field(default=None, description="Idioma de saída para tradução (quando aplicável).", examples=["pt", "en"])
+    remove_noise: bool | None = Field(default=True, description="Remover ruído de fundo do áudio.")
+    convert_to_mono: bool | None = Field(default=True, description="Converter áudio para canal mono.")
+    apply_highpass_filter: bool | None = Field(default=False, description="Aplicar filtro passa-alta no áudio.")
+    set_sample_rate_16k: bool | None = Field(default=True, description="Forçar sample rate em 16kHz.")
 
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -247,13 +249,13 @@ class PipelineStatusResponse(BaseModel):
     overall_progress: float = Field(..., ge=0.0, le=100.0, description="Progresso geral em percentual.")
     created_at: datetime
     updated_at: datetime
-    completed_at: Optional[datetime] = None
-    stages: Dict[str, Dict[str, Any]] = Field(..., description="Detalhes de progresso por estágio da pipeline.")
-    transcription_text: Optional[str] = None
-    transcription_segments: Optional[List[Dict[str, Any]]] = None
-    transcription_file: Optional[str] = None
-    audio_file: Optional[str] = None
-    error_message: Optional[str] = Field(default=None, description="Mensagem de erro, quando o pipeline falha.")
+    completed_at: datetime | None = None
+    stages: dict[str, dict[str, Any]] = Field(..., description="Detalhes de progresso por estágio da pipeline.")
+    transcription_text: str | None = None
+    transcription_segments: list[dict[str, Any]] | None = None
+    transcription_file: str | None = None
+    audio_file: str | None = None
+    error_message: str | None = Field(default=None, description="Mensagem de erro, quando o pipeline falha.")
 
 
 class JobSummary(BaseModel):
@@ -267,7 +269,7 @@ class JobSummary(BaseModel):
 
 class JobListResponse(BaseModel):
     total: int = Field(..., ge=0, description="Total de jobs retornados.")
-    jobs: List[JobSummary] = Field(default_factory=list, description="Lista resumida de jobs.")
+    jobs: list[JobSummary] = Field(default_factory=list, description="Lista resumida de jobs.")
 
 
 class AdminCleanupResponse(BaseModel):
@@ -291,7 +293,7 @@ class OrchestratorSettingsSnapshot(BaseModel):
 
 class AdminStatsResponse(BaseModel):
     orchestrator: OrchestratorStatsInfo = Field(..., description="Informações gerais do orchestrator.")
-    redis: Dict[str, Any] = Field(default_factory=dict, description="Métricas relacionadas ao Redis.")
+    redis: dict[str, Any] = Field(default_factory=dict, description="Métricas relacionadas ao Redis.")
     settings: OrchestratorSettingsSnapshot = Field(..., description="Configurações ativas relevantes.")
 
 
@@ -303,14 +305,14 @@ class FactoryResetOrchestratorResult(BaseModel):
 
 class FactoryResetServiceResult(BaseModel):
     status: str = Field(..., description="Resultado da chamada de cleanup ao microserviço.")
-    data: Optional[Dict[str, Any]] = Field(default=None, description="Payload de sucesso retornado pelo microserviço, quando disponível.")
-    error: Optional[str] = Field(default=None, description="Mensagem de erro quando o cleanup remoto falha.")
+    data: dict[str, Any] | None = Field(default=None, description="Payload de sucesso retornado pelo microserviço, quando disponível.")
+    error: str | None = Field(default=None, description="Mensagem de erro quando o cleanup remoto falha.")
 
 
 class FactoryResetResponse(BaseModel):
     message: str = Field(..., description="Resumo da operação de factory reset.")
     orchestrator: FactoryResetOrchestratorResult = Field(..., description="Resultado da limpeza local do orchestrator.")
-    microservices: Dict[str, FactoryResetServiceResult] = Field(default_factory=dict, description="Resultado da limpeza por microserviço.")
+    microservices: dict[str, FactoryResetServiceResult] = Field(default_factory=dict, description="Resultado da limpeza por microserviço.")
     warning: str = Field(..., description="Aviso sobre impacto destrutivo do reset.")
 
 
@@ -321,8 +323,8 @@ class HealthResponse(BaseModel):
     service: str = Field(..., description="Nome técnico do serviço.", examples=["orchestrator"])
     version: str = Field(..., description="Versão atual da API.")
     timestamp: datetime = Field(..., description="Timestamp da verificação de saúde.")
-    microservices: Dict[str, str] = Field(default_factory=dict, description="Status resumido dos microserviços dependentes.")
-    uptime_seconds: Optional[float] = Field(default=None, ge=0.0, description="Tempo de atividade do processo em segundos.")
+    microservices: dict[str, str] = Field(default_factory=dict, description="Status resumido dos microserviços dependentes.")
+    uptime_seconds: float | None = Field(default=None, ge=0.0, description="Tempo de atividade do processo em segundos.")
     redis_connected: bool = Field(default=False, description="Indica se a conexão com o Redis foi validada com sucesso.")
 
 
@@ -330,7 +332,7 @@ class RootResponse(BaseModel):
     service: str = Field(..., description="Nome amigável do serviço.")
     version: str = Field(..., description="Versão atual da API.")
     status: str = Field(..., description="Estado resumido do serviço.", examples=["running"])
-    endpoints: Dict[str, str] = Field(
+    endpoints: dict[str, str] = Field(
         default_factory=dict,
         description="Mapa resumido dos principais endpoints públicos do orchestrator.",
     )

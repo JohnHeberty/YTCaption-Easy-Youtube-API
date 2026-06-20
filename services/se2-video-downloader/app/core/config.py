@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 from common.config_utils.base_settings import BaseServiceSettings
 
@@ -41,7 +43,7 @@ class Settings(BaseServiceSettings):
     #  Backward-compatibility helpers (callers use settings['key'] style)  #
     # ------------------------------------------------------------------ #
     @property
-    def rate_limit(self) -> dict:
+    def rate_limit(self) -> dict[str, Any]:
         return {
             "enabled": self.rate_limit_enabled,
             "max_requests": self.rate_limit_requests,

@@ -1,9 +1,12 @@
 """
 Job query routes for the orchestrator service.
 """
+from __future__ import annotations
+
 import json
 import asyncio
 from datetime import datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import StreamingResponse
@@ -21,7 +24,7 @@ router = APIRouter(prefix="", tags=["Jobs"])
 settings = get_settings()
 
 
-def _get_redis_store():
+def _get_redis_store() -> Any:
     return get_store()
 
 
@@ -34,8 +37,8 @@ def _get_redis_store():
 )
 async def list_jobs(
     limit: int = Query(50, ge=1, le=200, description="Quantidade máxima de jobs retornados.", examples=[50, 100]),
-    redis_store=Depends(_get_redis_store),
-):
+    redis_store: Any = Depends(_get_redis_store),
+) -> dict[str, Any]:
     """Lista jobs recentes da pipeline com status e progresso."""
     try:
         job_ids = redis_store.list_jobs(limit=limit)
@@ -69,8 +72,8 @@ async def list_jobs(
 )
 async def get_job_status(
     job_id: str = Path(..., description="ID do job para consulta de status.", examples=["pipe_abc123"]),
-    redis_store=Depends(_get_redis_store),
-):
+    redis_store: Any = Depends(_get_redis_store),
+) -> PipelineStatusResponse:
     """Retorna o status detalhado de um job da pipeline, incluindo todos os estágios."""
     try:
         job = redis_store.get_job(job_id)
@@ -125,8 +128,8 @@ async def get_job_status(
 async def wait_for_job_completion(
     job_id: str = Path(..., description="ID do job para aguardar conclusão.", examples=["pipe_abc123"]),
     timeout: int = Query(1800, ge=1, le=7200, description="Tempo máximo de espera em segundos.", examples=[300, 1800]),
-    redis_store=Depends(_get_redis_store),
-):
+    redis_store: Any = Depends(_get_redis_store),
+) -> PipelineStatusResponse:
     """Mantém a conexão aberta até o job concluir, falhar ou atingir timeout."""
     start_time = now_brazil()
     max_wait = timedelta(seconds=timeout)
@@ -214,10 +217,10 @@ async def wait_for_job_completion(
 async def stream_job_progress(
     job_id: str = Path(..., description="ID do job para streaming de progresso.", examples=["pipe_abc123"]),
     timeout: int = Query(600, ge=1, le=7200, description="Timeout do stream em segundos.", examples=[600, 1200]),
-    redis_store=Depends(_get_redis_store),
-):
+    redis_store: Any = Depends(_get_redis_store),
+) -> StreamingResponse:
     """Abre um stream SSE para acompanhar o progresso do job em tempo real."""
-    async def event_generator():
+    async def event_generator() -> Any:
         start_time = now_brazil()
         max_wait = timedelta(seconds=timeout)
         poll_interval = 1

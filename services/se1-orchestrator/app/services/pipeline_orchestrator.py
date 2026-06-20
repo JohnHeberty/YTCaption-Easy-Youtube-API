@@ -4,8 +4,10 @@ Pipeline Orchestrator - Orquestrador de pipeline refatorado.
 Responsabilidade única: Orquestrar execução do pipeline.
 Delega health checks, circuit breaking e downloads para classes especializadas.
 """
+from __future__ import annotations
+
 import asyncio
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
@@ -19,7 +21,7 @@ from app.services.health_checker import HealthChecker
 logger = get_logger(__name__)
 
 # Service name → settings attribute for job timeout (OCP: dict instead of if/elif chain)
-_SERVICE_TIMEOUTS: Dict[str, str] = {
+_SERVICE_TIMEOUTS: dict[str, str] = {
     "se2": "video_downloader_job_timeout",
     "se3-audio-normalization": "audio_normalization_job_timeout",
     "se4-audio-transcriber": "audio_transcriber_job_timeout",
@@ -55,8 +57,8 @@ class PipelineOrchestrator:
         audio_client: MicroserviceClientInterface,
         transcription_client: MicroserviceClientInterface,
         health_checker: HealthChecker,
-        redis_store: Optional[RedisStore] = None,
-    ):
+        redis_store: RedisStore | None = None,
+    ) -> None:
         self._video_client = video_client
         self._audio_client = audio_client
         self._transcription_client = transcription_client
@@ -164,7 +166,7 @@ class PipelineOrchestrator:
         if self._redis:
             self._redis.save_job(job)
 
-    async def check_services_health(self) -> Dict[str, str]:
+    async def check_services_health(self) -> dict[str, str]:
         """
         Verifica saúde de todos os serviços.
 
@@ -175,7 +177,7 @@ class PipelineOrchestrator:
 
     async def _execute_download(
         self, job: PipelineJob
-    ) -> Optional[Tuple[bytes, str]]:
+    ) -> tuple[bytes, str] | None:
         """
         Executa estágio de download.
 
@@ -220,7 +222,7 @@ class PipelineOrchestrator:
 
     async def _execute_normalization(
         self, job: PipelineJob, audio_bytes: bytes, audio_name: str
-    ) -> Optional[Tuple[bytes, str]]:
+    ) -> tuple[bytes, str] | None:
         """
         Executa estágio de normalização.
 
@@ -299,7 +301,7 @@ class PipelineOrchestrator:
 
     async def _execute_transcription(
         self, job: PipelineJob, audio_bytes: bytes, audio_name: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Executa estágio de transcrição.
 
@@ -322,7 +324,7 @@ class PipelineOrchestrator:
             lang_out = job.language_out
 
             files = {"file": (audio_name, audio_bytes, "application/octet-stream")}
-            data: Dict[str, str] = {"language_in": lang_in}
+            data: dict[str, str] = {"language_in": lang_in}
             if lang_out:
                 data["language_out"] = lang_out
 
@@ -401,7 +403,7 @@ class PipelineOrchestrator:
         job_id: str,
         stage: Any,
         service_name: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Aguarda job completar via polling.
 

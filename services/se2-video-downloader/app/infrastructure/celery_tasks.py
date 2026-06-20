@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 #!/usr/bin/env python3
 """
 Tasks do Celery para download de vídeos (v2 com job_utils)
@@ -5,6 +7,7 @@ Tasks do Celery para download de vídeos (v2 com job_utils)
 
 import os
 from datetime import datetime
+from typing import Any
 from common.datetime_utils import now_brazil
 
 from celery import Task
@@ -25,7 +28,7 @@ logger = get_logger(__name__)
 # ==========================================
 
 @signals.task_failure.connect
-def task_failure_handler(sender=None, task_id=None, exception=None, args=None, kwargs=None, traceback=None, einfo=None, **kw):
+def task_failure_handler(sender: Any = None, task_id: str | None = None, exception: BaseException | None = None, args: tuple[Any, ...] | None = None, kwargs: dict[str, Any] | None = None, traceback: Any = None, einfo: Any = None, **kw: Any) -> None:
     """
     Signal handler disparado quando uma task falha
     Garante que o Redis Store seja atualizado mesmo em falhas inesperadas
@@ -52,7 +55,7 @@ def task_failure_handler(sender=None, task_id=None, exception=None, args=None, k
 
 
 @signals.task_revoked.connect
-def task_revoked_handler(sender=None, request=None, terminated=None, signum=None, expired=None, **kw):
+def task_revoked_handler(sender: Any = None, request: Any = None, terminated: bool | None = None, signum: int | None = None, expired: bool | None = None, **kw: Any) -> None:
     """
     Signal handler disparado quando uma task é revogada (killed, canceled)
     """
@@ -82,14 +85,14 @@ def task_revoked_handler(sender=None, request=None, terminated=None, signum=None
 class CallbackTask(Task):
     """Task base com callbacks para atualização de progresso"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self._downloader = None
-        self._job_store = None
-        self._processor = None
+        self._downloader: SimpleDownloader | None = None
+        self._job_store: VideoDownloadJobStore | None = None
+        self._processor: Any = None
     
     @property
-    def downloader(self):
+    def downloader(self) -> SimpleDownloader:
         if self._downloader is None:
             self._downloader = SimpleDownloader(cache_dir=get_settings().cache_dir)
             if self._job_store:
@@ -97,7 +100,7 @@ class CallbackTask(Task):
         return self._downloader
     
     @property
-    def job_store(self):
+    def job_store(self) -> VideoDownloadJobStore:
         if self._job_store is None:
             redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
             self._job_store = VideoDownloadJobStore(redis_url=redis_url)
@@ -105,7 +108,7 @@ class CallbackTask(Task):
                 self._downloader.job_store = self._job_store
         return self._job_store
     
-    def run(self, *args, **kwargs):
+    def run(self, *args: Any, **kwargs: Any) -> None:
         return None
 
 
@@ -121,7 +124,7 @@ class CallbackTask(Task):
     soft_time_limit=1800,
     time_limit=2400
 )
-def download_video_task(self, job_dict: dict) -> dict:
+def download_video_task(self: CallbackTask, job_dict: dict[str, Any]) -> dict[str, Any]:
     """
     Task resiliente do Celery para download de vídeos do YouTube.
     """
@@ -191,7 +194,7 @@ def download_video_task(self, job_dict: dict) -> dict:
 
 
 @celery_app.task(name='cleanup_expired_jobs')
-def cleanup_expired_jobs_task():
+def cleanup_expired_jobs_task() -> dict[str, Any]:
     """
     Task periódica para limpeza de jobs expirados via Redis
     """

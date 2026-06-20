@@ -1,11 +1,13 @@
+from __future__ import annotations
+
 """
 Sistema inteligente de User-Agents com cache de erro e quarentena
 """
     
 import os
 import random
-from typing import List, Set, Optional
 from datetime import datetime, timedelta
+from typing import Any
 from common.datetime_utils import now_brazil
 
 from pathlib import Path
@@ -28,7 +30,7 @@ class UserAgentManager:
         user_agents_file: str = "user-agents.txt",
         quarantine_hours: int = 48,
         max_error_count: int = 3
-    ):
+    ) -> None:
         """
         Inicializa o gerenciador de User-Agents
         
@@ -42,13 +44,13 @@ class UserAgentManager:
         self.max_error_count = max_error_count
         
         # Lista principal de User-Agents
-        self.all_user_agents: List[str] = []
+        self.all_user_agents: list[str] = []
         
         # Cache de erros: {user_agent: {"count": int, "last_error": datetime}}
-        self.error_cache: dict = {}
+        self.error_cache: dict[str, Any] = {}
         
         # Set de User-Agents em quarentena temporária
-        self.quarantined_uas: Set[str] = set()
+        self.quarantined_uas: set[str] = set()
         
         # Carrega User-Agents do arquivo
         self._load_user_agents()
@@ -192,7 +194,7 @@ class UserAgentManager:
         
         return selected_ua
     
-    def report_error(self, user_agent: str, error_details: Optional[str] = None) -> None:
+    def report_error(self, user_agent: str, error_details: str | None = None) -> None:
         """
         Reporta erro para um User-Agent específico
         
@@ -266,7 +268,7 @@ class UserAgentManager:
         if expired_uas:
             logger.info(f"{len(expired_uas)} User-Agents liberados da quarentena")
     
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """
         Retorna estatísticas do gerenciador
         

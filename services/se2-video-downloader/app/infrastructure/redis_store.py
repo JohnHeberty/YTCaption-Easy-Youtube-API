@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Redis store adapter that delegates to common JobRedisStore
 while preserving the service-specific VideoDownloadJob model
@@ -6,7 +8,7 @@ and backward-compatible API.
 import os
 import json
 import asyncio
-from typing import Optional
+from typing import Any
 from datetime import datetime, timedelta
 
 from common.log_utils import get_logger
@@ -26,7 +28,7 @@ class VideoDownloadJobStore:
     to the common JobRedisStore while adding service-specific methods.
     """
 
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
             max_connections=50,
@@ -40,7 +42,7 @@ class VideoDownloadJobStore:
             ttl_hours=int(os.getenv('CACHE_TTL_HOURS', '24')),
         )
         self.redis = self._resilient.redis
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task[None] | None = None
         self.cache_ttl_hours = int(os.getenv('CACHE_TTL_HOURS', '24'))
         self.cleanup_interval_minutes = int(os.getenv('CLEANUP_INTERVAL_MINUTES', '30'))
 
@@ -52,7 +54,7 @@ class VideoDownloadJobStore:
         self.redis.zadd("video_downloader:jobs:list", {job.id: job.created_at.timestamp()})
         return job
 
-    def get_job(self, job_id: str) -> Optional[VideoDownloadJob]:
+    def get_job(self, job_id: str) -> VideoDownloadJob | None:
         key = f"job:{job_id}"
         data = self._resilient.get(key)
         if not data:
@@ -82,10 +84,10 @@ class VideoDownloadJobStore:
         jobs.sort(key=lambda j: j.created_at, reverse=True)
         return jobs[:limit]
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         all_ids = self.redis.zrevrange("video_downloader:jobs:list", 0, -1)
         total = len(all_ids)
-        by_status = {}
+        by_status: dict[str, int] = {}
         for jid in all_ids:
             job = self.get_job(str(jid))
             if job:
@@ -98,12 +100,12 @@ class VideoDownloadJobStore:
             "redis_connected": self._resilient.ping(),
         }
 
-    async def start_cleanup_task(self):
+    async def start_cleanup_task(self) -> None:
         if self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
             logger.info("Cleanup task started")
 
-    async def stop_cleanup_task(self):
+    async def stop_cleanup_task(self) -> None:
         if self._cleanup_task:
             self._cleanup_task.cancel()
             try:
@@ -113,7 +115,7 @@ class VideoDownloadJobStore:
             self._cleanup_task = None
             logger.info("Cleanup task stopped")
 
-    async def _cleanup_loop(self):
+    async def _cleanup_loop(self) -> None:
         interval = self.cleanup_interval_minutes * 60
         while True:
             try:
@@ -158,9 +160,9 @@ class VideoDownloadJobStore:
                     orphaned.append(job)
         return orphaned
 
-    async def get_queue_info(self) -> dict:
+    async def get_queue_info(self) -> dict[str, Any]:
         jobs = self.list_jobs(limit=10000)
-        queue_info = {
+        queue_info: dict[str, Any] = {
             "total_jobs": len(jobs),
             "by_status": {"queued": 0, "processing": 0, "completed": 0, "failed": 0},
             "oldest_job": None,

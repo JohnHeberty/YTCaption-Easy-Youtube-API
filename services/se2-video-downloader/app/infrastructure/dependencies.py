@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Dependency Injection for Video Downloader service.
 
@@ -6,17 +8,17 @@ Factory functions that create and cache service dependencies.
 from functools import lru_cache
 
 from common.di import Dep
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.infrastructure.redis_store import VideoDownloadJobStore
 from app.services.video_downloader import YDLPVideoDownloader
 
 
 @lru_cache(maxsize=1)
-def _get_settings():
+def _get_settings() -> Settings:
     return get_settings()
 
 
-def get_settings_dep():
+def get_settings_dep() -> Settings:
     return _get_settings()
 
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Core constants for Video Downloader Service.
 
 This module centralizes all magic numbers and configuration constants

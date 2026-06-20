@@ -1,6 +1,9 @@
 """
 API principal do orquestrador
 """
+from __future__ import annotations
+
+from typing import Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, status, Depends
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -40,7 +43,7 @@ redis_store = None
 app_start_time = now_brazil()
 
 
-async def validate_configuration():
+async def validate_configuration() -> None:
     logger.info("Validating configuration...")
     if not redis_store:
         raise RuntimeError("Redis store not initialized")
@@ -62,7 +65,7 @@ async def validate_configuration():
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> Any:
     global orchestrator, redis_store, app_start_time
     logger.info("Starting YouTube Caption Orchestrator API")
     try:
@@ -86,7 +89,7 @@ cors_config = {
 }
 
 
-def setup_routers(app):
+def setup_routers(app: FastAPI) -> None:
     app.include_router(health_router)
     app.include_router(
         admin_router,
@@ -112,7 +115,7 @@ app = create_service_app(
 
 
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     logger.warning(f"Validation error on {request.method} {request.url.path}", extra={'errors': exc.errors()})
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -121,7 +124,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 @app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -130,7 +133,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 
 @app.exception_handler(HTTPException)
-async def fastapi_http_exception_handler(request: Request, exc: HTTPException):
+async def fastapi_http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     logger.warning(f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -139,9 +142,9 @@ async def fastapi_http_exception_handler(request: Request, exc: HTTPException):
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.critical(f"Unhandled exception on {request.method} {request.url.path}", exc_info=True, extra={'exception_type': type(exc).__name__, 'exception_message': str(exc)})
-    response_data = {"error": "INTERNAL_ERROR", "message": "An unexpected error occurred. Please contact support if the problem persists."}
+    response_data: dict[str, Any] = {"error": "INTERNAL_ERROR", "message": "An unexpected error occurred. Please contact support if the problem persists."}
     if settings.get("debug", False):
         response_data["debug_info"] = {"exception_type": type(exc).__name__, "exception_message": str(exc)}
     return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=response_data)
@@ -154,7 +157,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     description="Retorna a visão geral do orchestrator e os endpoints principais para iniciar e acompanhar pipelines.",
     response_model=RootResponse,
 )
-async def root():
+async def root() -> dict[str, Any]:
     return {
         "service": "YouTube Caption Orchestrator",
         "version": settings["app_version"],
@@ -176,7 +179,7 @@ async def root():
     summary="Start pipeline processing",
     description="Inicia o pipeline completo para um vídeo do YouTube: download, normalização de áudio e transcrição.",
 )
-async def process_youtube_video(request: PipelineRequest, background_tasks: BackgroundTasks):
+async def process_youtube_video(request: PipelineRequest, background_tasks: BackgroundTasks) -> PipelineResponse:
     try:
         job = await _create_pipeline_job(request)
         redis_store.save_job(job)
