@@ -5,18 +5,7 @@ Princípio: Single Responsibility + Dependency Inversion
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from ..core.models import AudioNormJob
 from common.job_utils.models import JobStatus

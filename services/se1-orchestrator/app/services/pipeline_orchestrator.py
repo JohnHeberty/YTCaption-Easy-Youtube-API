@@ -4,9 +4,11 @@ Pipeline Orchestrator - Orquestrador de pipeline refatorado.
 Responsabilidade única: Orquestrar execução do pipeline.
 Delega health checks, circuit breaking e downloads para classes especializadas.
 """
+import asyncio
 from typing import Any, Dict, Optional, Tuple
 
 from common.log_utils import get_logger
+from common.datetime_utils import now_brazil
 
 from app.core.config import get_microservice_config, get_settings
 from app.domain.interfaces import MicroserviceClientInterface
@@ -412,8 +414,6 @@ class PipelineOrchestrator:
         Returns:
             Status final ou None se falhar
         """
-        import asyncio
-
         settings = get_settings()
         attempts = 0
         consecutive_errors = 0
@@ -479,8 +479,3 @@ class PipelineOrchestrator:
         logger.error(f"Job {job_id} timeout after {attempts} attempts")
         stage.fail(f"Timeout after {attempts} polling attempts")
         return None
-
-
-# Import no final para evitar circular imports
-import asyncio
-from common.datetime_utils import now_brazil
