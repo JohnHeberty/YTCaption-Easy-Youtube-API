@@ -2,11 +2,13 @@
 Sistema de limpeza de jobs órfãos e gerenciamento de Dead Letter Queue.
 Implementa resiliência automática e recuperação de falhas.
 """
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta
 from common.datetime_utils import now_brazil
 
-from typing import List, Dict, Any, Callable, Optional
+from typing import Any, Callable
 from celery import Celery
 
 from ..domain.interfaces import IJobStore
@@ -35,8 +37,8 @@ class OrphanJobCleaner:
         job_store: IJobStore,
         processing_timeout_minutes: int = 10,
         queued_timeout_minutes: int = 30,
-        _now: Optional[Callable[[], datetime]] = None,
-    ):
+        _now: Callable[[], datetime] | None = None,
+    ) -> None:
         """
         Args:
             job_store: Store de jobs
@@ -48,7 +50,7 @@ class OrphanJobCleaner:
         self.queued_timeout = timedelta(minutes=queued_timeout_minutes)
         self._now: Callable[[], datetime] = _now or _default_now
 
-    async def cleanup_orphans(self) -> Dict[str, Any]:
+    async def cleanup_orphans(self) -> dict[str, Any]:
         """
         Executa limpeza de jobs órfãos.
         
@@ -118,7 +120,7 @@ class OrphanJobCleaner:
         age = self._now() - job.created_at
         return age > self.queued_timeout
     
-    async def _handle_orphan_job(self, job: Job, stats: Dict) -> None:
+    async def _handle_orphan_job(self, job: Job, stats: dict[str, Any]) -> None:
         """
         Trata job órfão em PROCESSING.
         
@@ -152,7 +154,7 @@ class OrphanJobCleaner:
             
             logger.error(f"❌ Job órfão {job.id} marcado como FAILED após {retry_count} tentativas")
     
-    async def _handle_stale_queued_job(self, job: Job, stats: Dict) -> None:
+    async def _handle_stale_queued_job(self, job: Job, stats: dict[str, Any]) -> None:
         """Trata job muito antigo em QUEUED"""
         age = self._now() - job.created_at
         
@@ -170,7 +172,7 @@ class DeadLetterQueueManager:
     Gerencia Dead Letter Queue (DLQ) para jobs que falharam permanentemente.
     """
     
-    def __init__(self, job_store: IJobStore):
+    def __init__(self, job_store: IJobStore) -> None:
         self.job_store = job_store
         self.dlq_prefix = "dlq:"
     
@@ -199,7 +201,7 @@ class DeadLetterQueueManager:
         except Exception as e:
             logger.error(f"❌ Erro ao enviar job {job.id} para DLQ: {e}")
     
-    def list_dlq_jobs(self, limit: int = 100) -> List[Job]:
+    def list_dlq_jobs(self, limit: int = 100) -> list[Job]:
         """
         Lista jobs na Dead Letter Queue.
         
@@ -251,8 +253,8 @@ class DeadLetterQueueManager:
 async def run_orphan_cleanup_loop(
     job_store: IJobStore,
     interval_minutes: int = 5,
-    celery_app: Celery = None
-):
+    celery_app: Celery | None = None
+) -> None:
     """
     Loop contínuo de limpeza de órfãos (para rodar como background task).
     

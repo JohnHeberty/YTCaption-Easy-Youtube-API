@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response
@@ -28,8 +30,8 @@ router = APIRouter(tags=["Health"])
 @router.get("/health", summary="Health check", response_model=HealthResponse)
 async def health_check(
     job_store: IJobStore = Depends(job_store),
-    processor: "TranscriptionProcessor" = Depends(processor),
-):
+    processor: TranscriptionProcessor = Depends(processor),
+) -> JSONResponse:
     """Check service health including Redis, disk space, ffmpeg, and model status."""
     checker = ServiceHealthChecker("audio-transcription", version=settings.app_version)
 
@@ -58,8 +60,8 @@ async def health_check(
 @router.get("/health/detailed", summary="Detailed health check", response_model=DetailedHealthResponse, responses={503: {"description": "Service unhealthy"}})
 async def health_check_detailed(
     job_store: IJobStore = Depends(job_store),
-    processor: "TranscriptionProcessor" = Depends(processor),
-):
+    processor: TranscriptionProcessor = Depends(processor),
+) -> JSONResponse:
     """Perform a detailed health check of Redis, Celery, and model components."""
     from app.health_checker import (
         CeleryHealthChecker,
@@ -76,7 +78,7 @@ async def health_check_detailed(
         aggregate.register_checker("celery", CeleryHealthChecker(celery_app))
         aggregate.register_checker("model", ModelHealthChecker(processor))
 
-        health_result = aggregate.check_all()
+        health_result: dict[str, Any] = aggregate.check_all()
 
         health_result["service"] = "audio-transcription"
         health_result["version"] = "2.0.0"
@@ -98,17 +100,17 @@ async def health_check_detailed(
 
 
 @router.get("/metrics", summary="Prometheus metrics", response_class=Response)
-async def prometheus_metrics(job_store: IJobStore = Depends(job_store)):
+async def prometheus_metrics(job_store: IJobStore = Depends(job_store)) -> Response:
     """Expose Prometheus-format metrics for the transcription service."""
     svc = "audio_transcriber"
-    stats: dict = {}
+    stats: dict[str, Any] = {}
     try:
         stats = job_store.get_stats()
     except Exception as _e:
         logger.warning("Metrics: failed to get stats: %s", _e)
 
-    by_status = stats.get("by_status", {})
-    total = stats.get("total_jobs", 0)
+    by_status: dict[str, Any] = stats.get("by_status", {})
+    total: int = stats.get("total_jobs", 0)
 
     lines = [
         f"# HELP {svc}_jobs_total Jobs in Redis store by status",
@@ -125,7 +127,7 @@ async def prometheus_metrics(job_store: IJobStore = Depends(job_store)):
 
 
 @router.get("/languages", summary="Supported languages", response_model=LanguagesResponse)
-async def get_supported_languages_endpoint():
+async def get_supported_languages_endpoint() -> dict[str, Any]:
     """Retrieve supported transcription and translation languages with usage examples."""
     languages = get_supported_languages()
     models = get_whisper_models()
@@ -171,7 +173,7 @@ async def get_supported_languages_endpoint():
 
 
 @router.get("/engines", summary="Available engines", response_model=EnginesResponse)
-async def get_available_engines():
+async def get_available_engines() -> dict[str, Any]:
     """List available transcription engines (Faster-Whisper, OpenAI Whisper, WhisperX) with capabilities."""
     from app.domain.models import WhisperEngine
 

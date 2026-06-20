@@ -3,12 +3,14 @@ AudioProcessor refatorado seguindo princípios SOLID.
 
 Separa responsabilidades em classes menores e coesas.
 """
+from __future__ import annotations
+
 import os
 import asyncio
 import tempfile
 import shutil
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any
 from datetime import datetime
 
 from common.datetime_utils import now_brazil
@@ -36,7 +38,7 @@ logger = get_logger(__name__)
 class AudioConfig:
     """Configuração para processamento de áudio."""
 
-    def __init__(self, settings):
+    def __init__(self, settings: Any) -> None:
         self.temp_dir = Path(settings.get('temp_dir', './temp'))
         self.streaming_threshold_mb = settings.get('audio_chunk_streaming_threshold_mb', 50)
         self.chunking_enabled = settings.get('audio_enable_chunking', True)
@@ -49,7 +51,7 @@ class AudioConfig:
 class FileOperations:
     """Operações de arquivo isoladas para testabilidade."""
 
-    def __init__(self, config: AudioConfig):
+    def __init__(self, config: AudioConfig) -> None:
         self.config = config
 
     def ensure_dir(self, path: Path) -> None:
@@ -87,9 +89,9 @@ class FileOperations:
 class VideoExtractor:
     """Extrai áudio de arquivos de vídeo."""
 
-    VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}
+    VIDEO_EXTENSIONS: set[str] = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}
 
-    def __init__(self, file_ops: FileOperations):
+    def __init__(self, file_ops: FileOperations) -> None:
         self.file_ops = file_ops
 
     def is_video(self, file_path: str) -> bool:
@@ -133,15 +135,15 @@ class VideoExtractor:
 class AudioChunker:
     """Divide e mescla chunks de áudio."""
 
-    def __init__(self, config: AudioConfig):
+    def __init__(self, config: AudioConfig) -> None:
         self.config = config
 
-    def split(self, audio: AudioSegment) -> List[AudioSegment]:
+    def split(self, audio: AudioSegment) -> list[AudioSegment]:
         """Divide áudio em chunks."""
         chunk_duration_ms = self.config.chunk_duration_sec * 1000
         overlap_ms = self.config.chunk_overlap_sec * 1000
 
-        chunks = []
+        chunks: list[AudioSegment] = []
         start_ms = 0
         audio_duration_ms = len(audio)
 
@@ -155,7 +157,7 @@ class AudioChunker:
         logger.info(f"📦 Áudio dividido em {len(chunks)} chunks")
         return chunks
 
-    def merge(self, chunks: List[AudioSegment], overlap_ms: int = 0) -> AudioSegment:
+    def merge(self, chunks: list[AudioSegment], overlap_ms: int = 0) -> AudioSegment:
         """Mescla chunks em um único áudio."""
         if len(chunks) == 0:
             raise ProcessingError("Nenhum chunk para mesclar")
@@ -176,7 +178,7 @@ class AudioChunker:
 class AudioNormalizer:
     """Aplica operações de normalização no áudio."""
 
-    def __init__(self, config: AudioConfig):
+    def __init__(self, config: AudioConfig) -> None:
         self.config = config
 
     async def apply_highpass(self, audio: AudioSegment, cutoff: int = 80) -> AudioSegment:
@@ -210,17 +212,17 @@ class AudioProcessor:
     def __init__(
         self,
         config: AudioConfig,
-        file_ops: Optional[FileOperations] = None,
-        video_extractor: Optional[VideoExtractor] = None,
-        chunker: Optional[AudioChunker] = None,
-        normalizer: Optional[AudioNormalizer] = None,
-    ):
+        file_ops: FileOperations | None = None,
+        video_extractor: VideoExtractor | None = None,
+        chunker: AudioChunker | None = None,
+        normalizer: AudioNormalizer | None = None,
+    ) -> None:
         self.config = config
         self.file_ops = file_ops or FileOperations(config)
         self.video_extractor = video_extractor or VideoExtractor(self.file_ops)
         self.chunker = chunker or AudioChunker(config)
         self.normalizer = normalizer or AudioNormalizer(config)
-        self.job_store: Optional[IJobStore] = None
+        self.job_store: IJobStore | None = None
 
     def set_job_store(self, job_store: IJobStore) -> None:
         """Injeta dependência do job store."""
@@ -236,9 +238,9 @@ class AudioProcessor:
         Raises:
             ProcessingError: Se processamento falhar
         """
-        temp_audio_path: Optional[str] = None
-        temp_dir: Optional[Path] = None
-        extracted_audio: Optional[str] = None
+        temp_audio_path: str | None = None
+        temp_dir: Path | None = None
+        extracted_audio: str | None = None
 
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
@@ -318,8 +320,8 @@ class AudioProcessor:
             raise StorageError("Espaço em disco insuficiente")
 
         temp_dir = self.file_ops.get_temp_dir(job.id)
-        chunk_paths: List[Path] = []
-        processed_chunks: List[AudioSegment] = []
+        chunk_paths: list[Path] = []
+        processed_chunks: list[AudioSegment] = []
 
         try:
             # Divide em chunks com ffmpeg

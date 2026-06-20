@@ -1,6 +1,9 @@
+from __future__ import annotations
+
+from typing import Any, TYPE_CHECKING
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from typing import TYPE_CHECKING
 
 from common.log_utils import get_logger
 from app.api.schemas import ModelActionResponse, ModelStatusResponse
@@ -15,11 +18,11 @@ router = APIRouter(prefix="/model", tags=["Model"])
 
 
 @router.post("/load", summary="Load Whisper model", response_model=ModelActionResponse, responses={500: {"description": "Failed to load model"}})
-async def load_whisper_model(processor: "TranscriptionProcessor" = Depends(processor)):
+async def load_whisper_model(processor: TranscriptionProcessor = Depends(processor)) -> JSONResponse:
     """Explicitly load the Whisper model into memory for transcription."""
     try:
         logger.info("📤 Requisição para carregar modelo Whisper")
-        result = processor.load_model_explicit()
+        result: dict[str, Any] = processor.load_model_explicit()
 
         if result["success"]:
             logger.info(f"✅ Modelo carregado: {result['message']}")
@@ -41,11 +44,11 @@ async def load_whisper_model(processor: "TranscriptionProcessor" = Depends(proce
 
 
 @router.post("/unload", summary="Unload Whisper model", response_model=ModelActionResponse, responses={500: {"description": "Failed to unload model"}})
-async def unload_whisper_model(processor: "TranscriptionProcessor" = Depends(processor)):
+async def unload_whisper_model(processor: TranscriptionProcessor = Depends(processor)) -> JSONResponse:
     """Unload the Whisper model from memory to free GPU/CPU resources."""
     try:
         logger.info("📥 Requisição para descarregar modelo Whisper")
-        result = processor.unload_model()
+        result: dict[str, Any] = processor.unload_model()
 
         if result["success"]:
             logger.info(f"✅ Modelo descarregado: {result['message']}")
@@ -67,10 +70,10 @@ async def unload_whisper_model(processor: "TranscriptionProcessor" = Depends(pro
 
 
 @router.get("/status", summary="Model status", response_model=ModelStatusResponse, responses={500: {"description": "Failed to get model status"}})
-async def get_model_status(processor: "TranscriptionProcessor" = Depends(processor)):
+async def get_model_status(processor: TranscriptionProcessor = Depends(processor)) -> JSONResponse:
     """Query the current loading status and metadata of the Whisper model."""
     try:
-        status = processor.get_model_status()
+        status: dict[str, Any] = processor.get_model_status()
         return JSONResponse(content=status, status_code=200)
     except Exception as e:
         error_msg = f"Erro ao consultar status do modelo: {str(e)}"

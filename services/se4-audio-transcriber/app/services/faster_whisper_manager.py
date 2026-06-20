@@ -2,11 +2,13 @@
 Gerenciador de modelos Whisper usando Faster-Whisper.
 Faster-Whisper é uma reimplementação do Whisper usando CTranslate2, muito mais rápida.
 """
+from __future__ import annotations
+
 import gc
 import time
 import torch
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 from faster_whisper import WhisperModel
 
 from ..domain.interfaces import IModelManager
@@ -35,7 +37,7 @@ class FasterWhisperModelManager(IModelManager):
 ado
     """
     
-    def __init__(self, model_dir: Optional[Path] = None):
+    def __init__(self, model_dir: Path | None = None) -> None:
         """
         Args:
             model_dir: Diretório para armazenar modelos
@@ -44,8 +46,8 @@ ado
         self.model_dir = model_dir or Path(self.settings.get('whisper_download_root', './models'))
         self.model_name = self.settings.get('whisper_model', 'base')
         
-        self.model: Optional[WhisperModel] = None
-        self.device: Optional[str] = None
+        self.model: WhisperModel | None = None
+        self.device: str | None = None
         self.is_loaded = False
         
         # Configurações de retry
@@ -173,7 +175,7 @@ ado
             f"tentados {attempted_devices}: {last_error}"
         )
     
-    def unload_model(self) -> Dict[str, Any]:
+    def unload_model(self) -> dict[str, Any]:
         """Descarrega modelo da memória com cleanup garantido"""
         result = {
             "success": False,
@@ -221,7 +223,7 @@ ado
             self.model = None
             self.is_loaded = False
     
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Retorna status atual do modelo"""
         return {
             "loaded": self.is_loaded,
@@ -231,7 +233,7 @@ ado
             "engine": "faster-whisper"
         }
     
-    def transcribe(self, audio_path: Path, language: str = "auto", task: str = "transcribe", **kwargs) -> Dict[str, Any]:
+    def transcribe(self, audio_path: Path, language: str = "auto", task: str = "transcribe", **kwargs: Any) -> dict[str, Any]:
         """
         Transcreve áudio usando Faster-Whisper com word timestamps e circuit breaker.
         

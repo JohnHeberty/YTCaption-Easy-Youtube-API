@@ -6,9 +6,10 @@ Implementa sliding window counter para precisão.
 
 Adaptado do padrão make-video-clip para audio-transcriber.
 """
+from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import Any
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -41,11 +42,11 @@ class DistributedRateLimiter:
     
     def __init__(
         self,
-        redis_client,
+        redis_client: Any,
         max_requests: int = DEFAULT_MAX_REQUESTS,
         window_seconds: int = DEFAULT_WINDOW_SECONDS,
         fallback_to_allow: bool = True
-    ):
+    ) -> None:
         """
         Initialize distributed rate limiter
         
@@ -133,7 +134,7 @@ class DistributedRateLimiter:
             logger.error(f"❌ Rate limiter error: {e}")
             return self.fallback_to_allow
     
-    def get_usage(self, client_id: str = "global") -> dict:
+    def get_usage(self, client_id: str = "global") -> dict[str, Any]:
         """
         Get current usage for client.
         
@@ -193,7 +194,7 @@ class DistributedRateLimiter:
                 'reset_at': time.time() + self.window_seconds
             }
     
-    def reset(self, client_id: str = "global"):
+    def reset(self, client_id: str = "global") -> None:
         """
         Reset rate limit for client.
         

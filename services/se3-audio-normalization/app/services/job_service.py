@@ -4,9 +4,11 @@ Serviço de gerenciamento de jobs.
 Responsável por orquestrar criação, validação e submissão de jobs.
 Segue SRP (Single Responsibility Principle).
 """
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any
 
 from common.datetime_utils import now_brazil
 
@@ -40,9 +42,9 @@ class JobValidationResult:
         self,
         content: bytes,
         extension: str,
-        processing_params: dict,
-        original_filename: str
-    ):
+        processing_params: dict[str, Any],
+        original_filename: str | None
+    ) -> None:
         self.content = content
         self.extension = extension
         self.processing_params = processing_params
@@ -64,7 +66,7 @@ class JobCreationService:
         job_store: IJobStore,
         upload_dir: Path,
         max_file_size_mb: int = FILE_CONSTANTS.DEFAULT_MAX_FILE_SIZE_MB
-    ):
+    ) -> None:
         self.job_store = job_store
         self.upload_dir = upload_dir
         self.max_file_size_mb = max_file_size_mb
@@ -73,7 +75,7 @@ class JobCreationService:
     async def validate_input(
         self,
         file: UploadFile,
-        **processing_params_raw
+        **processing_params_raw: str | None
     ) -> JobValidationResult:
         """
         Valida entrada do usuário.
@@ -114,7 +116,7 @@ class JobCreationService:
     def create_job_entity(
         self,
         filename: str,
-        processing_params: dict
+        processing_params: dict[str, Any]
     ) -> AudioNormJob:
         """
         Cria nova entidade Job.
@@ -178,10 +180,10 @@ class JobSubmissionService:
     - Fallback para processamento direto
     """
 
-    def __init__(self, job_store: IJobStore):
+    def __init__(self, job_store: IJobStore) -> None:
         self.job_store = job_store
 
-    def check_existing_job(self, job: AudioNormJob) -> Optional[AudioNormJob]:
+    def check_existing_job(self, job: AudioNormJob) -> AudioNormJob | None:
         """
         Verifica se job já existe no cache.
 
@@ -253,7 +255,7 @@ class JobSubmissionService:
             logger.error(f"❌ Erro ao enviar para Celery: {e}")
             raise CeleryTaskError(f"Falha ao enviar para Celery: {e}")
 
-    async def submit_with_fallback(self, job: AudioNormJob, processor) -> None:
+    async def submit_with_fallback(self, job: AudioNormJob, processor: Any) -> None:
         """
         Submete job com fallback para processamento direto.
 
@@ -278,7 +280,7 @@ class JobRetrievalService:
     - Formatar resposta
     """
 
-    def __init__(self, job_store: IJobStore):
+    def __init__(self, job_store: IJobStore) -> None:
         self.job_store = job_store
 
     def get_job(self, job_id: str) -> AudioNormJob:
@@ -327,7 +329,7 @@ class JobRetrievalService:
 
         return job
 
-    def list_recent_jobs(self, limit: int = 20) -> list:
+    def list_recent_jobs(self, limit: int = 20) -> list[AudioNormJob]:
         """
         Lista jobs recentes.
 

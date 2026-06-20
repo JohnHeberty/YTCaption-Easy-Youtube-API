@@ -2,6 +2,10 @@
 Configuração do Celery Beat para tarefas periódicas.
 Inclui limpeza de jobs órfãos e expirados.
 """
+from __future__ import annotations
+
+from typing import Any
+
 from celery.schedules import crontab
 
 # Configuração de tarefas periódicas
@@ -26,5 +30,5 @@ beat_schedule = {
 }
 
 # Exporta para ser usado pelo celery_config.py
-def get_beat_schedule():
+def get_beat_schedule() -> dict[str, Any]:
     return beat_schedule

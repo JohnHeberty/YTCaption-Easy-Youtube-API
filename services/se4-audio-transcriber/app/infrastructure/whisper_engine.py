@@ -7,10 +7,12 @@ como backend principal, com suporte para fallback em outras implementações.
 Segue o Single Responsibility Principle (SRP) ao encapsular toda a
 lógica de transcrição em uma única classe bem definida.
 """
+from __future__ import annotations
+
 import os
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any
 import gc
 
 from faster_whisper import WhisperModel
@@ -52,10 +54,10 @@ class WhisperEngine(TranscriptionEngine):
         model_size: str = "base",
         device_manager: IDeviceManager | None = None,
         compute_type: str = "float16",
-        download_root: Optional[str] = None,
+        download_root: str | None = None,
         cpu_threads: int = 0,
         num_workers: int = 1,
-    ):
+    ) -> None:
         """
         Inicializa o engine Whisper.
         
@@ -78,9 +80,9 @@ class WhisperEngine(TranscriptionEngine):
         self.compute_type = (
             self.compute_type_raw if self._device == "cuda" else "int8"
         )
-        self._model: Optional[WhisperModel] = None
-        self._loaded_at: Optional[Any] = None
-        self._last_used_at: Optional[Any] = None
+        self._model: WhisperModel | None = None
+        self._loaded_at: Any | None = None
+        self._last_used_at: Any | None = None
         self._load_count: int = 0
 
         logger.info(
@@ -188,7 +190,7 @@ class WhisperEngine(TranscriptionEngine):
         """Retorna True se o modelo está carregado."""
         return self._model is not None
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Retorna status detalhado do engine."""
         status = {
             "loaded": self.is_loaded(),
@@ -221,7 +223,7 @@ class WhisperEngine(TranscriptionEngine):
     async def transcribe(
         self,
         audio_path: str,
-        language: Optional[str] = None,
+        language: str | None = None,
         task: str = "transcribe"
     ) -> TranscriptionResult:
         """
@@ -314,7 +316,7 @@ class WhisperEngine(TranscriptionEngine):
             logger.error(f"Erro na transcrição: {e}")
             raise AudioTranscriptionException(f"Falha na transcrição: {str(e)}")
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Destructor para garantir cleanup."""
         try:
             if self._model is not None:
@@ -344,10 +346,10 @@ class ModelManager:
 
     DEFAULT_IDLE_TIMEOUT_MINUTES = 30
 
-    def __init__(self, device_manager=None):
+    def __init__(self, device_manager: IDeviceManager | None = None) -> None:
         self._device_manager = device_manager or TorchDeviceManager()
-        self._engines: Dict[str, WhisperEngine] = {}
-        self._last_accessed: Dict[str, Any] = {}
+        self._engines: dict[str, WhisperEngine] = {}
+        self._last_accessed: dict[str, Any] = {}
 
     @property
     def device_manager(self) -> IDeviceManager:
@@ -356,7 +358,7 @@ class ModelManager:
     def get_or_create_engine(
         self,
         model_size: str = "base",
-        **kwargs
+        **kwargs: Any
     ) -> WhisperEngine:
         """Obtém ou cria um engine para o modelo especificado."""
         cache_key = f"{model_size}"
@@ -387,7 +389,7 @@ class ModelManager:
 
         return unloaded
 
-    def get_loaded_engines(self) -> List[str]:
+    def get_loaded_engines(self) -> list[str]:
         """Retorna lista de engines carregados."""
         return [k for k, e in self._engines.items() if e.is_loaded()]
 
@@ -412,8 +414,8 @@ class EngineRegistry:
         engine = registry.create(WhisperEngineEnum.FASTER_WHISPER, model_size="base")
     """
 
-    def __init__(self):
-        self._factories: Dict[_WhisperEngineEnum, Callable[..., TranscriptionEngine]] = {}
+    def __init__(self) -> None:
+        self._factories: dict[_WhisperEngineEnum, Callable[..., TranscriptionEngine]] = {}
 
     def register(self, engine_type: _WhisperEngineEnum, factory: Callable[..., TranscriptionEngine]) -> None:
         """Registra uma factory para um tipo de engine."""
@@ -424,7 +426,7 @@ class EngineRegistry:
     def create(
         self,
         engine_type: _WhisperEngineEnum,
-        **kwargs
+        **kwargs: Any
     ) -> TranscriptionEngine:
         """Cria um engine do tipo registrado."""
         if engine_type not in self._factories:

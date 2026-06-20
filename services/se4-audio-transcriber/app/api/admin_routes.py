@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -47,7 +50,7 @@ async def manual_cleanup(
         examples=[False, True],
     ),
     job_store: IJobStore = Depends(job_store),
-):
+) -> AdminCleanupResponse:
     """Perform system cleanup: basic (expired jobs only) or total (factory reset)."""
     cleanup_type = "TOTAL" if deep else "básica"
     logger.warning(f"🔥 Iniciando limpeza {cleanup_type} SÍNCRONA (purge_celery={purge_celery_queue})")
@@ -75,9 +78,9 @@ async def manual_cleanup(
     description="Retorna estatísticas agregadas do Redis e métricas de cache/artefatos locais do serviço.",
     response_model=AdminStatsResponse,
 )
-async def get_stats(job_store: IJobStore = Depends(job_store)):
+async def get_stats(job_store: IJobStore = Depends(job_store)) -> dict[str, Any]:
     """Retrieve transcription service statistics including job counts and disk usage."""
-    stats = job_store.get_stats()
+    stats: dict[str, Any] = job_store.get_stats()
 
     upload_path = Path(settings.get('upload_dir', './data/uploads'))
     transcription_path = Path(settings.get('transcription_dir', './data/transcriptions'))
@@ -106,7 +109,7 @@ async def get_stats(job_store: IJobStore = Depends(job_store)):
     response_model=QueueInfoResponse,
     responses={500: {"description": "Internal server error"}},
 )
-async def get_queue_info_endpoint(job_store: IJobStore = Depends(job_store)):
+async def get_queue_info_endpoint(job_store: IJobStore = Depends(job_store)) -> dict[str, Any]:
     """Retrieve Celery queue information for the transcription service."""
     try:
         queue_info = await job_store.get_queue_info()
@@ -128,7 +131,7 @@ async def get_queue_info_endpoint(job_store: IJobStore = Depends(job_store)):
     response_model=AdminOrphanCleanupResponse,
     responses={500: {"description": "Internal server error"}},
 )
-async def cleanup_orphan_jobs_endpoint(job_store: IJobStore = Depends(job_store)):
+async def cleanup_orphan_jobs_endpoint(job_store: IJobStore = Depends(job_store)) -> JSONResponse:
     """Clean up orphaned transcription jobs using the OrphanJobCleaner."""
     try:
         from app.shared.orphan_cleaner import OrphanJobCleaner

@@ -6,10 +6,11 @@ Provides:
   NOT programming errors like ValueError/TypeError.
 - wrap_with_context: helper to wrap exceptions preserving chain via ``raise ... from e``.
 """
+from __future__ import annotations
 
 import time
 import functools
-from typing import TypeVar, Callable, Optional, Tuple, Type
+from typing import TypeVar, Callable, Tuple, Type
 from contextlib import contextmanager
 
 from common.log_utils import get_logger
@@ -96,7 +97,7 @@ def retry_on_transient_error(
 class _RetryDecorator:
     """Dual-purpose object: callable as a decorator *and* usable as context manager."""
 
-    def __init__(self, max_retries: int, retryable_exceptions, base_delay: float, max_delay: float):
+    def __init__(self, max_retries: int, retryable_exceptions: Tuple[Type[Exception], ...], base_delay: float, max_delay: float) -> None:
         self.max_retries = max_retries
         self.retryable_exceptions = retryable_exceptions
         self.base_delay = base_delay
@@ -135,10 +136,10 @@ class _RetryDecorator:
 
     # -- context-manager protocol --------------------------------------------
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         return None
 
-    def __exit__(self, exc_type, exc_value, tb):
+    def __exit__(self, exc_type: type | None, exc_value: BaseException | None, tb: Any) -> bool:
         if exc_type is None:
             return True
 
@@ -172,7 +173,7 @@ class _RetryDecorator:
 # ---------------------------------------------------------------------------
 
 
-def wrap_with_context(message: str):
+def wrap_with_context(message: str) -> Any:
     """Return a context manager that wraps any caught exception with *message*, preserving chain.
 
     Ensures ``raise ... from e`` so the full traceback is retained (avoids losing stack context).

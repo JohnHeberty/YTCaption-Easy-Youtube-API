@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 from pathlib import Path
 from common.log_utils import get_logger
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 from pydub import AudioSegment
 
@@ -18,7 +20,7 @@ class ChunkTranscriber:
     transcription engine (Dependency Inversion Principle).
     """
 
-    def __init__(self, settings: Dict[str, Any], state=None):
+    def __init__(self, settings: dict[str, Any], state: Any | None = None) -> None:
         self.settings = settings or {}
         self.state = state  # JobStateUpdater – may be None when no job tracking
 
@@ -30,11 +32,11 @@ class ChunkTranscriber:
         self,
         audio_file: str,
         language_in: str,
-        language_out: Optional[str],
-        transcribe_fn: Callable[[str, str, Optional[str]], Dict[str, Any]],
-        job_id: Optional[str] = None,
+        language_out: str | None,
+        transcribe_fn: Callable[[str, str, str | None], dict[str, Any]],
+        job_id: str | None = None,
         audio: AudioSegment | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Orchestrate chunking + transcription loop + segment merge.
 
         Args:
@@ -89,8 +91,8 @@ class ChunkTranscriber:
             logger.info(f"Áudio dividido em {len(chunks)} chunks")
 
             # Transcribe each chunk via the injected callable
-            all_segments: List[Dict[str, Any]] = []
-            full_text_parts: List[str] = []
+            all_segments: list[dict[str, Any]] = []
+            full_text_parts: list[str] = []
 
             for i, audio_chunk in enumerate(chunks):
                 chunk_file = chunker.export_chunk(i, audio_chunk)
@@ -141,8 +143,8 @@ class ChunkTranscriber:
     # ------------------------------------------------------------------
 
     def _merge_overlapping_segments(
-        self, segments: List[Dict[str, Any]], overlap_seconds: float
-    ) -> List[Dict[str, Any]]:
+        self, segments: list[dict[str, Any]], overlap_seconds: float
+    ) -> list[dict[str, Any]]:
         """Merge overlapping segments by removing near-duplicate text.
 
         Args:

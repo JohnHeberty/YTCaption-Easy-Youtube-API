@@ -2,7 +2,9 @@
 Sistema de Health Check para componentes do serviço.
 Implementa verificação profunda de saúde e disponibilidade.
 """
-from typing import Dict, Any
+from __future__ import annotations
+
+from typing import Any
 from datetime import datetime
 from common.datetime_utils import now_brazil
 
@@ -19,7 +21,7 @@ class CeleryHealthChecker(IHealthChecker):
     Verifica saúde do Celery worker.
     """
     
-    def __init__(self, celery_app):
+    def __init__(self, celery_app: Any) -> None:
         """
         Args:
             celery_app: Instância do Celery app
@@ -28,7 +30,7 @@ class CeleryHealthChecker(IHealthChecker):
         self.last_check_time = None
         self.last_check_result = None
     
-    def check_health(self) -> Dict[str, Any]:
+    def check_health(self) -> dict[str, Any]:
         """
         Verifica saúde do Celery.
         
@@ -93,14 +95,14 @@ class RedisHealthChecker(IHealthChecker):
     Verifica saúde da conexão Redis.
     """
     
-    def __init__(self, job_store: IJobStore):
+    def __init__(self, job_store: IJobStore) -> None:
         """
         Args:
             job_store: Store de jobs (usa Redis)
         """
         self.job_store = job_store
     
-    def check_health(self) -> Dict[str, Any]:
+    def check_health(self) -> dict[str, Any]:
         """
         Verifica saúde do Redis.
         
@@ -150,14 +152,14 @@ class ModelHealthChecker(IHealthChecker):
     Verifica saúde do modelo Whisper.
     """
     
-    def __init__(self, model_manager):
+    def __init__(self, model_manager: Any) -> None:
         """
         Args:
             model_manager: Gerenciador de modelos
         """
         self.model_manager = model_manager
     
-    def check_health(self) -> Dict[str, Any]:
+    def check_health(self) -> dict[str, Any]:
         """
         Verifica saúde do modelo.
         
@@ -208,15 +210,15 @@ class AggregateHealthChecker:
     Agrega health checks de múltiplos componentes.
     """
     
-    def __init__(self):
-        self.checkers: Dict[str, IHealthChecker] = {}
+    def __init__(self) -> None:
+        self.checkers: dict[str, IHealthChecker] = {}
     
-    def register_checker(self, name: str, checker: IHealthChecker):
+    def register_checker(self, name: str, checker: IHealthChecker) -> None:
         """Registra um health checker"""
         self.checkers[name] = checker
         logger.info(f"✅ Health checker registrado: {name}")
     
-    def check_all(self) -> Dict[str, Any]:
+    def check_all(self) -> dict[str, Any]:
         """
         Verifica saúde de todos os componentes.
         

@@ -3,9 +3,11 @@ Validadores para o serviço de normalização de áudio.
 
 Segue princípios SOLID - cada validador tem responsabilidade única.
 """
+from __future__ import annotations
+
 import re
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any
 from fastapi import HTTPException, UploadFile
 
 from common.datetime_utils import now_brazil
@@ -24,14 +26,14 @@ logger = get_logger(__name__)
 class ValidationError(HTTPException):
     """Erro de validação com código HTTP apropriado."""
 
-    def __init__(self, detail: str, status_code: int = 400):
+    def __init__(self, detail: str, status_code: int = 400) -> None:
         super().__init__(status_code=status_code, detail=detail)
 
 
 class FileTooLargeError(ValidationError):
     """Arquivo excede tamanho máximo permitido."""
 
-    def __init__(self, size_mb: float, max_size_mb: int):
+    def __init__(self, size_mb: float, max_size_mb: int) -> None:
         super().__init__(
             detail=f"Arquivo muito grande ({size_mb:.2f}MB). Máximo permitido: {max_size_mb}MB",
             status_code=413
@@ -41,7 +43,7 @@ class FileTooLargeError(ValidationError):
 class InvalidFileFormatError(ValidationError):
     """Formato de arquivo não suportado."""
 
-    def __init__(self, filename: str):
+    def __init__(self, filename: str) -> None:
         super().__init__(
             detail=f"Formato de arquivo não suportado: {filename}",
             status_code=415
@@ -52,7 +54,7 @@ class JobIdValidator:
     """Validador de IDs de job."""
 
     @staticmethod
-    def validate(job_id: Optional[str]) -> str:
+    def validate(job_id: str | None) -> str:
         """
         Valida e sanitiza um job_id.
 
@@ -107,7 +109,7 @@ class BooleanValidator:
     """Validador de valores booleanos em string."""
 
     @staticmethod
-    def validate(value: Optional[str]) -> bool:
+    def validate(value: str | None) -> bool:
         """
         Converte string para booleano.
 
@@ -150,7 +152,7 @@ class FileValidator:
     def validate_uploaded_file(
         file: UploadFile,
         max_size_mb: int = FILE_CONSTANTS.DEFAULT_MAX_FILE_SIZE_MB
-    ) -> Tuple[bytes, str]:
+    ) -> str:
         """
         Valida arquivo enviado.
 
@@ -159,7 +161,7 @@ class FileValidator:
             max_size_mb: Tamanho máximo permitido em MB
 
         Returns:
-            Tupla (conteúdo em bytes, extensão do arquivo)
+            Extensão do arquivo
 
         Raises:
             ValidationError: Se a validação falhar
@@ -217,12 +219,12 @@ class ProcessingParamsValidator:
 
     @staticmethod
     def validate(
-        remove_noise: Optional[str] = None,
-        convert_to_mono: Optional[str] = None,
-        apply_highpass_filter: Optional[str] = None,
-        set_sample_rate_16k: Optional[str] = None,
-        isolate_vocals: Optional[str] = None
-    ) -> dict:
+        remove_noise: str | None = None,
+        convert_to_mono: str | None = None,
+        apply_highpass_filter: str | None = None,
+        set_sample_rate_16k: str | None = None,
+        isolate_vocals: str | None = None
+    ) -> dict[str, Any]:
         """
         Valida e converte parâmetros de processamento.
 

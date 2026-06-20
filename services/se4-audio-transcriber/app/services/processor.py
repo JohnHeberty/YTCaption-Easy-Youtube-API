@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import gc
 import json
 import os
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Any
 import torch
 from pydub import AudioSegment
 from common.datetime_utils import now_brazil
@@ -39,10 +41,10 @@ WHISPER_MODEL_SIZES = {
 }
 
 class TranscriptionProcessor:
-    def __init__(self, output_dir=None, model_dir=None):
+    def __init__(self, output_dir: str | None = None, model_dir: str | None = None) -> None:
         self.job_store = None  # Will be injected
         self.state = JobStateUpdater(self.job_store)
-        self.current_job_id: Optional[str] = None
+        self.current_job_id: str | None = None
         self.settings = get_settings()
         self.output_dir = output_dir or self.settings.get('transcription_dir', './transcriptions')
         self.model_dir = model_dir or self.settings.get('whisper_download_root', './models')
@@ -57,7 +59,7 @@ class TranscriptionProcessor:
         self.device = None
         self.model_loaded = False
 
-    async def _run_with_timeout(self, awaitable, timeout_seconds: int, operation_name: str):
+    async def _run_with_timeout(self, awaitable: Any, timeout_seconds: int, operation_name: str) -> Any:
         """Executa awaitable com timeout explícito para evitar jobs pendurados indefinidamente."""
         try:
             return await asyncio.wait_for(awaitable, timeout=timeout_seconds)
@@ -66,7 +68,7 @@ class TranscriptionProcessor:
                 f"Timeout ao executar '{operation_name}' após {timeout_seconds}s"
             ) from exc
     
-    def _get_model_manager(self, engine: WhisperEngine):
+    def _get_model_manager(self, engine: WhisperEngine) -> Any:
         """
         Retorna o model manager para o engine especificado.
         Cria e cacheia managers sob demanda.
@@ -108,7 +110,7 @@ class TranscriptionProcessor:
             logger.warning(f"⚠️ Não foi possível verificar espaço em disco: {e}")
             return True  # fail-open
     
-    def _detect_device(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
+    def _detect_device(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER) -> str:
         """Detecta dispositivo para o engine especificado via IDeviceManager (DIP)"""
         from .device_manager import TorchDeviceManager
         preferred_device = self.settings.get('whisper_device', 'auto').lower()
@@ -118,7 +120,7 @@ class TranscriptionProcessor:
             preferred_device = 'auto'
         return TorchDeviceManager(preferred_device=preferred_device).detect_device()
     
-    def _load_model(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER):
+    def _load_model(self, engine: WhisperEngine = WhisperEngine.FASTER_WHISPER) -> None:
         """
         Carrega modelo usando o engine especificado.
         
@@ -147,7 +149,7 @@ class TranscriptionProcessor:
         
         logger.info(f"✅ Modelo {engine.value} carregado no {self.device.upper()}")
 
-    def unload_model(self) -> dict:
+    def unload_model(self) -> dict[str, Any]:
         """
         Descarrega modelo Whisper da memória/GPU para economia de recursos.
         
@@ -236,7 +238,7 @@ class TranscriptionProcessor:
                 "memory_freed": {"ram_mb": 0.0, "vram_mb": 0.0}
             }
     
-    def load_model_explicit(self) -> dict:
+    def load_model_explicit(self) -> dict[str, Any]:
         """
         Carrega modelo Whisper explicitamente na memória/GPU.
         
@@ -310,7 +312,7 @@ class TranscriptionProcessor:
                 "memory_used": {"ram_mb": 0.0, "vram_mb": 0.0}
             }
     
-    def get_model_status(self) -> dict:
+    def get_model_status(self) -> dict[str, Any]:
         """
         Retorna status atual do modelo.
         
@@ -364,7 +366,7 @@ class TranscriptionProcessor:
 
         return job
     
-    async def process_transcription_job(self, job: Job):
+    async def process_transcription_job(self, job: Job) -> None:
         """Processa um job de transcrição"""
         converted_file = None
         is_temp_file = False
@@ -599,7 +601,7 @@ class TranscriptionProcessor:
             safe_cleanup(_unload_model, label="Descarregar modelo")
 
     
-    def _transcribe_direct(self, audio_file: str, language_in: str = "auto", language_out: str = None):
+    def _transcribe_direct(self, audio_file: str, language_in: str = "auto", language_out: str | None = None) -> dict[str, Any]:
         """
         Transcrição ou tradução direta sem chunking
         

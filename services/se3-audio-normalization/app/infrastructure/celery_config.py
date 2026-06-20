@@ -3,6 +3,8 @@ Celery configuration for audio-normalization service.
 
 Uses the shared create_celery_app factory for consistent config.
 """
+from __future__ import annotations
+
 import os
 from common.celery_utils import create_celery_app
 

@@ -2,8 +2,10 @@
 Configuration module — loads settings from environment variables.
 Uses pydantic_settings for type validation + lru_cache singleton.
 """
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -23,8 +25,8 @@ class ServiceSettings(BaseServiceSettings):
     max_duration_minutes: int = 120
 
     # Celery
-    celery_broker_url: Optional[str] = None
-    celery_result_backend: Optional[str] = None
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
     celery_task_time_limit: int = Field(default=1800, env="CELERY_TASK_TIME_LIMIT")
     celery_task_soft_time_limit: int = Field(default=1500, env="CELERY_TASK_SOFT_TIME_LIMIT")
 
@@ -88,7 +90,7 @@ def get_settings() -> ServiceSettings:
     return _core
 
 
-def get_service_config() -> dict:
+def get_service_config() -> dict[str, Any]:
     """Retorna configuração específica para os serviços."""
     s = get_settings()
     return {
@@ -113,5 +115,3 @@ def get_service_config() -> dict:
         },
         'extraction_timeout_sec': s.extraction_timeout_sec,
     }
-
-

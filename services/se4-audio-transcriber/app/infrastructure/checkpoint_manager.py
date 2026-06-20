@@ -6,9 +6,10 @@ Salva progresso incremental durante transcrições longas.
 
 Adaptado do padrão make-video-clip para transcrições de áudio.
 """
+from __future__ import annotations
 
 import json
-from typing import Dict, Any, Optional, List
+from typing import Any
 from datetime import datetime
 from common.datetime_utils import now_brazil
 
@@ -34,15 +35,15 @@ class CheckpointData:
     processed_seconds: float  # Segundos de áudio processados
     total_seconds: float  # Total de segundos de áudio
     segments_completed: int  # Número de segmentos transcritos
-    metadata: Dict[str, Any]  # Dados adicionais (texto parcial, timestamps, etc)
+    metadata: dict[str, Any]  # Dados adicionais (texto parcial, timestamps, etc)
     timestamp: str  # ISO timestamp
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Converte para dicionário"""
         return asdict(self)
     
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CheckpointData":
+    def from_dict(cls, data: dict[str, Any]) -> CheckpointData:
         """Cria instância a partir de dicionário"""
         return cls(**data)
 
@@ -65,7 +66,7 @@ class CheckpointManager:
     - Processamento distribuído (Celery worker crashes)
     """
     
-    def __init__(self, redis_store):
+    def __init__(self, redis_store: Any) -> None:
         """
         Args:
             redis_store: Instância do RedisJobStore
@@ -85,8 +86,8 @@ class CheckpointManager:
         processed_seconds: float,
         total_seconds: float,
         segments_completed: int,
-        metadata: Optional[Dict[str, Any]] = None
-    ):
+        metadata: dict[str, Any] | None = None
+    ) -> None:
         """
         Salva checkpoint granular.
         
@@ -122,7 +123,7 @@ class CheckpointManager:
             f"{stage.value} ({progress*100:.1f}%, {processed_seconds:.1f}s/{total_seconds:.1f}s)"
         )
     
-    def get_checkpoint(self, job_id: str) -> Optional[CheckpointData]:
+    def get_checkpoint(self, job_id: str) -> CheckpointData | None:
         """
         Recupera checkpoint do Redis.
         
@@ -170,7 +171,7 @@ class CheckpointManager:
         elapsed = processed_seconds - last_checkpoint_seconds
         return elapsed >= self.checkpoint_interval_seconds
     
-    def delete_checkpoint(self, job_id: str):
+    def delete_checkpoint(self, job_id: str) -> None:
         """
         Remove checkpoint do Redis (quando job completa ou falha).
         
@@ -181,7 +182,7 @@ class CheckpointManager:
         self.redis_store.redis.delete(key)
         logger.info(f"🗑️  Checkpoint deleted for job {job_id}")
     
-    def list_checkpoints(self) -> List[str]:
+    def list_checkpoints(self) -> list[str]:
         """
         Lista todos os job_ids com checkpoints ativos.
         
@@ -196,7 +197,7 @@ class CheckpointManager:
     async def resume_from_checkpoint(
         self,
         job_id: str
-    ) -> Optional[CheckpointData]:
+    ) -> CheckpointData | None:
         """
         Recupera checkpoint para resumir transcrição.
         

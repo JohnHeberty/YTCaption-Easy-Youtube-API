@@ -5,13 +5,16 @@ strings formatadas para cada tipo de legenda suportado pelo sistema.
 
 Classe pura sem dependências externas ou estado mutável.
 """
+from __future__ import annotations
+
+from typing import Any
 
 
 class CaptionFormatter:
     """Formata segmentos de transcrição para múltiplos formatos de legenda."""
 
     @staticmethod
-    def to_srt(segments):
+    def to_srt(segments: list[dict[str, Any]]) -> str:
         srt_content = ""
         
         for i, segment in enumerate(segments, 1):
@@ -24,7 +27,7 @@ class CaptionFormatter:
         return srt_content
 
     @staticmethod
-    def to_vtt(segments):
+    def to_vtt(segments: list[dict[str, Any]]) -> str:
         vtt_lines = ["WEBVTT", ""]
         
         for i, segment in enumerate(segments, 1):
@@ -40,7 +43,7 @@ class CaptionFormatter:
         return "\n".join(vtt_lines)
 
     @staticmethod
-    def to_txt(segments):
+    def to_txt(segments: list[dict[str, Any]]) -> str:
         texts = []
         
         for segment in segments:
@@ -51,7 +54,7 @@ class CaptionFormatter:
         return " ".join(texts)
 
     @staticmethod
-    def to_lrc(segments):
+    def to_lrc(segments: list[dict[str, Any]]) -> str:
         lrc_lines = []
         
         for segment in segments:
@@ -64,7 +67,7 @@ class CaptionFormatter:
         return "\n".join(lrc_lines)
 
     @staticmethod
-    def to_sam(segments):
+    def to_sam(segments: list[dict[str, Any]]) -> str:
         sam_content = ""
         
         for i, segment in enumerate(segments, 1):
@@ -77,7 +80,7 @@ class CaptionFormatter:
         return sam_content
 
     @staticmethod
-    def _seconds_to_timestamp(seconds, fmt="srt"):
+    def _seconds_to_timestamp(seconds: float, fmt: str = "srt") -> str:
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
@@ -93,7 +96,7 @@ class CaptionFormatter:
             return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
 
     @classmethod
-    def format(cls, segments, output_format="srt"):
+    def format(cls, segments: list[dict[str, Any]], output_format: str = "srt") -> str:
         formatters = {
             "srt": cls.to_srt,
             "vtt": cls.to_vtt,
@@ -107,10 +110,10 @@ class CaptionFormatter:
 
 
 # Aliases para compatibilidade com código legado que usa nomes de método privados.
-def convert_to_srt(segments):
+def convert_to_srt(segments: list[dict[str, Any]]) -> str:
     """Alias legacy — use CaptionFormatter.format() ou .to_srt()."""
     return CaptionFormatter.to_srt(segments)
 
-def seconds_to_srt_time(seconds):
+def seconds_to_srt_time(seconds: float) -> str:
     """Alias legacy — use CaptionFormatter._seconds_to_timestamp()."""
     return CaptionFormatter._seconds_to_timestamp(seconds, "srt")

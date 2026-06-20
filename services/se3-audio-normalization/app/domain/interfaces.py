@@ -3,8 +3,10 @@ Interfaces (protocolos) para o serviço de normalização de áudio.
 
 Define contratos para implementações seguindo princípio ISP (Interface Segregation Principle).
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Optional, List, Protocol, TYPE_CHECKING
+from typing import Any, Protocol, TYPE_CHECKING
 from pathlib import Path
 
 if TYPE_CHECKING:
@@ -20,7 +22,7 @@ class IJobStore(Protocol):
         """Salva job no storage."""
         ...
 
-    def get_job(self, job_id: str) -> Optional[AudioNormJob]:
+    def get_job(self, job_id: str) -> AudioNormJob | None:
         """Recupera job pelo ID."""
         ...
 
@@ -32,7 +34,7 @@ class IJobStore(Protocol):
         """Remove job do storage."""
         ...
 
-    def list_jobs(self, limit: int = 50) -> List[AudioNormJob]:
+    def list_jobs(self, limit: int = 50) -> list[AudioNormJob]:
         """Lista jobs recentes."""
         ...
 
@@ -56,7 +58,7 @@ class IAudioProcessor(Protocol):
 class IAudioValidator(Protocol):
     """Protocolo para validação de áudio."""
 
-    async def validate(self, file_path: str) -> dict:
+    async def validate(self, file_path: str) -> dict[str, Any]:
         """Valida arquivo de áudio e retorna metadados."""
         ...
 
@@ -85,7 +87,7 @@ class AbstractAudioNormalizer(ABC):
     """Classe abstrata para normalizadores de áudio."""
 
     @abstractmethod
-    async def normalize(self, audio: "AudioSegment") -> "AudioSegment":
+    async def normalize(self, audio: AudioSegment) -> AudioSegment:
         """
         Normaliza um segmento de áudio.
 
@@ -107,7 +109,7 @@ class AbstractAudioFilter(ABC):
     """Classe abstrata para filtros de áudio."""
 
     @abstractmethod
-    async def apply(self, audio: "AudioSegment") -> "AudioSegment":
+    async def apply(self, audio: AudioSegment) -> AudioSegment:
         """
         Aplica filtro ao áudio.
 
@@ -120,6 +122,6 @@ class AbstractAudioFilter(ABC):
         pass
 
     @abstractmethod
-    def get_parameters(self) -> dict:
+    def get_parameters(self) -> dict[str, Any]:
         """Retorna parâmetros do filtro."""
         pass

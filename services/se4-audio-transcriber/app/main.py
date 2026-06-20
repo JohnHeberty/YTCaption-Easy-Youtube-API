@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends
 from common.log_utils import setup_structured_logging, get_logger
@@ -20,7 +23,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: Any) -> Any:
     from app.infrastructure.dependencies import job_store, processor
 
     try:
@@ -41,7 +44,7 @@ async def lifespan(app):
         logger.error("Error during shutdown: %s", e)
 
 
-def setup_routers(app):
+def setup_routers(app: Any) -> None:
     app.include_router(jobs_router)
     app.include_router(admin_router)
     app.include_router(model_router)
@@ -70,7 +73,7 @@ from app.api.schemas import RootResponse
     description="Retorna a visão geral do serviço e o catálogo resumido dos endpoints públicos de transcrição.",
     response_model=RootResponse,
 )
-async def root():
+async def root() -> dict[str, Any]:
     return {
         "service": "Audio Transcription Service",
         "version": "2.0.0",

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from app.api.jobs_routes import router as jobs_router
 from app.api.admin_routes import router as admin_router
 from app.api.model_routes import router as model_router

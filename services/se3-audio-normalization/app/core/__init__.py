@@ -3,6 +3,7 @@ Core module for Audio Normalization Service.
 
 Contains fundamental components: models, validators, exceptions, constants.
 """
+from __future__ import annotations
 
 from .models import Job, JobStatus, AudioProcessingRequest
 from .exceptions import (

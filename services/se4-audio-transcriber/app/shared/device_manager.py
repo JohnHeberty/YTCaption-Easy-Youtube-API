@@ -1,5 +1,7 @@
 """Gerenciador de dispositivos GPU/CPU (Single Responsibility Principle)."""
-from typing import Dict, Any
+from __future__ import annotations
+
+from typing import Any
 import torch
 
 from ..domain.interfaces import IDeviceManager
@@ -11,7 +13,7 @@ logger = get_logger(__name__)
 class TorchDeviceManager(IDeviceManager):
     """Detecta e valida dispositivos de computação usando PyTorch."""
 
-    def __init__(self, preferred_device: str = "auto"):
+    def __init__(self, preferred_device: str = "auto") -> None:
         self.preferred_device = self._normalize(preferred_device)
         self._cached_device: str | None = None
 
@@ -46,7 +48,7 @@ class TorchDeviceManager(IDeviceManager):
         self._cached_device = "cpu"
         return "cpu"
 
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Retorna informações sobre dispositivos disponíveis."""
         info: Dict[str, Any] = {
             "cuda_available": torch.cuda.is_available(),

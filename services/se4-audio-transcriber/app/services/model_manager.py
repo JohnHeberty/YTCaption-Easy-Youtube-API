@@ -2,10 +2,12 @@
 Gerenciador de modelos Whisper (Single Responsibility Principle).
 Responsável APENAS por carregar/descarregar/usar modelos Whisper.
 """
+from __future__ import annotations
+
 import gc
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 import torch
 import whisper
 
@@ -28,7 +30,7 @@ class WhisperModelManager(IModelManager):
     - Retry automático em falhas
     """
     
-    def __init__(self, device_manager, model_dir: Optional[Path] = None):
+    def __init__(self, device_manager: Any, model_dir: Path | None = None) -> None:
         """
         Args:
             device_manager: Gerenciador de dispositivos (DIP)
@@ -39,8 +41,8 @@ class WhisperModelManager(IModelManager):
         self.model_dir = model_dir or Path(self.settings.get('whisper_download_root', './models'))
         self.model_name = self.settings.get('whisper_model', 'base')
         
-        self.model: Optional[Any] = None
-        self.device: Optional[str] = None
+        self.model: Any | None = None
+        self.device: str | None = None
         self.is_loaded = False
         
         from ..core.constants import DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BACKOFF_BASE
@@ -104,7 +106,7 @@ class WhisperModelManager(IModelManager):
             f"Falha ao carregar modelo {self.model_name} após {self.max_retries} tentativas: {last_error}"
         )
     
-    def unload_model(self) -> Dict[str, Any]:
+    def unload_model(self) -> dict[str, Any]:
         """Descarrega modelo da memória para liberar recursos"""
         result = {
             "success": False,
@@ -157,7 +159,7 @@ class WhisperModelManager(IModelManager):
             logger.error(f"❌ {result['message']}")
             return result
     
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Retorna status atual do modelo"""
         status = {
             "loaded": self.is_loaded,
@@ -172,7 +174,7 @@ class WhisperModelManager(IModelManager):
         
         return status
     
-    def transcribe(self, audio_path: Path, language: str = "auto") -> Dict[str, Any]:
+    def transcribe(self, audio_path: Path, language: str = "auto") -> dict[str, Any]:
         """
         Transcreve áudio usando Whisper.
         

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import os
 import asyncio
 from datetime import datetime, timedelta
+from typing import Any
 from common.datetime_utils import now_brazil
 
 from celery import Task
@@ -65,12 +68,12 @@ def task_revoked_handler(sender=None, request=None, terminated=None, signum=None
         logger.error(f"❌ SIGNAL HANDLER ERROR: {handler_err}")
 
 class TranscriptionTask(Task):
-    def __init__(self):
+    def __init__(self) -> None:
         self._processor = None
         self._job_store = None
 
     @property
-    def processor(self):
+    def processor(self) -> TranscriptionProcessor:
         if self._processor is None:
             self._processor = TranscriptionProcessor(
                 output_dir=os.getenv("WHISPER_OUTPUT_DIR", "./transcriptions"),
@@ -81,7 +84,7 @@ class TranscriptionTask(Task):
         return self._processor
 
     @property
-    def job_store(self):
+    def job_store(self) -> RedisJobStore:
         if self._job_store is None:
             redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
             self._job_store = RedisJobStore(redis_url=redis_url)
@@ -101,7 +104,7 @@ class TranscriptionTask(Task):
     soft_time_limit=2700,  # 45 minutos
     time_limit=3600  # 60 minutos
 )
-def transcribe_audio_task(self, job_dict):
+def transcribe_audio_task(self, job_dict: dict[str, Any]) -> None:
     """
     Task resiliente para transcrição de áudio com Whisper.
     
@@ -231,7 +234,7 @@ def transcribe_audio_task(self, job_dict):
         raise Ignore()
 
 @celery_app.task(name='cleanup_expired_jobs')
-def cleanup_expired_jobs_task():
+def cleanup_expired_jobs_task() -> dict[str, Any]:
     logger.info("Executando limpeza de jobs expirados")
     
     redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
@@ -242,7 +245,7 @@ def cleanup_expired_jobs_task():
     return {"status": "completed", "expired_jobs": expired}
 
 @celery_app.task(name='cleanup_orphan_jobs')
-def cleanup_orphan_jobs_task():
+def cleanup_orphan_jobs_task() -> dict[str, Any]:
     """
     Task para limpar jobs órfãos periodicamente.
     Deve ser agendada com Celery Beat ou executada manualmente.
