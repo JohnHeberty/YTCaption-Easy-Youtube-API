@@ -4,8 +4,8 @@ V2 uses JSON with base64-encoded images.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Header, Query
@@ -21,7 +21,7 @@ from app.domain.models import (
     Text2ImgRequestWithPrompt,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v2/generation", tags=["GenerateV2"])
 

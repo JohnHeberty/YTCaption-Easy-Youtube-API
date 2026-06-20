@@ -3,7 +3,7 @@ Configuration module — loads settings from environment variables.
 Uses pydantic_settings for type validation + lru_cache singleton.
 """
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from pydantic import Field, field_validator
 
@@ -82,60 +82,28 @@ class ServiceSettings(BaseServiceSettings):
 _core = ServiceSettings()
 
 
-def _build_legacy_dict(s: ServiceSettings) -> Dict[str, Any]:
-    """Build backward-compatible dict with nested structures."""
+@lru_cache(maxsize=1)
+def get_settings() -> ServiceSettings:
+    """Returns the typed Pydantic settings instance."""
+    return _core
+
+
+def get_service_config() -> dict:
+    """Retorna configuração específica para os serviços."""
+    s = get_settings()
     return {
-        'app_name': s.app_name,
-        'version': s.app_version,
-        'environment': s.environment,
-        'debug': s.debug,
-        'host': s.host,
-        'port': s.port,
-        'redis_url': s.redis_url,
-        'celery': {
-            'broker_url': s.celery_broker_url or s.redis_url,
-            'result_backend': s.celery_result_backend or s.redis_url,
-            'task_serializer': 'json',
-            'result_serializer': 'json',
-            'accept_content': ['json'],
-            'timezone': s.tz,
-            'enable_utc': False,
-            'task_track_started': True,
-            'task_time_limit': s.celery_task_time_limit,
-            'task_soft_time_limit': s.celery_task_soft_time_limit,
-            'worker_prefetch_multiplier': 1,
-            'worker_max_tasks_per_child': 100,
-        },
-        'cache_ttl_hours': 24,
-        'cache_cleanup_interval_minutes': 30,
-        'cache_max_size_mb': 1024,
         'max_file_size_mb': s.max_file_size_mb,
         'max_duration_minutes': s.max_duration_minutes,
-        'max_concurrent_jobs': s.processing_max_concurrent_jobs,
-        'job_timeout_minutes': s.processing_job_timeout_minutes,
-        'audio_chunking': {
-            'enabled': s.audio_enable_chunking,
-            'chunk_size_mb': s.audio_chunk_size_mb,
-            'chunk_duration_sec': s.audio_chunk_duration_sec,
-            'chunk_overlap_sec': s.audio_chunk_overlap_sec,
-        },
+        'temp_dir': s.temp_dir,
+        'processed_dir': s.processed_dir,
         'noise_reduction': {
             'max_duration_sec': s.noise_reduction_max_duration_sec,
             'sample_rate': s.noise_reduction_sample_rate,
             'chunk_size_sec': s.noise_reduction_chunk_size_sec,
         },
-        'vocal_isolation': {
-            'max_duration_sec': s.vocal_isolation_max_duration_sec,
-        },
         'highpass_filter': {
             'cutoff_hz': 80,
             'order': 5,
-        },
-        'extraction_timeout_sec': s.extraction_timeout_sec,
-        'timeouts': {
-            'async_timeout_sec': s.async_timeout_seconds,
-            'job_processing_timeout_sec': s.job_processing_timeout_seconds,
-            'poll_interval_sec': 2,
         },
         'ffmpeg': {
             'threads': s.ffmpeg_threads,
@@ -143,35 +111,7 @@ def _build_legacy_dict(s: ServiceSettings) -> Dict[str, Any]:
             'audio_codec': s.ffmpeg_audio_codec,
             'audio_bitrate': s.ffmpeg_audio_bitrate,
         },
-        'upload_dir': s.upload_dir,
-        'processed_dir': s.processed_dir,
-        'temp_dir': s.temp_dir,
-        'log_dir': s.log_dir,
-        'backup_dir': s.backup_dir,
-        'api_key': s.api_key,
-        'log_level': s.log_level,
-        'log_format': 'json',
-    }
-
-
-@lru_cache(maxsize=1)
-def get_settings() -> Dict[str, Any]:
-    """Returns backward-compatible dict with nested structures."""
-    return _build_legacy_dict(_core)
-
-
-def get_service_config() -> Dict[str, Any]:
-    """Retorna configuração específica para os serviços."""
-    settings = get_settings()
-    return {
-        'max_file_size_mb': settings['max_file_size_mb'],
-        'max_duration_minutes': settings['max_duration_minutes'],
-        'temp_dir': settings['temp_dir'],
-        'processed_dir': settings['processed_dir'],
-        'noise_reduction': settings['noise_reduction'],
-        'highpass_filter': settings['highpass_filter'],
-        'ffmpeg': settings['ffmpeg'],
-        'extraction_timeout_sec': settings['extraction_timeout_sec'],
+        'extraction_timeout_sec': s.extraction_timeout_sec,
     }
 
 

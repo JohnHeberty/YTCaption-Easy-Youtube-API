@@ -360,7 +360,7 @@ async def cleanup_orphaned_jobs_endpoint(
                 logger.warning(f"Failed to delete transcription file: {e}")
 
             try:
-                temp_dir = Path("./temp")
+                temp_dir = Path("./data/temp")
                 if temp_dir.exists() and temp_dir.is_dir():
                     for temp_file in temp_dir.glob(f"*{job.id}*"):
                         if temp_file.is_file():

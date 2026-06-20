@@ -1,8 +1,11 @@
 """API routes for video job management."""
+import os
+import shutil
 import uuid
 
 from fastapi import APIRouter, HTTPException, Depends
 
+from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
 from app.core.models import (
     CreateVideoRequest,
@@ -23,7 +26,7 @@ async def root():
     """Service info endpoint."""
     return {
         "service": "make-video-img",
-        "version": "1.0.0",
+        "version": settings.app_version,
         "endpoints": {
             "POST /jobs": "Create video generation job",
             "GET /jobs": "List all jobs",
@@ -82,22 +85,14 @@ async def get_job_status(job_id: str):
 
 @router.delete("/jobs/{job_id}")
 async def delete_job(job_id: str):
-    """Delete a video job and its files."""
+    """Delete a video job and its output directory."""
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    import os
-    import shutil
-
-    from app.core.config import settings
-    temp_dir = os.path.join(settings.temp_dir, f"rbg_{job_id}")
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-    video_path = job_data.get("video_path")
-    if video_path and os.path.exists(video_path):
-        os.remove(video_path)
+    output_dir = os.path.join(settings.output_dir, job_id)
+    if os.path.exists(output_dir):
+        shutil.rmtree(output_dir, ignore_errors=True)
 
     store.delete_job(job_id)
     return {"detail": f"Job {job_id} deleted"}

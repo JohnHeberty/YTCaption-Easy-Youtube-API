@@ -31,10 +31,23 @@ class MakeVideoImgSettings(BaseServiceSettings):
     default_width: int = 1080
     default_height: int = 1920
     default_fps: int = 30
-    default_zoom_speed: float = 0.001
-    default_crossfade_duration: float = 0.5
+    default_zoom_speed: float = 0.004
+    default_crossfade_duration: float = 0.3
     default_image_steps: int = 30
     default_image_performance: str = "Quality"
+
+    # === EXTERNAL URL (for webhooks) ===
+    external_url: str = ""
+
+    # === TITLE CARD ===
+    title_card_duration: float = 0.5
+    title_card_wrap_width: int = 30
+
+    # === TTS PARAMS (passed to SE7) ===
+    tts_exaggeration: float = 0.5
+    tts_cfg_weight: float = 0.7
+    tts_temperature: float = 0.5
+    default_normalize_text: bool = True
 
     # === TIMEOUTS (seconds) ===
     se7_poll_interval: int = 5

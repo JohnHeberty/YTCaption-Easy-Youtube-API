@@ -1,13 +1,13 @@
 """Background worker for processing video jobs."""
 import asyncio
-import logging
+from common.log_utils import get_logger
 import threading
 from typing import Optional
 
 from app.core.models import VideoJob, VideoJobStatus
 from app.infrastructure.redis_store import VideoJobStore
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _worker_thread: Optional[threading.Thread] = None
 _stop_event = threading.Event()
@@ -59,11 +59,10 @@ class VideoWorker:
         self._loop.close()
 
     def _get_next_job(self) -> Optional[VideoJob]:
-        """Get the next queued job from the store."""
-        jobs = self.store.list_jobs()
-        for job_data in jobs:
-            if job_data.get("status") == VideoJobStatus.QUEUED.value:
-                return VideoJob(**job_data)
+        """Get the next queued job from the store (efficient: stops at first match)."""
+        job_data = self.store.get_next_queued_job()
+        if job_data:
+            return VideoJob(**job_data)
         return None
 
     async def _process_job(self, job: VideoJob):

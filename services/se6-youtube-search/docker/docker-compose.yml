@@ -27,7 +27,7 @@ services:
       - "com.example.service=youtube-search"
       - "com.example.version=1.0.0"
     networks:
-      - youtube-search-network
+      - ytcaption-network
 
   celery-worker:
     build:
@@ -55,7 +55,7 @@ services:
       - "com.example.service=youtube-search-worker"
       - "com.example.version=1.0.0"
     networks:
-      - youtube-search-network
+      - ytcaption-network
 
   celery-beat:
     build:
@@ -83,8 +83,8 @@ services:
       - "com.example.service=youtube-search-beat"
       - "com.example.version=1.0.0"
     networks:
-      - youtube-search-network
+      - ytcaption-network
 
 networks:
-  youtube-search-network:
-    driver: bridge
+  ytcaption-network:
+    external: true

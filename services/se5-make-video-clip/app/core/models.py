@@ -26,6 +26,8 @@ class MakeVideoJob(StandardJob):
     subtitle_style: Optional[str] = None
     aspect_ratio: str = "9:16"
     crop_position: str = "center"
+    hook_text: Optional[str] = None
+    burn_subtitles: bool = True
 
     # Video processing stages with detailed tracking
     # Stages are defined in StandardJob.stages dict
@@ -123,6 +125,8 @@ class CreateVideoRequest(BaseModel):
     subtitle_style: SubtitleStyleOption = Field(default=SubtitleStyleOption.DYNAMIC)
     aspect_ratio: AspectRatioOption = Field(default=AspectRatioOption.VERTICAL)
     crop_position: CropPositionOption = Field(default=CropPositionOption.CENTER)
+    hook_text: Optional[str] = Field(default=None, description="Texto do title card (FIX-ERROS Fase 1)")
+    burn_subtitles: bool = Field(default=True, description="Queimar legendas no conteúdo (FIX-ERROS Fase 2)")
 
 
 class DownloadPipelineAcceptedResponse(BaseModel):

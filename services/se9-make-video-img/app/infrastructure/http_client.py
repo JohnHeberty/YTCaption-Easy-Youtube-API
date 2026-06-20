@@ -1,13 +1,13 @@
 """HTTP clients for communicating with SE7 and SE8."""
 import asyncio
-import logging
+from common.log_utils import get_logger
 from typing import Optional
 
 import httpx
 
 from app.core.config import settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ServiceClient:
@@ -64,17 +64,19 @@ class SE7Client(ServiceClient):
         self,
         text: str,
         voice_id: str = "builtin_feminino",
-        exaggeration: float = 0.5,
-        cfg_weight: float = 0.5,
-        temperature: float = 0.8,
+        exaggeration: float = None,
+        cfg_weight: float = None,
+        temperature: float = None,
+        normalize_text: bool = True,
     ) -> str:
         """Create an audio generation job. Returns job_id."""
         data = {
             "text": text,
             "voice_id": voice_id,
-            "exaggeration": str(exaggeration),
-            "cfg_weight": str(cfg_weight),
-            "temperature": str(temperature),
+            "exaggeration": str(exaggeration if exaggeration is not None else settings.tts_exaggeration),
+            "cfg_weight": str(cfg_weight if cfg_weight is not None else settings.tts_cfg_weight),
+            "temperature": str(temperature if temperature is not None else settings.tts_temperature),
+            "normalize_text": str(normalize_text).lower(),
         }
         response = await self._request_with_retry("POST", "/jobs", data=data)
         result = response.json()
@@ -102,7 +104,11 @@ class SE7Client(ServiceClient):
 
 
 class SE8Client(ServiceClient):
-    """Client for SE8 Image Generation service."""
+    """Client for SE8 Image Generation service.
+
+    SE8 returns images synchronously — no job_id, no polling.
+    POST /v1/generation/text-to-image returns a list of image objects.
+    """
 
     def __init__(self):
         super().__init__(
@@ -111,15 +117,15 @@ class SE8Client(ServiceClient):
             timeout=settings.se8_timeout,
         )
 
-    async def create_job(
+    async def generate_image(
         self,
         prompt: str,
         width: int = 1024,
         height: int = 1024,
         steps: int = 30,
         performance: str = "Quality",
-    ) -> str:
-        """Create an image generation job. Returns job_id."""
+    ) -> list[dict]:
+        """Generate image synchronously. Returns list of image dicts with 'url' key."""
         payload = {
             "prompt": prompt,
             "width": width,
@@ -133,25 +139,11 @@ class SE8Client(ServiceClient):
             json=payload,
         )
         result = response.json()
-        return result.get("job_id") or result.get("id")
-
-    async def poll_job(self, job_id: str) -> dict:
-        """Poll job status until completed."""
-        import time
-        start = time.time()
-        while time.time() - start < settings.se8_timeout:
-            response = await self._request_with_retry(
-                "GET",
-                f"/v1/generation/query-job?job_id={job_id}",
-            )
-            data = response.json()
-            status = data.get("status")
-            if status == "completed":
-                return data
-            elif status == "failed":
-                raise Exception(f"SE8 job failed: {data.get('error')}")
-            await asyncio.sleep(settings.se8_poll_interval)
-        raise TimeoutError(f"SE8 job {job_id} timed out after {settings.se8_timeout}s")
+        if not isinstance(result, list):
+            raise ValueError(f"SE8 returned unexpected format: {type(result)}")
+        if len(result) == 0:
+            raise ValueError("SE8 returned empty image list")
+        return result
 
     async def download_image(self, file_path: str) -> bytes:
         """Download generated image by file path (e.g., /files/2026-06-18/image.png)."""

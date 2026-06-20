@@ -4,10 +4,10 @@ Provides call_worker, req_to_params, generate_async_output, and response helpers
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
 import base64
 import io
-import logging
 import os
 import random
 from pathlib import Path
@@ -41,7 +41,7 @@ from app.domain.task_models import (
 )
 import app.services.worker as _worker_mod
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 

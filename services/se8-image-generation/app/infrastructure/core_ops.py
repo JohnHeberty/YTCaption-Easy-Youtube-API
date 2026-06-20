@@ -10,14 +10,14 @@ Design decisions:
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def load_model(ckpt_filename: str, vae_filename: Optional[str] = None):

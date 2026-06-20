@@ -26,7 +26,7 @@ verify_api_key = create_api_key_dependency(api_key=settings.get('api_key'))
 setup_structured_logging(
     service_name="youtube-search",
     log_level=settings["log_level"],
-    log_dir=settings.get("log_dir", "./logs"),
+    log_dir=settings.get("log_dir", "./data/logs"),
     json_format=True,
 )
 logger = get_logger(__name__)
@@ -86,7 +86,7 @@ async def health_check():
     health_status = {
         "status": "healthy",
         "service": "youtube-search",
-        "version": settings["version"],
+        "version": settings.app_version,
         "timestamp": now_brazil().isoformat(),
         "checks": {},
     }
@@ -175,7 +175,7 @@ async def root():
     """Root endpoint."""
     return {
         "service": "YouTube Search Service",
-        "version": settings["version"],
+        "version": settings.app_version,
         "status": "running",
         "endpoints": {
             "health": "/health (GET) - Health check",

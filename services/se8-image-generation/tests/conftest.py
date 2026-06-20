@@ -7,7 +7,7 @@ os.environ["CELERY_BROKER_URL"] = "redis://localhost:6379/9"
 os.environ["CELERY_RESULT_BACKEND"] = "redis://localhost:6379/9"
 os.environ["APP_NAME"] = "SE8 Image Engine"
 os.environ["ENVIRONMENT"] = "development"
-os.environ["OUTPUT_DIR"] = "/tmp/se9-test-outputs"
+os.environ["OUTPUT_DIR"] = "/tmp/se8-test-outputs"
 os.environ["GPU_MODE"] = "lazy"
 os.environ["MODEL_IDLE_TIMEOUT"] = "300"
 

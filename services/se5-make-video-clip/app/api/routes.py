@@ -196,6 +196,14 @@ async def create_video(
         description="Posição do crop no frame: center, top ou bottom.",
         examples=["center", "top", "bottom"],
     ),
+    hook_text: Optional[str] = Form(
+        None,
+        description="Texto do title card (FIX-ERROS Fase 1). Se definido, cria title card de 0.2s.",
+    ),
+    burn_subtitles: bool = Form(
+        True,
+        description="Queimar legendas no conteúdo (FIX-ERROS Fase 2). False = sem legendas.",
+    ),
     store: RedisJobStore = Depends(get_redis_store_override),
     job_mgr: JobManager = Depends(get_job_manager_override),
     cache_mgr: CacheManager = Depends(get_cache_manager_override),
@@ -280,6 +288,8 @@ async def create_video(
             subtitle_style=subtitle_style,
             aspect_ratio=aspect_ratio,
             crop_position=crop_position,
+            hook_text=hook_text,
+            burn_subtitles=burn_subtitles,
         )
         job.id = job_id
         store.save_job(job)

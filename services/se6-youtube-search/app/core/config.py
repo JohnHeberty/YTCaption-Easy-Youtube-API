@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from pydantic import Field, field_validator
 
@@ -36,7 +36,7 @@ class ServiceSettings(BaseServiceSettings):
     rate_limit_period: int = Field(default=60, env="RATE_LIMIT_PERIOD")
 
     # Logging
-    log_dir: str = "./logs"
+    log_dir: str = "./data/logs"
 
     # Timeouts
     async_timeout_seconds: int = Field(default=120, env="ASYNC_TIMEOUT_SECONDS")
@@ -66,69 +66,15 @@ class ServiceSettings(BaseServiceSettings):
 _core = ServiceSettings()
 
 
-def _build_legacy_dict(s: ServiceSettings) -> Dict[str, Any]:
-    """Build backward-compatible dict with nested structures for callers
-    that use settings['youtube']['key'] style."""
-    return {
-        'app_name': s.app_name,
-        'version': s.app_version,
-        'environment': s.environment,
-        'debug': s.debug,
-        'host': s.host,
-        'port': s.port,
-        'api_key': s.api_key,
-        'redis_url': s.redis_url,
-        'celery': {
-            'broker_url': s.celery_broker_url or s.redis_url,
-            'result_backend': s.celery_result_backend or s.redis_url,
-            'task_serializer': 'json',
-            'result_serializer': 'json',
-            'accept_content': ['json'],
-            'timezone': s.tz,
-            'enable_utc': False,
-            'task_track_started': True,
-            'task_time_limit': s.celery_task_time_limit,
-            'task_soft_time_limit': s.celery_task_soft_time_limit,
-            'worker_prefetch_multiplier': 1,
-            'worker_max_tasks_per_child': 100,
-        },
-        'cache_ttl_hours': s.cache_ttl_hours,
-        'cache_cleanup_interval_minutes': s.cache_cleanup_interval_minutes,
-        'cache_max_size_mb': s.cache_max_size_mb,
-        'youtube': {
-            'default_timeout': s.youtube_default_timeout,
-            'max_results': s.youtube_max_results,
-            'max_videos_per_channel': s.youtube_max_videos_per_channel,
-            'innertube_api_key': s.youtube_innertube_api_key,
-        },
-        'rate_limit': {
-            'enabled': s.rate_limit_enabled,
-            'requests_per_minute': s.rate_limit_requests,
-            'period_seconds': s.rate_limit_period,
-        },
-        'timeouts': {
-            'async_timeout_sec': s.async_timeout_seconds,
-            'job_processing_timeout_sec': s.job_processing_timeout_seconds,
-            'poll_interval_sec': s.poll_interval_seconds,
-        },
-        'log_level': s.log_level,
-        'log_format': 'json',
-        'log_dir': s.log_dir,
-        'cors': {
-            'enabled': True,
-            'origins': ['*'],
-            'credentials': True,
-            'methods': ['*'],
-            'headers': ['*'],
-        },
-        'health_check': {
-            'enabled': True,
-            'interval_seconds': 30,
-        },
-    }
-
-
 @lru_cache(maxsize=1)
-def get_settings() -> Dict[str, Any]:
-    """Returns backward-compatible dict with nested structures."""
-    return _build_legacy_dict(_core)
+def get_settings() -> ServiceSettings:
+    """Returns the typed Pydantic settings instance."""
+    return _core
+
+
+def validate_settings() -> bool:
+    """Validate that settings loaded correctly. Returns True if OK."""
+    s = get_settings()
+    assert s.port > 0
+    assert s.app_name
+    return True

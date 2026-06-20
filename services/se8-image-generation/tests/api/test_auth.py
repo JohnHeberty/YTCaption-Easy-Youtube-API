@@ -6,7 +6,7 @@ from app.main import settings as _main_settings
 
 class TestAuthMiddleware:
     def test_no_key_configured_allows_all(self, client):
-        with patch.object(_main_settings, "se9_api_key", None):
+        with patch.object(_main_settings, "se8_api_key", None):
             resp = client.get("/v1/engines/styles")
         assert resp.status_code == 200
 

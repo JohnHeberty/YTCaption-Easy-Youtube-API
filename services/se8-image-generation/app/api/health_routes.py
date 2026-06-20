@@ -1,15 +1,15 @@
 """Health and utility routes for SE8 Image Engine."""
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from typing import Optional
 
 from fastapi import APIRouter, Response
 
 from app.core.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 settings = get_settings()
 
 router = APIRouter(tags=["Health"])

@@ -2,6 +2,7 @@ from functools import lru_cache
 import os
 
 from common.di import Dep
+from common.redis_utils.resilient_store import ResilientRedisStore
 
 from app.core.config import get_settings
 from app.domain.interfaces import IJobStore, IVoiceStore, IModelManager, ITTSGenerator
@@ -12,21 +13,24 @@ def get_settings_dep():
 
 
 @lru_cache(maxsize=1)
+def get_redis_store() -> ResilientRedisStore:
+    settings = get_settings()
+    redis_url = os.getenv("REDIS_URL", settings.redis_url)
+    return ResilientRedisStore(redis_url=redis_url)
+
+
+@lru_cache(maxsize=1)
 def get_job_store() -> IJobStore:
     from app.infrastructure.redis_store import JobRedisStore
 
-    settings = get_settings()
-    redis_url = os.getenv("REDIS_URL", settings.redis_url)
-    return JobRedisStore(redis_url=redis_url)
+    return JobRedisStore(redis_store=get_redis_store())
 
 
 @lru_cache(maxsize=1)
 def get_voice_store() -> IVoiceStore:
     from app.infrastructure.redis_store import VoiceRedisStore
 
-    settings = get_settings()
-    redis_url = os.getenv("REDIS_URL", settings.redis_url)
-    return VoiceRedisStore(redis_url=redis_url)
+    return VoiceRedisStore(redis_store=get_redis_store())
 
 
 @lru_cache(maxsize=1)
@@ -61,6 +65,7 @@ def get_voice_manager():
     )
 
 
+redis_store = Dep(get_redis_store)
 job_store = Dep(get_job_store)
 voice_store = Dep(get_voice_store)
 model_manager = Dep(get_model_manager)

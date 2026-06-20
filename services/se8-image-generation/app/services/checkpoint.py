@@ -7,12 +7,12 @@ Lazy imports from ldm_patched are used to avoid import-time side effects.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Lazy imports — resolved on first use
 _ldm_modules = None

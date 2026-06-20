@@ -1,12 +1,12 @@
 """ESRGAN upscaler — lazy-loaded 4x super-resolution."""
 import collections
-import logging
+from common.log_utils import get_logger
 from typing import Optional
 
 import numpy as np
 import torch
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _model = None
 

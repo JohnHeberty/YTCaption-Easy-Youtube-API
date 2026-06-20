@@ -1,0 +1,31 @@
+services:
+  se11:
+    build:
+      context: ../../..
+      dockerfile: services/se11-clothes-removal/docker/Dockerfile
+    container_name: se11-clothes-removal
+    ports:
+      - "${HOST_PORT:-8011}:${CONTAINER_PORT:-8011}"
+    env_file:
+      - ../.env
+    volumes:
+      - ../data/outputs:/app/data/outputs
+      - ../data/logs:/app/data/logs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ytcaption-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${CONTAINER_PORT:-8011}/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  ytcaption-network:
+    external: true

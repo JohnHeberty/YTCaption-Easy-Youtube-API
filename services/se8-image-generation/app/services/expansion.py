@@ -2,8 +2,8 @@
 
 License: Algorithm by Lvmin Zhang at Stanford, 2023. CC-By NC 4.0 for external use.
 """
-import logging
 import math
+from common.log_utils import get_logger
 import os
 import re
 from typing import Optional
@@ -11,7 +11,7 @@ from typing import Optional
 import numpy as np
 import torch
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 SEED_LIMIT_NUMPY = 2 ** 32
 NEG_INF = -8192.0

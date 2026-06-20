@@ -76,7 +76,7 @@ async def _perform_basic_cleanup(store: RedisJobStore):
     report = {"jobs_removed": 0, "errors": []}
 
     try:
-        expired_count = await store.cleanup_expired()
+        expired_count = store.cleanup_expired()
         report["jobs_removed"] = expired_count
         report["message"] = (
             f"🧹 Basic cleanup completed: {expired_count} expired jobs removed"
@@ -88,6 +88,7 @@ async def _perform_basic_cleanup(store: RedisJobStore):
     except Exception as exc:
         logger.error(f"❌ Error in basic cleanup: {exc}")
         report["errors"].append(str(exc))
+        report["message"] = f"❌ Basic cleanup failed: {str(exc)}"
         return report
 
 async def _perform_total_cleanup(store: RedisJobStore, purge_celery_queue: bool = False):
@@ -125,6 +126,7 @@ async def _perform_total_cleanup(store: RedisJobStore, purge_celery_queue: bool 
     except Exception as exc:
         logger.error(f"❌ Error in total cleanup: {exc}")
         report["errors"].append(str(exc))
+        report["message"] = f"❌ Total cleanup failed: {str(exc)}"
         return report
 
 async def _cleanup_redis(store: RedisJobStore, report: dict) -> None:

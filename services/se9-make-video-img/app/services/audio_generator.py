@@ -1,6 +1,6 @@
 """Audio generation service using SE7."""
-import logging
 import os
+from common.log_utils import get_logger
 import re
 from typing import Optional
 
@@ -8,7 +8,7 @@ from app.core.constants import CHATTERBOX_MAX_CHARS
 from app.core.models import NarrationSegment
 from app.infrastructure.http_client import SE7Client
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AudioGenerator:
@@ -73,6 +73,7 @@ class AudioGenerator:
         narration: list[NarrationSegment],
         voice_id: str = "builtin_feminino",
         output_dir: str = "/tmp",
+        normalize_text: bool = True,
     ) -> tuple[str, float]:
         """Generate audio from narration. Returns (audio_path, duration_seconds)."""
         full_text = self._concatenate_narration(narration)
@@ -81,7 +82,7 @@ class AudioGenerator:
         logger.info(f"Audio generation: {len(chunks)} chunk(s), {len(full_text)} chars total")
 
         if len(chunks) == 1:
-            audio_bytes = await self._generate_single(chunks[0], voice_id)
+            audio_bytes = await self._generate_single(chunks[0], voice_id, normalize_text)
             audio_path = os.path.join(output_dir, "audio.wav")
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
@@ -89,7 +90,7 @@ class AudioGenerator:
             chunk_paths = []
             for i, chunk in enumerate(chunks):
                 logger.info(f"Generating chunk {i + 1}/{len(chunks)}")
-                audio_bytes = await self._generate_single(chunk, voice_id)
+                audio_bytes = await self._generate_single(chunk, voice_id, normalize_text)
                 chunk_path = os.path.join(output_dir, f"audio_chunk_{i}.wav")
                 with open(chunk_path, "wb") as f:
                     f.write(audio_bytes)
@@ -107,9 +108,9 @@ class AudioGenerator:
         logger.info(f"Audio generated: {audio_path} ({duration:.1f}s)")
         return audio_path, duration
 
-    async def _generate_single(self, text: str, voice_id: str) -> bytes:
+    async def _generate_single(self, text: str, voice_id: str, normalize_text: bool = True) -> bytes:
         """Generate audio for a single text chunk."""
-        job_id = await self.client.create_job(text=text, voice_id=voice_id)
+        job_id = await self.client.create_job(text=text, voice_id=voice_id, normalize_text=normalize_text)
         await self.client.poll_job(job_id)
         return await self.client.download_audio(job_id)
 

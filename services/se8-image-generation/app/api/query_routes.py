@@ -4,8 +4,8 @@ Handles job status queries, queue info, history, and outputs listing.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import os
 from typing import Optional
 
@@ -21,7 +21,7 @@ from app.domain.models import (
 from app.domain.task_models import TaskType
 import app.services.worker as _worker_mod
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 
@@ -66,10 +66,8 @@ def job_history(
 ):
     """Query historical job data."""
     if delete and job_id:
-        task = _worker_mod.worker_queue.get_task(job_id, include_history=True)
-        if task and task in _worker_mod.worker_queue.history:
-            _worker_mod.worker_queue.history.remove(task)
-            _worker_mod.worker_queue._cleanup_output_files(task)
+        result = _worker_mod.worker_queue.get_history(job_id=job_id, delete=True)
+        if "deleted" in result:
             return Response(
                 content='{"message": "Deleted"}',
                 media_type="application/json",

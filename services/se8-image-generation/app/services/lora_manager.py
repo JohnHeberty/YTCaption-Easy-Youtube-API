@@ -10,12 +10,12 @@ Design decisions:
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict, Dict]:

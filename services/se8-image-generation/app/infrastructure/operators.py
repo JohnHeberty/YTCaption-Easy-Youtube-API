@@ -11,11 +11,11 @@ Design decisions:
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from typing import Any, Dict, Optional, Tuple
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class EmptyLatentImage:

@@ -4,8 +4,8 @@ Provides image description and mask generation.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from typing import Optional
 
 from fastapi import APIRouter, File, Query, UploadFile
@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, Query, UploadFile
 from app.api.image_utils import ndarray_to_base64png, read_input_image
 from app.domain.models import DescribeImageResponse, GenerateMaskRequest
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["Tools"])
 

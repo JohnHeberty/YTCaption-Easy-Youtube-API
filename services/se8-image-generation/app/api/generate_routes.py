@@ -4,8 +4,8 @@ V1 accepts multipart/form-data or JSON body for image inputs.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, File, Header, Query, Request, UploadFile
@@ -20,7 +20,7 @@ from app.domain.models import (
     TextToImageRequest,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/generation", tags=["GenerateV1"])
 

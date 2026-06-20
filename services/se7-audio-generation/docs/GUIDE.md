@@ -215,6 +215,42 @@ ffmpeg -i input.wav -af "loudnorm=I=-16:TP=-1.5:LRA=11" output_normalized.wav
 
 ---
 
+## LIMITACOES CONHECIDAS
+
+### 1. Pronuncia de caracteres acentuados (ç, ã, é, ó, á, ê, ô, õ)
+
+**Problema:** O modelo Chatterbox pode pronunciar caracteres acentuados incorretamente.
+Exemplo: "você" pode ser pronunciado como "voce" (sem o som de 'ç' = 's').
+
+**Causa raiz:** O vocabulario BPE do modelo tem 265 regras de merge, todas baseadas em
+padroes ingleses. Caracteres acentuados portugueses sao sempre tokenizados como
+tokens unigram isolados, sem contexto subword. O modelo nao aprendeu a pronunciar
+acentos corretamente quando aparecem como tokens isolados.
+
+**Caracteres afetados:** ç, ã, é, ó, á, ê, ô,õ, ú, í, â (e suas versoes maiusculas)
+
+**Workaround:** Pre-processar o texto no n8n ou no payload antes de enviar ao SE7:
+- "você" → "voce" (remove acento, modelo pronuncia aceitavelmente)
+- "lição" → "licao" (remove tilde)
+- "não" → "nao" (remove tilde)
+
+**Nao e um bug do SE7:** O texto com acentos chega intacto ao modelo Chatterbox.
+A perda de pronuncia acontece dentro do proprio modelo (interno ao Chatterbox).
+
+### 2. Velocidade de geracao (CPU)
+
+Em CPU, o modelo Chatterbox leva ~5 minutos para gerar 60 segundos de audio.
+Em GPU (RTX 3090), cai para ~30 segundos. Se o servico estiver rodando em CPU,
+considere ativar GPU via `DEVICE=auto` no .env.
+
+### 3. Tamanho maximo de texto
+
+O Chatterbox tem limite interno de ~5000 caracteres por requisicao.
+O SE7 faz chunking automatico (divide em paragrafos/frases), mas textos
+muito longos podem gerar artefatos ou cortes no audio.
+
+---
+
 ## REFERENCIAS
 
 - ResembleAI Chatterbox Docs: https://github.com/resemble-ai/chatterbox

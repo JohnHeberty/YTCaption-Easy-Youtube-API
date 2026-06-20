@@ -65,10 +65,10 @@ class FileConstants:
     """Constantes relacionadas a arquivos."""
 
     # Diretórios padrão
-    DEFAULT_UPLOAD_DIR: Path = Path("./uploads")
-    DEFAULT_PROCESSED_DIR: Path = Path("./processed")
-    DEFAULT_TEMP_DIR: Path = Path("./temp")
-    DEFAULT_LOG_DIR: Path = Path("./logs")
+    DEFAULT_UPLOAD_DIR: Path = Path("./data/uploads")
+    DEFAULT_PROCESSED_DIR: Path = Path("./data/processed")
+    DEFAULT_TEMP_DIR: Path = Path("./data/temp")
+    DEFAULT_LOG_DIR: Path = Path("./data/logs")
 
     # Tamanhos
     DEFAULT_MAX_FILE_SIZE_MB: int = 2048

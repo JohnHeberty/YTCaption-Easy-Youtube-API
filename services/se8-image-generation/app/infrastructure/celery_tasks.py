@@ -4,14 +4,14 @@ The GPU worker runs directly inside this process.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import time
 from typing import Any, Dict, Optional
 
 from app.infrastructure.celery_config import celery_app
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _init_worker():

@@ -4,16 +4,16 @@ Provides model listing, styles, and VRAM cleanup.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
 import gc
-import logging
 from typing import List
 
 from fastapi import APIRouter
 
 from app.domain.models import AllModelNamesResponse
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/engines", tags=["Engines"])
 

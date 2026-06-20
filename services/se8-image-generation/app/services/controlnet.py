@@ -2,15 +2,15 @@
 
 Supports: ControlNet, ControlLora, T2I-Adapter, linked-list chaining.
 """
-import logging
 import math
+from common.log_utils import get_logger
 import os
 from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def broadcast_image_to(

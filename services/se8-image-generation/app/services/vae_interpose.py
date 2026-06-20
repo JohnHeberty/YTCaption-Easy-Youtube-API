@@ -1,12 +1,12 @@
 """VAE Interpose — latent space translation for SDXL→SD1 refiner swap."""
-import logging
 import os
+from common.log_utils import get_logger
 from typing import Optional
 
 import torch
 import torch.nn as nn
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 vae_approx_model = None
 vae_approx_filename = None

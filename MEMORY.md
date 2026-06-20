@@ -1,105 +1,114 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-06-18)
-- **SE8 IMAGE ENGINE COMPLETO** — 100% E2E validado com GPU real (RTX 3090)
-- **10/10 rotas de geração SUCCESS** — text-to-image, upscale, inpaint, image-prompt, enhance (V1+V2)
-- **25/25 rotas respondendo** — health, engines, generation, query, tools, files, auth
-- **104 testes pytest** — 103 passing, 1 deselected (pre-existing webp content-type test)
-- **FOOOCUS completamente isolado** — 227 arquivos vendored (ldm_patched, modules, extras, sdxl_styles)
-- **SE8 antigo (proxy) removido** — SE9 renomeado para SE8
-- **Docker GPU funcional** — nvidia/cuda:12.1.1, torch 2.1.0+cu121, RTX 3090 24GB
+## Última sessão (2026-06-19)
+- **SE11 Clothes Removal** — criado do zero (23 arquivos), 11 testes passando
+- **SE10 Masks** — modificado para retornar masks binárias (3 arquivos alterados)
+- **FIX-2 arquivado** — concat SIGKILL fix + INVESTIGACAO.md restaurado
+- **Root docs limpos** — apenas AGENTS.md, INVESTIGATION.md, MEMORY.md, README.md, SE9-UP.md
 
 ## Serviços Ativos
 
 | Service | Port | Status | Description |
 |---|---|---|---|
-| se1-audio-transcription | 8001 | ✅ Healthy | Whisper transcription |
-| se2-video-processor | 8002 | ✅ Healthy | Video processing |
-| se3-video-editor | 8003 | ✅ Healthy | Video editing (GPU) |
-| se4-face-recognition | 8004 | ✅ Healthy | Face recognition (GPU) |
-| se5-image-generation | 8005 | ✅ Healthy | Image generation (GPU) |
-| se6-notification | 8006 | ✅ Healthy | Push notifications |
-| se7-audio-generation | 8007 | ✅ Healthy | TTS/STT (GPU) |
-| se8-image-generation | 8008 | ✅ Healthy | Image engine (GPU, FOOOCUS rewrite) |
+| se1-orchestrator | 8001 | ✅ Healthy | Pipeline orchestrator |
+| se2-video-downloader | 8002 | ✅ Healthy | Video download |
+| se3-audio-normalization | 8003 | ✅ Healthy | Audio normalization |
+| se4-audio-transcriber | 8004 | ✅ Healthy | Whisper transcription |
+| se5-video-clip | 8005 | ✅ Healthy | Video clip generation |
+| se6-youtube-search | 8006 | ✅ Healthy | YouTube search |
+| se7-audio-generation | 8007 | ✅ Healthy | TTS Chatterbox (GPU) |
+| se8-image-generation | 8008 | ✅ Healthy | Fooocus SDXL (GPU) |
+| se9-make-video-img | 8009 | ✅ Healthy | Ken Burns video builder |
+| se10-clothes-segmentation | 8010 | ⛔ Not deployed | GroundingDINO+SAM2 (sem external/) |
+| se11-clothes-removal | 8011 | ✅ Local tested | SE10→SE8 pipeline (nova impl) |
 
-## SE8 — Arquitetura Atual
+## SE11 — Clothes Removal Service (NOVO)
 
-1 container unificado (GPU+API):
-- `image-engine` (port 8008) — FastAPI + in-memory worker thread + GPU pipeline
-- FOOOCUS dependencies vendored em `ldm_patched/`, `modules/`, `extras/`, `sdxl_styles/`
-- Zero dependência externa do repositório FOOOCUS
+### Arquitetura
+Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union OpenCV) → SE8 (Fooocus inpaint) → resultado
 
-### Rotas SE8 (25 total)
-**Health (4)**: /, /ping, /health, /health/deep
-**Engines (4)**: all-models, styles, styles-detail, clean_vram
-**V1 Generation (5)**: text-to-image, image-upscale-vary, image-inpaint-outpaint, image-prompt, image-enhance
-**V2 Generation (5)**: text-to-image-with-ip, image-upscale-vary, image-inpaint-outpaint, image-prompt, image-enhance
-**Query (4)**: query-job, job-queue, job-history, outputs
-**Tools (2)**: describe-image, generate_mask
-**Files (1)**: /files/{date}/{file_name}
-**Missing**: POST /v1/generation/stop (FOOOCUS tem, SE8 não)
+### Arquivos (23)
+```
+services/se11-clothes-removal/
+├── app/main.py, worker.py, run.py
+├── app/core/config.py, constants.py, models.py
+├── app/api/routes.py, health_routes.py, download_routes.py, admin_routes.py
+├── app/services/pipeline.py
+├── app/infrastructure/redis_store.py, http_client.py
+├── docker/Dockerfile, docker-compose.yml
+├── tests/conftest.py, tests/unit/test_pipeline.py
+├── .env, .env.example, requirements.txt, .gitignore, Makefile
+```
 
-### Arquivos-chave SE8
-- `app/main.py` — FastAPI app com 7 routers, worker thread no lifespan
-- `app/domain/models.py` — Pydantic V1+V2+Tools models
-- `app/services/pipeline.py` — Pipeline de geração (817 linhas)
-- `app/services/worker.py` — Worker loop + process_generate (664 linhas)
-- `app/services/model_manager.py` — GPU/VRAM management (793 linhas)
-- `app/services/checkpoint.py` — Model loading (476 linhas)
-- `app/api/api_utils.py` — call_worker, req_to_params (385 linhas)
-- `docker/Dockerfile.gpu-api` — Container unificado GPU+API
-- `docker/docker-compose.gpu.yml` — Docker compose com GPU mounts
+### Endpoints SE11
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | /jobs | ✅ | Criar job (image base64) |
+| GET | /jobs | ✅ | Listar jobs |
+| GET | /jobs/{id} | ✅ | Status do job |
+| DELETE | /jobs/{id} | ✅ | Deletar job |
+| GET | /jobs/{id}/download | ✅ | Download resultado |
+| GET | /health | ❌ | Health check |
+| GET | /health/deep | ❌ | Deep health (SE10+SE8) |
+| GET | /ping | ❌ | Pong |
+| GET | /admin/stats | ✅ | Estatísticas |
+| POST | /admin/cleanup | ✅ | Cleanup |
 
-### Config SE8
+### Validação SE11
+- ✅ 11/11 testes unitários passando
+- ✅ Todos os módulos py_compile OK
+- ✅ API server inicia, health/ping respondem
+- ✅ Deep health detecta SE8=ok, SE10=unreachable
+- ✅ Job creation funciona (falha esperada no SE10 por indisponibilidade)
+- ✅ Admin stats e list funcionam
+
+### Bloqueio SE11 E2E
+- SE10 não deployável — diretórios `external/GroundingDINO/` e `external/segment-anything-2/` não existem no repo
+- Docker build falha: `COPY external/` → not found
+- **Para E2E completo:** clonar repos ML + baixar checkpoints
+
+## SE10 — Modificações para Masks (2026-06-19)
+
+### Arquivos alterados (3)
+1. `app/domain/models.py` — `masks: Optional[List[str]]` em SegmentResult
+2. `app/services/segmentor.py` — encoding binário SAM2 masks → base64 PNG
+3. `app/api/routes.py` — passa masks do segmentor para response
+
+### docker-compose.yml corrigido
+- Context corrigido para `../../..` (monorepo root)
+- Volumes corrigidos
+- `extra_hosts` adicionado para host.docker.internal
+- `version: "3.8"` removido (deprecated)
+
+## SE9 — Make Video IMG (2026-06-19)
+
+### FIX-2 validado e arquivado
+- `concat_simple()` implementado em `ffmpeg_utils.py:303` — resolve SIGKILL com >8 segmentos
+- `video_assembler.py` usa concat_simple quando >8 segmentos, xfade quando ≤8
+- 27/27 testes passando
+- E2E validado com script 100 (17 narrações, 12 segmentos)
+
+## SE8 — Image Engine
+
+### Config
 - Port: 8008, API Key: se8-test-key-2026
-- Redis DB=8, GPU_MODE=lazy
-- MODEL_DIR: ./data/models, OUTPUT_DIR: ./data/outputs
-- Container: appuser (uid=1000), python3.11, torch 2.1.0+cu121
+- Container unificado GPU+API com Fooocus vendored
+- Docker: `image-engine` container, nvidia/cuda:12.1.1, torch 2.1.0+cu121
 
-## Bugs Corrigidos nesta Sessão
-1. `ldm_patched/modules/model_sampling.py` — torch.cumprod() numpy compat (torch.tensor wrapper)
-2. `app/services/pipeline.py` — VAE name "Automatic" treated as filename
-3. `app/services/pipeline.py` — patch_settings[pid] KeyError (2 locations)
-4. `app/infrastructure/core_ops.py` — VAEApprox not inheriting torch.nn.Module
-5. `app/api/tools_routes.py` — fooocusapi import replaced with inline helpers
+### Rotas SE8 (25)
+Health(4) + Engines(4) + V1 Gen(5) + V2 Gen(5) + Query(4) + Tools(2) + Files(1)
 
-## Decisões de Arquitetura
-- SE8 antigo (proxy) foi removido — SE9 renomeado para SE8
-- Container unificado (API+worker no mesmo container, thread-based)
-- FOOOCUS 100% vendored — ldm_patched, modules, extras, sdxl_styles copiados para dentro do SE8
-- modules/config.py paths adaptados de `../models/` para `../data/models/`
-- GPU via manual device/lib mounts (nvidia-container-toolkit 1.18.2 tem bug com driver 590)
+## Docs Arquivados (2026-06-19)
+```
+docs/archive/se9-make-video-img/
+├── FIX-ERROS-2026-06-19.md
+├── FIX-2-2026-06-19.md
+├── INVESTIGACAO-v4.1.md
+└── VALID-2026-06-17.md
+```
 
-## SE8 Memory Fix (mimalloc + os.execv)
-
-### Problema
-Container consumia 14 GB RAM idle (70% de 20GB) — PyTorch C++ allocator mantinha mmap'd pages após unload de modelos, nunca chamava munmap().
-
-### Solução implementada
-1. **mimalloc allocator** — substitui glibc malloc, retorna memória freed ao OS via madvise(MADV_DONTNEED)
-   - `Dockerfile.gpu-api`: libmimalloc2.0 + LD_PRELOAD + MIMALLOC_PURGE_DELAY=0
-   - `docker-compose.gpu.yml`: LD_PRELOAD + MIMALLOC_PURGE_DELAY env vars
-2. **os.execv restart** — `/cleanup` endpoint (models_routes.py:86-130) faz unload_all + gc.collect + os.execv() para reiniciar o processo
-3. **Auto-restart idle** — worker.py:634-675, `SE8_AUTO_RESTART_IDLE=300` (5 min idle → auto cleanup)
-4. **Post-generation GC** — worker.py:622-624, gc.collect() após clear_caches()
-
-### Resultado validado E2E
-| Estado | Docker MEM | PID 1 RSS | Notes |
-|---|---|---|---|
-| Idle (fresh) | 81 MB (0.40%) | 0.07 GB | ✅ mimalloc working |
-| Durante geração | 7.66 GB (38%) | 7.67 GB | Modelo carregado (6.6GB) + overhead |
-| Post-cleanup | 429 MB (2.10%) | 0.07 GB | ✅ os.execv libera tudo |
-
-### Arquivos modificados
-1. `docker/Dockerfile.gpu-api` — libmimalloc2.0, LD_PRELOAD, MIMALLOC_PURGE_DELAY
-2. `docker/docker-compose.gpu.yml` — LD_PRELOAD, MIMALLOC_PURGE_DELAY, SE8_AUTO_RESTART_IDLE=300
-3. `app/services/worker.py` — gc.collect() pós-geração + auto-restart idle
-4. `app/api/models_routes.py` — /cleanup com os.execv restart
-
-## Riscos
-- GPU devices montados manualmente no docker-compose (não usa nvidia-ctk)
-- transformsers 5.x incompatível — fixado com 4.37.2
-- numpy 2.x incompatível com torch 2.1 — fixado com <2
-- GPG keys expired no base image ubuntu — usa --allow-insecure-repositories
-- Docker cgroup pode reportar mais que PID RSS (GPU driver memory)
-- os.execv() reinicia todo o processo — ~3s downtime no /cleanup
+## Próximos Passos
+1. **SE10 deploy** — clonar GroundingDINO + SAM2, baixar checkpoints, buildar Docker
+2. **SE11 E2E** — testar pipeline completo SE10→SE8 com imagem real
+3. **SE11 Docker** — buildar e deployar com compose
+4. **Integração** — conectar SE11 ao SE1 ou APIs externas

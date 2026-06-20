@@ -256,7 +256,7 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
             else:
                 logger.info("✓ Downloads: nenhum arquivo encontrado")
 
-        temp_dir = Path("./temp")
+        temp_dir = Path("./data/temp")
         if temp_dir.exists():
             deleted_count = 0
             for file_path in temp_dir.iterdir():

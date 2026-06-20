@@ -158,6 +158,28 @@ Toda alteração deve ser validada quando possível. Preferência:
 5. Verificação manual descrita
 ```
 
+### 8.1 Regra: SEMPRE usar testes reais com dados dos fixtures
+
+**OBRIGATÓRIO para qualquer serviço que tenha dados de teste reais (CSV, fixtures, mocks representativos):**
+
+- **NUNCA** testar com payloads sintéticos fictícios quando existem fixtures reais
+- **SEMPRE** usar `tests/fixtures/` ou `tests/fixtures_loader.py` para gerar payloads
+- **SEMPRE** rodar o teste real (POST /jobs ou equivalente) com os dados dos fixtures
+- **SEMPRE** validar o output final (ffprobe, download, etc.)
+- Se o serviço não tem fixtures reais, usar o payload mais próximo do caso de uso real
+
+**Exemplo SE9:**
+```bash
+# CORRETO — payload real do CSV:
+python3 -c "from tests.fixtures_loader import load_all_scripts, build_request; ..."
+curl -X POST http://localhost:8009/jobs -d @payload_real.json
+
+# ERRADO — payload sintético:
+curl -X POST http://localhost:8009/jobs -d '{"post_id":"test","hook":"teste",...}'
+```
+
+**Justificativa:** Testes sintéticos não revelam bugs reais (timestamps que excedem duração do áudio, cenas com 0s, prompts que quebram o SE8, etc.).
+
 Rodar sempre no **subprojeto correto**. Nunca dizer "testado" sem teste real.
 
 ## 9. Memória Operacional
@@ -169,6 +191,19 @@ Usar para salvar: estado atual, progresso factual, decisões de arquitetura, arq
 Não salvar: logs temporários, outputs longos, tentativas descartadas, discussões conversacionais, código completo.
 
 ## 10. Resposta Final Obrigatória
+
+### Regra: SEMPRE path completo
+Ao mencionar qualquer arquivo, vídeo, output ou diretório, SEMPRE usar o path ABSOLUTO completo. Nunca usar caminhos relativos ou abbreviados. O usuário não deve precisar pedir o path completo.
+
+```python
+# ERRADO:
+"Vídeo em /tmp/se9_test.mp4"
+"Copiado para output/"
+
+# CORRETO:
+"Vídeo: /root/YTCaption-Easy-Youtube-API/services/se9-make-video-img/data/outputs/rbg_xxx/rbg_xxx_final.mp4"
+"Copiado para: /tmp/se9_test.mp4"
+```
 
 ### Com arquivos alterados
 ```

@@ -147,7 +147,7 @@ class CleanupService:
 
     async def _cleanup_expired_jobs(self) -> int:
         """Remove jobs expirados do Redis."""
-        return await self.job_store.cleanup_expired()
+        return self.job_store.cleanup_expired()
 
     async def _cleanup_orphaned_files(self, dir_path: Path) -> tuple:
         """

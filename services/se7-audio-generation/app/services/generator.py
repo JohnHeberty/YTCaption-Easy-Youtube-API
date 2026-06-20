@@ -15,6 +15,7 @@ from app.domain.models import AudioGenerationJob
 from app.domain.interfaces import IModelManager, IJobStore, ITTSGenerator
 from app.domain.exceptions import AudioGenerationException, TextValidationError
 from app.services.audio_utils import chunk_text, assemble_audio
+from app.services.pt_br_normalizer import normalize_pt_br
 
 logger = get_logger(__name__)
 
@@ -41,6 +42,10 @@ class TTSGenerator(ITTSGenerator):
         self, job: AudioGenerationJob, audio_prompt_path: Optional[str] = None
     ) -> AudioGenerationJob:
         text = job.input_text.strip()
+
+        if job.normalize_text:
+            text = normalize_pt_br(text)
+            logger.info("Text normalized for job %s", job.id)
 
         try:
             self._validate_text(text)

@@ -1,9 +1,7 @@
-"""Unit tests for video assembler SRT generation."""
-import os
-import tempfile
+"""Unit tests for video assembler scene duration calculation."""
 import pytest
 from app.services.video_assembler import VideoAssembler
-from app.core.models import OnScreenText
+from app.core.models import NarrationSegment
 
 
 @pytest.fixture
@@ -11,44 +9,28 @@ def assembler():
     return VideoAssembler()
 
 
-def test_format_srt_time(assembler):
-    assert assembler._format_srt_time(0) == "00:00:00,000"
-    assert assembler._format_srt_time(65.5) == "00:01:05,500"
-    assert assembler._format_srt_time(3661.123) == "01:01:01,123"
+def test_calculate_scene_durations_equal_split(assembler):
+    """Audio divided equally among requested scenes."""
+    durations = assembler._calculate_scene_durations(audio_duration=30.0, num_scenes_needed=6)
+    assert len(durations) == 6
+    assert sum(durations) == pytest.approx(30.0, abs=0.01)
 
 
-def test_generate_srt(assembler):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        srt_path = os.path.join(tmpdir, "test.srt")
-        on_screen_text = [
-            OnScreenText(t=0, text="First subtitle"),
-            OnScreenText(t=5, text="Second subtitle"),
-        ]
-        assembler._generate_srt(on_screen_text, srt_path)
-        assert os.path.exists(srt_path)
-        with open(srt_path) as f:
-            content = f.read()
-        assert "First subtitle" in content
-        assert "Second subtitle" in content
-        assert "00:00:00,000" in content
+def test_calculate_scene_durations_single_scene(assembler):
+    """Single scene covers entire audio."""
+    durations = assembler._calculate_scene_durations(audio_duration=120.0, num_scenes_needed=1)
+    assert len(durations) == 1
+    assert durations[0] == pytest.approx(120.0)
 
 
-def test_generate_srt_empty(assembler):
-    with tempfile.TemporaryDirectory() as tmpdir:
-        srt_path = os.path.join(tmpdir, "empty.srt")
-        assembler._generate_srt([], srt_path)
-        assert os.path.exists(srt_path)
+def test_calculate_scene_durations_caps_at_12(assembler):
+    """Many requested scenes get capped at 12."""
+    durations = assembler._calculate_scene_durations(audio_duration=200.0, num_scenes_needed=25)
+    assert len(durations) == 12
+    assert sum(durations) == pytest.approx(200.0, abs=0.01)
 
 
-def test_calculate_scene_durations(assembler):
-    from app.core.models import NarrationSegment
-    narration = [
-        NarrationSegment(t=0, text="Part 1"),
-        NarrationSegment(t=5, text="Part 2"),
-        NarrationSegment(t=10, text="Part 3"),
-    ]
-    durations = assembler._calculate_scene_durations(narration, audio_duration=15.0)
-    assert len(durations) == 3
-    assert durations[0] == 5.0
-    assert durations[1] == 5.0
-    assert durations[2] == 5.0
+def test_calculate_scene_durations_min_one(assembler):
+    """num_scenes_needed=0 defaults to 1."""
+    durations = assembler._calculate_scene_durations(audio_duration=10.0, num_scenes_needed=0)
+    assert len(durations) == 1

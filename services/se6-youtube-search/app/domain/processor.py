@@ -59,7 +59,7 @@ class YouTubeSearchProcessor:
     
     def __init__(self):
         self.settings = get_settings()
-        self.timeout = self.settings['youtube']['default_timeout']
+        self.timeout = self.settings.youtube_default_timeout
         self.job_store = None  # Will be injected by main.py
         logger.info("✅ YouTube Search Processor initialized")
     
@@ -175,7 +175,7 @@ class YouTubeSearchProcessor:
                     _ytbpy_call,
                     ytb_channel.get_channel_videos,
                     channel_id,
-                    self.settings['youtube']['max_videos_per_channel'],
+                    self.settings.youtube_max_videos_per_channel,
                     self.timeout
                 )
                 

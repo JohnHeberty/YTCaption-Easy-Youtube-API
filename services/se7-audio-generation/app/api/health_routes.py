@@ -10,6 +10,12 @@ from app.infrastructure.dependencies import model_manager, job_store
 router = APIRouter(tags=["Health"])
 
 
+@router.get("/")
+async def root():
+    settings = get_settings()
+    return {"service": settings.app_name, "version": settings.app_version, "status": "running"}
+
+
 def _check_redis(store: IJobStore) -> dict:
     try:
         store.list_jobs(1)

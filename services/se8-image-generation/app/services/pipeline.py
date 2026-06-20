@@ -19,14 +19,14 @@ Architecture:
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import os
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class Pipeline:

@@ -10,7 +10,22 @@ ASPECT_RATIOS = {
     "1:1": {"width": 1080, "height": 1080},
 }
 
-ZOOM_STYLES = ["zoom_in", "zoom_out", "pan_left", "pan_right", "random"]
+ZOOM_STYLES = ["zoom_in", "zoom_out", "random"]
+
+# Best-looking xfade transitions (FFmpeg 7.0)
+TRANSITIONS = [
+    "circleopen", "circleclose",
+    "wipeleft", "wiperight", "wipeup", "wipedown",
+    "slideleft", "slideright", "slideup", "slidedown",
+    "smoothleft", "smoothright", "smoothup", "smoothdown",
+    "dissolve", "pixelize",
+    "diagtl", "diagtr", "diagbl", "diagbr",
+    "radial", "zoomin",
+    "fadefast", "fadeslow",
+    "coverleft", "coverright", "coverup", "coverdown",
+    "revealleft", "revealright",
+    "squeezeh", "squeezev",
+]
 
 STAGE_NAMES = {
     "generating_audio": "Generating Audio",

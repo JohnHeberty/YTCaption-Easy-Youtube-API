@@ -99,7 +99,7 @@ class ChatterboxModelManager:
         ckpt_dir = self._ensure_model_files()
 
         token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
-        if token:
+        if token and not token.startswith("hf_your_token"):
             from huggingface_hub import login
             login(token=token)
 

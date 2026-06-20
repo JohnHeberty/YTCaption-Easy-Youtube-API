@@ -236,8 +236,8 @@ def normalize_audio_task(self, job_dict: dict) -> dict:
             # PROCESSAMENTO REAL COM TIMEOUT DE SEGURANÇA (configurável)
             from ..core.config import get_settings
             settings = get_settings()
-            async_timeout = int(settings.get('timeouts', {}).get('async_timeout_sec', 900))
-            heartbeat_interval = int(settings.get('timeouts', {}).get('job_heartbeat_interval_sec', 30))
+            async_timeout = int(settings.get('async_timeout_seconds', 900))
+            heartbeat_interval = int(settings.get('job_heartbeat_interval_sec', 30))
             
             async def process_with_timeout_and_heartbeat():
                 """Processa job com heartbeat periódico"""

@@ -8,8 +8,8 @@ Also implements IProgressTracker from the domain layer, unifying progress/state
 tracking into a single class (replaces RedisProgressTracker).
 """
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 from datetime import datetime, timedelta, timezone as tz  # noqa: F401 – used by callers
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -21,7 +21,7 @@ from ..domain.interfaces import IJobStore  # noqa: F401 – re-exported by inter
 from ..domain.interfaces import IProgressTracker
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _now_brazil() -> datetime:

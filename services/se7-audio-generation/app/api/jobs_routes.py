@@ -24,6 +24,7 @@ async def create_generation_job(
     exaggeration: float = Form(DEFAULT_EXAGGERATION),
     cfg_weight: float = Form(DEFAULT_CFG_WEIGHT),
     temperature: float = Form(DEFAULT_TEMPERATURE),
+    normalize_text: bool = Form(True),
     store: IJobStore = Depends(job_store),
     gen: ITTSGenerator = Depends(generator),
     voice_store_dep: IVoiceStore = Depends(voice_store),
@@ -40,6 +41,7 @@ async def create_generation_job(
             exaggeration=exaggeration,
             cfg_weight=cfg_weight,
             temperature=temperature,
+            normalize_text=normalize_text,
         )
     except TextValidationError as e:
         raise HTTPException(status_code=422, detail=str(e))

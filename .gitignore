@@ -91,6 +91,23 @@ services/*/models/models--*/
 # SE8 model files (12GB+, copied from SE8)
 services/se8-image-generation/data/
 
+# SE10 data (inputs/outputs/temp — keep .gitkeep only)
+services/se10-clothes-segmentation/data/
+
+# All services: ignore runtime data (logs, outputs, temp, uploads)
+services/*/data/logs/
+services/*/data/outputs/
+services/*/data/temp/
+services/*/data/uploads/
+services/*/data/processed/
+services/se9-make-video-img/output/
+
 # Accidental data dirs at repo root (relative paths in configs)
 /data/
 services/se5-make-video/
+
+# External repos (embedded git)
+services/se10-clothes-segmentation/external/
+
+# Large model checkpoints (>100MB)
+services/se10-clothes-segmentation/checkpoints/*.pth

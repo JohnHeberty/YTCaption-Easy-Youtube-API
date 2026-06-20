@@ -121,6 +121,7 @@ class AudioGenerationJob(StandardJob):
     exaggeration: float = Field(default=DEFAULT_EXAGGERATION, ge=0.0, le=2.0)
     cfg_weight: float = Field(default=DEFAULT_CFG_WEIGHT, ge=0.0, le=1.0)
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
+    normalize_text: bool = True
     output_file: Optional[str] = None
     output_duration_seconds: Optional[float] = None
     audio_format: str = "wav"
@@ -129,7 +130,8 @@ class AudioGenerationJob(StandardJob):
     def create_new(cls, text: str, voice_id: Optional[str] = None,
                    exaggeration: float = DEFAULT_EXAGGERATION,
                    cfg_weight: float = DEFAULT_CFG_WEIGHT,
-                   temperature: float = DEFAULT_TEMPERATURE) -> "AudioGenerationJob":
+                   temperature: float = DEFAULT_TEMPERATURE,
+                   normalize_text: bool = True) -> "AudioGenerationJob":
         text_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
         job_id = f"{JOB_ID_PREFIX}{text_hash}_{uuid.uuid4().hex[:8]}"
         job = cls(
@@ -141,6 +143,7 @@ class AudioGenerationJob(StandardJob):
             exaggeration=exaggeration,
             cfg_weight=cfg_weight,
             temperature=temperature,
+            normalize_text=normalize_text,
         )
         job.add_stage(STAGE_MODEL_LOADING, "Model loading")
         job.add_stage(STAGE_TEXT_CHUNKING, "Text chunking")

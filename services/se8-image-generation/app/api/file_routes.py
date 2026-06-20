@@ -4,8 +4,8 @@ Serves generated images by date and filename.
 """
 
 from __future__ import annotations
+from common.log_utils import get_logger
 
-import logging
 import os
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 ACCEPT_FORMATS = {"png", "jpg", "jpeg", "webp"}
 
