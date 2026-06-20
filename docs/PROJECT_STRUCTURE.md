@@ -1,7 +1,7 @@
 # Estrutura do Projeto
 
 **YTCaption-Easy-Youtube-API**  
-**Última atualização**: 2026-04-30
+**Ultima atualizacao**: 2026-06-19
 
 ---
 
@@ -17,28 +17,29 @@ Ele complementa a arquitetura documental definida em `docs/reference/documentati
 
 ```
 YTCaption-Easy-Youtube-API/
-├── common/                      # Biblioteca compartilhada entre servicos
-├── data/                        # Dados temporarios, logs e transcricoes locais
-├── docs/                        # Navegacao oficial da documentacao
-│   ├── reference/               # Estrutura, arquitetura documental, referencias
-│   ├── operations/              # Operacao, desenvolvimento, comandos
-│   ├── services/                # Entrada canonica por servico
-│   ├── architecture/            # Trilhas arquiteturais e ADR index
-│   ├── history/                 # Relatorios e iniciativas concluidas
-│   ├── orchestrator/            # Documentacao canonica do orchestrator
-│   └── README.md                # Hub principal da documentacao
-├── orchestrator/                # Servico coordenador do pipeline
-├── scripts/                     # Scripts operacionais e utilitarios
-├── services/                    # Microservicos de dominio
-│   ├── audio-normalization/
-│   ├── audio-transcriber/
-│   ├── make-video/
-│   ├── video-downloader/
-│   └── youtube-search/
-├── tests/                       # Artefatos de teste no nivel do repositorio
+├── shared/                        # Biblioteca compartilhada (ytcaption-common)
+├── docs/                          # Navegacao oficial da documentacao
+│   ├── reference/                 # Estrutura, arquitetura documental, referencias
+│   ├── operations/                # Operacao, desenvolvimento, comandos
+│   ├── services/                  # Entrada canonica por servico
+│   ├── architecture/              # Trilhas arquiteturais e ADR index
+│   ├── history/                   # Relatorios e iniciativas concluidas
+│   └── README.md                  # Hub principal da documentacao
+├── services/                      # Microservicos de dominio
+│   ├── se1-orchestrator/          # Coordenador do pipeline (8001)
+│   ├── se2-video-downloader/      # Download YouTube (8002)
+│   ├── se3-audio-normalization/   # Normalizacao audio (8003)
+│   ├── se4-audio-transcriber/     # Transcricao Whisper (8004)
+│   ├── se5-make-video-clip/       # Video a partir de shorts (8005)
+│   ├── se6-youtube-search/        # Busca YouTube (8006)
+│   ├── se7-audio-generation/      # Geracao audio Chatterbox (8007)
+│   ├── se8-image-generation/      # Geracao imagens SDXL (8008)
+│   ├── se9-make-video-img/        # Video images+audio (8009)
+│   └── se10-clothes-segmentation/ # Segmentacao roupas SAM-2 (8010)
+├── scripts/                       # Scripts operacionais e utilitarios
 ├── Makefile
 ├── docker-compose.yml
-└── pyproject.toml
+└── README.md
 ```
 
 ---

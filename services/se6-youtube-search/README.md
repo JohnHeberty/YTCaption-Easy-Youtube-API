@@ -1,6 +1,6 @@
-# YouTube Search Service
+# SE6 -- YouTube Search
 
-FastAPI microservice for YouTube search operations. Uses a custom `ytbpy` library (scraping-based, no official API key required) and an async job-based architecture with Celery and Redis for reliable, cached results.
+> Busca e consulta de dados do YouTube com ytbpy (scraping, sem API key)
 
 - **Port:** 8006 (default, configurable via `PORT` env var)
 - **Cache:** 24-hour TTL in Redis, periodic cleanup every 30 minutes

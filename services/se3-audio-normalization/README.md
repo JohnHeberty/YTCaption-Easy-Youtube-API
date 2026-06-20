@@ -1,6 +1,6 @@
-# Audio Normalization Service
+# SE3 -- Audio Normalization
 
-Microservico para normalizacao de audio com cache de 24h. Aceita arquivos de audio e video em qualquer formato comum e retorna audio processado no formato `.webm` (codec libopus).
+> Normalizacao de audio com noise reduction, vocal isolation e cache de 24h
 
 ## Quick Start
 

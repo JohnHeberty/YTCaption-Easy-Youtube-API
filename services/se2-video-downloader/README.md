@@ -1,6 +1,6 @@
-# Video Downloader Service
+# SE2 -- Video Downloader
 
-Microservico para download assincrono de videos do YouTube usando **FastAPI**, **Celery**, **Redis** e **yt-dlp**. Jobs sao enfileirados via Celery, armazenados no Redis com TTL de 24h, e baixados com logica de retry resiliente incluindo rotacao automatica de user-agent.
+> Download assincrono de videos do YouTube com yt-dlp, rotacao de user-agent e retry resiliente
 
 ## Quick Start
 

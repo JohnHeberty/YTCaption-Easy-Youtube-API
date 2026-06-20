@@ -1,6 +1,6 @@
-# Audio Transcription Service
+# SE4 -- Audio Transcriber
 
-Microservico de transcricao de audio baseado em Whisper (faster-whisper), com suporte a filas Celery, cache Redis de 24h e tres engines de transcricao (faster-whisper, openai-whisper, whisperx).
+> Transcricao de audio com Whisper (faster-whisper), suporte a GPU CUDA e multiplos engines
 
 ## Quick Start
 
