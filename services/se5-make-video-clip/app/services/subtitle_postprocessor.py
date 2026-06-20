@@ -10,7 +10,7 @@ Pipeline:
 """
 
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 import subprocess
 import json
 import tempfile
@@ -427,7 +427,7 @@ class SpeechGatedSubtitles:
         cues: List[SubtitleCue],
         speech_segments: List[SpeechSegment],
         vad_ok: bool
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Valida que cues estão alinhados com fala.
         

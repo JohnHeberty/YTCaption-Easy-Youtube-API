@@ -10,7 +10,10 @@ import numpy as np
 from typing import Dict, List
 import easyocr
 
+from common.log_utils import get_logger
 from .base_detector import BaseSubtitleDetector
+
+logger = get_logger(__name__)
 
 
 class EasyOCRDetector(BaseSubtitleDetector):
@@ -47,9 +50,9 @@ class EasyOCRDetector(BaseSubtitleDetector):
         self.gpu = gpu
         self.n_frames = n_frames
         
-        print(f"[EasyOCR] Loading model for languages: {languages} (GPU: {gpu})...")
+        logger.info("[EasyOCR] Loading model for languages: %s (GPU: %s)...", languages, gpu)
         self.reader = easyocr.Reader(languages, gpu=self.gpu)
-        print(f"[EasyOCR] Model loaded successfully")
+        logger.info("[EasyOCR] Model loaded successfully")
     
     def detect(self, video_path: str) -> Dict:
         """
@@ -151,7 +154,7 @@ class EasyOCRDetector(BaseSubtitleDetector):
         try:
             results = self.reader.readtext(bottom_rgb)
         except Exception as e:
-            print(f"[EasyOCR] Error detecting text: {e}")
+            logger.error("[EasyOCR] Error detecting text: %s", e)
             return {
                 'has_subtitles': False,
                 'confidence': 0.0

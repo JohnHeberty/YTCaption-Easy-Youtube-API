@@ -468,7 +468,7 @@ class VideoBuilder:
                 raise VideoEncodingException(
                     operation="video crop for validation",
                     reason=error_msg,
-                    details={"video_path": str(input_path), "crop_filter": crop_filter}
+                    details={"video_path": str(video_path), "crop_filter": crop_filter}
                 )
         
         except SubprocessTimeoutException as e:
@@ -476,7 +476,7 @@ class VideoBuilder:
             raise FFmpegTimeoutException(
                 operation="video crop for validation",
                 timeout=300,
-                details={"video_path": str(input_path)},
+                details={"video_path": str(video_path)},
                 cause=e
             )
         

@@ -153,7 +153,7 @@ def req_to_params(req: CommonRequest) -> Dict[str, Any]:
     enhance_uov_method = "Disabled"
     enhance_uov_processing_order = "Before First Enhancement"
     enhance_uov_prompt_type = "Original Prompts"
-    enhance_ctrlnets = [EnhanceCtrlNets()] * 3
+    enhance_ctrlnets = [EnhanceCtrlNets() for _ in range(3)]
 
     if isinstance(req, (ImageEnhanceRequest, ImageEnhanceRequestJson)):
         enhance_checkbox = True

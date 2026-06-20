@@ -12,7 +12,10 @@ from typing import Dict, List
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 
+from common.log_utils import get_logger
 from .base_detector import BaseSubtitleDetector
+
+logger = get_logger(__name__)
 
 
 class CLIPClassifier(BaseSubtitleDetector):
@@ -50,7 +53,7 @@ class CLIPClassifier(BaseSubtitleDetector):
         self.n_frames = n_frames
         
         # Load CLIP model (cached after first download)
-        print(f"[CLIP] Loading model on {self.device}...")
+        logger.info("[CLIP] Loading model on %s...", self.device)
         self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(self.device)
         self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         
@@ -62,7 +65,7 @@ class CLIPClassifier(BaseSubtitleDetector):
             "A video frame with no embedded captions or text"
         ]
         
-        print(f"[CLIP] Model loaded successfully")
+        logger.info("[CLIP] Model loaded successfully")
     
     def detect(self, video_path: str) -> Dict:
         """
