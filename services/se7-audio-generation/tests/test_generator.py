@@ -186,14 +186,16 @@ class TestTTSGenerator:
     def test_empty_text_validation(self, generator, job_store):
         job = AudioGenerationJob.create_new(text="")
         job_store.save_job(job)
-        result = generator.generate(job)
-        assert result.status.value == "failed"
+        with pytest.raises(Exception):
+            generator.generate(job)
+        assert job.status.value == "failed"
 
     def test_long_text_validation(self, generator, job_store):
         job = AudioGenerationJob.create_new(text="x" * 6000)
         job_store.save_job(job)
-        result = generator.generate(job)
-        assert result.status.value == "failed"
+        with pytest.raises(Exception):
+            generator.generate(job)
+        assert job.status.value == "failed"
 
     def test_stages_tracking(self, generator, job_store):
         job = AudioGenerationJob.create_new(text="Test stage tracking.")

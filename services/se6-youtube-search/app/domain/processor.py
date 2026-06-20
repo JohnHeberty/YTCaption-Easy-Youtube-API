@@ -9,18 +9,7 @@ from tenacity import (
     retry_if_exception_type,
     before_sleep_log,
 )
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from .models import Job, JobStatus, SearchType
 from ..shared.exceptions import YouTubeSearchException, YouTubeAPIError, ProcessingTimeoutError
@@ -64,17 +53,16 @@ class YouTubeSearchProcessor:
         logger.info("✅ YouTube Search Processor initialized")
     
     async def process_search_job(self, job: Job) -> Job:
-        """
-        Process a search job asynchronously
-        
+        """Process a search job asynchronously.
+
         Args:
             job: Job object with search parameters
-            
+
         Returns:
             Updated Job object with results
         """
         try:
-            logger.info(f"🔍 Processing search job {job.id} - Type: {job.search_type.value}")
+            logger.info("Processing search job %s - Type: %s", job.id, job.search_type.value)
             
             # Update job status to processing
             job.status = JobStatus.PROCESSING
@@ -113,11 +101,11 @@ class YouTubeSearchProcessor:
             if self.job_store:
                 self.job_store.update_job(job)
             
-            logger.info(f"✅ Job {job.id} completed successfully")
+            logger.info("Job %s completed successfully", job.id)
             return job
             
         except Exception as e:
-            logger.error(f"❌ Error processing job {job.id}: {str(e)}", exc_info=True)
+            logger.error("Error processing job %s: %s", job.id, e, exc_info=True)
             job.status = JobStatus.FAILED
             job.error_message = str(e)
             job.completed_at = now_brazil()
@@ -128,12 +116,11 @@ class YouTubeSearchProcessor:
             return job
     
     async def _get_video_info(self, video_id: str) -> Dict[str, Any]:
-        """Get video information"""
+        """Get video information."""
         try:
-            logger.info(f"📹 Fetching video info: {video_id}")
+            logger.info("Fetching video info: %s", video_id)
             
-            # Run in executor to avoid blocking (with tenacity retry)
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 _ytbpy_call,
@@ -148,15 +135,15 @@ class YouTubeSearchProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Error fetching video info: {e}")
-            raise YouTubeAPIError(f"Failed to get video info: {str(e)}")
+            logger.error("Error fetching video info: %s", e)
+            raise YouTubeAPIError(f"Failed to get video info: {e}")
     
     async def _get_channel_info(self, channel_id: str, include_videos: bool = False) -> Dict[str, Any]:
         """Get channel information"""
         try:
-            logger.info(f"📺 Fetching channel info: {channel_id} (include_videos: {include_videos})")
+            logger.info("Fetching channel info: %s (include_videos: %s)", channel_id, include_videos)
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 _ytbpy_call,
@@ -186,15 +173,15 @@ class YouTubeSearchProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Error fetching channel info: {e}")
+            logger.error("Error fetching channel info: %s", e)
             raise YouTubeAPIError(f"Failed to get channel info: {str(e)}")
     
     async def _get_playlist_info(self, playlist_id: str) -> Dict[str, Any]:
         """Get playlist information"""
         try:
-            logger.info(f"📋 Fetching playlist info: {playlist_id}")
+            logger.info("Fetching playlist info: %s", playlist_id)
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 _ytbpy_call,
@@ -209,15 +196,15 @@ class YouTubeSearchProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Error fetching playlist info: {e}")
+            logger.error("Error fetching playlist info: %s", e)
             raise YouTubeAPIError(f"Failed to get playlist info: {str(e)}")
     
     async def _search_videos(self, query: str, max_results: int = 10) -> Dict[str, Any]:
         """Search for videos"""
         try:
-            logger.info(f"🔎 Searching videos: '{query}' (max: {max_results})")
+            logger.info("Searching videos: '%s' (max: %s)", query, max_results)
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 _ytbpy_call,
@@ -233,15 +220,15 @@ class YouTubeSearchProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Error searching videos: {e}")
+            logger.error("Error searching videos: %s", e)
             raise YouTubeAPIError(f"Failed to search videos: {str(e)}")
     
     async def _get_related_videos(self, video_id: str, max_results: int = 10) -> Dict[str, Any]:
         """Get related videos"""
         try:
-            logger.info(f"🔗 Fetching related videos: {video_id} (max: {max_results})")
+            logger.info("Fetching related videos: %s (max: %s)", video_id, max_results)
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 _ytbpy_call,
@@ -266,7 +253,7 @@ class YouTubeSearchProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Error fetching related videos: {e}")
+            logger.error("Error fetching related videos: %s", e)
             raise YouTubeAPIError(f"Failed to get related videos: {str(e)}")
     
     async def _search_shorts(self, query: str, max_results: int = 10) -> Dict[str, Any]:
@@ -276,9 +263,9 @@ class YouTubeSearchProcessor:
         Shorts are videos with duration ≤ 60 seconds
         """
         try:
-            logger.info(f"📱 Searching shorts: '{query}' (max: {max_results})")
+            logger.info("Searching shorts: '%s' (max: %s)", query, max_results)
             
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None,
                 _ytbpy_call,
@@ -294,5 +281,5 @@ class YouTubeSearchProcessor:
             return result
             
         except Exception as e:
-            logger.error(f"Error searching shorts: {e}")
+            logger.error("Error searching shorts: %s", e)
             raise YouTubeAPIError(f"Failed to search shorts: {str(e)}")

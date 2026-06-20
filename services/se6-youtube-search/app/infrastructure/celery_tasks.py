@@ -66,7 +66,7 @@ def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
     job = Job(**job_dict)
 
     try:
-        logger.info(f"🚀 Celery worker processing job {job.id}")
+        logger.info("Celery worker processing job %s", job.id)
 
         # Update job status
         job.status = JobStatus.PROCESSING
@@ -74,21 +74,13 @@ def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
         job_store.update_job(job)
 
         # Process job asynchronously
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        updated_job = asyncio.run(processor.process_search_job(job))
 
-        try:
-            updated_job = loop.run_until_complete(
-                processor.process_search_job(job)
-            )
-        finally:
-            loop.close()
-
-        logger.info(f"✅ Job {job.id} completed by Celery worker")
+        logger.info("Job %s completed by Celery worker", job.id)
         return updated_job.model_dump(mode='json')
 
     except SoftTimeLimitExceeded:
-        logger.error(f"⏱️ Soft time limit exceeded for job {job.id}")
+        logger.error("Soft time limit exceeded for job %s", job.id)
         job.status = JobStatus.FAILED
         job.error_message = f"Task timed out after {CELERY_TASK_TIMEOUT_SECONDS}s"
         job_store.update_job(job)
@@ -100,11 +92,11 @@ def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
                 countdown=CELERY_TASK_RETRY_DELAY_SECONDS * (self.request.retries + 1),
             )
         except self.MaxRetriesExceededError:
-            logger.error(f"Max retries exceeded for job {job.id}")
+            logger.error("Max retries exceeded for job %s", job.id)
             return job.model_dump(mode='json')
 
     except Exception as e:
-        logger.error(f"❌ Celery worker error for job {job.id}: {e}", exc_info=True)
+        logger.error("Celery worker error for job %s: %s", job.id, e, exc_info=True)
         job.status = JobStatus.FAILED
         job.error_message = str(e)
         job_store.update_job(job)
@@ -122,15 +114,9 @@ def cleanup_expired_jobs() -> Dict[str, Any]:
         Cleanup statistics
     """
     try:
-        logger.info("🧹 Running periodic cleanup of expired jobs")
+        logger.info("Running periodic cleanup of expired jobs")
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            expired_count = loop.run_until_complete(job_store.cleanup_expired())
-        finally:
-            loop.close()
+        expired_count = asyncio.run(job_store.cleanup_expired())
 
         result = {
             "status": "success",
@@ -138,11 +124,11 @@ def cleanup_expired_jobs() -> Dict[str, Any]:
             "timestamp": now_brazil().isoformat(),
         }
 
-        logger.info(f"✅ Cleanup completed: {expired_count} jobs removed")
+        logger.info("Cleanup completed: %s jobs removed", expired_count)
         return result
 
     except Exception as e:
-        logger.error(f"❌ Error during cleanup: {e}", exc_info=True)
+        logger.error("Error during cleanup: %s", e, exc_info=True)
         return {
             "status": "error",
             "error": str(e),
