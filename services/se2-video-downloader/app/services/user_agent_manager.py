@@ -6,18 +6,7 @@ import os
 import random
 from typing import List, Set, Optional
 from datetime import datetime, timedelta
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from pathlib import Path
 from common.log_utils import get_logger

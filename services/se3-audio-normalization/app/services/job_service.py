@@ -8,17 +8,7 @@ import asyncio
 from pathlib import Path
 from typing import Optional, Tuple
 
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import datetime, timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from common.log_utils import get_logger
 from fastapi import UploadFile

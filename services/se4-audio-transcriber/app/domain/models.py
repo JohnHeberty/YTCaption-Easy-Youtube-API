@@ -11,17 +11,7 @@ try:
 except ImportError:
     raise
 
-try:
-    from common.datetime_utils import now_brazil  # noqa: F401
-except (ImportError, ModuleNotFoundError):
-    def now_brazil():
-        try:
-            from zoneinfo import ZoneInfo as _zi
-            return datetime.now(_zi("America/Sao_Paulo"))
-        except ImportError:
-            pass
-        from pytz import timezone as _tz2
-        return datetime.now(_tz2("America/Sao_Paulo"))
+from common.datetime_utils import now_brazil  # noqa: F401
 
 
 def _now_brazil():

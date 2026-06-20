@@ -90,11 +90,9 @@ class AudioNormJob(StandardJob):
     def is_orphaned(self) -> bool:
         if not self.last_heartbeat or self.is_terminal:
             return False
-        last = now_brazil().isoformat()
-        from datetime import timedelta
         try:
-            from common.datetime_utils import now_brazil as _now
-            elapsed = (_now() - now_brazil().fromisoformat(self.last_heartbeat.replace('Z', '+00:00'))).total_seconds() / 60
+            from datetime import datetime
+            elapsed = (now_brazil() - datetime.fromisoformat(self.last_heartbeat.replace('Z', '+00:00'))).total_seconds() / 60
             return elapsed > 30
         except Exception:
             return False

@@ -5,6 +5,7 @@ Implementa retry, circuit breaker e logging estruturado.
 """
 import asyncio
 import random
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -15,7 +16,7 @@ from app.core.config import get_microservice_config, get_settings
 from app.core.ssl_config import get_ssl_context
 from app.domain.interfaces import MicroserviceClientInterface
 from app.infrastructure.circuit_breaker import CircuitBreaker
-from app.infrastructure.exceptions import CircuitBreakerOpenError, PipelineStageError
+from app.core.exceptions import CircuitBreakerOpenError, PipelineStageError
 
 logger = get_logger(__name__)
 
@@ -24,15 +25,9 @@ def _filename_from_cd(cd: Optional[str]) -> Optional[str]:
     """Extrai filename do header Content-Disposition."""
     if not cd:
         return None
-    import re
 
     m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd)
     return m.group(1) if m else None
-
-
-def _bool_to_str(v: bool) -> str:
-    """Converte bool para string 'true'/'false'."""
-    return "true" if v else "false"
 
 
 class MicroserviceClient(MicroserviceClientInterface):

@@ -3,14 +3,10 @@ import json
 import os
 import asyncio
 from pathlib import Path
+from typing import Optional
 import torch
 from pydub import AudioSegment
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import datetime as _dt, timezone as _tz, timedelta
-    def now_brazil():
-        return _dt.now(_tz(timedelta(hours=-3)))
+from common.datetime_utils import now_brazil
 from ..domain.models import Job, JobStatus, TranscriptionSegment, WhisperEngine
 from ..shared.audio_chunker import AudioChunker
 from ..shared.chunk_transcriber import ChunkTranscriber
@@ -151,10 +147,6 @@ class TranscriptionProcessor:
         
         logger.info(f"✅ Modelo {engine.value} carregado no {self.device.upper()}")
 
-    def _test_gpu(self):
-        """Legacy method - faster-whisper handles GPU automatically"""
-        pass
-    
     def unload_model(self) -> dict:
         """
         Descarrega modelo Whisper da memória/GPU para economia de recursos.
@@ -653,8 +645,6 @@ class TranscriptionProcessor:
         # Faster-Whisper usa compute_type no modelo, não fp16 no transcribe()
         base_options = {
             "beam_size": self.settings.get('whisper_beam_size', 5),
-            #"best_of": self.settings.get('whisper_best_of', 5),
-            #"temperature": self.settings.get('whisper_temperature', 0.0)
         }
         
         from ..core.constants import DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BACKOFF_BASE as _retry_base
@@ -692,4 +682,3 @@ class TranscriptionProcessor:
             raise e from None if not e.__cause__ else e
     
 
-    # _has_audio_stream and _convert_to_wav moved to app/shared/audio_converter.py (MELHORE 1.2)
