@@ -33,16 +33,16 @@ Use este hub para encontrar rapidamente:
 ### Services
 
 - [Services index](./services/README.md)
-- [SE1 Orchestrator](../services/se1-orchestrator/README.md) — Coordenacao do pipeline
-- [SE2 Video Downloader](../services/se2-video-downloader/README.md) — Download de video
-- [SE3 Audio Normalization](../services/se3-audio-normalization/README.md) — Normalizacao de audio
-- [SE4 Audio Transcriber](../services/se4-audio-transcriber/README.md) — Transcricao (Whisper)
-- [SE5 Make Video Clip](../services/se5-make-video-clip/README.md) — Video a partir de shorts
-- [SE6 YouTube Search](../services/se6-youtube-search/README.md) — Busca YouTube
-- [SE7 Audio Generation](../services/se7-audio-generation/README.md) — Geracao de audio (Chatterbox)
-- [SE8 Image Generation](../services/se8-image-generation/README.md) — Geracao de imagens (SDXL)
-- [SE9 Make Video IMG](../services/se9-make-video-img/README.md) — Video a partir de imagens
-- [SE10 Clothes Segmentation](../services/se10-clothes-segmentation/README.md) — Segmentacao de roupas
+- [SE1 Orchestrator](../services/se1-orchestrator/README.md) — Coordenacao do pipeline | [API](../services/se1-orchestrator/docs/API_REFERENCE.md)
+- [SE2 Video Downloader](../services/se2-video-downloader/README.md) — Download de video | [API](../services/se2-video-downloader/docs/API_REFERENCE.md)
+- [SE3 Audio Normalization](../services/se3-audio-normalization/README.md) — Normalizacao de audio | [API](../services/se3-audio-normalization/docs/API_REFERENCE.md)
+- [SE4 Audio Transcriber](../services/se4-audio-transcriber/README.md) — Transcricao (Whisper) | [API](../services/se4-audio-transcriber/docs/API_REFERENCE.md)
+- [SE5 Make Video Clip](../services/se5-make-video-clip/README.md) — Video a partir de shorts | [API](../services/se5-make-video-clip/docs/API_REFERENCE.md)
+- [SE6 YouTube Search](../services/se6-youtube-search/README.md) — Busca YouTube | [API](../services/se6-youtube-search/docs/API_REFERENCE.md)
+- [SE7 Audio Generation](../services/se7-audio-generation/README.md) — Geracao de audio (Chatterbox) | [API](../services/se7-audio-generation/docs/API_REFERENCE.md)
+- [SE8 Image Generation](../services/se8-image-generation/README.md) — Geracao de imagens (SDXL) | [API](../services/se8-image-generation/docs/API_REFERENCE.md)
+- [SE9 Make Video IMG](../services/se9-make-video-img/README.md) — Video a partir de imagens | [API](../services/se9-make-video-img/docs/API_REFERENCE.md)
+- [SE10 Clothes Segmentation](../services/se10-clothes-segmentation/README.md) — Segmentacao de roupas | [API](../services/se10-clothes-segmentation/docs/API_REFERENCE.md)
 
 ### Architecture Decisions
 
