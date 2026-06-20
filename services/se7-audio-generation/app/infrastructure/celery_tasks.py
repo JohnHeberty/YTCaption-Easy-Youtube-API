@@ -1,4 +1,6 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import Any
 
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
@@ -14,25 +16,25 @@ CLEANUP_BATCH_SIZE = 100
 
 
 class GenerationTask(Task):
-    _generator = None
-    _store = None
+    _generator: Any = None
+    _store: Any = None
 
     @property
-    def store(self):
+    def store(self) -> Any:
         if self._store is None:
             from app.infrastructure.dependencies import get_job_store
             self._store = get_job_store()
         return self._store
 
     @property
-    def generator(self):
+    def generator(self) -> Any:
         if self._generator is None:
             from app.infrastructure.dependencies import get_generator
             self._generator = get_generator()
         return self._generator
 
 
-def _resolve_audio_prompt_path(voice_id: str, store) -> Optional[str]:
+def _resolve_audio_prompt_path(voice_id: str, store: Any) -> str | None:
     """Resolve voice_id to audio file path for voice cloning."""
     if not voice_id:
         return None
@@ -50,7 +52,7 @@ def _resolve_audio_prompt_path(voice_id: str, store) -> Optional[str]:
         return None
 
 
-def _mark_job_failed(job_dict: dict, error_message: str, store) -> None:
+def _mark_job_failed(job_dict: dict[str, Any], error_message: str, store: Any) -> None:
     """Mark a job as FAILED in the store."""
     try:
         job = AudioGenerationJob(**job_dict)
@@ -72,7 +74,7 @@ def _mark_job_failed(job_dict: dict, error_message: str, store) -> None:
     soft_time_limit=CELERY_SOFT_TIME_LIMIT,
     time_limit=CELERY_TIME_LIMIT,
 )
-def generate_audio_task(self, job_dict: dict) -> dict:
+def generate_audio_task(self: GenerationTask, job_dict: dict[str, Any]) -> dict[str, Any]:
     job_id = job_dict.get("id", "unknown")
     logger.info("Starting audio generation job %s", job_id)
 
@@ -92,11 +94,11 @@ def generate_audio_task(self, job_dict: dict) -> dict:
 
 
 @celery_app.task(name="cleanup_expired_jobs")
-def cleanup_expired_jobs_task():
+def cleanup_expired_jobs_task() -> dict[str, Any]:
     from app.infrastructure.dependencies import get_job_store
 
     store = get_job_store()
-    expired = []
+    expired: list[str] = []
     for job in store.list_jobs(CLEANUP_BATCH_SIZE):
         if job.is_expired:
             store.delete_job(job.id)

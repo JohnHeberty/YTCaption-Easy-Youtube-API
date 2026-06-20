@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Any, Callable
 from datetime import datetime
 from tenacity import (
     retry,
@@ -37,7 +39,7 @@ _YTBPY_RETRY = dict(
 )
 
 @retry(**_YTBPY_RETRY)
-def _ytbpy_call(func, *args):
+def _ytbpy_call(func: Callable[..., Any], *args: Any) -> Any:
     """Execute a synchronous ytbpy function with tenacity retry."""
     return func(*args)
 
@@ -46,7 +48,7 @@ class YouTubeSearchProcessor:
     Processor for YouTube search operations using ytbpy library
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.settings = get_settings()
         self.timeout = self.settings.youtube_default_timeout
         self.job_store = None  # Will be injected by main.py
@@ -115,7 +117,7 @@ class YouTubeSearchProcessor:
             
             return job
     
-    async def _get_video_info(self, video_id: str) -> Dict[str, Any]:
+    async def _get_video_info(self, video_id: str) -> dict[str, Any]:
         """Get video information."""
         try:
             logger.info("Fetching video info: %s", video_id)
@@ -138,7 +140,7 @@ class YouTubeSearchProcessor:
             logger.error("Error fetching video info: %s", e)
             raise YouTubeAPIError(f"Failed to get video info: {e}")
     
-    async def _get_channel_info(self, channel_id: str, include_videos: bool = False) -> Dict[str, Any]:
+    async def _get_channel_info(self, channel_id: str, include_videos: bool = False) -> dict[str, Any]:
         """Get channel information"""
         try:
             logger.info("Fetching channel info: %s (include_videos: %s)", channel_id, include_videos)
@@ -176,7 +178,7 @@ class YouTubeSearchProcessor:
             logger.error("Error fetching channel info: %s", e)
             raise YouTubeAPIError(f"Failed to get channel info: {str(e)}")
     
-    async def _get_playlist_info(self, playlist_id: str) -> Dict[str, Any]:
+    async def _get_playlist_info(self, playlist_id: str) -> dict[str, Any]:
         """Get playlist information"""
         try:
             logger.info("Fetching playlist info: %s", playlist_id)
@@ -199,7 +201,7 @@ class YouTubeSearchProcessor:
             logger.error("Error fetching playlist info: %s", e)
             raise YouTubeAPIError(f"Failed to get playlist info: {str(e)}")
     
-    async def _search_videos(self, query: str, max_results: int = 10) -> Dict[str, Any]:
+    async def _search_videos(self, query: str, max_results: int = 10) -> dict[str, Any]:
         """Search for videos"""
         try:
             logger.info("Searching videos: '%s' (max: %s)", query, max_results)
@@ -223,7 +225,7 @@ class YouTubeSearchProcessor:
             logger.error("Error searching videos: %s", e)
             raise YouTubeAPIError(f"Failed to search videos: {str(e)}")
     
-    async def _get_related_videos(self, video_id: str, max_results: int = 10) -> Dict[str, Any]:
+    async def _get_related_videos(self, video_id: str, max_results: int = 10) -> dict[str, Any]:
         """Get related videos"""
         try:
             logger.info("Fetching related videos: %s (max: %s)", video_id, max_results)
@@ -256,7 +258,7 @@ class YouTubeSearchProcessor:
             logger.error("Error fetching related videos: %s", e)
             raise YouTubeAPIError(f"Failed to get related videos: {str(e)}")
     
-    async def _search_shorts(self, query: str, max_results: int = 10) -> Dict[str, Any]:
+    async def _search_shorts(self, query: str, max_results: int = 10) -> dict[str, Any]:
         """
         Search for YouTube Shorts only
         

@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import re
 import json
+from typing import Any
 from urllib.parse import urlparse, parse_qs
 
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
 
 
-def extract_playlist_id(url_or_id):
+def extract_playlist_id(url_or_id: str | None) -> str | None:
     """Extract playlist ID from YouTube URL or return ID if already provided"""
     if not url_or_id:
         return None
@@ -25,7 +28,7 @@ def extract_playlist_id(url_or_id):
     return None
 
 
-def _extract_playlist_metadata(initial_data):
+def _extract_playlist_metadata(initial_data: dict[str, Any]) -> dict[str, Any]:
     """Extract metadata about the playlist itself"""
     try:
         sidebar = initial_data.get("sidebar", {}).get("playlistSidebarRenderer", {})
@@ -33,7 +36,7 @@ def _extract_playlist_metadata(initial_data):
             "playlistSidebarPrimaryInfoRenderer", {}
         )
 
-        playlist_info = {}
+        playlist_info: dict[str, Any] = {}
 
         title_runs = primary_info.get("title", {}).get("runs", [])
         if title_runs:
@@ -118,7 +121,7 @@ def _extract_playlist_metadata(initial_data):
         return {}
 
 
-def _extract_continuation_token_from_command_executor(endpoint):
+def _extract_continuation_token_from_command_executor(endpoint: dict[str, Any]) -> str | None:
     """Extract continuation token from commandExecutorCommand structure"""
     if "commandExecutorCommand" not in endpoint:
         return None
@@ -134,7 +137,7 @@ def _extract_continuation_token_from_command_executor(endpoint):
     return None
 
 
-def _extract_continuation_token(initial_data):
+def _extract_continuation_token(initial_data: dict[str, Any]) -> str | None:
     """Extract continuation token from playlist data"""
     try:
         contents = (
@@ -220,10 +223,12 @@ def _extract_continuation_token(initial_data):
         return None
 
 
-def _extract_playlist_videos(initial_data, max_results=50):
+def _extract_playlist_videos(
+    initial_data: dict[str, Any], max_results: int = 50
+) -> tuple[list[dict[str, Any]], str | None]:
     """Extract videos from playlist initial data"""
-    videos = []
-    continuation_token = None
+    videos: list[dict[str, Any]] = []
+    continuation_token: str | None = None
 
     try:
         playlist_contents = (
@@ -310,7 +315,7 @@ def _extract_playlist_videos(initial_data, max_results=50):
             if not video_id:
                 continue
 
-            video_info = {
+            video_info: dict[str, Any] = {
                 "video_id": video_id,
                 "thumbnails": get_thumbnail_urls(video_id),
                 "url": f"https://www.youtube.com/watch?v={video_id}",
@@ -338,7 +343,7 @@ def _extract_playlist_videos(initial_data, max_results=50):
                     duration_seconds = int(time_parts[0])
                 video_info["duration_seconds"] = duration_seconds
 
-            video_meta_text = []
+            video_meta_text: list[str] = []
 
             video_info_runs = video_renderer.get("videoInfo", {}).get("runs", [])
             if video_info_runs:
@@ -378,7 +383,7 @@ def _extract_playlist_videos(initial_data, max_results=50):
 
             badges = video_renderer.get("badges", [])
             if badges:
-                badge_labels = []
+                badge_labels: list[str] = []
                 for badge in badges:
                     if "metadataBadgeRenderer" in badge:
                         label = badge["metadataBadgeRenderer"].get("label", "")
@@ -412,20 +417,22 @@ def _extract_playlist_videos(initial_data, max_results=50):
     return videos, continuation_token
 
 
-def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
+def _fetch_continuation_page(
+    continuation_token: str | None, timeout: int = 10, debug: bool = False
+) -> tuple[list[dict[str, Any]], str | None]:
     """Fetch the next page of playlist videos using the continuation token"""
     if not continuation_token:
         return [], None
 
     continuation_url = f"https://www.youtube.com/youtubei/v1/browse?key={get_innertube_api_key()}"
 
-    headers = {
+    headers: dict[str, str] = {
         "X-YouTube-Client-Name": "1",
         "X-YouTube-Client-Version": "2.20200720.00.00",
         "Content-Type": "application/json",
     }
 
-    data = {
+    data: dict[str, Any] = {
         "context": {
             "client": {"clientName": "WEB", "clientVersion": "2.20200720.00.00"}
         },
@@ -444,10 +451,10 @@ def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
         return [], None
 
     try:
-        response_data = json.loads(response)
+        response_data: dict[str, Any] = json.loads(response)
 
-        continuation_items = None
-        next_continuation = None
+        continuation_items: list[dict[str, Any]] | None = None
+        next_continuation: str | None = None
 
         if (
             "onResponseReceivedActions" in response_data
@@ -481,7 +488,7 @@ def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
         if not continuation_items:
             return [], None
 
-        videos = []
+        videos: list[dict[str, Any]] = []
 
         for item in continuation_items:
             if "continuationItemRenderer" in item:
@@ -495,7 +502,7 @@ def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
             if not video_id:
                 continue
 
-            video_info = {
+            video_info: dict[str, Any] = {
                 "video_id": video_id,
                 "thumbnails": get_thumbnail_urls(video_id),
                 "url": f"https://www.youtube.com/watch?v={video_id}",
@@ -523,7 +530,7 @@ def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
                     duration_seconds = int(time_parts[0])
                 video_info["duration_seconds"] = duration_seconds
 
-            video_meta_text = []
+            video_meta_text: list[str] = []
 
             video_info_runs = video_renderer.get("videoInfo", {}).get("runs", [])
             if video_info_runs:
@@ -563,7 +570,7 @@ def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
 
             badges = video_renderer.get("badges", [])
             if badges:
-                badge_labels = []
+                badge_labels: list[str] = []
                 for badge in badges:
                     if "metadataBadgeRenderer" in badge:
                         label = badge["metadataBadgeRenderer"].get("label", "")
@@ -596,7 +603,9 @@ def _fetch_continuation_page(continuation_token, timeout=10, debug=False):
         return [], None
 
 
-def get_playlist_info(url_or_id, max_results=50, timeout=10, debug=False):
+def get_playlist_info(
+    url_or_id: str, max_results: int = 50, timeout: int = 10, debug: bool = False
+) -> dict[str, Any]:
     """Get information about a YouTube playlist and its videos with minimal requests
 
     Args:
@@ -622,7 +631,7 @@ def get_playlist_info(url_or_id, max_results=50, timeout=10, debug=False):
     if not initial_data:
         return {"error": "Failed to extract playlist data"}
 
-    playlist_info = {"playlist_id": playlist_id, "playlist_url": playlist_url}
+    playlist_info: dict[str, Any] = {"playlist_id": playlist_id, "playlist_url": playlist_url}
 
     metadata = _extract_playlist_metadata(initial_data)
     playlist_info.update(metadata)

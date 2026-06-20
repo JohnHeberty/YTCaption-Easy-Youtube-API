@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
@@ -20,7 +22,7 @@ router = APIRouter(tags=["Jobs"])
 @router.post("/jobs", response_model=JobResponse, status_code=201)
 async def create_generation_job(
     text: str = Form(...),
-    voice_id: Optional[str] = Form(None),
+    voice_id: str | None = Form(None),
     exaggeration: float = Form(DEFAULT_EXAGGERATION),
     cfg_weight: float = Form(DEFAULT_CFG_WEIGHT),
     temperature: float = Form(DEFAULT_TEMPERATURE),
@@ -28,7 +30,7 @@ async def create_generation_job(
     store: IJobStore = Depends(job_store),
     gen: ITTSGenerator = Depends(generator),
     voice_store_dep: IVoiceStore = Depends(voice_store),
-):
+) -> JobResponse:
     if voice_id:
         profile = voice_store_dep.get_profile(voice_id)
         if not profile:
@@ -69,7 +71,7 @@ async def create_generation_job(
 async def list_jobs(
     limit: int = Query(20, ge=1, le=100),
     store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     jobs = store.list_jobs(limit)
     return {
         "jobs": [j.model_dump() for j in jobs],
@@ -81,7 +83,7 @@ async def list_jobs(
 async def get_job_status(
     job_id: str,
     store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -94,7 +96,7 @@ async def get_job_status(
 async def download_audio(
     job_id: str,
     store: IJobStore = Depends(job_store),
-):
+) -> FileResponse:
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -118,7 +120,7 @@ async def download_audio(
 async def delete_job(
     job_id: str,
     store: IJobStore = Depends(job_store),
-):
+) -> DeleteJobResponse:
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

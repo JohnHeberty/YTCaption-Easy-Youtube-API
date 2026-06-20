@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Search API endpoints for YouTube Search service.
 
@@ -10,7 +12,7 @@ This module contains all search-related endpoints:
 - Shorts search
 """
 
-from typing import Optional
+from typing import Any
 
 from fastapi import APIRouter, Query, HTTPException, Depends
 
@@ -51,7 +53,7 @@ def _validate_max_results(value: int) -> int:
     except ValidationError as exc:
         raise InvalidRequestError(str(exc)) from exc
 
-def _check_existing_job(job_id: str, store: RedisJobStore) -> Optional[Job]:
+def _check_existing_job(job_id: str, store: RedisJobStore) -> Job | None:
     """
     Check if job already exists and return appropriate response.
 

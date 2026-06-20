@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import re
 import json
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
+from typing import Any
 from common.datetime_utils import now_brazil
 
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data
 from common.log_utils import get_logger
 
-def extract_channel_id_from_input(channel_input):
+def extract_channel_id_from_input(channel_input: str) -> str | None:
     """Extract a channel ID from various input formats (ID, username, handle, URL)"""
     if not channel_input:
         return None
@@ -26,7 +29,7 @@ def extract_channel_id_from_input(channel_input):
 
     return None
 
-def _extract_text(data, default=""):
+def _extract_text(data: Any, default: str = "") -> str:
     """Helper to extract text from YouTube data structures"""
     if not data:
         return default
@@ -45,7 +48,7 @@ def _extract_text(data, default=""):
 
     return default
 
-def _extract_from_dynamic_text(dynamic_text, default=""):
+def _extract_from_dynamic_text(dynamic_text: Any, default: str = "") -> str:
     """Extract text from dynamic text view model"""
     if not dynamic_text:
         return default
@@ -55,7 +58,7 @@ def _extract_from_dynamic_text(dynamic_text, default=""):
 
     return default
 
-def _parse_count(text):
+def _parse_count(text: Any) -> int:
     """Parse view/subscriber counts with K/M suffixes"""
     if not text or not isinstance(text, str):
         return 0
@@ -72,7 +75,7 @@ def _parse_count(text):
         count *= 1000
     return int(count)
 
-def _parse_duration(duration_text):
+def _parse_duration(duration_text: str | None) -> int:
     """
     Parse duration text (e.g. "12:34") into seconds.
     Handles special cases like "Upcoming", "LIVE", "PREMIERING", etc.
@@ -80,34 +83,28 @@ def _parse_duration(duration_text):
     if not duration_text:
         return 0
     
-    # Handle special cases (upcoming videos, live streams, etc)
     special_cases = ["upcoming", "live", "premiering", "premiere", "scheduled"]
     if any(case in duration_text.lower() for case in special_cases):
-        return 0  # Return 0 for special cases
+        return 0
     
-    # Handle "SHORTS" badge
     if "short" in duration_text.lower():
-        return 60  # Default 60s for shorts
+        return 60
     
     try:
         time_parts = duration_text.split(":")
         
         if len(time_parts) == 3:
-            # HH:MM:SS
             return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
         elif len(time_parts) == 2:
-            # MM:SS
             return int(time_parts[0]) * 60 + int(time_parts[1])
         elif len(time_parts) == 1:
-            # SS only
             return int(time_parts[0])
     except (ValueError, IndexError):
-        # If parsing fails, return 0
         return 0
     
     return 0
 
-def _parse_time_ago(time_text):
+def _parse_time_ago(time_text: str | None) -> str | None:
     """Parse relative time (e.g. "3 weeks ago") into an approximate date"""
     if not time_text or "ago" not in time_text.lower():
         return None
@@ -122,7 +119,7 @@ def _parse_time_ago(time_text):
     number = int(number_match.group(1))
     unit = number_match.group(2).rstrip("s")
 
-    time_units = {
+    time_units: dict[str, timedelta] = {
         "second": timedelta(seconds=number),
         "sec": timedelta(seconds=number),
         "minute": timedelta(minutes=number),
@@ -143,7 +140,7 @@ def _parse_time_ago(time_text):
         return (current_time - delta).strftime("%Y-%m-%d")
     return None
 
-def _extract_video_info(video_renderer):
+def _extract_video_info(video_renderer: dict[str, Any] | None) -> dict[str, Any] | None:
     """Extract video information from a video renderer object"""
     if not video_renderer:
         return None
@@ -152,7 +149,7 @@ def _extract_video_info(video_renderer):
     if not video_id:
         return None
 
-    video_info = {
+    video_info: dict[str, Any] = {
         "video_id": video_id,
         "url": f"https://www.youtube.com/watch?v={video_id}",
         "thumbnails": get_thumbnail_urls(video_id),
@@ -210,9 +207,9 @@ def _extract_video_info(video_renderer):
 
     return video_info
 
-def extract_channel_metadata(initial_data):
+def extract_channel_metadata(initial_data: dict[str, Any]) -> dict[str, Any]:
     """Extract metadata about the channel using the new YouTube data structure"""
-    channel_info = {}
+    channel_info: dict[str, Any] = {}
 
     try:
         page_header = initial_data.get("header", {}).get("pageHeaderRenderer", {})
@@ -539,7 +536,7 @@ def extract_channel_metadata(initial_data):
                                     about_renderer.get("country", {})
                                 )
 
-                            external_links = []
+                            external_links: list[dict[str, str]] = []
                             for link in about_renderer.get("primaryLinks", []):
                                 title = _extract_text(link.get("title", {}))
                                 url = (
@@ -588,7 +585,7 @@ def extract_channel_metadata(initial_data):
     except Exception as e:
         return {"error": f"Error extracting channel metadata: {str(e)}"}
 
-def extract_channel_videos(initial_data, max_videos=10):
+def extract_channel_videos(initial_data: dict[str, Any], max_videos: int = 10) -> list[dict[str, Any]]:
     """
     Extract recent videos from the channel with detailed information.
     
@@ -598,7 +595,7 @@ def extract_channel_videos(initial_data, max_videos=10):
     3. Try shelfRenderer in Home tab as fallback
     4. secondaryContents as last resort
     """
-    videos = []
+    videos: list[dict[str, Any]] = []
 
     try:
         tabs = (
@@ -607,12 +604,10 @@ def extract_channel_videos(initial_data, max_videos=10):
             .get("tabs", [])
         )
 
-        # STRATEGY 1: Videos tab - richGridRenderer (NEWER YOUTUBE STRUCTURE)
         for tab in tabs:
             tab_renderer = tab.get("tabRenderer", {})
             
             if tab_renderer.get("title") == "Videos":
-                # Try richGridRenderer first (newer structure)
                 rich_grid = (
                     tab_renderer.get("content", {})
                     .get("richGridRenderer", {})
@@ -639,7 +634,6 @@ def extract_channel_videos(initial_data, max_videos=10):
                     if videos:
                         return videos[:max_videos]
 
-        # STRATEGY 2: Videos tab - gridRenderer (OLDER STRUCTURE)
         for tab in tabs:
             tab_renderer = tab.get("tabRenderer", {})
 
@@ -673,8 +667,6 @@ def extract_channel_videos(initial_data, max_videos=10):
                 if videos:
                     return videos[:max_videos]
 
-        # STRATEGY 3: Home tab - sectionListRenderer with videoRenderer
-        # This is where some channels (like Pablo Marçal) store their videos
         if not videos:
             for tab in tabs:
                 tab_renderer = tab.get("tabRenderer", {})
@@ -692,16 +684,13 @@ def extract_channel_videos(initial_data, max_videos=10):
                         )
                         
                         for item in item_section:
-                            # Try shelfRenderer first
                             shelf_renderer = item.get("shelfRenderer", {})
                             if shelf_renderer:
                                 content = shelf_renderer.get("content", {})
                                 
-                                # Check for horizontalListRenderer
                                 if "horizontalListRenderer" in content:
                                     items = content["horizontalListRenderer"].get("items", [])
                                     for list_item in items:
-                                        # Try both gridVideoRenderer and videoRenderer
                                         video_renderer = list_item.get("gridVideoRenderer") or list_item.get("videoRenderer")
                                         if video_renderer:
                                             video = _extract_video_info(video_renderer)
@@ -710,7 +699,6 @@ def extract_channel_videos(initial_data, max_videos=10):
                                                 if len(videos) >= max_videos:
                                                     return videos[:max_videos]
                                 
-                                # Check for expandedShelfContentsRenderer
                                 if "expandedShelfContentsRenderer" in content:
                                     items = content["expandedShelfContentsRenderer"].get("items", [])
                                     for list_item in items:
@@ -722,7 +710,6 @@ def extract_channel_videos(initial_data, max_videos=10):
                                                 if len(videos) >= max_videos:
                                                     return videos[:max_videos]
                             
-                            # Try direct videoRenderer in itemSection
                             if "videoRenderer" in item:
                                 video = _extract_video_info(item["videoRenderer"])
                                 if video:
@@ -736,8 +723,6 @@ def extract_channel_videos(initial_data, max_videos=10):
                     if videos:
                         return videos[:max_videos]
 
-        # STRATEGY 4: secondaryContents (LAST RESORT)
-        # Very old structure or special cases
         if not videos:
             sections = (
                 initial_data.get("contents", {})
@@ -769,14 +754,18 @@ def extract_channel_videos(initial_data, max_videos=10):
                                             return videos[:max_videos]
 
     except Exception as e:
-        # Return error but don't crash
         logger = get_logger(__name__)
         logger.error(f"Error extracting channel videos: {str(e)}", exc_info=True)
         return []
 
     return videos[:max_videos] if videos else []
 
-def get_channel_info(channel_input, include_videos=True, max_videos=10, timeout=10):
+def get_channel_info(
+    channel_input: str,
+    include_videos: bool = True,
+    max_videos: int = 10,
+    timeout: int = 10,
+) -> dict[str, Any]:
     """
     Get detailed information about a YouTube channel with minimal requests.
 
@@ -808,7 +797,6 @@ def get_channel_info(channel_input, include_videos=True, max_videos=10, timeout=
     if not initial_data:
         return {"error": "Failed to extract channel data"}
 
-    # Extract channel ID if not already provided
     if not channel_id:
         channel_id = initial_data.get("header", {}).get(
             "c4TabbedHeaderRenderer", {}
@@ -818,7 +806,7 @@ def get_channel_info(channel_input, include_videos=True, max_videos=10, timeout=
             "externalId"
         )
 
-    channel_info = {
+    channel_info: dict[str, Any] = {
         "channel_id": channel_id,
         "channel_url": (
             f"https://www.youtube.com/channel/{channel_id}" if channel_id else url
@@ -837,7 +825,11 @@ def get_channel_info(channel_input, include_videos=True, max_videos=10, timeout=
 
     return channel_info
 
-def get_channel_videos(channel_input, max_results=50, timeout=10):
+def get_channel_videos(
+    channel_input: str,
+    max_results: int = 50,
+    timeout: int = 10,
+) -> dict[str, Any]:
     """
     Get videos from a YouTube channel with minimal requests.
 

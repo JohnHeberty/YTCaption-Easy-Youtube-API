@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Main routes configuration for YouTube Search service.
 """

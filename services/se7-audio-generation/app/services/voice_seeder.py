@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 """Seed built-in voice profiles on first startup."""
 from pathlib import Path
+from typing import Any
 
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
-BUILTIN_VOICES = [
+BUILTIN_VOICES: list[dict[str, str]] = [
     {
         "id": "builtin_feminino",
         "name": "Feminino (Padrão)",
@@ -39,7 +42,7 @@ def _trim_audio(src: Path, dst: Path, max_dur: float = MAX_DURATION) -> None:
     sf.write(str(dst), y, sr)
 
 
-def seed_builtin_voices(voice_manager, voices_dir: str) -> None:
+def seed_builtin_voices(voice_manager: Any, voices_dir: str) -> None:
     """Register built-in voice profiles if they don't already exist."""
     from app.services.audio_utils import validate_voice_sample, convert_to_mono_wav
     from app.domain.models import VoiceProfile

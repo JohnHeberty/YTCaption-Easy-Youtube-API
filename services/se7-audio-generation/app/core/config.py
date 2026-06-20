@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Optional
+from typing import Any
 
 from pydantic import Field
 
@@ -16,7 +18,7 @@ class AudioGenSettings(BaseServiceSettings):
     port: int = 8007
 
     # SE7-specific
-    huggingface_token: Optional[str] = Field(default=None)
+    huggingface_token: str | None = Field(default=None)
     model_name: str = "ResembleAI/Chatterbox-Multilingual-pt-br"
     model_dir: str = "./data/models"
     device: str = "auto"
@@ -34,7 +36,7 @@ class AudioGenSettings(BaseServiceSettings):
     max_voice_sample_duration: float = Field(default=15.0, ge=1.0, le=60.0)
     max_voice_file_size_mb: int = Field(default=10, ge=1, le=50)
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> Any:
         return getattr(self, key, None)
 
 

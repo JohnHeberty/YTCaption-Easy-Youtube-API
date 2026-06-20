@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import os
 from io import BytesIO
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import numpy as np
 
@@ -16,7 +18,7 @@ logger = get_logger(__name__)
 
 
 def validate_voice_sample(file_path: str, min_duration: float = 5.0,
-                          max_duration: float = 15.0, max_size_mb: int = 10) -> dict:
+                          max_duration: float = 15.0, max_size_mb: int = 10) -> dict[str, Any]:
     path = Path(file_path)
     if not path.exists():
         raise InvalidVoiceSample("File not found")
@@ -80,7 +82,7 @@ def convert_to_mono_wav(input_path: str, output_path: str,
 
 def chunk_text(text: str, chunk_size: int = 1000) -> list[str]:
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    chunks = []
+    chunks: list[str] = []
     for para in paragraphs:
         if len(para) <= chunk_size:
             chunks.append(para)
@@ -107,7 +109,7 @@ def chunk_text(text: str, chunk_size: int = 1000) -> list[str]:
     return chunks
 
 
-def _waveform_to_audiosegment(wav, sample_rate: int):
+def _waveform_to_audiosegment(wav: Any, sample_rate: int) -> Any:
     import tempfile
     import torch
     from pydub import AudioSegment
@@ -131,7 +133,7 @@ def _waveform_to_audiosegment(wav, sample_rate: int):
     return segment
 
 
-def assemble_audio(wave_arrays: list, sample_rate: int,
+def assemble_audio(wave_arrays: list[Any], sample_rate: int,
                    silence_between_paras_ms: int = 0) -> bytes:
     from io import BytesIO
     from pydub import AudioSegment
@@ -139,7 +141,7 @@ def assemble_audio(wave_arrays: list, sample_rate: int,
     if not wave_arrays:
         return b""
 
-    combined = None
+    combined: Any = None
     silence = AudioSegment.silent(duration=silence_between_paras_ms)
 
     for wav in wave_arrays:

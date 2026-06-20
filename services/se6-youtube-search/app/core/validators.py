@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 """
 Core validators for YouTube Search service.
 
 Provides input validation following SOLID principles.
 """
 import re
-from typing import Any, Optional
+from typing import Any
 
 from common.datetime_utils import now_brazil
 
@@ -12,7 +14,7 @@ from common.datetime_utils import now_brazil
 class ValidationError(ValueError):
     """Custom validation error with context."""
 
-    def __init__(self, field: str, message: str, value: Any = None):
+    def __init__(self, field: str, message: str, value: Any = None) -> None:
         self.field = field
         self.value = value
         super().__init__(f"Validation error for '{field}': {message}")
@@ -31,7 +33,7 @@ class JobIdValidator:
     MAX_LENGTH = 64
 
     @classmethod
-    def validate(cls, job_id: Optional[str]) -> str:
+    def validate(cls, job_id: str | None) -> str:
         """
         Validate job_id format.
 

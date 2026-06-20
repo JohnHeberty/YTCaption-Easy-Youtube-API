@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Admin API endpoints for YouTube Search service.
 
@@ -9,6 +11,7 @@ This module contains administrative endpoints:
 """
 
 from urllib.parse import urlparse
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -49,7 +52,7 @@ async def manual_cleanup(
         examples=[False, True],
     ),
     store: RedisJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     """Executa limpeza do sistema, básica ou total, com opção de purge da fila Celery."""
     cleanup_type = "TOTAL" if deep else "basic"
     logger.warning(
@@ -71,7 +74,7 @@ async def manual_cleanup(
             status_code=500, detail=f"Error during cleanup: {str(exc)}"
         ) from exc
 
-async def _perform_basic_cleanup(store: RedisJobStore):
+async def _perform_basic_cleanup(store: RedisJobStore) -> dict[str, Any]:
     """Execute basic cleanup: remove only expired jobs."""
     report = {"jobs_removed": 0, "errors": []}
 
@@ -91,7 +94,7 @@ async def _perform_basic_cleanup(store: RedisJobStore):
         report["message"] = f"❌ Basic cleanup failed: {str(exc)}"
         return report
 
-async def _perform_total_cleanup(store: RedisJobStore, purge_celery_queue: bool = False):
+async def _perform_total_cleanup(store: RedisJobStore, purge_celery_queue: bool = False) -> dict[str, Any]:
     """Execute total cleanup: factory reset of the system."""
     from redis import Redis
 
@@ -129,7 +132,7 @@ async def _perform_total_cleanup(store: RedisJobStore, purge_celery_queue: bool 
         report["message"] = f"❌ Total cleanup failed: {str(exc)}"
         return report
 
-async def _cleanup_redis(store: RedisJobStore, report: dict) -> None:
+async def _cleanup_redis(store: RedisJobStore, report: dict[str, Any]) -> None:
     """Clean up Redis data."""
     from redis import Redis
 
@@ -159,7 +162,7 @@ async def _cleanup_redis(store: RedisJobStore, report: dict) -> None:
         logger.error(f"❌ Error cleaning Redis: {exc}")
         report["errors"].append(f"Redis FLUSHDB: {str(exc)}")
 
-async def _cleanup_celery(report: dict) -> None:
+async def _cleanup_celery(report: dict[str, Any]) -> None:
     """Clean up Celery queue and tasks."""
     from redis import Redis
 
@@ -231,7 +234,7 @@ async def _cleanup_celery(report: dict) -> None:
     description="Retorna estatísticas agregadas do Redis e do Celery para o serviço de busca.",
     response_model=SearchServiceStatsResponse,
 )
-async def get_stats(store: RedisJobStore = Depends(job_store)):
+async def get_stats(store: RedisJobStore = Depends(job_store)) -> dict[str, Any]:
     """Retorna estatísticas do serviço de busca, incluindo Redis e Celery."""
     stats = store.get_stats()
 
@@ -259,7 +262,7 @@ async def get_stats(store: RedisJobStore = Depends(job_store)):
     description="Inspeciona workers, tasks ativas e tasks agendadas na fila do Celery.",
     response_model=QueueStatsResponse,
 )
-async def get_queue_stats():
+async def get_queue_stats() -> dict[str, Any]:
     """Retorna estatísticas da fila Celery, incluindo workers e tasks."""
     try:
         inspect = celery_app.control.inspect()
@@ -281,7 +284,7 @@ async def get_queue_stats():
         return {"error": str(exc), "is_running": False}
 
 @router.get("/metrics", summary="Metricas Prometheus", response_class=Response)
-async def prometheus_metrics(store: RedisJobStore = Depends(job_store)):
+async def prometheus_metrics(store: RedisJobStore = Depends(job_store)) -> Response:
     """Expõe métricas no formato Prometheus para o serviço de busca no YouTube."""
     svc = "youtube_search"
     stats = {}

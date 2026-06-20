@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Depends
+from starlette.applications import Starlette
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger
@@ -15,7 +19,7 @@ verify_api_key = create_api_key_dependency(api_key=settings.api_key)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> Any:
     logger.info(f"Starting {settings.app_name} v{settings.app_version}")
     try:
         from app.infrastructure.dependencies import get_voice_manager
@@ -28,7 +32,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Audio Generation Service")
 
 
-def setup_routers(app: FastAPI):
+def setup_routers(app: FastAPI) -> None:
     app.include_router(jobs_routes.router)
     app.include_router(voices_routes.router)
     app.include_router(health_routes.router)

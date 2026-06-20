@@ -1,4 +1,4 @@
-from typing import Optional
+from __future__ import annotations
 
 from common.log_utils import get_logger
 from common.redis_utils.resilient_store import ResilientRedisStore, CircuitBreakerOpenError
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 class JobRedisStore(IJobStore):
     """Persistence layer for audio generation jobs using ResilientRedisStore."""
 
-    def __init__(self, redis_store: ResilientRedisStore):
+    def __init__(self, redis_store: ResilientRedisStore) -> None:
         self._store = redis_store
         self._list_key = VOICE_LIST_KEY.replace("voices", "jobs")
 
@@ -33,7 +33,7 @@ class JobRedisStore(IJobStore):
         except (CircuitBreakerOpenError, Exception) as e:
             logger.warning(f"Failed to add job to index: {e}")
 
-    def get_job(self, job_id: str) -> Optional[AudioGenerationJob]:
+    def get_job(self, job_id: str) -> AudioGenerationJob | None:
         data = self._store.get(f"{JOB_PREFIX}{job_id}")
         if not data:
             return None
@@ -52,7 +52,7 @@ class JobRedisStore(IJobStore):
         except (CircuitBreakerOpenError, Exception) as e:
             logger.warning(f"Failed to list jobs from index: {e}")
             return []
-        jobs = []
+        jobs: list[AudioGenerationJob] = []
         for jid in job_ids:
             job = self.get_job(jid)
             if job:
@@ -71,7 +71,7 @@ class JobRedisStore(IJobStore):
 class VoiceRedisStore(IVoiceStore):
     """Persistence layer for voice profiles using ResilientRedisStore."""
 
-    def __init__(self, redis_store: ResilientRedisStore):
+    def __init__(self, redis_store: ResilientRedisStore) -> None:
         self._store = redis_store
 
     def save_profile(self, profile: VoiceProfile) -> None:
@@ -82,7 +82,7 @@ class VoiceRedisStore(IVoiceStore):
         except (CircuitBreakerOpenError, Exception) as e:
             logger.warning(f"Failed to add voice to index: {e}")
 
-    def get_profile(self, voice_id: str) -> Optional[VoiceProfile]:
+    def get_profile(self, voice_id: str) -> VoiceProfile | None:
         data = self._store.get(f"{VOICE_PREFIX}{voice_id}")
         if not data:
             return None
@@ -98,7 +98,7 @@ class VoiceRedisStore(IVoiceStore):
         except (CircuitBreakerOpenError, Exception) as e:
             logger.warning(f"Failed to list voices from index: {e}")
             return []
-        profiles = []
+        profiles: list[VoiceProfile] = []
         for vid in voice_ids:
             profile = self.get_profile(vid)
             if profile:

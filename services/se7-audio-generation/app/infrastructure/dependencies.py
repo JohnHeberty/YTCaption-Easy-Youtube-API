@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from functools import lru_cache
 import os
 
@@ -8,7 +10,7 @@ from app.core.config import get_settings
 from app.domain.interfaces import IJobStore, IVoiceStore, IModelManager, ITTSGenerator
 
 
-def get_settings_dep():
+def get_settings_dep() -> AudioGenSettings:
     return get_settings()
 
 
@@ -55,7 +57,7 @@ def get_generator() -> ITTSGenerator:
 
 
 @lru_cache(maxsize=1)
-def get_voice_manager():
+def get_voice_manager() -> Any:
     from app.services.voice_manager import VoiceProfileManager
 
     settings = get_settings()

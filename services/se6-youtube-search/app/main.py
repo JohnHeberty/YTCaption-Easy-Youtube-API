@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 YouTube Search Service - Main Application
 
@@ -5,6 +7,7 @@ Microservice for YouTube search operations with Celery + Redis and 24h cache.
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -32,12 +35,12 @@ setup_structured_logging(
 logger = get_logger(__name__)
 
 
-def _get_job_store():
+def _get_job_store() -> RedisJobStore:
     return get_job_store()
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: Any) -> Any:  # type: ignore[override]
     store = _get_job_store()
     app.state.job_store = store
     try:
@@ -83,7 +86,7 @@ app = create_service_app(
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse, "description": "Service unhealthy"}},
 )
-async def health_check(request):
+async def health_check(request: Any) -> JSONResponse:
     """Deep health check - validates critical resources."""
     import shutil
 
@@ -177,7 +180,7 @@ async def health_check(request):
     description="Retorna o catálogo resumido dos principais endpoints públicos do serviço.",
     response_model=RootResponse,
 )
-async def root():
+async def root() -> dict[str, Any]:
     """Root endpoint."""
     return {
         "service": "YouTube Search Service",

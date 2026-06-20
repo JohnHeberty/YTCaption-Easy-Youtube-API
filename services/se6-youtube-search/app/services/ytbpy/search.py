@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import re
 import json
+from typing import Any
 from urllib.parse import quote_plus
 
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
 
 
-def _extract_search_video_details(video_renderer):
+def _extract_search_video_details(video_renderer: dict[str, Any]) -> dict[str, Any] | None:
     """Extract basic details from a video renderer in search results"""
     if not video_renderer:
         return None
@@ -37,7 +40,7 @@ def _extract_search_video_details(video_renderer):
     return video_info
 
 
-def _extract_channel_info(video_renderer, video_info):
+def _extract_channel_info(video_renderer: dict[str, Any], video_info: dict[str, Any]) -> dict[str, Any]:
     """Extract channel information from video renderer"""
     owner_text = video_renderer.get("ownerText", {}).get("runs", [])
     if owner_text:
@@ -50,7 +53,7 @@ def _extract_channel_info(video_renderer, video_info):
     return video_info
 
 
-def _extract_video_duration(video_renderer, video_info):
+def _extract_video_duration(video_renderer: dict[str, Any], video_info: dict[str, Any]) -> dict[str, Any]:
     """Extract and process video duration information"""
     duration_text = video_renderer.get("lengthText", {}).get("simpleText", "")
     if duration_text:
@@ -69,7 +72,7 @@ def _extract_video_duration(video_renderer, video_info):
     return video_info
 
 
-def _extract_video_status(video_renderer, video_info):
+def _extract_video_status(video_renderer: dict[str, Any], video_info: dict[str, Any]) -> dict[str, Any]:
     """Extract video status information (live, upcoming, etc.)"""
     badges = video_renderer.get("badges", [])
     if badges:
@@ -97,7 +100,7 @@ def _extract_video_status(video_renderer, video_info):
     return video_info
 
 
-def _extract_additional_details(video_renderer, video_info):
+def _extract_additional_details(video_renderer: dict[str, Any], video_info: dict[str, Any]) -> dict[str, Any]:
     """Extract additional video details"""
     description_snippet = video_renderer.get("detailedMetadataSnippets", [])
     if description_snippet:
@@ -119,7 +122,7 @@ def _extract_additional_details(video_renderer, video_info):
     return video_info
 
 
-def _extract_continuation_token(initial_data):
+def _extract_continuation_token(initial_data: dict[str, Any]) -> str | None:
     """Extract the continuation token for the next page of results"""
     try:
         contents = (
@@ -150,7 +153,7 @@ def _extract_continuation_token(initial_data):
         return None
 
 
-def _process_search_results(initial_data, max_results=10):
+def _process_search_results(initial_data: dict[str, Any], max_results: int = 10) -> tuple[list[dict[str, Any]] | dict[str, Any], str | None]:
     """Process YouTube search results from initial data"""
     search_results = []
     continuation_token = None
@@ -206,7 +209,7 @@ def _process_search_results(initial_data, max_results=10):
     return search_results, continuation_token
 
 
-def _fetch_continuation_page(continuation_token, timeout=10):
+def _fetch_continuation_page(continuation_token: str, timeout: int = 10) -> tuple[list[dict[str, Any]] | dict[str, Any], str | None]:
     """Fetch the next page of search results using the continuation token"""
     if not continuation_token:
         return {"error": "No continuation token provided"}, None
@@ -277,7 +280,7 @@ def _fetch_continuation_page(continuation_token, timeout=10):
         return {"error": f"Error parsing continuation results: {str(e)}"}, None
 
 
-def search_youtube(query, max_results=10, timeout=10):
+def search_youtube(query: str, max_results: int = 10, timeout: int = 10) -> dict[str, Any]:
     """Search YouTube and return detailed information about multiple videos with minimal requests"""
     if not query:
         return {"error": "No search query provided"}
@@ -323,7 +326,7 @@ def search_youtube(query, max_results=10, timeout=10):
     }
 
 
-def _extract_reel_item_details(reel_renderer):
+def _extract_reel_item_details(reel_renderer: dict[str, Any]) -> dict[str, Any] | None:
     """
     Extract details from reelItemRenderer (shorts-specific structure)
     
@@ -368,7 +371,7 @@ def _extract_reel_item_details(reel_renderer):
     return short_info
 
 
-def search_shorts(query, max_results=10, timeout=10):
+def search_shorts(query: str, max_results: int = 10, timeout: int = 10) -> dict[str, Any]:
     """
     Search specifically for YouTube Shorts
     
@@ -427,7 +430,7 @@ def search_shorts(query, max_results=10, timeout=10):
     }
 
 
-def filter_videos_by_type(videos, shorts_only=False, exclude_shorts=False):
+def filter_videos_by_type(videos: list[dict[str, Any]], shorts_only: bool = False, exclude_shorts: bool = False) -> list[dict[str, Any]]:
     """
     Filter video list based on shorts preferences
     

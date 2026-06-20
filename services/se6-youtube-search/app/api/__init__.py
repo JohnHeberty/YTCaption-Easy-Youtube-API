@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 API routes initialization for YouTube Search service.
 """
