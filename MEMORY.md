@@ -1,31 +1,27 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-20)
-- **Commit 51202c2** — fix: chosen_seq bug + Pydantic v2 migration + doc sync
-- **SE9 critical bug fix** — `chosen_seq` NameError in `video_assembler.py` (runtime crash every video)
-- **SE9 dead code cleanup** — removed `hook_text` param from `create_title_card()` + `ffmpeg_utils.py`
-- **SE9 Redis store refactor** — `_use_raw` property replaces 10 try/except blocks in `redis_store.py`
-- **SE9 lazy import fix** — `audio_generator.py` top-level import instead of inside function
-- **Shared library Pydantic v2** — eliminated all 65 deprecation warnings:
-  - `shared/config_utils/base_settings.py`: `SettingsConfigDict`, `field_validator`, `model_validator`
-  - `shared/models/base.py`: `ConfigDict`, removed `json_encoders`
-- **SE9 ARCHITECTURE.md sync** — TTS params corrected, title card 0.5s, subtitle removed, 17 fields, ~32 files
+- **SE8 Inpainting Fix** — InpaintWorker wired into `process_generate()`, now crops mask region, generates via diffusion, pastes back with color_correction
+- **SE11 Params Fix** — Dynamic SDXL aspect ratio, removed aggressive styles (Enhance/Sharp), `inpaint_respective_field=0.8`, stronger negative prompt
+- **E2E validated**: SE11 → SE10 → SE8 → RGB output, 482×789, 22.9% pixels changed, 77.1% preserved
+- **Docker images rebuilt** — SE8 (`docker-image-engine`, gpu.yml) and SE11 (`docker-se11`) both compose-persisted with all fixes
+- **Pydantic v2 migration COMPLETE** — All 11 services + shared library, 348/348 files, zero deprecation warnings
 
 ## Serviços Ativos
 
-| Service | Port | Status | Description |
-|---|---|---|---|
-| se1-orchestrator | 8001 | ✅ Healthy | Pipeline orchestrator |
-| se2-video-downloader | 8002 | ✅ Healthy | Video download |
-| se3-audio-normalization | 8003 | ✅ Healthy | Audio normalization |
-| se4-audio-transcriber | 8004 | ✅ Healthy | Whisper transcription |
-| se5-video-clip | 8005 | ✅ Healthy | Video clip generation |
-| se6-youtube-search | 8006 | ✅ Healthy | YouTube search |
-| se7-audio-generation | 8007 | ✅ Healthy | TTS Chatterbox (GPU) |
-| se8-image-generation | 8008 | ✅ Healthy | Fooocus SDXL (GPU) |
-| se9-make-video-img | 8009 | ✅ Healthy | Ken Burns video builder |
-| se10-clothes-segmentation | 8010 | ✅ Healthy | GroundingDINO+SAM2 (CPU) |
-| se11-clothes-removal | 8011 | ✅ E2E validated | SE10→SE8 inpaint pipeline |
+| Service | Port | Container | Status | Description |
+|---|---|---|---|---|
+| se1-orchestrator | 8001 | — | ✅ Healthy | Pipeline orchestrator |
+| se2-video-downloader | 8002 | — | ✅ Healthy | Video download |
+| se3-audio-normalization | 8003 | — | ✅ Healthy | Audio normalization |
+| se4-audio-transcriber | 8004 | — | ✅ Healthy | Whisper transcription |
+| se5-video-clip | 8005 | — | ✅ Healthy | Video clip generation |
+| se6-youtube-search | 8006 | — | ✅ Healthy | YouTube search |
+| se7-audio-generation | 8007 | — | ✅ Healthy | TTS Chatterbox (GPU) |
+| se8-image-generation | 8008 | image-engine | ✅ Healthy | Fooocus SDXL (GPU), **inpainting functional** |
+| se9-make-video-img | 8009 | se9-make-video-img | ✅ Healthy | Ken Burns video builder |
+| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | GroundingDINO+SAM2 (CPU) |
+| se11-clothes-removal | 8011 | se11-clothes-removal | ✅ E2E validated | SE10→SE8 inpaint pipeline |
 
 ## SE11 — Clothes Removal Service
 
@@ -51,8 +47,9 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - ✅ Todos os módulos py_compile OK
 - ✅ API server inicia, health/ping respondem
 - ✅ Deep health detecta SE8=ok, SE10=ok
-- ✅ **E2E passou (compose-persisted)**: SE11 → SE10 → SE8 → resultado RGB 931KB, 24s
+- ✅ **E2E passou (compose-persisted)**: SE11 → SE10 → SE8 → RGB 482×789, 449KB, ~84s
 - ✅ **PNG transparency fix**: resultado é RGB (não RGBA)
+- ✅ **Inpainting quality fix**: aspect ratio dinâmico, inpaint_respective_field=0.8, sem styles agressivas
 
 ### SE11 Config
 - Port: 8011, API_KEY: se11-test-key-2026
@@ -64,6 +61,10 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 ### Fixes aplicados
 1. **base64 padding** — `_fix_b64_padding()` antes de `b64.b64decode()`
 2. **PNG transparency** — `require_base64=False` em SE8 client + download via file URL, evita base64 truncado do SE8
+3. **Aspect ratio dinâmico** — `_pick_sdxl_ratio()` detecta proporção da imagem e escolhe SDXL ratio mais próximo
+4. **Styles limpas** — removido "Fooocus Enhance" e "Fooocus Sharp" que alteravam demais a aparência
+5. **inpaint_respective_field=0.8** — crop cobre mais contexto ao redor da máscara (era 0.5 default)
+6. **advanced_params always sent** — engine/strength/field sempre enviados ao SE8
 
 ## SE10 — Clothes Segmentation
 
@@ -87,6 +88,19 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - `external/segment-anything-2/` ← facebookresearch/sam2 (depth 1)
 - Bertwarper patchado para transformers>=5.0
 
+## SE8 — Image Engine
+- Port: 8008, Container: `image-engine`, nvidia/cuda:12.1.1
+- Docker: `docker-compose.gpu.yml`, Dockerfile: `Dockerfile.gpu-api`
+- Rotas: Health(4) + Engines(4) + V1 Gen(5) + V2 Gen(5) + Query(4) + Files(1)
+- **Inpainting FIX**: InpaintWorker wired into `process_generate()`, crops→diffuse→paste back with color_correction
+- **worker.py changes**: `_build_async_task()` extracts inpaint params from advanced_params, `_apply_inpaint()` creates InpaintWorker, post_process pastes crop back
+
+### SE8 Inpainting Architecture
+- `_apply_inpaint()`: decode image+mask → InpaintWorker(img, mask, use_fill=True, k=inpaint_respective_field) → override width/height to crop dimensions
+- `_process_diffusion()`: generates content in crop-sized latent
+- `worker.post_process()`: resizes generated content → color_correction (alpha blend) → pastes into original image
+- **Does NOT set `modules.inpaint_worker.current_task`** (would crash — latent=None)
+
 ## SE9 — Make Video IMG
 - **27/27 testes passando, 0 warnings** (era 65)
 - Critical bug fix: `chosen_seq` NameError em `video_assembler.py`
@@ -96,17 +110,29 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - ARCHITECTURE.md sincronizado com código real
 - Pydantic v2 migration completa (shared library)
 
-## SE8 — Image Engine
-- Port: 8008, Container: `image-engine`, nvidia/cuda:12.1.1
-- Rotas: Health(4) + Engines(4) + V1 Gen(5) + V2 Gen(5) + Query(4) + Tools(2) + Files(1)
-- Memory issue: RSS 14.19GB é [anon] C-level (PyTorch caching allocator)
-- Só resolve com restart do container
-
 ## Shared Library
-- Pydantic v2 migration completa — 0 warnings (era 65)
+- Pydantic v2 migration completa — 0 warnings
 - `config_utils/base_settings.py`: SettingsConfigDict, field_validator, model_validator
 - `models/base.py`: ConfigDict, json_encoders removido
 - `di.py`: dependency injection container
+
+## Pydantic v2 Migration — ALL SERVICES COMPLETE (2026-06-20)
+348/348 arquivos py_compile OK, zero deprecation warnings.
+
+| Service | Changes | Status |
+|---|---|---|
+| shared/ | Already migrated (earlier session) | ✅ |
+| se1-orchestrator | `class Config` → `ConfigDict(json_schema_extra=...)`, removed `json_encoders` | ✅ |
+| se2-video-downloader | 2x `class Config` → `ConfigDict(json_schema_extra=...)`, removed `json_encoders` | ✅ |
+| se3-audio-normalization | Removed `json_encoders` | ✅ |
+| se4-audio-transcriber | Already clean | ✅ |
+| se5-make-video-clip | `@validator` → `@field_validator`+`@classmethod`, `class Config` → `ConfigDict(extra='forbid', json_schema_extra=...)`, `schema_extra` → `json_schema_extra`, `.dict()` → `.model_dump()`, removed `json_encoders` | ✅ |
+| se6-youtube-search | Already clean | ✅ |
+| se7-audio-generation | `class Config`+`json_encoders` removed | ✅ |
+| se8-image-generation | Already clean (uses `model_config = {...}`) | ✅ |
+| se9-make-video-img | Already clean | ✅ |
+| se10-clothes-segmentation | Already clean (uses `model_config = {...}`) | ✅ |
+| se11-clothes-removal | Already clean | ✅ |
 
 ## Docs Arquivados
 ```
@@ -118,7 +144,8 @@ docs/archive/se9-make-video-img/
 ```
 
 ## Próximos Passos
-1. ✅ SE10 deploy com todos fixes — Docker compose rebuild persistido
-2. ✅ SE11 E2E testado via compose — pipeline completo funciona, RGB válido
-3. Integração SE11 ao SE1 ou APIs externas
-4. Pydantic v2 migration completa (shared library zero warnings)
+1. ✅ SE8 Inpainting fix — InpaintWorker wired, tested, Docker rebuild persisted
+2. ✅ SE11 Params fix — aspect ratio, styles, advanced_params
+3. ✅ E2E validated — full SE11→SE10→SE8 pipeline, compose-persisted images
+4. ✅ Pydantic v2 migration completa — 348/348 arquivos, zero warnings
+5. Integração SE11 ao SE1 ou APIs externas

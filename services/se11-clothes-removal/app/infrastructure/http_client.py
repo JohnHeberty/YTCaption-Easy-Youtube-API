@@ -215,7 +215,6 @@ class SE8Client(ServiceClient):
     @staticmethod
     def _pick_sdxl_ratio(image_b64: str) -> str:
         """Pick closest SDXL aspect ratio from input image dimensions."""
-        import io
         from PIL import Image
 
         # SDXL supported ratios: (width, height)

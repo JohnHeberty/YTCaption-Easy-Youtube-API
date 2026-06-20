@@ -1,7 +1,7 @@
 """Pydantic models for SE11 Clothes Removal."""
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -128,7 +128,7 @@ class ClothesRemovalJob(BaseModel):
         self.progress = round(total, 1)
         self.updated_at = now_brazil()
 
-    def update_stage(self, stage_name: str, status: str, progress: float = 0.0, error: str = None):
+    def update_stage(self, stage_name: str, status: str, progress: float = 0.0, error: Optional[str] = None):
         if stage_name in self.stages:
             stage = StageInfo(**self.stages[stage_name])
             if status == "processing":

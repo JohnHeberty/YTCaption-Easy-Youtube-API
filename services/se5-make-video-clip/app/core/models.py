@@ -44,7 +44,7 @@ class MakeVideoJob(StandardJob):
     output_file: Optional[str] = None
     output_url: Optional[str] = None
 
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
+    # json_encoders removed — Pydantic v2 handles datetime natively
 
     @classmethod
     def create_new(cls, **kwargs) -> "MakeVideoJob":

@@ -43,10 +43,10 @@ class ServiceClient:
                 last_error = e
                 if attempt < max_retries - 1:
                     wait = 2 ** attempt
-                    logger.warning(f"Request failed (attempt {attempt + 1}): {e}, retrying in {wait}s")
+                    logger.warning("Request failed (attempt %d): %s, retrying in %ds", attempt + 1, e, wait)
                     await asyncio.sleep(wait)
                 else:
-                    logger.error(f"Request failed after {max_retries} attempts: {e}")
+                    logger.error("Request failed after %d attempts: %s", max_retries, e)
         raise last_error
 
 

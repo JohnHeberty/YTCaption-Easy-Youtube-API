@@ -8,7 +8,7 @@ StandardJob.
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from common.datetime_utils import now_brazil
 from common.job_utils.models import StandardJob, JobStatus, StageInfo
@@ -76,7 +76,7 @@ class VideoDownloadJob(StandardJob):
     def received_at(self) -> datetime:
         return self.created_at
 
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
+    # json_encoders removed — Pydantic v2 handles datetime natively
 
     @field_validator("quality")
     @classmethod
@@ -149,13 +149,12 @@ class VideoDownloadJobRequest(BaseModel):
             raise ValueError(f"Invalid quality '{value}'. Allowed values: {allowed}")
         return normalized
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                "quality": "720p",
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "quality": "720p",
         }
+    })
 
 
 class VideoDownloadJobCreatedResponse(BaseModel):
@@ -173,18 +172,17 @@ class VideoDownloadJobCreatedResponse(BaseModel):
     created_at: datetime = Field(..., description="Data/hora de criação do job.")
     expires_at: datetime = Field(..., description="Data/hora de expiração do job no cache.")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "id": "vd_abcdef1234567890",
-                "status": "queued",
-                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                "quality": "720p",
-                "progress": 0.0,
-                "created_at": "2026-04-30T10:00:00-03:00",
-                "expires_at": "2026-05-01T10:00:00-03:00",
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "id": "vd_abcdef1234567890",
+            "status": "queued",
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "quality": "720p",
+            "progress": 0.0,
+            "created_at": "2026-04-30T10:00:00-03:00",
+            "expires_at": "2026-05-01T10:00:00-03:00",
         }
+    })
 
     @classmethod
     def from_job(cls, job: VideoDownloadJob) -> "VideoDownloadJobCreatedResponse":

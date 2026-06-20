@@ -114,10 +114,3 @@ class VoiceRedisStore(IVoiceStore):
 
     def profile_exists(self, voice_id: str) -> bool:
         return self._store.exists(f"{VOICE_PREFIX}{voice_id}") > 0
-
-
-try:
-    from tests.fakes import _FakeRedis, create_fake_store
-except ImportError:
-    _FakeRedis = None
-    create_fake_store = None

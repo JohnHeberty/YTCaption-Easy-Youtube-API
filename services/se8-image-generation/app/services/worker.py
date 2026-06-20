@@ -478,7 +478,7 @@ def _apply_upscale(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
 
     scale_map = {"upscale_15": 1.5, "upscale_2": 2.0, "upscale_fast": 1.0, "upscale_custom": 1.0}
     scale = scale_map.get(async_task.uov_method, 1.5)
-    upscale_value = async_task.upscale_value if async_task.upscale_method == "upscale_custom" else None
+    upscale_value = async_task.upscale_value if async_task.uov_method == "upscale_custom" else None
 
     return tasks, {
         "mode": "upscale",

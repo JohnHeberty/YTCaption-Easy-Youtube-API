@@ -1,9 +1,9 @@
 """SE10 Clothes Segmentation — service settings."""
 
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from common.config_utils.base_settings import BaseServiceSettings
 
@@ -46,13 +46,20 @@ class ClothesSegSettings(BaseServiceSettings):
 
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        extra = "allow"
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "allow"}
 
-    def __getitem__(self, key: str):
+    @field_validator("port")
+    @classmethod
+    def port_must_be_valid(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError(f"PORT must be 1-65535, got {v}")
+        return v
+
+    def __getitem__(self, key: str) -> Any:
         return getattr(self, key, None)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
 
 
 @lru_cache()

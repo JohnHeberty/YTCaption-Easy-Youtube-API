@@ -8,24 +8,31 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from common.exceptions import ServiceError
+
 logger = logging.getLogger(__name__)
 
 
-class BaseServiceException(Exception):
-    """Exceção base para todos os serviços"""
-    
+class BaseServiceException(ServiceError):
+    """Exceção base para todos os serviços.
+
+    Inherits from ServiceError to provide to_dict() serialization
+    and unified exception handling across all services.
+    """
+
     def __init__(
         self,
         message: str,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         error_code: str = "INTERNAL_ERROR",
-        details: dict = None
+        details: dict = None,
     ):
-        self.message = message
-        self.status_code = status_code
-        self.error_code = error_code
-        self.details = details or {}
-        super().__init__(self.message)
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            status_code=status_code,
+            details=details,
+        )
 
 
 class ValidationException(BaseServiceException):
@@ -177,9 +184,9 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
         >>> setup_exception_handlers(app, debug=False)
     """
     
-    # Handler para BaseServiceException e subclasses
-    @app.exception_handler(BaseServiceException)
-    async def service_exception_handler(request: Request, exc: BaseServiceException):
+    # Handler para ServiceError e subclasses (inclui BaseServiceException)
+    @app.exception_handler(ServiceError)
+    async def service_exception_handler(request: Request, exc: ServiceError):
         logger.error(
             f"Service exception: {exc.error_code}",
             exc_info=True,
@@ -187,21 +194,15 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
                 'error_code': exc.error_code,
                 'status_code': exc.status_code,
                 'path': request.url.path,
-                'method': request.method
-            }
+                'method': request.method,
+            },
         )
-        
-        response_data = {
-            'error': exc.error_code,
-            'message': exc.message
-        }
-        
-        if exc.details:
-            response_data['details'] = exc.details
-        
+
+        response_data = exc.to_dict()
+
         return JSONResponse(
             status_code=exc.status_code,
-            content=response_data
+            content=response_data,
         )
     
     # Handler para validation errors do Pydantic

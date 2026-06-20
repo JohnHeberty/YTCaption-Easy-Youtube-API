@@ -66,7 +66,7 @@ class AudioNormJob(StandardJob):
         description="Marca de vida do worker responsável pelo job (uso interno).",
     )
 
-    model_config = {"json_encoders": {**StandardJob.model_config.get("json_encoders", {})}}
+    # json_encoders removed — Pydantic v2 handles datetime natively
 
     @classmethod
     def create_new(cls, filename: str, **kwargs) -> "AudioNormJob":
