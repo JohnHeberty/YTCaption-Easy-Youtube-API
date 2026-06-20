@@ -38,9 +38,9 @@ class IModelManager(ABC):
         self,
         text: str,
         audio_prompt_path: Optional[str] = None,
-        exaggeration: float = 0.75,
+        exaggeration: float = 0.5,
         temperature: float = 0.8,
-        cfg_weight: float = 0.35,
+        cfg_weight: float = 0.5,
     ) -> object:
         pass
 

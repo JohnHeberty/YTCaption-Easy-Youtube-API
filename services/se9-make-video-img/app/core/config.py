@@ -45,9 +45,9 @@ class MakeVideoImgSettings(BaseServiceSettings):
 
     # === TTS PARAMS (passed to SE7) ===
     tts_exaggeration: float = 0.5
-    tts_cfg_weight: float = 0.7
-    tts_temperature: float = 0.5
-    default_normalize_text: bool = True
+    tts_cfg_weight: float = 0.5
+    tts_temperature: float = 0.8
+    default_normalize_text: bool = False
 
     # === TIMEOUTS (seconds) ===
     se7_poll_interval: int = 5

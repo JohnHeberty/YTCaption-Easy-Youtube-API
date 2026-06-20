@@ -36,4 +36,4 @@ CHECKPOINT_GROUNDINGDINO: str = "groundingdino_swint_ogc.pth"
 CHECKPOINT_SAM2_TINY: str = "sam2_hiera_tiny.pt"
 
 GD_CONFIG_SwinT: str = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
-SAM2_CONFIG_TINY: str = "sam2/configs/sam2/sam2_hiera_t.yaml"
+SAM2_CONFIG_TINY: str = "configs/sam2/sam2_hiera_t.yaml"

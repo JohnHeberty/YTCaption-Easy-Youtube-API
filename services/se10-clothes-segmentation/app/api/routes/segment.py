@@ -89,6 +89,8 @@ async def segment_clothes(
             ),
         )
     except Exception as e:
+        import traceback as tb
+        tb.print_exc()
         return SegmentResponse(
             success=False,
             message=f"Segmentation failed: {str(e)}",

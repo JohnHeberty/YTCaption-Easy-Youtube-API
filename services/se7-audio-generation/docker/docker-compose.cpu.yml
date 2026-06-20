@@ -3,7 +3,7 @@ services:
   audio-generation-service:
     build:
       context: ../../..
-      dockerfile: services/se7-audio-generation/docker/Dockerfile
+      dockerfile: services/se7-audio-generation/docker/Dockerfile.cpu
       target: api
     container_name: audio-generation-api
     ports:
@@ -28,7 +28,7 @@ services:
   celery-worker:
     build:
       context: ../../..
-      dockerfile: services/se7-audio-generation/docker/Dockerfile
+      dockerfile: services/se7-audio-generation/docker/Dockerfile.cpu
     container_name: audio-generation-celery
     command: python -m celery -A app.infrastructure.celery_config.celery_app worker --loglevel=info --concurrency=1 --queues=audio_generation_queue --pool=solo
     volumes:

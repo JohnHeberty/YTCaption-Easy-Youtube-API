@@ -37,7 +37,7 @@ class MockModelManager:
         self._loaded = False
 
     def generate(self, text, audio_prompt_path=None,
-                 exaggeration=0.75, temperature=0.8, cfg_weight=0.35):
+                 exaggeration=0.5, temperature=0.8, cfg_weight=0.5):
         import torch
         duration_samples = int(self.sample_rate * max(1.0, len(text) / 20))
         t = torch.linspace(0, 2 * 3.14159 * 440 * duration_samples / self.sample_rate, duration_samples)
@@ -113,7 +113,7 @@ def generator(model_manager, job_store, output_dir):
         job_store=job_store,
         output_dir=output_dir,
         max_text_length=5000,
-        chunk_size=250,
+        chunk_size=1000,
     )
 
 
@@ -123,18 +123,18 @@ def generator(model_manager, job_store, output_dir):
 class TestChunkText:
     def test_short_text_single_chunk(self):
         text = "Hello world. This is a test."
-        chunks = chunk_text(text, chunk_size=250)
+        chunks = chunk_text(text, chunk_size=1000)
         assert len(chunks) == 1
         assert chunks[0] == text
 
     def test_long_text_multiple_chunks(self):
         text = "A. " * 200
-        chunks = chunk_text(text, chunk_size=250)
+        chunks = chunk_text(text, chunk_size=1000)
         assert len(chunks) > 1
 
     def test_paragraphs_preserved(self):
         text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph."
-        chunks = chunk_text(text, chunk_size=250)
+        chunks = chunk_text(text, chunk_size=1000)
         assert len(chunks) == 3
 
     def test_empty_text(self):
