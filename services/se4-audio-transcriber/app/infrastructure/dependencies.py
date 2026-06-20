@@ -5,6 +5,8 @@ Factory functions that create and cache service dependencies.
 Returns abstract types (IJobStore, ITranscriptionProcessor) to satisfy DIP.
 Concrete implementations are resolved lazily inside the factory.
 """
+from __future__ import annotations
+
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -19,11 +21,11 @@ if TYPE_CHECKING:
 
 
 @lru_cache(maxsize=1)
-def _get_settings():
+def _get_settings() -> dict[str, object]:
     return get_settings()
 
 
-def get_settings_dep():
+def get_settings_dep() -> dict[str, object]:
     return _get_settings()
 
 

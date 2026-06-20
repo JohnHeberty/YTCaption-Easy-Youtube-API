@@ -1,4 +1,5 @@
 """Core constants for Audio Transcriber Service."""
+from __future__ import annotations
 
 # Timeouts
 DEFAULT_JOB_TIMEOUT_SECONDS = 3600

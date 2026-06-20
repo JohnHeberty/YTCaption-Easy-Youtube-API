@@ -1,4 +1,6 @@
 """Audio conversion and validation using ffmpeg/ffprobe."""
+from __future__ import annotations
+
 import json
 import subprocess as sp  # noqa: F401 – re-exported for convert_to_wav internals
 from pathlib import Path
@@ -56,7 +58,7 @@ def has_audio_stream(input_path: Path) -> tuple[bool, str]:
 
 def convert_to_wav(
     input_path: Path,
-    settings: dict | None = None,
+    settings: dict[str, object] | None = None,
 ) -> tuple[Path, bool]:
     """Convert any audio/video file to WAV 16kHz mono pcm_s16le.
 

@@ -3,6 +3,8 @@ Celery configuration for audio-transcriber service.
 
 Uses the shared create_celery_app factory for consistent config.
 """
+from __future__ import annotations
+
 from common.celery_utils import create_celery_app
 from common.log_utils import get_logger
 

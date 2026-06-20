@@ -3,23 +3,24 @@ Constantes do serviço de normalização de áudio.
 
 Todas as constantes centralizadas para facilitar manutenção e testes.
 """
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Set
 
 
 class AudioConstants:
     """Constantes relacionadas a processamento de áudio."""
 
     # Formatos de vídeo suportados
-    VIDEO_EXTENSIONS: Set[str] = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}
+    VIDEO_EXTENSIONS: set[str] = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm', '.m4v'}
 
     # Formatos de áudio suportados
-    AUDIO_EXTENSIONS: Set[str] = {
+    AUDIO_EXTENSIONS: set[str] = {
         '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.aac', '.wma', '.opus', '.webm'
     }
 
     # Todos os formatos aceitos
-    SUPPORTED_EXTENSIONS: Set[str] = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
+    SUPPORTED_EXTENSIONS: set[str] = VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 
     # Codecs padrão
     DEFAULT_AUDIO_CODEC: str = "libopus"
@@ -83,9 +84,9 @@ class ValidationConstants:
     """Constantes para validação de entrada."""
 
     # Valores booleanos aceitos
-    TRUE_VALUES: Set[str] = {'true', '1', 'yes', 'on'}
-    FALSE_VALUES: Set[str] = {'false', '0', 'no', 'off', ''}
-    BOOLEAN_VALUES: Set[str] = TRUE_VALUES | FALSE_VALUES
+    TRUE_VALUES: set[str] = {'true', '1', 'yes', 'on'}
+    FALSE_VALUES: set[str] = {'false', '0', 'no', 'off', ''}
+    BOOLEAN_VALUES: set[str] = TRUE_VALUES | FALSE_VALUES
 
     # Limites
     MAX_FILENAME_LENGTH: int = 255

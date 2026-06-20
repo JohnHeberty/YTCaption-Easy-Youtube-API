@@ -3,11 +3,13 @@ Serviço de limpeza do sistema.
 
 Responsável por limpar jobs expirados e arquivos órfãos.
 """
+from __future__ import annotations
+
 import asyncio
 import shutil
 from pathlib import Path
-from typing import List, Dict, Any
-from datetime import timedelta
+from typing import Any
+from datetime import datetime, timedelta
 
 from common.datetime_utils import now_brazil
 
@@ -22,21 +24,21 @@ logger = get_logger(__name__)
 class CleanupService:
     """Serviço para limpeza do sistema."""
 
-    def __init__(self, job_store: IJobStore):
+    def __init__(self, job_store: IJobStore) -> None:
         self.job_store = job_store
         self.settings = get_settings()
         self.upload_dir = Path(self.settings.get('upload_dir', './uploads'))
         self.processed_dir = Path(self.settings.get('processed_dir', './processed'))
         self.temp_dir = Path(self.settings.get('temp_dir', './temp'))
 
-    async def perform_basic_cleanup(self) -> Dict[str, Any]:
+    async def perform_basic_cleanup(self) -> dict[str, Any]:
         """
         Executa limpeza básica: jobs expirados e arquivos órfãos.
 
         Returns:
             Relatório da limpeza
         """
-        report = {
+        report: dict[str, Any] = {
             "jobs_removed": 0,
             "files_deleted": 0,
             "space_freed_mb": 0.0,
@@ -76,14 +78,14 @@ class CleanupService:
 
         return report
 
-    async def perform_deep_cleanup(self) -> Dict[str, Any]:
+    async def perform_deep_cleanup(self) -> dict[str, Any]:
         """
         Executa limpeza profunda: TUDO é removido.
 
         Returns:
             Relatório da limpeza
         """
-        report = {
+        report: dict[str, Any] = {
             "jobs_removed": 0,
             "redis_flushed": False,
             "files_deleted": 0,
@@ -137,7 +139,7 @@ class CleanupService:
         """Remove jobs expirados do Redis."""
         return self.job_store.cleanup_expired()
 
-    async def _cleanup_orphaned_files(self, dir_path: Path) -> tuple:
+    async def _cleanup_orphaned_files(self, dir_path: Path) -> tuple[int, float]:
         """
         Remove arquivos órfãos (mais de 24h).
 
@@ -169,7 +171,7 @@ class CleanupService:
 
         return deleted, space_freed
 
-    async def _cleanup_all_files(self, dir_path: Path) -> tuple:
+    async def _cleanup_all_files(self, dir_path: Path) -> tuple[int, float]:
         """
         Remove TODOS os arquivos do diretório.
 

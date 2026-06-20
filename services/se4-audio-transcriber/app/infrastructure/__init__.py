@@ -7,6 +7,7 @@ Components:
 - CheckpointManager: Recuperação de transcrições interrompidas
 - DistributedRateLimiter: Rate limiting distribuído via Redis
 """
+from __future__ import annotations
 
 from .circuit_breaker import CircuitBreaker, CircuitBreakerState, CircuitBreakerException, get_circuit_breaker
 from .checkpoint_manager import CheckpointManager, TranscriptionStage, CheckpointData
@@ -22,4 +23,3 @@ __all__ = [
     'CheckpointData',
     'DistributedRateLimiter',
 ]
-

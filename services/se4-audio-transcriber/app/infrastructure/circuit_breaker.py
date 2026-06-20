@@ -4,8 +4,9 @@ Circuit Breaker Pattern for Audio Transcriber Service
 Protege serviços externos (HuggingFace model downloads, GPU operations)
 de falhas em cascata. Adaptado do padrão make-video-clip.
 """
+from __future__ import annotations
 
-from typing import Callable, Any, Optional
+from typing import Callable, Any
 from datetime import datetime
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
@@ -49,7 +50,7 @@ class CircuitBreaker:
         failure_threshold: int = 5,
         timeout: int = 60,
         half_open_max_calls: int = 3
-    ):
+    ) -> None:
         """
         Args:
             failure_threshold: Número de falhas para abrir circuito
@@ -116,7 +117,7 @@ class CircuitBreaker:
         
         return False
     
-    def record_success(self, service: str):
+    def record_success(self, service: str) -> None:
         """
         Registra sucesso em uma chamada.
         
@@ -134,7 +135,7 @@ class CircuitBreaker:
             self.state[service] = CircuitBreakerState.CLOSED
             self.half_open_calls[service] = 0
     
-    def record_failure(self, service: str):
+    def record_failure(self, service: str) -> None:
         """
         Registra falha em uma chamada.
         
@@ -175,7 +176,7 @@ class CircuitBreaker:
         """Retorna contagem de falhas para um serviço"""
         return self.failures.get(service, 0)
     
-    def reset(self, service: str):
+    def reset(self, service: str) -> None:
         """Reset completo do circuito para um serviço"""
         self.failures.pop(service, None)
         self.state.pop(service, None)

@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Dict, Optional
 
 from pydub import AudioSegment
 
@@ -7,7 +8,7 @@ from pydub import AudioSegment
 class AudioChunk:
     """Represents a single audio chunk with metadata."""
 
-    def __init__(self, audio: AudioSegment, start_time_s: float, number: int):
+    def __init__(self, audio: AudioSegment, start_time_s: float, number: int) -> None:
         self.audio = audio
         self.start_time_s = start_time_s
         self.number = number
@@ -25,7 +26,7 @@ class AudioChunker:
     The caller is responsible for transcribing each chunk and merging results.
     """
 
-    def __init__(self, temp_dir: str = "./data/temp", chunk_length_seconds: float = 30, overlap_seconds: float = 1.0):
+    def __init__(self, temp_dir: str = "./data/temp", chunk_length_seconds: float = 30, overlap_seconds: float = 1.0) -> None:
         self.temp_dir = Path(temp_dir)
         self.chunk_length_ms = int(chunk_length_seconds * 1000)
         self.overlap_ms = int(overlap_seconds * 1000)
@@ -34,7 +35,7 @@ class AudioChunker:
     # Public API
     # ------------------------------------------------------------------
 
-    def split(self, audio: AudioSegment) -> List[AudioChunk]:
+    def split(self, audio: AudioSegment) -> list[AudioChunk]:
         """Split a loaded ``AudioSegment`` into overlapping chunks.
 
         Returns a list of :class:`AudioChunk` instances ordered by position.
@@ -79,7 +80,7 @@ class AudioChunker:
         chunk.audio.export(chunk_file, format="wav")
         return chunk_file
 
-    def cleanup_chunk(self, path: Path):
+    def cleanup_chunk(self, path: Path) -> None:
         """Remove a single temporary chunk file."""
         if path.exists():
             path.unlink()

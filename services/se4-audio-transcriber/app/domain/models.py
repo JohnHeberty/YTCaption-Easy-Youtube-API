@@ -1,8 +1,10 @@
 """
 Audio transcriber job model extending StandardJob.
 """
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -14,7 +16,7 @@ except ImportError:
 from common.datetime_utils import now_brazil  # noqa: F401
 
 
-def _now_brazil():
+def _now_brazil() -> datetime:
     return now_brazil()
 
 
@@ -29,11 +31,11 @@ class TranscriptionSegment(BaseModel):
     start: float
     end: float
     duration: float
-    words: Optional[list["TranscriptionWord"]] = None
+    words: list[TranscriptionWord] | None = None
 
     @field_validator("end")
     @classmethod
-    def validate_end_after_start(cls, value: float, info):
+    def validate_end_after_start(cls, value: float, info: Any) -> float:
         start = info.data.get("start")
         if start is not None and value < start:
             raise ValueError("end deve ser maior ou igual a start")
@@ -55,45 +57,45 @@ class TranscriptionWord(BaseModel):
 
 
 class TranscriptionResponse(BaseModel):
-    transcription_id: Optional[str] = None
-    filename: Optional[str] = None
-    language: Optional[str] = None
+    transcription_id: str | None = None
+    filename: str | None = None
+    language: str | None = None
     full_text: str
     segments: list[TranscriptionSegment] = Field(default_factory=list)
     total_segments: int = 0
     duration: float = 0.0
-    language_detected: Optional[str] = None
-    language_out: Optional[str] = None
+    language_detected: str | None = None
+    language_out: str | None = None
     was_translated: bool = False
-    processing_time: Optional[float] = None
+    processing_time: float | None = None
 
 
 class AudioTranscriptionJob(StandardJob):
     received_at: datetime = Field(default_factory=_now_brazil)
     updated_at: datetime = Field(default_factory=_now_brazil)
-    input_file: Optional[str] = None
-    output_file: Optional[str] = None
-    filename: Optional[str] = None
-    file_size: Optional[int] = None
-    file_size_input: Optional[int] = None
-    file_size_output: Optional[int] = None
+    input_file: str | None = None
+    output_file: str | None = None
+    filename: str | None = None
+    file_size: int | None = None
+    file_size_input: int | None = None
+    file_size_output: int | None = None
     operation: str = "transcribe"
     language_in: str = "auto"
-    language_out: Optional[str] = None
-    language_detected: Optional[str] = None
+    language_out: str | None = None
+    language_detected: str | None = None
     engine: WhisperEngine = WhisperEngine.FASTER_WHISPER
-    transcription_text: Optional[str] = None
-    transcription_segments: Optional[list[TranscriptionSegment]] = None
-    processing_time: Optional[float] = None
-    status_message: Optional[str] = None
-    result: Optional[dict[str, Any]] = None
-    error: Optional[str] = None
+    transcription_text: str | None = None
+    transcription_segments: list[TranscriptionSegment] | None = None
+    processing_time: float | None = None
+    status_message: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
-    dlq_at: Optional[datetime] = None
+    dlq_at: datetime | None = None
 
     @model_validator(mode="before")
     @classmethod
-    def normalize_legacy_language_field(cls, data):
+    def normalize_legacy_language_field(cls, data: Any) -> Any:
         if isinstance(data, dict):
             if "language_in" not in data and data.get("language"):
                 data["language_in"] = data["language"]
@@ -101,7 +103,7 @@ class AudioTranscriptionJob(StandardJob):
 
     @field_validator("transcription_segments", mode="before")
     @classmethod
-    def normalize_segments(cls, value):
+    def normalize_segments(cls, value: Any) -> Any:
         if value is None:
             return value
         if isinstance(value, list):
@@ -121,7 +123,7 @@ class AudioTranscriptionJob(StandardJob):
 
     @field_validator("language_out")
     @classmethod
-    def normalize_language_out(cls, value: Optional[str]) -> Optional[str]:
+    def normalize_language_out(cls, value: str | None) -> str | None:
         return value.lower() if value else value
 
     @classmethod
@@ -130,10 +132,10 @@ class AudioTranscriptionJob(StandardJob):
         filename: str,
         operation: str = "transcribe",
         language_in: str = "auto",
-        language_out: Optional[str] = None,
+        language_out: str | None = None,
         engine: WhisperEngine = WhisperEngine.FASTER_WHISPER,
-        **kwargs,
-    ) -> "AudioTranscriptionJob":
+        **kwargs: Any,
+    ) -> AudioTranscriptionJob:
         from common.job_utils.models import generate_job_id
 
         normalized_engine = engine.value if isinstance(engine, WhisperEngine) else str(engine)
@@ -165,7 +167,7 @@ class AudioTranscriptionJob(StandardJob):
     def language(self, value: str) -> None:
         self.language_in = value
 
-    def model_dump(self, *args, **kwargs):
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         data = super().model_dump(*args, **kwargs)
         data.setdefault("language", self.language_in)
         return data
@@ -174,7 +176,7 @@ class AudioTranscriptionJob(StandardJob):
 class JobRequest(BaseModel):
     operation: str = "transcribe"
     language_in: str = "auto"
-    language_out: Optional[str] = None
+    language_out: str | None = None
     engine: WhisperEngine = WhisperEngine.FASTER_WHISPER
 
 

@@ -4,6 +4,8 @@ Domain exceptions for the Audio Normalization service.
 Backward-compatible: all exceptions are now defined in core.exceptions.
 This module re-exports them for any code that imports from shared.exceptions.
 """
+from __future__ import annotations
+
 from ..core.exceptions import (
     AudioNormalizationError,
     AudioNormalizationException,

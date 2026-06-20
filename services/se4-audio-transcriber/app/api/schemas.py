@@ -1,4 +1,6 @@
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,7 +27,7 @@ class OrphanedJobInfo(FlexibleSchema):
     created_at: str
     updated_at: str
     age_minutes: float
-    filename: Optional[str] = None
+    filename: str | None = None
 
 
 class OrphanedJobsResponse(FlexibleSchema):
@@ -40,8 +42,8 @@ class OrphanCleanupAction(FlexibleSchema):
     action: str
     age_minutes: float
     files_deleted: list[dict[str, Any]] = Field(default_factory=list)
-    reason: Optional[str] = None
-    errors: Optional[list[str]] = None
+    reason: str | None = None
+    errors: list[str] | None = None
 
 
 class OrphanCleanupResponse(FlexibleSchema):
@@ -64,9 +66,9 @@ class HealthResponse(FlexibleSchema):
 
 class DetailedHealthResponse(FlexibleSchema):
     overall_healthy: bool = Field(..., description="Indica se todas as checagens críticas passaram.")
-    service: Optional[str] = None
-    version: Optional[str] = None
-    timestamp: Optional[str] = None
+    service: str | None = None
+    version: str | None = None
+    timestamp: str | None = None
 
 
 class LanguagesResponse(FlexibleSchema):
@@ -87,19 +89,19 @@ class AdminCleanupResponse(FlexibleSchema):
     jobs_removed: int = Field(default=0, ge=0, description="Quantidade de jobs removidos durante a limpeza.")
     files_deleted: int = Field(default=0, ge=0, description="Quantidade de arquivos removidos em disco.")
     space_freed_mb: float = Field(default=0.0, ge=0.0, description="Espaço liberado em megabytes.")
-    models_deleted: Optional[int] = Field(default=None, ge=0, description="Quantidade de arquivos de modelo removidos na limpeza profunda.")
-    redis_flushed: Optional[bool] = Field(default=None, description="Indica se foi executado FLUSHDB no Redis.")
-    celery_queue_purged: Optional[bool] = Field(default=None, description="Indica se a fila do Celery foi purgada.")
-    celery_tasks_purged: Optional[int] = Field(default=None, ge=0, description="Quantidade de tasks removidas da fila do Celery.")
+    models_deleted: int | None = Field(default=None, ge=0, description="Quantidade de arquivos de modelo removidos na limpeza profunda.")
+    redis_flushed: bool | None = Field(default=None, description="Indica se foi executado FLUSHDB no Redis.")
+    celery_queue_purged: bool | None = Field(default=None, description="Indica se a fila do Celery foi purgada.")
+    celery_tasks_purged: int | None = Field(default=None, ge=0, description="Quantidade de tasks removidas da fila do Celery.")
     errors: list[str] = Field(default_factory=list)
-    message: Optional[str] = Field(default=None, description="Resumo textual da limpeza executada.")
-    error: Optional[str] = Field(default=None, description="Erro crítico geral, quando a limpeza falha integralmente.")
+    message: str | None = Field(default=None, description="Resumo textual da limpeza executada.")
+    error: str | None = Field(default=None, description="Erro crítico geral, quando a limpeza falha integralmente.")
 
 
 class AdminStatsResponse(FlexibleSchema):
     total_jobs: int = Field(default=0, ge=0, description="Total de jobs conhecidos pelo serviço.")
     by_status: dict[str, int] = Field(default_factory=dict)
-    cache: Optional[dict[str, Any]] = Field(default=None, description="Métricas de arquivos em cache e artefatos persistidos.")
+    cache: dict[str, Any] | None = Field(default=None, description="Métricas de arquivos em cache e artefatos persistidos.")
 
 
 class QueueInfoResponse(FlexibleSchema):
@@ -109,9 +111,9 @@ class QueueInfoResponse(FlexibleSchema):
 
 class AdminOrphanCleanupResponse(FlexibleSchema):
     success: bool = Field(..., description="Indica se a limpeza de órfãos foi concluída com sucesso.")
-    stats: Optional[dict[str, Any]] = Field(default=None, description="Estatísticas detalhadas da limpeza executada.")
-    error: Optional[str] = Field(default=None, description="Mensagem de erro retornada em caso de falha.")
-    timestamp: Optional[str] = Field(default=None, description="Timestamp ISO-8601 da operação.")
+    stats: dict[str, Any] | None = Field(default=None, description="Estatísticas detalhadas da limpeza executada.")
+    error: str | None = Field(default=None, description="Mensagem de erro retornada em caso de falha.")
+    timestamp: str | None = Field(default=None, description="Timestamp ISO-8601 da operação.")
 
 
 class ModelActionResponse(FlexibleSchema):
@@ -121,8 +123,8 @@ class ModelActionResponse(FlexibleSchema):
 
 class ModelStatusResponse(FlexibleSchema):
     loaded: bool
-    model_name: Optional[str] = None
-    device: Optional[str] = None
+    model_name: str | None = None
+    device: str | None = None
     memory: dict[str, Any] = Field(default_factory=dict)
 
 

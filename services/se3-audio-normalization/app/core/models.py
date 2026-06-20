@@ -4,35 +4,36 @@ Audio normalization job model extending StandardJob.
 Adds service-specific fields (audio processing parameters, file paths)
 while inheriting standard lifecycle methods from common.
 """
-from typing import Any, Dict, List, Optional
+from __future__ import annotations
+
+from typing import Any
 from datetime import datetime
 from pydantic import BaseModel, Field
-import hashlib
 
 from common.job_utils.models import StandardJob, JobStatus
 from common.datetime_utils import now_brazil
 
 
 class AudioNormJob(StandardJob):
-    input_file: Optional[str] = Field(
+    input_file: str | None = Field(
         default=None,
         description="Caminho interno do arquivo de entrada salvo no servidor.",
     )
-    output_file: Optional[str] = Field(
+    output_file: str | None = Field(
         default=None,
         description="Caminho interno do arquivo final processado.",
     )
-    filename: Optional[str] = Field(
+    filename: str | None = Field(
         default=None,
         description="Nome original do arquivo enviado.",
         examples=["podcast_ep01.mp3"],
     )
-    file_size_input: Optional[int] = Field(
+    file_size_input: int | None = Field(
         default=None,
         ge=0,
         description="Tamanho do arquivo de entrada em bytes.",
     )
-    file_size_output: Optional[int] = Field(
+    file_size_output: int | None = Field(
         default=None,
         ge=0,
         description="Tamanho do arquivo processado em bytes.",
@@ -61,7 +62,7 @@ class AudioNormJob(StandardJob):
     )
 
     # Heartbeat for orphan detection
-    last_heartbeat: Optional[str] = Field(
+    last_heartbeat: str | None = Field(
         default=None,
         description="Marca de vida do worker responsável pelo job (uso interno).",
     )
@@ -69,7 +70,7 @@ class AudioNormJob(StandardJob):
     # json_encoders removed — Pydantic v2 handles datetime natively
 
     @classmethod
-    def create_new(cls, filename: str, **kwargs) -> "AudioNormJob":
+    def create_new(cls, filename: str, **kwargs: Any) -> AudioNormJob:
         from common.job_utils.models import generate_job_id
         unique_str = f"{filename}_{now_brazil().isoformat()}"
         job_id = generate_job_id(unique_str, prefix="an_")
@@ -83,7 +84,7 @@ class AudioNormJob(StandardJob):
         job.mark_as_queued()
         return job
 
-    def update_heartbeat(self):
+    def update_heartbeat(self) -> None:
         self.last_heartbeat = now_brazil().isoformat()
 
     @property
@@ -99,7 +100,7 @@ class AudioNormJob(StandardJob):
 
     @property
     def processing_operations(self) -> list[str]:
-        ops = []
+        ops: list[str] = []
         if self.remove_noise:
             ops.append("noise_reduction")
         if self.convert_to_mono:
@@ -122,7 +123,7 @@ class DeleteJobResponse(BaseModel):
 class HeartbeatResponse(BaseModel):
     id: str = Field(..., description="ID do job atualizado.")
     status: str = Field(..., description="Status do heartbeat.", examples=["ok"])
-    last_heartbeat: Optional[str] = Field(
+    last_heartbeat: str | None = Field(
         default=None,
         description="Timestamp ISO 8601 do último heartbeat gravado.",
     )
@@ -130,7 +131,7 @@ class HeartbeatResponse(BaseModel):
 
 class QueueInfoResponse(BaseModel):
     status: str = Field(..., description="Resultado da consulta da fila.", examples=["success"])
-    queue: Dict[str, Any] = Field(
+    queue: dict[str, Any] = Field(
         default_factory=dict,
         description="Informações atuais da fila de processamento.",
     )
@@ -138,11 +139,11 @@ class QueueInfoResponse(BaseModel):
 
 class AdminStatsResponse(BaseModel):
     total_jobs: int = Field(default=0, ge=0, description="Total de jobs armazenados.")
-    by_status: Dict[str, int] = Field(
+    by_status: dict[str, int] = Field(
         default_factory=dict,
         description="Contagem de jobs agrupada por status.",
     )
-    cache: Dict[str, Any] = Field(
+    cache: dict[str, Any] = Field(
         default_factory=dict,
         description="Métricas de cache e arquivos temporários.",
     )
@@ -152,22 +153,22 @@ class CleanupResponse(BaseModel):
     jobs_removed: int = Field(default=0, ge=0, description="Quantidade de jobs removidos.")
     files_deleted: int = Field(default=0, ge=0, description="Quantidade de arquivos removidos.")
     space_freed_mb: float = Field(default=0.0, ge=0.0, description="Espaço liberado em MB.")
-    errors: List[str] = Field(default_factory=list, description="Lista de erros encontrados na limpeza.")
-    redis_flushed: Optional[bool] = Field(
+    errors: list[str] = Field(default_factory=list, description="Lista de erros encontrados na limpeza.")
+    redis_flushed: bool | None = Field(
         default=None,
         description="Indica se o Redis foi totalmente limpo em modo profundo.",
     )
-    message: Optional[str] = Field(default=None, description="Resumo textual da limpeza executada.")
+    message: str | None = Field(default=None, description="Resumo textual da limpeza executada.")
 
 
 class RootEndpointsResponse(BaseModel):
     health: str = Field(..., description="Endpoint de health check do serviço.")
     docs: str = Field(..., description="Endpoint da interface Swagger/OpenAPI.")
-    jobs: Dict[str, str] = Field(
+    jobs: dict[str, str] = Field(
         default_factory=dict,
         description="Operações principais relacionadas a jobs de normalização.",
     )
-    admin: Dict[str, str] = Field(
+    admin: dict[str, str] = Field(
         default_factory=dict,
         description="Operações administrativas do serviço.",
     )
@@ -186,19 +187,19 @@ class RootResponse(BaseModel):
 
 class HealthCheckComponent(BaseModel):
     status: str = Field(..., description="Resultado da checagem do componente.")
-    message: Optional[str] = Field(
+    message: str | None = Field(
         default=None,
         description="Mensagem complementar quando houver aviso ou erro.",
     )
-    free_gb: Optional[float] = Field(
+    free_gb: float | None = Field(
         default=None,
         description="Espaço livre em disco, em gigabytes.",
     )
-    percent_free: Optional[float] = Field(
+    percent_free: float | None = Field(
         default=None,
         description="Percentual de espaço livre em disco.",
     )
-    version: Optional[str] = Field(
+    version: str | None = Field(
         default=None,
         description="Versão detectada da dependência checada, quando aplicável.",
     )
@@ -209,7 +210,7 @@ class HealthResponse(BaseModel):
     service: str = Field(..., description="Nome técnico do serviço.", examples=["audio-normalization"])
     version: str = Field(..., description="Versão atual da API.")
     timestamp: str = Field(..., description="Timestamp ISO-8601 da verificação.")
-    checks: Dict[str, Any] = Field(
+    checks: dict[str, Any] = Field(
         default_factory=dict,
         description="Detalhamento das checagens executadas durante o health check.",
     )

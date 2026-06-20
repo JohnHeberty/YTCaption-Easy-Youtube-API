@@ -1,9 +1,9 @@
 """Concrete local-file storage manager implementing IStorageManager."""
+from __future__ import annotations
 
 import os
 import time
 from pathlib import Path
-from typing import Optional, List
 
 from ..domain.interfaces import IStorageManager
 
@@ -15,7 +15,7 @@ class LocalFileStorage(IStorageManager):
     no longer call open() / os.fsync() / Path.unlink() directly.
     """
 
-    def __init__(self, base_dir: Optional[Path] = None):
+    def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = base_dir or Path.cwd()
 
     # -- IStorageManager -----------------------------------------------------
@@ -73,7 +73,7 @@ class LocalFileStorage(IStorageManager):
 
     # -- internal ------------------------------------------------------------
 
-    def _resolve(self, path_like):
+    def _resolve(self, path_like: str | Path) -> Path:
         """Return an absolute Path for a filename or relative path."""
         if isinstance(path_like, Path):
             return path_like.absolute()

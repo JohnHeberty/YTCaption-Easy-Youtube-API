@@ -1,8 +1,10 @@
 """Admin cleanup service — SRP: orquestra limpeza do sistema (básica e profunda)."""
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
@@ -17,11 +19,11 @@ def _admin_default_now() -> datetime:
 class AdminCleanupService:
     """Serviço dedicado para operações de limpeza administrativa."""
 
-    def __init__(self, settings: Dict[str, Any], time_fn: Optional[Callable[[], datetime]] = None):
+    def __init__(self, settings: dict[str, Any], time_fn: Callable[[], datetime] | None = None) -> None:
         self._settings = settings
         self._time_fn = time_fn or _admin_default_now
 
-    async def basic_cleanup(self, redis_client) -> Dict[str, Any]:
+    async def basic_cleanup(self, redis_client: Any) -> dict[str, Any]:
         """Limpeza básica: remove jobs expirados do Redis e arquivos órfãos (>24h)."""
         report = {"jobs_removed": 0, "files_deleted": 0, "space_freed_mb": 0.0, "errors": []}
 
@@ -74,8 +76,8 @@ class AdminCleanupService:
         return report
 
     async def deep_cleanup(
-        self, redis_client, purge_celery_queue: bool = False
-    ) -> Dict[str, Any]:
+        self, redis_client: Any, purge_celery_queue: bool = False
+    ) -> dict[str, Any]:
         """Limpeza profunda (factory reset): flush Redis, limpa tudo."""
         report = {
             "jobs_removed": 0,
@@ -255,7 +257,7 @@ class AdminCleanupService:
 
         return (deleted_count, freed_mb)
 
-    async def _purge_celery_queue(self, redis_client) -> Dict[str, Any]:
+    async def _purge_celery_queue(self, redis_client: Any) -> dict[str, Any]:
         """Remove tasks e resultados da fila Celery."""
         report = {
             "celery_queue_purged": False,

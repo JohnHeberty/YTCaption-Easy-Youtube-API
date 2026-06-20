@@ -1,10 +1,12 @@
 """
 Audio-transcriber Redis store adapter using common.job_utils.
 """
+from __future__ import annotations
+
 import asyncio
 import os
 from datetime import timedelta
-from typing import Optional
+from typing import Any
 
 from common.redis_utils import ResilientRedisStore
 from common.log_utils import get_logger
@@ -28,15 +30,15 @@ class RedisJobStore(IJobStore):
         self.key_prefix = "audio_transcriber:job:"
         self.list_key = "audio_transcriber:jobs:list"
         self.queue_key = os.getenv("CELERY_DEFAULT_QUEUE", "audio_transcriber_queue")
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task[None] | None = None
 
     @property
-    def redis(self):  # IJobStore interface property for health/metrics/cleanup
+    def redis(self) -> Any:  # IJobStore interface property for health/metrics/cleanup
         """Retorna o cliente Redis subjacente (usado por health/metrics/cleanup)."""
         return self._redis_client
 
     @property
-    def _raw_redis(self):
+    def _raw_redis(self) -> Any:
         return self.redis.redis if hasattr(self.redis, "redis") else self.redis
 
     def _job_key(self, job_id: str) -> str:
@@ -52,7 +54,7 @@ class RedisJobStore(IJobStore):
         self._raw_redis.zadd(self.list_key, {job.id: created_at.timestamp()})
         return job
 
-    def get_job(self, job_id: str) -> Optional[AudioTranscriptionJob]:
+    def get_job(self, job_id: str) -> AudioTranscriptionJob | None:
         data = self._raw_redis.get(self._job_key(job_id))
         if not data:
             return None
@@ -72,7 +74,7 @@ class RedisJobStore(IJobStore):
     def list_jobs(
         self,
         limit: int = 100,
-        status: Optional[JobStatus] = None,
+        status: JobStatus | None = None,
         offset: int = 0,
     ) -> list[AudioTranscriptionJob]:
         all_ids = self._raw_redis.zrevrange(self.list_key, 0, -1)
@@ -87,7 +89,7 @@ class RedisJobStore(IJobStore):
                 break
         return jobs[offset: offset + limit]
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         all_ids = self._raw_redis.zrevrange(self.list_key, 0, -1)
         total = len(all_ids)
         by_status = {}
@@ -123,7 +125,7 @@ class RedisJobStore(IJobStore):
 
         return orphaned
 
-    async def get_queue_info(self) -> dict:
+    async def get_queue_info(self) -> dict[str, Any]:
         queue_length = self._raw_redis.llen(self.queue_key)
         return {
             "queue_name": self.queue_key,

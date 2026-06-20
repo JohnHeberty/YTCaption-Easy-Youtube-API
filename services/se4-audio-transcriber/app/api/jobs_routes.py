@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Path as PathParam, Query, Request, UploadFile
 from fastapi.responses import FileResponse
@@ -30,7 +32,7 @@ settings = get_core()
 router = APIRouter(tags=["Jobs"])
 
 
-def submit_processing_task(job: Job, store):
+def submit_processing_task(job: Job, store: Any) -> None:
     """Submit job to Celery with asyncio fallback."""
     try:
         from app.infrastructure.celery_tasks import transcribe_audio_task
@@ -51,7 +53,7 @@ async def create_transcription_job(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     language_in: str = Form("auto"),
-    language_out: Optional[str] = Form(None),
+    language_out: str | None = Form(None),
     engine: WhisperEngine = Form(WhisperEngine.FASTER_WHISPER),
 ) -> Job:
 
@@ -90,11 +92,11 @@ async def create_transcription_job(
         raise HTTPException(status_code=400 if not content else 500, detail=str(e))
 
 
-@router.get("/jobs", summary="List jobs", response_model=List[Job])
+@router.get("/jobs", summary="List jobs", response_model=list[Job])
 async def list_jobs(
     limit: int = Query(20, ge=1, le=200, description="Quantidade maxima de jobs retornados.", examples=[20, 50]),
     job_store: IJobStore = Depends(job_store),
-) -> List[Job]:
+) -> list[Job]:
     """List recent transcription jobs."""
     return job_store.list_jobs(limit)
 
@@ -120,7 +122,7 @@ async def get_job_status(
 async def download_file(
     job_id: str = PathParam(..., description="ID do job concluido para download do arquivo SRT.", examples=["at_abc123"]),
     job_store: IJobStore = Depends(job_store),
-):
+) -> FileResponse:
     """Download the transcription output file for a completed job."""
     job = job_store.get_job(job_id)
 
@@ -151,7 +153,7 @@ async def download_file(
 async def get_transcription_text(
     job_id: str = PathParam(..., description="ID do job concluido para retorno do texto puro.", examples=["at_abc123"]),
     job_store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     """Retrieve the plain text transcription for a completed job."""
     job = job_store.get_job(job_id)
 
@@ -219,7 +221,7 @@ async def get_full_transcription(
 async def delete_job(
     job_id: str = PathParam(..., description="ID do job a ser removido (inclui arquivos associados).", examples=["at_abc123"]),
     job_store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     """Delete a transcription job and its associated files."""
     job = job_store.get_job(job_id)
 
@@ -270,12 +272,12 @@ async def get_orphaned_jobs(
         examples=[30, 60],
     ),
     job_store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     """Find transcription jobs stuck in processing beyond the specified age."""
     try:
         orphaned = await job_store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
 
-        orphaned_info = []
+        orphaned_info: list[dict[str, Any]] = []
         for job in orphaned:
             reference_time = job.started_at or job.updated_at or job.created_at
             age_minutes = (now_brazil() - reference_time).total_seconds() / 60
@@ -314,7 +316,7 @@ async def cleanup_orphaned_jobs_endpoint(
         description="Se true, marca jobs orfaos como failed. Se false, remove os jobs.",
     ),
     job_store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     try:
         orphaned = await job_store.find_orphaned_jobs(max_age_minutes=max_age_minutes)
 
@@ -326,15 +328,15 @@ async def cleanup_orphaned_jobs_endpoint(
                 "actions": []
             }
 
-        actions = []
+        actions: list[dict[str, Any]] = []
         space_freed = 0
 
         for job in orphaned:
             reference_time = job.started_at or job.updated_at or job.created_at
             age_minutes = (now_brazil() - reference_time).total_seconds() / 60
 
-            files_deleted = []
-            errors = []
+            files_deleted: list[dict[str, Any]] = []
+            errors: list[str] = []
 
             if job.input_file:
                 try:

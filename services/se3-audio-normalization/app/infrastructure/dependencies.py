@@ -3,8 +3,11 @@ Dependency Injection for Audio Normalization service.
 
 Factory functions that create and cache service dependencies.
 """
+from __future__ import annotations
+
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from common.di import Dep
 from app.core.config import get_settings
@@ -18,11 +21,11 @@ from app.services.job_service import (
 
 
 @lru_cache(maxsize=1)
-def _get_settings():
+def _get_settings() -> Any:
     return get_settings()
 
 
-def get_settings_dep():
+def get_settings_dep() -> Any:
     return _get_settings()
 
 

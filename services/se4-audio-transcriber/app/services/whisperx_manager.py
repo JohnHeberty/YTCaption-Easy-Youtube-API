@@ -2,12 +2,14 @@
 Gerenciador de modelos usando WhisperX.
 WhisperX oferece timestamps word-level com forced alignment para precisão máxima.
 """
+from __future__ import annotations
+
 import gc
 import logging
 import time
 import torch
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 try:
     import whisperx
@@ -36,7 +38,7 @@ class WhisperXManager(IModelManager):
     - Requer modelos de alignment adicionais
     """
     
-    def __init__(self, model_dir: Optional[Path] = None):
+    def __init__(self, model_dir: Path | None = None) -> None:
         """
         Args:
             model_dir: Diretório para armazenar modelos
@@ -51,11 +53,11 @@ class WhisperXManager(IModelManager):
         self.model_dir = model_dir or Path(self.settings.get('whisper_download_root', './models'))
         self.model_name = self.settings.get('whisper_model', 'base')
         
-        self.model: Optional[Any] = None
-        self.align_model: Optional[Any] = None
-        self.align_metadata: Optional[Dict] = None
-        self.device: Optional[str] = None
-        self.compute_type: Optional[str] = None
+        self.model: Any | None = None
+        self.align_model: Any | None = None
+        self.align_metadata: dict[str, Any] | None = None
+        self.device: str | None = None
+        self.compute_type: str | None = None
         self.is_loaded = False
         
         from ..core.constants import DEFAULT_MAX_RETRIES, DEFAULT_RETRY_BACKOFF_BASE
@@ -69,7 +71,7 @@ class WhisperXManager(IModelManager):
             preferred_device=self.settings.get('whisper_device', 'auto')
         )
 
-    def load_model(self):
+    def load_model(self) -> None:
         """Carrega modelo WhisperX"""
         if self.is_loaded:
             logger.info(f"ℹ️ Modelo WhisperX '{self.model_name}' já está carregado")
@@ -117,7 +119,7 @@ class WhisperXManager(IModelManager):
                         f"Falha ao carregar WhisperX após {self.max_retries} tentativas: {e}"
                     )
     
-    def _load_align_model(self, language_code: str):
+    def _load_align_model(self, language_code: str) -> None:
         """Carrega modelo de alinhamento para um idioma específico"""
         try:
             logger.info(f"📦 Carregando modelo de alinhamento para: {language_code}")
@@ -135,7 +137,7 @@ class WhisperXManager(IModelManager):
             self.align_model = None
             self.align_metadata = None
     
-    def unload_model(self) -> dict:
+    def unload_model(self) -> dict[str, Any]:
         """Descarrega modelo da memória"""
         if not self.is_loaded or self.model is None:
             return {
@@ -183,7 +185,7 @@ class WhisperXManager(IModelManager):
             "memory_freed": {"ram_mb": ram_freed, "vram_mb": 0}
         }
     
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Retorna status atual do modelo"""
         return {
             "loaded": self.is_loaded,
@@ -198,7 +200,7 @@ class WhisperXManager(IModelManager):
         audio_path: Path,
         language: str = "auto",
         task: str = "transcribe"
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Transcreve áudio usando WhisperX com forced alignment.
         

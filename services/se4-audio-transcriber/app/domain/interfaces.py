@@ -4,12 +4,12 @@ Interfaces e contratos abstratos para o serviço de transcrição.
 Implementa Dependency Inversion Principle (DIP) do SOLID.
 Todas as abstrações dependem de contratos, não de implementações concretas.
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any, List
+from typing import Any
 from pathlib import Path
 from dataclasses import dataclass
-
-from typing import Union
 
 from .models import (
     AudioTranscriptionJob as Job,
@@ -25,9 +25,9 @@ from .job_interfaces import IJobRepository, IJobQuery, IJobStore  # noqa: F401
 class TranscriptionResult:
     """Resultado de uma transcrição de áudio."""
     text: str
-    segments: List[Dict[str, Any]]
-    language: Optional[str] = None
-    processing_time: Optional[float] = None
+    segments: list[dict[str, Any]]
+    language: str | None = None
+    processing_time: float | None = None
     word_timestamps: bool = False
 
 
@@ -47,7 +47,7 @@ class ITranscriber(ABC):
     async def transcribe(
         self,
         audio_path: str,
-        language: Optional[str] = None,
+        language: str | None = None,
         task: str = "transcribe"
     ) -> TranscriptionResult:
         """
@@ -92,7 +92,7 @@ class ILifecycleManaged(ABC):
         pass
 
     @abstractmethod
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Retorna status do modelo (carregado, dispositivo, memória)."""
         pass
 
@@ -150,15 +150,15 @@ class IModelManager(ABC):
         pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
     @abstractmethod
-    def unload_model(self) -> Dict[str, Any]:
+    def unload_model(self) -> dict[str, Any]:
         pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
     @abstractmethod
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
     @abstractmethod
-    def transcribe(self, audio_path: Path, language: str = "auto") -> Dict[str, Any]:
+    def transcribe(self, audio_path: Path, language: str = "auto") -> dict[str, Any]:
         pass  # pragma: no cover — deprecated, mantido apenas por compatibilidade
 
 
@@ -179,9 +179,9 @@ class ITranscriptionService(ABC):
         self,
         filename: str,
         language_in: str = "auto",
-        language_out: Optional[str] = None,
+        language_out: str | None = None,
         engine: WhisperEngineEnum | None = None,
-        file_content: Optional[bytes] = None,
+        file_content: bytes | None = None,
     ) -> Job:
         """Cria um novo job de transcrição."""
         pass
@@ -192,12 +192,12 @@ class ITranscriptionService(ABC):
         pass
 
     @abstractmethod
-    async def get_job_status(self, job_id: str) -> Optional[Job]:
+    async def get_job_status(self, job_id: str) -> Job | None:
         """Obtém status de um job pelo ID."""
         pass
 
     @abstractmethod
-    async def list_jobs(self, limit: int = 20) -> List[Job]:
+    async def list_jobs(self, limit: int = 20) -> list[Job]:
         """Lista jobs recentes."""
         pass
 
@@ -293,7 +293,7 @@ class IDeviceManager(ABC):
         pass
 
     @abstractmethod
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """Retorna informações sobre dispositivos disponíveis."""
         pass
 
@@ -307,7 +307,7 @@ class IHealthChecker(ABC):
     """Interface para health checks de componentes."""
 
     @abstractmethod
-    def check_health(self) -> Dict[str, Any]:
+    def check_health(self) -> dict[str, Any]:
         """Verifica saúde do componente."""
         pass
 

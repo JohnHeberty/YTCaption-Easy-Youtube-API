@@ -7,16 +7,18 @@ Serviço refatorado seguindo princípios SOLID e PYTHONIC.
 - Type hints em todo código público
 - Sem datetime.now() - usando now_brazil()
 """
+from __future__ import annotations
+
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any
 
 from common.datetime_utils import now_brazil
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query, Depends, Path as PathParam
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger
@@ -65,7 +67,7 @@ store = job_store()
 
 
 @asynccontextmanager
-async def lifespan(app):
+async def lifespan(app: FastAPI) -> Any:
     store = job_store()
     await store.start_cleanup_task()
     logger.info("Audio Normalization Service iniciado com sucesso")
@@ -95,7 +97,7 @@ app = create_service_app(
     description="Retorna a visão geral do serviço e os endpoints principais para integração.",
     response_model=RootResponse,
 )
-async def root() -> dict:
+async def root() -> dict[str, Any]:
     """Endpoint raiz - Informações do serviço."""
     return {
         "service": "Audio Normalization Service",
@@ -128,27 +130,27 @@ async def create_audio_job(
         ...,
         description="Arquivo de áudio/vídeo para normalização. Formatos comuns: mp3, wav, m4a, webm, mp4.",
     ),
-    remove_noise: Optional[str] = Form(
+    remove_noise: str | None = Form(
         default="false",
         description="Ativa redução de ruído. Aceita: true, false, 1, 0, yes, no, on, off.",
         examples=["true", "false", "1", "0"],
     ),
-    convert_to_mono: Optional[str] = Form(
+    convert_to_mono: str | None = Form(
         default="false",
         description="Converte áudio para mono. Aceita: true, false, 1, 0, yes, no, on, off.",
         examples=["true", "false"],
     ),
-    apply_highpass_filter: Optional[str] = Form(
+    apply_highpass_filter: str | None = Form(
         default="false",
         description="Aplica filtro passa-alta. Aceita: true, false, 1, 0, yes, no, on, off.",
         examples=["false", "true"],
     ),
-    set_sample_rate_16k: Optional[str] = Form(
+    set_sample_rate_16k: str | None = Form(
         default="false",
         description="Define sample rate para 16kHz. Aceita: true, false, 1, 0, yes, no, on, off.",
         examples=["true", "false"],
     ),
-    isolate_vocals: Optional[str] = Form(
+    isolate_vocals: str | None = Form(
         default="false",
         description="Ativa isolamento de voz. Aceita: true, false, 1, 0, yes, no, on, off.",
         examples=["false", "true"],
@@ -311,7 +313,7 @@ async def download_file(
     )
 
 
-@app.get("/jobs", response_model=List[Job])
+@app.get("/jobs", response_model=list[Job])
 async def list_jobs(
     limit: int = Query(
         default=20,
@@ -321,7 +323,7 @@ async def list_jobs(
         examples=[20, 50],
     ),
     store: AudioNormJobStore = Depends(job_store),
-) -> List[Job]:
+) -> list[Job]:
     """Lista jobs recentes."""
     retrieval_service = JobRetrievalService(job_store=store)
 
@@ -547,7 +549,7 @@ async def health_check(
     return JSONResponse(content=result, status_code=status_code)
 
 
-def _check_disk_space(path: str) -> dict:
+def _check_disk_space(path: str) -> dict[str, Any]:
     import shutil
     try:
         Path(path).mkdir(parents=True, exist_ok=True)
@@ -572,9 +574,8 @@ def _check_disk_space(path: str) -> dict:
 @app.get("/metrics")
 async def prometheus_metrics(
     store: AudioNormJobStore = Depends(job_store),
-) -> JSONResponse:
+) -> Response:
     """Prometheus metrics endpoint."""
-    from fastapi.responses import Response
 
     svc = "audio_normalization"
 

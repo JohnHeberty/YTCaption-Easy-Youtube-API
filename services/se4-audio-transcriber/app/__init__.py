@@ -1,6 +1,7 @@
 """
 Audio Transcription Service Package
 """
+from __future__ import annotations
 
 # Evita import pesado (torch/whisper) durante import de modulos simples em testes.
 try:

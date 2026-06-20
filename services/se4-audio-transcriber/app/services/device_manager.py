@@ -2,7 +2,9 @@
 Gerenciador de dispositivos GPU/CPU (Single Responsibility Principle).
 Responsável APENAS por detectar e validar dispositivos de computação.
 """
-from typing import Dict, Any
+from __future__ import annotations
+
+from typing import Any
 import torch
 
 from ..domain.interfaces import IDeviceManager
@@ -20,7 +22,7 @@ class TorchDeviceManager(IDeviceManager):
     - Fornecer informações sobre hardware
     """
     
-    def __init__(self, preferred_device: str = "auto"):
+    def __init__(self, preferred_device: str = "auto") -> None:
         """
         Args:
             preferred_device: Dispositivo preferido ('auto', 'cuda', 'cpu')
@@ -76,7 +78,7 @@ class TorchDeviceManager(IDeviceManager):
         self._cached_device = "cpu"
         return "cpu"
     
-    def get_device_info(self) -> Dict[str, Any]:
+    def get_device_info(self) -> dict[str, Any]:
         """
         Retorna informações detalhadas sobre dispositivos.
         
@@ -164,7 +166,7 @@ class TorchDeviceManager(IDeviceManager):
             logger.error(f"Erro ao validar device {device}: {e}")
             return False
     
-    def _log_gpu_info(self):
+    def _log_gpu_info(self) -> None:
         """Registra informações da GPU no log"""
         try:
             info = self.get_device_info()

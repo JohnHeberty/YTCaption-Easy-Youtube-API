@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Iterator
 
 from pydantic import Field, field_validator, model_validator
 
@@ -25,13 +27,13 @@ class CoreSettings(BaseServiceSettings):
     workers: int = Field(1, ge=1)
 
     # ===== CELERY =====
-    celery_broker_url: Optional[str] = None
-    celery_result_backend: Optional[str] = None
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
     celery_task_time_limit: int = 3600
     celery_task_soft_time_limit: int = 3300
 
     @model_validator(mode="after")
-    def _default_celery_from_redis(self) -> "CoreSettings":
+    def _default_celery_from_redis(self) -> CoreSettings:
         if self.celery_broker_url is None:
             self.celery_broker_url = self.redis_url
         if self.celery_result_backend is None:
@@ -102,14 +104,14 @@ class CoreSettings(BaseServiceSettings):
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
 
-    def keys(self):
-        return self.model_fields.keys()
+    def keys(self) -> Iterator[str]:
+        return iter(self.model_fields.keys())
 
-    def values(self):
+    def values(self) -> Iterator[Any]:
         for k in self.model_fields:
             yield getattr(self, k)
 
-    def items(self):
+    def items(self) -> Iterator[tuple[str, Any]]:
         for k in self.model_fields:
             yield k, getattr(self, k)
 
@@ -148,15 +150,15 @@ SUPPORTED_LANGUAGES = [
 WHISPER_MODELS = ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
 
 
-def get_supported_languages() -> List[str]:
+def get_supported_languages() -> list[str]:
     return SUPPORTED_LANGUAGES
 
 
-def is_language_supported(language: Optional[str]) -> bool:
+def is_language_supported(language: str | None) -> bool:
     if not isinstance(language, str):
         return False
     return language in SUPPORTED_LANGUAGES
 
 
-def get_whisper_models() -> List[str]:
+def get_whisper_models() -> list[str]:
     return WHISPER_MODELS

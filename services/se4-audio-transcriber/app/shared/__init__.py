@@ -1,4 +1,5 @@
 """Shared utilities - health checks, progress tracking, cleanup."""
+from __future__ import annotations
 
 from .health_checker import HealthChecker
 from .progress_tracker import ProgressTracker  # backward-compatible alias → JobStateUpdater

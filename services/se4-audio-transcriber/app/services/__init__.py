@@ -1,4 +1,5 @@
 """Business logic services - transcription engines and processors."""
+from __future__ import annotations
 
 from .processor import TranscriptionProcessor
 from .faster_whisper_manager import FasterWhisperModelManager

@@ -1,4 +1,5 @@
 """Domain models, schemas and interfaces."""
+from __future__ import annotations
 
 from .models import (
     WhisperEngine,

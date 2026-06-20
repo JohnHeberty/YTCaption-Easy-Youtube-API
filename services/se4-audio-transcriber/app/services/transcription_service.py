@@ -10,10 +10,12 @@ E o Single Responsibility Principle (SRP):
 - WhisperEngine: executa transcrição
 - ModelManager: gerencia ciclo de vida
 """
+from __future__ import annotations
+
 import os
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any
 from datetime import timedelta
 
 from common.datetime_utils import now_brazil
@@ -56,12 +58,12 @@ class TranscriptionService(ITranscriptionService):
 
     def __init__(
         self,
-        job_store: Optional[Any] = None,
-        model_manager: Optional[ModelManager] = None,
-        storage_manager: Optional[IStorageManager] = None,
+        job_store: Any | None = None,
+        model_manager: ModelManager | None = None,
+        storage_manager: IStorageManager | None = None,
         output_dir: str = "./transcriptions",
         upload_dir: str = "./data/uploads"
-    ):
+    ) -> None:
         """
         Inicializa o serviço.
 
@@ -74,7 +76,7 @@ class TranscriptionService(ITranscriptionService):
         """
         self.job_store = job_store
         self.state = JobStateUpdater(self.job_store)
-        self._current_job_id: Optional[str] = None
+        self._current_job_id: str | None = None
         self.model_manager = model_manager or ModelManager()
         self.output_dir = Path(output_dir)
         self.upload_dir = Path(upload_dir)
@@ -101,9 +103,9 @@ class TranscriptionService(ITranscriptionService):
         self,
         filename: str,
         language_in: str = "auto",
-        language_out: Optional[str] = None,
+        language_out: str | None = None,
         engine: WhisperEngineEnum = WhisperEngineEnum.FASTER_WHISPER,
-        file_content: Optional[bytes] = None
+        file_content: bytes | None = None
     ) -> Job:
         """
         Cria um novo job de transcrição.
@@ -237,7 +239,7 @@ class TranscriptionService(ITranscriptionService):
         # Futuramente pode selecionar baseado em job.engine
         return self.model_manager.get_or_create_engine(model_size)
 
-    async def _validate_and_resolve_file(self, job: Job) -> Optional[Path]:
+    async def _validate_and_resolve_file(self, job: Job) -> Path | None:
         """
         Valida e resolve o caminho do arquivo de entrada.
         
@@ -300,7 +302,7 @@ class TranscriptionService(ITranscriptionService):
         self,
         job: Job,
         text: str,
-        segments: List[Dict[str, Any]]
+        segments: list[dict[str, Any]]
     ) -> Path:
         """Salva arquivo de transcrição em formato SRT via storage manager."""
         output_filename = f"{job.id}_transcription.srt"
@@ -314,7 +316,7 @@ class TranscriptionService(ITranscriptionService):
 
         return Path(saved_path) if not isinstance(saved_path, Path) else saved_path
 
-    def _convert_segments(self, segments: List[Dict[str, Any]]) -> List[TranscriptionSegment]:
+    def _convert_segments(self, segments: list[dict[str, Any]]) -> list[TranscriptionSegment]:
         """Converte segmentos para o formato do domínio."""
         result = []
         
@@ -343,7 +345,7 @@ class TranscriptionService(ITranscriptionService):
         return result
 
     
-    async def get_job_status(self, job_id: str) -> Optional[Job]:
+    async def get_job_status(self, job_id: str) -> Job | None:
         """Obtém status de um job."""
         JobIdValidator.validate(job_id)
         
@@ -351,7 +353,7 @@ class TranscriptionService(ITranscriptionService):
             return self.job_store.get_job(job_id)
         return None
 
-    async def list_jobs(self, limit: int = 20) -> List[Job]:
+    async def list_jobs(self, limit: int = 20) -> list[Job]:
         """Lista jobs recentes."""
         if self.job_store:
             return self.job_store.list_jobs(limit)
@@ -390,14 +392,14 @@ class TranscriptionOrchestrator:
     - Cleanup de recursos
     """
 
-    def __init__(self, service: TranscriptionService):
+    def __init__(self, service: TranscriptionService) -> None:
         self.service = service
 
     async def process_batch(
         self,
-        jobs: List[Job],
+        jobs: list[Job],
         max_concurrent: int = 1
-    ) -> List[Job]:
+    ) -> list[Job]:
         """
         Processa um batch de jobs.
         
@@ -437,7 +439,7 @@ class TranscriptionOrchestrator:
     async def retry_failed_jobs(
         self,
         max_retries: int = DEFAULT_MAX_RETRIES
-    ) -> List[Job]:
+    ) -> list[Job]:
         """
         Reprocessa jobs que falharam.
         

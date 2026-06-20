@@ -2,12 +2,14 @@
 Gerenciador de modelos usando OpenAI Whisper original.
 OpenAI Whisper é o modelo original, mais lento mas com compatibilidade máxima.
 """
+from __future__ import annotations
+
 import gc
 import logging
 import time
 import torch
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 try:
     import whisper
@@ -36,7 +38,7 @@ class OpenAIWhisperManager(IModelManager):
     - Word timestamps requerem configuração extra
     """
     
-    def __init__(self, model_dir: Optional[Path] = None):
+    def __init__(self, model_dir: Path | None = None) -> None:
         """
         Args:
             model_dir: Diretório para armazenar modelos
@@ -51,8 +53,8 @@ class OpenAIWhisperManager(IModelManager):
         self.model_dir = model_dir or Path(self.settings.get('whisper_download_root', './models'))
         self.model_name = self.settings.get('whisper_model', 'base')
         
-        self.model: Optional[Any] = None
-        self.device: Optional[str] = None
+        self.model: Any | None = None
+        self.device: str | None = None
         self.is_loaded = False
         
         # Configurações de retry
@@ -64,7 +66,7 @@ class OpenAIWhisperManager(IModelManager):
             preferred_device=self.settings.get('whisper_device', 'auto')
         )
 
-    def load_model(self):
+    def load_model(self) -> None:
         """Carrega modelo OpenAI Whisper"""
         if self.is_loaded:
             logger.info(f"ℹ️ Modelo OpenAI Whisper '{self.model_name}' já está carregado")
@@ -104,7 +106,7 @@ class OpenAIWhisperManager(IModelManager):
                         f"Falha ao carregar OpenAI Whisper após {self.max_retries} tentativas: {e}"
                     )
     
-    def unload_model(self) -> dict:
+    def unload_model(self) -> dict[str, Any]:
         """Descarrega modelo da memória"""
         if not self.is_loaded or self.model is None:
             return {
@@ -145,7 +147,7 @@ class OpenAIWhisperManager(IModelManager):
             "memory_freed": {"ram_mb": ram_freed, "vram_mb": 0}
         }
     
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Retorna status atual do modelo"""
         return {
             "loaded": self.is_loaded,
@@ -159,7 +161,7 @@ class OpenAIWhisperManager(IModelManager):
         audio_path: Path,
         language: str = "auto",
         task: str = "transcribe"
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Transcreve áudio usando OpenAI Whisper.
         

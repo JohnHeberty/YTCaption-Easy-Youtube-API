@@ -12,9 +12,10 @@ Regras:
 - language_in/language_out: códigos ISO 639-1 ou 'auto'
 - engine: valores válidos do enum WhisperEngine
 """
+from __future__ import annotations
 
 import re
-from typing import Optional, Tuple
+from typing import Any
 from pathlib import Path
 
 from ..domain.models import WhisperEngine, JobStatus
@@ -24,7 +25,7 @@ from .config import get_supported_languages
 class ValidationError(Exception):
     """Exceção para erros de validação."""
 
-    def __init__(self, field: str, message: str, code: str = "INVALID"):
+    def __init__(self, field: str, message: str, code: str = "INVALID") -> None:
         self.field = field
         self.message = message
         self.code = code
@@ -49,7 +50,7 @@ class JobIdValidator:
     MAX_LENGTH = 100
 
     @classmethod
-    def validate(cls, job_id: Optional[str]) -> str:
+    def validate(cls, job_id: str | None) -> str:
         """
         Valida e normaliza um job_id.
 
@@ -109,7 +110,7 @@ class JobIdValidator:
         return stripped.lower()
 
     @classmethod
-    def is_valid(cls, job_id: Optional[str]) -> bool:
+    def is_valid(cls, job_id: str | None) -> bool:
         """Retorna True se job_id é válido sem lançar exceção."""
         try:
             cls.validate(job_id)
@@ -125,7 +126,7 @@ class LanguageValidator:
     Suporta códigos ISO 639-1 e 'auto' para detecção automática.
     """
 
-    _supported_languages: Optional[list[str]] = None
+    _supported_languages: list[str] | None = None
 
     @classmethod
     def _get_supported(cls) -> list[str]:
@@ -135,7 +136,7 @@ class LanguageValidator:
         return cls._supported_languages
 
     @classmethod
-    def validate(cls, language: Optional[str], field_name: str = "language") -> str:
+    def validate(cls, language: str | None, field_name: str = "language") -> str:
         """
         Valida um código de linguagem.
 
@@ -184,7 +185,7 @@ class LanguageValidator:
         return normalized
 
     @classmethod
-    def is_supported(cls, language: Optional[str]) -> bool:
+    def is_supported(cls, language: str | None) -> bool:
         """Retorna True se linguagem é suportada."""
         try:
             cls.validate(language)
@@ -234,7 +235,7 @@ class FileValidator:
     SUPPORTED_EXTENSIONS = {'.mp3', '.wav', '.mp4', '.m4a', '.ogg', '.flac', '.aac', '.wma'}
 
     @classmethod
-    def validate_audio_file(cls, file_path: Path) -> Tuple[bool, Optional[str]]:
+    def validate_audio_file(cls, file_path: Path) -> tuple[bool, str | None]:
         """
         Valida um arquivo de áudio.
 
@@ -242,7 +243,7 @@ class FileValidator:
             file_path: Caminho do arquivo
 
         Returns:
-            Tuple[bool, Optional[str]]: (válido, mensagem_erro)
+            tuple[bool, str | None]: (válido, mensagem_erro)
         """
         if not file_path.exists():
             return False, f"Arquivo não encontrado: {file_path}"
@@ -274,7 +275,7 @@ class FileValidator:
         return True, None
 
     @classmethod
-    def validate_file_content(cls, content: bytes, max_size_mb: int = None) -> Tuple[bool, Optional[str]]:
+    def validate_file_content(cls, content: bytes, max_size_mb: int | None = None) -> tuple[bool, str | None]:
         """
         Valida conteúdo de arquivo em memória.
 
@@ -283,7 +284,7 @@ class FileValidator:
             max_size_mb: Tamanho máximo permitido
 
         Returns:
-            Tuple[bool, Optional[str]]: (válido, mensagem_erro)
+            tuple[bool, str | None]: (válido, mensagem_erro)
         """
         max_size = max_size_mb or cls.MAX_FILE_SIZE_MB
 
@@ -306,13 +307,13 @@ class TranscriptionRequestValidator:
     @classmethod
     def validate(
         cls,
-        job_id: Optional[str] = None,
-        language_in: Optional[str] = None,
-        language_out: Optional[str] = None,
-        engine: Optional[WhisperEngine] = None,
-        file_path: Optional[Path] = None,
+        job_id: str | None = None,
+        language_in: str | None = None,
+        language_out: str | None = None,
+        engine: WhisperEngine | None = None,
+        file_path: Path | None = None,
         validate_file: bool = False
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Valida uma requisição completa de transcrição.
 
@@ -325,13 +326,13 @@ class TranscriptionRequestValidator:
             validate_file: Se True, valida o arquivo também
 
         Returns:
-            dict: Valores validados e normalizados
+            dict[str, Any]: Valores validados e normalizados
 
         Raises:
             ValidationError: Se qualquer validação falhar
         """
-        errors = []
-        validated = {}
+        errors: list[ValidationError] = []
+        validated: dict[str, Any] = {}
 
         # Valida job_id
         try:

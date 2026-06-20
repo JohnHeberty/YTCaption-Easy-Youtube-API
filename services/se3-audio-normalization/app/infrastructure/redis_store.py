@@ -1,8 +1,10 @@
 """
 Audio-normalization Redis store adapter using common.job_utils.
 """
+from __future__ import annotations
+
 import os
-from typing import Optional
+from typing import Any
 
 from common.redis_utils import ResilientRedisStore
 from common.log_utils import get_logger
@@ -15,7 +17,7 @@ from app.core.models import AudioNormJob
 logger = get_logger(__name__)
 
 class AudioNormJobStore:
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
             max_connections=50,
@@ -40,7 +42,7 @@ class AudioNormJobStore:
         self.redis.zadd(self.list_key, {job.id: job.created_at.timestamp()})
         return job
 
-    def get_job(self, job_id: str) -> Optional[AudioNormJob]:
+    def get_job(self, job_id: str) -> AudioNormJob | None:
         key = f"{self.key_prefix}{job_id}"
         data = self._resilient.get(key)
         if not data:
@@ -60,17 +62,17 @@ class AudioNormJobStore:
 
     def list_jobs(self, limit: int = 100) -> list[AudioNormJob]:
         all_ids = self.redis.zrevrange(self.list_key, 0, -1)
-        jobs = []
+        jobs: list[AudioNormJob] = []
         for jid in all_ids[:limit]:
             job = self.get_job(str(jid))
             if job:
                 jobs.append(job)
         return jobs
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         all_ids = self.redis.zrevrange(self.list_key, 0, -1)
         total = len(all_ids)
-        by_status = {}
+        by_status: dict[str, int] = {}
         for jid in all_ids:
             job = self.get_job(str(jid))
             if job:
@@ -90,7 +92,7 @@ class AudioNormJobStore:
 
     def find_orphaned_jobs(self, max_age_minutes: int = 30) -> list[AudioNormJob]:
         from datetime import timedelta
-        orphaned = []
+        orphaned: list[AudioNormJob] = []
         now = now_brazil()
         max_age = timedelta(minutes=max_age_minutes)
         all_ids = self.redis.zrevrange(self.list_key, 0, -1)
@@ -102,12 +104,12 @@ class AudioNormJobStore:
                     orphaned.append(job)
         return orphaned
 
-    async def start_cleanup_task(self):
+    async def start_cleanup_task(self) -> None:
         import asyncio
         if self._cleanup_task is None:
             self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
-    async def stop_cleanup_task(self):
+    async def stop_cleanup_task(self) -> None:
         if self._cleanup_task is not None:
             self._cleanup_task.cancel()
             try:
@@ -116,7 +118,7 @@ class AudioNormJobStore:
                 pass
             self._cleanup_task = None
 
-    async def _cleanup_loop(self):
+    async def _cleanup_loop(self) -> None:
         import asyncio
         while True:
             try:
@@ -131,9 +133,9 @@ class AudioNormJobStore:
         self.redis.flushdb()
         return total
 
-    async def get_queue_info(self) -> dict:
+    async def get_queue_info(self) -> dict[str, Any]:
         jobs = self.list_jobs(limit=10000)
-        by_status = {"queued": 0, "processing": 0, "completed": 0, "failed": 0}
+        by_status: dict[str, int] = {"queued": 0, "processing": 0, "completed": 0, "failed": 0}
         for job in jobs:
             s = job.status.value if hasattr(job.status, 'value') else str(job.status)
             if s in by_status:

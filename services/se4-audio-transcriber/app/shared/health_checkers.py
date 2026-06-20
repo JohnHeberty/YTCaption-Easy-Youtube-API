@@ -1,11 +1,13 @@
 """Health checker functions — SRP: verificações de saúde de componentes do sistema."""
+from __future__ import annotations
+
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
-def check_disk_space(path: str) -> Dict[str, Any]:
+def check_disk_space(path: str) -> dict[str, Any]:
     """Verifica espaço em disco disponível. Retorna status ok/warning/error."""
     try:
         Path(path).mkdir(exist_ok=True, parents=True)
@@ -31,7 +33,7 @@ def check_disk_space(path: str) -> Dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
-def check_ffmpeg() -> Dict[str, Any]:
+def check_ffmpeg() -> dict[str, Any]:
     """Verifica se ffmpeg está instalado e funcional."""
     try:
         result = subprocess.run(
@@ -47,7 +49,7 @@ def check_ffmpeg() -> Dict[str, Any]:
         return {"status": "warning", "message": str(e)}
 
 
-def check_whisper_model(processor, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def check_whisper_model(processor: Any, cfg: dict[str, Any]) -> dict[str, Any]:
     """Verifica status do modelo Whisper (carregado/não carregado)."""
     try:
         model_name = cfg.get("whisper_model", "base")

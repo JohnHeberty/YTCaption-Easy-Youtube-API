@@ -9,8 +9,10 @@ The composite is kept so existing code importing IJobStore continues to work
 without changes.  New code may type-hint against the narrower sub-interface
 when it only needs a subset of operations (adapter pattern / dependency inversion).
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Note: we avoid importing Job here to prevent circular imports at domain level.
 # Callers that need concrete types should use the models directly; these interfaces
@@ -26,7 +28,7 @@ class IJobRepository(ABC):
         pass
 
     @abstractmethod
-    def get_job(self, job_id: str) -> Optional[Any]:  # noqa: ANN401
+    def get_job(self, job_id: str) -> Any | None:  # noqa: ANN401
         """Load a single job by ID. Returns None when not found."""
         pass
 
@@ -46,25 +48,25 @@ class IJobQuery(ABC):
 
     @abstractmethod
     def list_jobs(
-        self, limit: int = 100, status=None, offset: int = 0  # noqa: ANN003
-    ) -> List[Any]:  # noqa: ANN401
+        self, limit: int = 100, status: Any | None = None, offset: int = 0  # noqa: ANN003
+    ) -> list[Any]:  # noqa: ANN401
         """Return a filtered, paginated list of jobs."""
         pass
 
     @abstractmethod
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Aggregate job counts (total_jobs, by_status)."""
         pass
 
     @abstractmethod
     async def find_orphaned_jobs(
         self, max_age_minutes: int = 30
-    ) -> List[Any]:  # noqa: ANN401
+    ) -> list[Any]:  # noqa: ANN401
         """Find jobs stuck in PROCESSING/QUEUED beyond the age threshold."""
         pass
 
     @abstractmethod
-    async def get_queue_info(self) -> Dict[str, Any]:
+    async def get_queue_info(self) -> dict[str, Any]:
         """Return current queue depth and metadata."""
         pass
 
