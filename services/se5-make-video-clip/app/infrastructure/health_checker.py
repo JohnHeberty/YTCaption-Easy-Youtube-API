@@ -7,18 +7,7 @@ Sistema de health checks para todas as dependências.
 import asyncio
 from typing import Dict, Tuple, Optional
 from datetime import datetime
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 import shutil
 from pathlib import Path

@@ -408,8 +408,15 @@ def _apply_vary(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
     return tasks, {"mode": "vary", "method": method, "denoising": denoising}
 
 
-def _apply_inpaint(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
-    """Apply inpaint mode. Creates InpaintWorker for crop/paste/color_correction."""
+def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> Tuple[list, dict]:
+    """Apply inpaint mode. Creates InpaintWorker, encodes VAE latent, patches UNet.
+
+    Full Fooocus inpaint flow:
+    1. Crop around mask with InpaintWorker
+    2. Encode crop+mask to latent via VAE
+    3. Set modules.inpaint_worker.current_task (activates sampler latent mixing)
+    4. Patch UNet with InpaintHead (adds inpaint features to input block 0)
+    """
     if not async_task.inpaint_input_image:
         return tasks, {}
 
@@ -419,6 +426,7 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
         return tasks, {}
 
     import numpy as np
+    import torch
     from PIL import Image
     import io
 
@@ -462,12 +470,97 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
         crop_w, crop_h, k, async_task.inpaint_strength,
     )
 
+    # --- FULL INPAINT: Encode VAE latent + patch UNet ---
+    inpaint_latent = None
+    inpaint_latent_mask = None
+
+    vae = getattr(pipeline, "final_vae", None) if pipeline is not None else None
+    if vae is None:
+        logger.warning("Inpaint: pipeline.final_vae not available, running as text-to-image only")
+        return tasks, {
+            "mode": "inpaint",
+            "worker": worker,
+            "prompt": async_task.inpaint_additional_prompt or "",
+            "negative": async_task.inpaint_negative_prompt,
+            "strength": async_task.inpaint_strength,
+        }
+
+    try:
+        import ldm_patched.modules.model_management
+
+        device = ldm_patched.modules.model_management.get_torch_device()
+
+        # Convert interested_fill (HWC uint8) to tensor [1, C, H, W] float [0,1]
+        fill_tensor = torch.from_numpy(worker.interested_fill).float().permute(2, 0, 1).unsqueeze(0) / 255.0
+        fill_tensor = fill_tensor.to(device=device)
+
+        # Convert interested_mask to tensor [1, H, W] float [0,1]
+        mask_np = (worker.interested_mask > 0.5).astype(np.float32) if worker.interested_mask.max() <= 1.0 else worker.interested_mask.astype(np.float32) / 255.0
+        mask_tensor = torch.from_numpy(mask_np).float().unsqueeze(0).to(device=device)
+
+        # Encode image+mask to latent via VAE
+        from modules.core import encode_vae_inpaint
+        latent, latent_mask = encode_vae_inpaint(vae, fill_tensor, mask_tensor)
+
+        # Store latent in InpaintWorker for sampler access
+        worker.load_latent(latent, latent_mask)
+
+        # Set global current_task → activates patched_KSamplerX0Inpaint_forward
+        miw.current_task = worker
+
+        inpaint_latent = latent
+        inpaint_latent_mask = latent_mask
+
+        logger.info(
+            "Inpaint VAE encoded: latent shape=%s, mask shape=%s",
+            list(latent.shape), list(latent_mask.shape),
+        )
+
+        # Patch UNet with InpaintHead CNN
+        inpaint_head_path = None
+        try:
+            from modules.config import path_inpaint
+            inpaint_head_path = os.path.join(path_inpaint, "fooocus_inpaint_head.pth")
+        except ImportError:
+            pass
+
+        if inpaint_head_path and os.path.exists(inpaint_head_path):
+            model = getattr(pipeline, "final_unet", None)
+            if model is not None:
+                patched_model = worker.patch(inpaint_head_path, latent, latent_mask, model)
+                # Store patched model for use in _process_diffusion
+                # We don't replace pipeline.final_unet because the pipeline
+                # handles model cloning internally. Instead, we store it in state.
+                logger.info("InpaintHead patched into UNet successfully")
+            else:
+                logger.warning("Inpaint: pipeline.final_unet not available for patching")
+        else:
+            # Try to download inpaint models
+            try:
+                from modules.config import downloading_inpaint_models
+                downloading_inpaint_models(async_task.inpaint_engine or "v2.6")
+                inpaint_head_path = os.path.join(path_inpaint, "fooocus_inpaint_head.pth")
+                if os.path.exists(inpaint_head_path):
+                    model = getattr(pipeline, "final_unet", None)
+                    if model is not None:
+                        patched_model = worker.patch(inpaint_head_path, latent, latent_mask, model)
+                        logger.info("InpaintHead downloaded and patched into UNet")
+            except Exception as e:
+                logger.warning("Failed to download/patch InpaintHead: %s", e)
+
+    except Exception as e:
+        logger.exception("Inpaint VAE encoding failed: %s", e)
+        # Fall back to text-to-image without inpainting
+        miw.current_task = None
+
     return tasks, {
         "mode": "inpaint",
         "worker": worker,
         "prompt": async_task.inpaint_additional_prompt or "",
         "negative": async_task.inpaint_negative_prompt,
         "strength": async_task.inpaint_strength,
+        "inpaint_latent": inpaint_latent,
+        "inpaint_latent_mask": inpaint_latent_mask,
     }
 
 
@@ -510,19 +603,35 @@ def _process_diffusion(
     async_task: AsyncTask,
     task: dict,
     progress_callback: Optional[Any] = None,
+    inpaint_state: Optional[dict] = None,
 ) -> List[Any]:
-    """Run the actual diffusion process. Returns list of output images."""
+    """Run the actual diffusion process. Returns list of output images.
+
+    When inpaint_state is provided with an inpaint_latent, uses it instead of
+    generating an empty latent. This activates the full inpainting pipeline:
+    - patched_KSamplerX0Inpaint_forward mixes latent+noise in unmasked regions
+    - InpaintHead features guide the UNet in masked regions
+    """
     import numpy as np
 
     seed = task["seed"]
     width = task["width"]
     height = task["height"]
 
-    # Generate empty latent
-    from app.infrastructure.core_ops import generate_empty_latent
-    initial_latent = generate_empty_latent(width, height, 1)
+    # Use inpaint latent if available, otherwise generate empty latent
+    if inpaint_state and inpaint_state.get("inpaint_latent") is not None:
+        latent_tensor = inpaint_state["inpaint_latent"]
+        mask_tensor = inpaint_state.get("inpaint_latent_mask")
+        initial_latent = {"samples": latent_tensor}
+        if mask_tensor is not None:
+            initial_latent["noise_mask"] = mask_tensor
+        logger.info("Diffusion using INPAINT latent (shape=%s)", list(latent_tensor.shape))
+    else:
+        from app.infrastructure.core_ops import generate_empty_latent
+        initial_latent = generate_empty_latent(width, height, 1)
+        logger.info("Diffusion using EMPTY latent (text-to-image)")
 
-    # CLIP encode
+    # CLIP encode — use inpaint_additional_prompt if available
     if async_task.clip_skip:
         pipeline.set_clip_skip(async_task.clip_skip)
     positive_cond = pipeline.clip_encode([task["prompt"]])
@@ -592,7 +701,7 @@ def process_generate(async_job: QueueTask) -> None:
                 tasks, upscale_state = _apply_upscale(async_task, tasks)
 
         if async_task.inpaint_input_image:
-            tasks, inpaint_state = _apply_inpaint(async_task, tasks)
+            tasks, inpaint_state = _apply_inpaint(async_task, tasks, pipeline)
 
         # Step 3b: InpaintWorker reference for post_process (crop paste)
         inpaint_worker_ref = None
@@ -640,7 +749,7 @@ def process_generate(async_job: QueueTask) -> None:
                     except Exception:
                         pass
 
-            imgs = _process_diffusion(pipeline, async_task, task, progress_callback)
+            imgs = _process_diffusion(pipeline, async_task, task, progress_callback, inpaint_state=inpaint_state)
 
             # Post-process inpaint: paste crop back into original image
             if inpaint_worker_ref is not None and imgs:
@@ -704,8 +813,13 @@ def process_generate(async_job: QueueTask) -> None:
         logger.exception("Generation failed: %s", e)
         async_job.set_result([], True, str(e))
     finally:
-        # Clean up InpaintWorker reference
+        # Clean up InpaintWorker reference and global state
         inpaint_worker_ref = None
+        try:
+            import modules.inpaint_worker
+            modules.inpaint_worker.current_task = None
+        except (ImportError, AttributeError):
+            pass
         if worker_queue:
             worker_queue.finish_task(async_job.job_id)
 

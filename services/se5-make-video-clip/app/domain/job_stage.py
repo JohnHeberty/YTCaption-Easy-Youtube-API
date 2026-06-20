@@ -18,18 +18,7 @@ JobStage - Template Method pattern for processing stages
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from enum import Enum
 from pathlib import Path

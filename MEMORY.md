@@ -1,11 +1,14 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-20)
-- **SE8 Inpainting Fix** — InpaintWorker wired into `process_generate()`, now crops mask region, generates via diffusion, pastes back with color_correction
-- **SE11 Params Fix** — Dynamic SDXL aspect ratio, removed aggressive styles (Enhance/Sharp), `inpaint_respective_field=0.8`, stronger negative prompt
-- **E2E validated**: SE11 → SE10 → SE8 → RGB output, 482×789, 22.9% pixels changed, 77.1% preserved
-- **Docker images rebuilt** — SE8 (`docker-image-engine`, gpu.yml) and SE11 (`docker-se11`) both compose-persisted with all fixes
-- **Pydantic v2 migration COMPLETE** — All 11 services + shared library, 348/348 files, zero deprecation warnings
+- **Clean Code Audit COMPLETE** — 5-phase audit across all 11 services + shared library
+- **Commits**: `51202c2` (SE9+Pydantic v2), `c20c55a` (SE11 E2E+SE8 inpaint), `3526fe7` (agent docs), `64014b7` (Fase 3 SE6+SE7), `4ae828d` (Fase 4 SE1-SE4), `a02c75c` (Fase 5 SE5+SE8)
+- **Fase 1**: Exception hierarchy consolidated (ServiceError→BaseServiceException), BaseJob dead code removed (135 lines), SE8 worker.py:481 bug fix, SE6 hardcoded API keys→get_innertube_api_key(), SE7 Celery mismatch fixed, SE7 test imports removed, SE8+SE10 Pydantic v2 config, rate_limiter utcnow→now(UTC), ResilientRedisStore._safe_call extraction
+- **Fase 2**: SE9+SE11 already committed (redis_store._use_raw, redundant close removal, models cleanup)
+- **Fase 3**: SE6 enum consolidation (removed duplicate SearchType/JobStatus from constants.py), f-string→%s logging, asyncio.run() replacement; SE7 generator re-raise fix (critical: swallowed errors→Celery false success)
+- **Fase 4**: Removed 17 now_brazil fallbacks (SE1-SE4), SE1 exception consolidation (merged infrastructure→core), SE3 is_orphaned bug fix (fromisoformat on instance), SE4 processor.py cleanup
+- **Fase 5**: SE5 undefined variable fixes (audio_base_path, input_path), duplicate OCRDetector removal, Optional[any]→np.ndarray (6 files), print→logger (19 instances), SE8 mutable default fix, SE8 dead enums.py removed
+- **Pydantic v2 migration COMPLETE** — All 11 services + shared library, zero deprecation warnings
 
 ## Serviços Ativos
 

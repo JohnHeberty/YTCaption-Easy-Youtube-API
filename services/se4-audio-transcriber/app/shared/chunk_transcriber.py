@@ -1,6 +1,6 @@
 from pathlib import Path
 from common.log_utils import get_logger
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from pydub import AudioSegment
 
@@ -18,7 +18,7 @@ class ChunkTranscriber:
     transcription engine (Dependency Inversion Principle).
     """
 
-    def __init__(self, settings: Dict[str, any], state=None):
+    def __init__(self, settings: Dict[str, Any], state=None):
         self.settings = settings or {}
         self.state = state  # JobStateUpdater – may be None when no job tracking
 
@@ -31,10 +31,10 @@ class ChunkTranscriber:
         audio_file: str,
         language_in: str,
         language_out: Optional[str],
-        transcribe_fn: Callable[[str, str, Optional[str]], Dict[str, any]],
+        transcribe_fn: Callable[[str, str, Optional[str]], Dict[str, Any]],
         job_id: Optional[str] = None,
         audio: AudioSegment | None = None,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """Orchestrate chunking + transcription loop + segment merge.
 
         Args:
@@ -89,7 +89,7 @@ class ChunkTranscriber:
             logger.info(f"Áudio dividido em {len(chunks)} chunks")
 
             # Transcribe each chunk via the injected callable
-            all_segments: List[Dict[str, any]] = []
+            all_segments: List[Dict[str, Any]] = []
             full_text_parts: List[str] = []
 
             for i, audio_chunk in enumerate(chunks):
@@ -141,8 +141,8 @@ class ChunkTranscriber:
     # ------------------------------------------------------------------
 
     def _merge_overlapping_segments(
-        self, segments: List[Dict[str, any]], overlap_seconds: float
-    ) -> List[Dict[str, any]]:
+        self, segments: List[Dict[str, Any]], overlap_seconds: float
+    ) -> List[Dict[str, Any]]:
         """Merge overlapping segments by removing near-duplicate text.
 
         Args:

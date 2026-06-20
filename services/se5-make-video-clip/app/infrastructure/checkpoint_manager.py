@@ -8,18 +8,7 @@ Permite recuperação precisa de jobs interrompidos.
 import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from dataclasses import dataclass, asdict
 from enum import Enum
