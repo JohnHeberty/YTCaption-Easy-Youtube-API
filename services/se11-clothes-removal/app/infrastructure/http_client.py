@@ -12,6 +12,14 @@ from app.core.config import settings
 logger = get_logger(__name__)
 
 
+def _fix_b64_padding(s: str) -> str:
+    """Fix base64 padding if missing."""
+    missing = len(s) % 4
+    if missing:
+        s += "=" * (4 - missing)
+    return s
+
+
 class ServiceClient:
     """Base HTTP client with retry logic."""
 
@@ -134,12 +142,19 @@ class SE8Client(ServiceClient):
 
         Returns dict with keys: base64, url, seed, finish_reason
         """
+        # Calculate best SDXL aspect ratio from input image dimensions
+        aspect_str = self._pick_sdxl_ratio(image_b64)
+
+        # Use stronger negative prompt for cleaner results
+        if not negative_prompt:
+            negative_prompt = "deformed, blurry, low quality, extra limbs, disfigured, poorly drawn face, watermark, text, ugly"
+
         payload = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
-            "style_selections": [style, "Fooocus V2", "Fooocus Enhance", "Fooocus Sharp"],
+            "style_selections": [style],
             "performance_selection": "Speed",
-            "aspect_ratios_selection": "1152*896",
+            "aspect_ratios_selection": aspect_str,
             "image_number": 1,
             "image_seed": -1,
             "sharpness": 2.0,
@@ -150,13 +165,13 @@ class SE8Client(ServiceClient):
             "inpaint_additional_prompt": prompt,
             "async_process": False,
             "require_base64": False,
-        }
-
-        if inpaint_strength != 1.0:
-            payload["advanced_params"] = {
-                "inpaint_strength": inpaint_strength,
+            "advanced_params": {
                 "inpaint_engine": "v2.6",
-            }
+                "inpaint_strength": inpaint_strength,
+                "inpaint_respective_field": 0.8,
+                "inpaint_disable_initial_latent": False,
+            },
+        }
 
         response = await self._request_with_retry(
             "POST",
@@ -196,3 +211,38 @@ class SE8Client(ServiceClient):
         """Check SE8 health."""
         response = await self._request_with_retry("GET", "/health")
         return response.json()
+
+    @staticmethod
+    def _pick_sdxl_ratio(image_b64: str) -> str:
+        """Pick closest SDXL aspect ratio from input image dimensions."""
+        import io
+        from PIL import Image
+
+        # SDXL supported ratios: (width, height)
+        sdxl_ratios = [
+            (704, 1408), (704, 1344), (768, 1344), (768, 1280),
+            (832, 1216), (832, 1152), (896, 1152), (896, 1088),
+            (960, 1088), (960, 1024), (1024, 1024), (1024, 960),
+            (1088, 960), (1088, 896), (1152, 896), (1152, 832),
+            (1216, 832), (1280, 768), (1344, 768), (1344, 704),
+            (1408, 704), (1472, 704), (1536, 640), (1600, 640),
+            (1664, 576), (1728, 576),
+        ]
+
+        try:
+            # Strip data URI prefix
+            raw = image_b64
+            if "," in raw and raw.startswith("data:"):
+                raw = raw.split(",", 1)[1]
+            raw = _fix_b64_padding(raw)
+
+            img_bytes = base64.b64decode(raw)
+            img = Image.open(io.BytesIO(img_bytes))
+            w, h = img.size
+            input_ratio = w / h
+
+            best = min(sdxl_ratios, key=lambda r: abs(r[0] / r[1] - input_ratio))
+            return f"{best[0]}*{best[1]}"
+        except Exception as e:
+            logger.warning("Failed to detect image aspect ratio: %s, using default", e)
+            return "1024*1024"
