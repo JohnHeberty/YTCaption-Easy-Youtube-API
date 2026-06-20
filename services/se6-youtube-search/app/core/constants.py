@@ -1,9 +1,9 @@
 """
 Core constants for YouTube Search service.
 """
-
-from enum import Enum
 from datetime import timedelta
+
+from app.domain.models import SearchType, JobStatus  # noqa: F401 — canonical in models.py
 
 
 class SearchLimits:
@@ -18,28 +18,6 @@ class YouTubeAPIConfig:
     BASE_URL = "https://www.googleapis.com/youtube/v3"
     TIMEOUT_SECONDS = 30
     MAX_RETRIES = 3
-
-
-class SearchType(str, Enum):
-    """Types of YouTube searches supported."""
-
-    VIDEO = "video"
-    CHANNEL = "channel"
-    PLAYLIST = "playlist"
-    VIDEO_INFO = "video_info"
-    CHANNEL_INFO = "channel_info"
-    PLAYLIST_INFO = "playlist_info"
-    RELATED_VIDEOS = "related_videos"
-    SHORTS = "shorts"
-
-
-class JobStatus(str, Enum):
-    """Job status values."""
-
-    QUEUED = "queued"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
 
 
 # Celery Task Configuration

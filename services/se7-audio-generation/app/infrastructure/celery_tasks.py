@@ -46,7 +46,7 @@ def _resolve_audio_prompt_path(voice_id: str, store) -> Optional[str]:
         vm = VoiceProfileManager(voice_store, settings.voices_dir)
         return vm.get_profile_audio_path(voice_id)
     except Exception as e:
-        logger.warning(f"Failed to resolve voice profile {voice_id}: {e}")
+        logger.warning("Failed to resolve voice profile %s: %s", voice_id, e)
         return None
 
 
@@ -57,7 +57,7 @@ def _mark_job_failed(job_dict: dict, error_message: str, store) -> None:
         job.mark_as_failed(str(error_message), "TaskError")
         store.update_job(job)
     except Exception as store_err:
-        logger.error(f"Failed to mark job as failed: {store_err}")
+        logger.error("Failed to mark job as failed: %s", store_err)
 
 
 @celery_app.task(
@@ -74,19 +74,19 @@ def _mark_job_failed(job_dict: dict, error_message: str, store) -> None:
 )
 def generate_audio_task(self, job_dict: dict) -> dict:
     job_id = job_dict.get("id", "unknown")
-    logger.info(f"Starting audio generation job {job_id}")
+    logger.info("Starting audio generation job %s", job_id)
 
     try:
         job = AudioGenerationJob(**job_dict)
         audio_prompt_path = _resolve_audio_prompt_path(job.voice_id, self.store)
         if audio_prompt_path:
-            logger.info(f"Using voice profile {job.voice_id} for cloning")
+            logger.info("Using voice profile %s for cloning", job.voice_id)
 
         result_job = self.generator.generate(job, audio_prompt_path=audio_prompt_path)
         return result_job.model_dump()
 
     except Exception as e:
-        logger.error(f"Job {job_id} failed in task: {e}")
+        logger.error("Job %s failed in task: %s", job_id, e)
         _mark_job_failed(job_dict, str(e), self.store)
         raise
 
@@ -101,5 +101,5 @@ def cleanup_expired_jobs_task():
         if job.is_expired:
             store.delete_job(job.id)
             expired.append(job.id)
-    logger.info(f"Cleaned up {len(expired)} expired jobs")
+    logger.info("Cleaned up %s expired jobs", len(expired))
     return {"cleaned": len(expired), "jobs": expired}

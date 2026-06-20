@@ -64,9 +64,10 @@ class TTSGenerator(ITTSGenerator):
             self._finalize_job(job, output_path, len(chunks))
 
         except Exception as e:
-            logger.error(f"Job {job.id} failed: {e}")
+            logger.error("Job %s failed: %s", job.id, e)
             job.mark_as_failed(str(e), type(e).__name__)
             self._store.update_job(job)
+            raise
 
         return job
 
@@ -141,7 +142,7 @@ class TTSGenerator(ITTSGenerator):
             f"Generated {total_chunks} chunk(s), {duration:.1f}s"
         )
         self._store.update_job(job)
-        logger.info(f"Job {job.id} completed: {output_path}")
+        logger.info("Job %s completed: %s", job.id, output_path)
 
     def _validate_text(self, text: str) -> None:
         if not text or not text.strip():
