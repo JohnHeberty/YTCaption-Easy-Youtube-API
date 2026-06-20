@@ -8,7 +8,11 @@ services:
       - "${HOST_PORT:-8011}:${CONTAINER_PORT:-8011}"
     env_file:
       - ../.env
+    environment:
+      - PYTHONPATH=/app
     volumes:
+      - ../../../shared:/app/common
+      - ../app:/app/app
       - ../data/outputs:/app/data/outputs
       - ../data/logs:/app/data/logs
     extra_hosts:
