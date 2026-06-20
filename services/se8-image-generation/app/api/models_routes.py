@@ -7,7 +7,7 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import gc
-from typing import List
+from typing import Any
 
 from fastapi import APIRouter
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/v1/engines", tags=["Engines"])
 
 
 @router.get("/all-models", response_model=AllModelNamesResponse)
-def get_all_models():
+def get_all_models() -> AllModelNamesResponse:
     """Get all filenames of base models and LoRAs."""
     try:
         from modules import config
@@ -34,8 +34,8 @@ def get_all_models():
         return AllModelNamesResponse(model_filenames=[], lora_filenames=[])
 
 
-@router.get("/styles", response_model=List[str])
-def get_styles():
+@router.get("/styles", response_model=list[str])
+def get_styles() -> list[str]:
     """Get all legal style presets."""
     try:
         from modules.sdxl_styles import legal_style_names
@@ -47,7 +47,7 @@ def get_styles():
 
 
 @router.get("/styles-detail")
-def get_styles_detail():
+def get_styles_detail() -> list[dict[str, Any]]:
     """Get all styles with their prompt templates."""
     try:
         from modules.sdxl_styles import legal_style_names, styles
@@ -69,7 +69,7 @@ def get_styles_detail():
 
 
 @router.get("/clean_vram")
-def clean_vram():
+def clean_vram() -> dict[str, str]:
     """Unload all models and clean VRAM."""
     try:
         from app.services.model_manager import get_model_manager
@@ -84,7 +84,7 @@ def clean_vram():
 
 
 @router.get("/cleanup")
-def cleanup_memory():
+def cleanup_memory() -> dict[str, Any]:
     """Full memory cleanup — releases GPU VRAM, unloads models, then restarts process.
 
     PyTorch C++ allocator retains mmap'd anonymous pages after model unload.
@@ -115,7 +115,7 @@ def cleanup_memory():
     import sys
     import threading
 
-    def _restart():
+    def _restart() -> None:
         import time
         time.sleep(1.0)
         os.execv(sys.executable, ["python3.11", "-m", "uvicorn", "app.main:app",

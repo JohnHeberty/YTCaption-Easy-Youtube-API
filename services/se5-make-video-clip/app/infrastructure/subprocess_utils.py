@@ -4,10 +4,11 @@ Subprocess Utilities with Timeout Support
 Provides safe subprocess execution with automatic timeout and cleanup.
 Prevents FFmpeg and other processes from hanging indefinitely.
 """
+from __future__ import annotations
+
 import asyncio
 import signal
 import subprocess
-from typing import List, Optional, Tuple
 from pathlib import Path
 
 from common.log_utils import get_logger
@@ -27,11 +28,11 @@ DEFAULT_FFPROBE_TIMEOUT = 30      # 30 seconds for metadata extraction
 SIGTERM_GRACE_PERIOD = 2          # Grace period before SIGKILL
 
 async def run_subprocess_with_timeout(
-    cmd: List[str],
+    cmd: list[str],
     timeout: int = DEFAULT_SUBPROCESS_TIMEOUT,
     check: bool = True,
     capture_output: bool = True
-) -> Tuple[int, bytes, bytes]:
+) -> tuple[int, bytes, bytes]:
     """
     Run subprocess with timeout protection
     
@@ -122,7 +123,7 @@ async def run_subprocess_with_timeout(
         raise
 
 def run_subprocess_sync_with_timeout(
-    cmd: List[str],
+    cmd: list[str],
     timeout: int = 300,
     check: bool = True,
     capture_output: bool = True
@@ -169,11 +170,11 @@ def run_subprocess_sync_with_timeout(
         raise
 
 async def run_ffmpeg_with_timeout(
-    args: List[str],
+    args: list[str],
     timeout: int = 600,
-    input_file: Optional[str] = None,
-    output_file: Optional[str] = None
-) -> Tuple[int, bytes, bytes]:
+    input_file: str | None = None,
+    output_file: str | None = None
+) -> tuple[int, bytes, bytes]:
     """
     Run FFmpeg command with appropriate timeout
     
@@ -214,7 +215,7 @@ async def run_ffmpeg_with_timeout(
 
 async def run_ffprobe(
     file_path: str,
-    args: List[str] = None,
+    args: list[str] = None,
     timeout: int = DEFAULT_FFPROBE_TIMEOUT
 ) -> str:
     """
@@ -253,7 +254,7 @@ async def run_ffprobe(
     
     return stdout.decode('utf-8')
 
-async def kill_process_tree(pid: int, timeout: int = 5):
+async def kill_process_tree(pid: int, timeout: int = 5) -> None:
     """
     Kill process and all its children
     

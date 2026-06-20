@@ -6,12 +6,13 @@ do serviço make-video (Celery, Redis, VideoBuilder, etc.).
 Este módulo adapta os stages abstratos para usarem as implementações
 reais dos serviços.
 """
+from __future__ import annotations
 
 from pathlib import Path
 from datetime import datetime, timedelta
 from common.datetime_utils import now_brazil
 
-from typing import Dict, List, Any, Optional
+from typing import Any
 
 from ..domain.job_processor import JobProcessor
 from ..domain.job_stage import StageContext, JobStage
@@ -61,9 +62,9 @@ class DomainJobProcessor:
         subtitle_gen: SubtitleGenerator,
         video_validator: VideoValidator,
         blacklist: Any,
-        settings: Dict[str, Any],
-        event_publisher: Optional[EventPublisher] = None
-    ):
+        settings: dict[str, Any],
+        event_publisher: EventPublisher | None = None
+    ) -> None:
         self.redis_store = redis_store
         self.api_client = api_client
         self.video_builder = video_builder
@@ -80,7 +81,7 @@ class DomainJobProcessor:
         # Criar processor
         self.processor = JobProcessor(stages=self.stages)
     
-    def _create_stages(self) -> List[JobStage]:
+    def _create_stages(self) -> list[JobStage]:
         """Cria e configura todos os stages com dependências concretas"""
         
         # Cada stage recebe as dependências que precisa
@@ -291,8 +292,8 @@ async def process_job_with_domain(
     subtitle_gen: SubtitleGenerator,
     video_validator: VideoValidator,
     blacklist: Any,
-    settings: Dict[str, Any],
-    event_publisher: Optional[EventPublisher] = None
+    settings: dict[str, Any],
+    event_publisher: EventPublisher | None = None
 ) -> JobResult:
     """
     Função helper para processar job usando Domain-Driven Design.

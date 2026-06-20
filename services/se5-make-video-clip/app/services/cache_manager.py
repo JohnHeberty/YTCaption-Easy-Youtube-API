@@ -5,10 +5,11 @@ Segue princípios SOLID:
 - Single Responsibility: Gerencia apenas cache de shorts
 - Interface Segregation: Implementa CacheManagerInterface
 """
+from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any
 from datetime import datetime, timedelta
 import shutil
 
@@ -28,7 +29,7 @@ class CacheManager:
     - Listar vídeos aprovados
     """
 
-    def __init__(self, cache_dir: str):
+    def __init__(self, cache_dir: str) -> None:
         """
         Initialize cache manager.
 
@@ -45,7 +46,7 @@ class CacheManager:
 
         logger.info(f"CacheManager initialized: {self.cache_dir}")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Retorna estatísticas do cache.
 
@@ -115,7 +116,7 @@ class CacheManager:
 
         return removed_count
 
-    def get_approved_videos(self) -> List[Path]:
+    def get_approved_videos(self) -> list[Path]:
         """
         Retorna lista de vídeos aprovados.
 
@@ -127,7 +128,7 @@ class CacheManager:
 
         return list(self.approved_dir.glob("*.mp4"))
 
-    def get_approved_video_ids(self) -> List[str]:
+    def get_approved_video_ids(self) -> list[str]:
         """
         Retorna lista de IDs de vídeos aprovados.
 
@@ -150,7 +151,7 @@ class CacheManager:
         approved_path = self.approved_dir / f"{video_id}.mp4"
         return approved_path.exists()
 
-    def get_video_path(self, video_id: str) -> Optional[Path]:
+    def get_video_path(self, video_id: str) -> Path | None:
         """
         Retorna path de vídeo aprovado.
 

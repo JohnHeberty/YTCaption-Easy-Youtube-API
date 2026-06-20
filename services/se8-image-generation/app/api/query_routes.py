@@ -7,7 +7,7 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import os
-from typing import Optional
+from typing import Any
 
 from fastapi import APIRouter, Response
 
@@ -29,7 +29,7 @@ router = APIRouter(tags=["Query"])
 
 
 @router.get("/v1/generation/query-job", response_model=AsyncJobResponse)
-def query_job(job_id: str, require_step_preview: bool = False):
+def query_job(job_id: str, require_step_preview: bool = False) -> Response | AsyncJobResponse:
     """Query async generation job status."""
     queue_task = _worker_mod.worker_queue.get_task(job_id, True)
     if queue_task is None:
@@ -48,7 +48,7 @@ def query_job(job_id: str, require_step_preview: bool = False):
 
 
 @router.get("/v1/generation/job-queue", response_model=JobQueueInfo)
-def job_queue():
+def job_queue() -> JobQueueInfo:
     """Query job queue info."""
     info = _worker_mod.worker_queue.get_queue_info()
     return JobQueueInfo(**info)
@@ -59,11 +59,11 @@ def job_queue():
     response_model=JobHistoryResponse,
 )
 def job_history(
-    job_id: Optional[str] = None,
+    job_id: str | None = None,
     page: int = 0,
     page_size: int = 20,
     delete: bool = False,
-):
+) -> Response | JobHistoryResponse:
     """Query historical job data."""
     if delete and job_id:
         result = _worker_mod.worker_queue.get_history(job_id=job_id, delete=True)
@@ -88,7 +88,7 @@ def job_history(
 
 
 @router.get("/v1/generation/outputs")
-def list_outputs():
+def list_outputs() -> dict[str, Any]:
     """List all output images grouped by date."""
     from app.core.config import get_settings
 

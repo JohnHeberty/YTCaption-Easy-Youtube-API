@@ -16,7 +16,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
@@ -36,7 +36,7 @@ HISTORY_LIST_KEY = "se8:history:list"
 HISTORY_TTL_SECONDS = 86400  # 24 hours
 
 
-def _task_to_metadata(task: QueueTask) -> Dict[str, Any]:
+def _task_to_metadata(task: QueueTask) -> dict[str, Any]:
     """Extract lightweight metadata from a QueueTask for Redis storage.
 
     Excludes req_param (can contain MBs of base64 images) and task_step_preview.
@@ -65,7 +65,7 @@ def _task_to_metadata(task: QueueTask) -> Dict[str, Any]:
     }
 
 
-def _metadata_to_task(meta: Dict[str, Any]) -> QueueTask:
+def _metadata_to_task(meta: dict[str, Any]) -> QueueTask:
     """Reconstruct a QueueTask from Redis metadata."""
     task_result = None
     if meta.get("task_result"):
@@ -102,7 +102,7 @@ class TaskQueue:
         self,
         queue_size: int = 100,
         history_size: int = 64,
-        webhook_url: Optional[str] = None,
+        webhook_url: str | None = None,
         redis_store=None,
     ) -> None:
         self.queue_size = queue_size
@@ -110,15 +110,15 @@ class TaskQueue:
         self.webhook_url = webhook_url
 
         # In-memory queue (hot path for GPU worker)
-        self.queue: List[QueueTask] = []
-        self.last_job_id: Optional[str] = None
+        self.queue: list[QueueTask] = []
+        self.last_job_id: str | None = None
 
         # Redis-backed history (persistent across restarts)
         self._redis = redis_store
-        self._history_fallback: List[QueueTask] = []
+        self._history_fallback: list[QueueTask] = []
 
     @property
-    def history(self) -> List[QueueTask]:
+    def history(self) -> list[QueueTask]:
         """Compatibility property — returns in-memory fallback when Redis unavailable."""
         return self._history_fallback
 
@@ -144,7 +144,7 @@ class TaskQueue:
             logger.warning("Failed to save task %s to Redis history: %s", task.job_id, e)
             return False
 
-    def _get_history_from_redis(self, job_id: str) -> Optional[QueueTask]:
+    def _get_history_from_redis(self, job_id: str) -> QueueTask | None:
         """Retrieve a single task from Redis history."""
         if self._redis is None:
             return None
@@ -159,7 +159,7 @@ class TaskQueue:
 
     def _list_history_from_redis(
         self, page: int = 0, page_size: int = 20
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List history entries from Redis sorted set."""
         if self._redis is None:
             return []
@@ -224,9 +224,9 @@ class TaskQueue:
     def add_task(
         self,
         task_type: TaskType,
-        req_param: Dict[str, Any],
-        webhook_url: Optional[str] = None,
-    ) -> Optional[QueueTask]:
+        req_param: dict[str, Any],
+        webhook_url: str | None = None,
+    ) -> QueueTask | None:
         """Add a task to the queue. Returns None if queue is full."""
         if len(self.queue) >= self.queue_size:
             logger.warning("Task queue full (%d/%d)", len(self.queue), self.queue_size)
@@ -244,7 +244,7 @@ class TaskQueue:
         logger.info("Task added: %s (type=%s, queue=%d)", job_id, task_type.value, len(self.queue))
         return task
 
-    def get_task(self, job_id: str, include_history: bool = False) -> Optional[QueueTask]:
+    def get_task(self, job_id: str, include_history: bool = False) -> QueueTask | None:
         """Find a task by ID. Optionally search Redis history."""
         for task in self.queue:
             if task.job_id == job_id:
@@ -310,7 +310,7 @@ class TaskQueue:
 
         logger.info("Task finished: %s (error=%s, redis=%s)", job_id, task.finish_with_error, saved_to_redis)
 
-    def get_queue_info(self) -> Dict[str, Any]:
+    def get_queue_info(self) -> dict[str, Any]:
         """Return queue status info."""
         return {
             "running_size": len(self.queue),
@@ -320,11 +320,11 @@ class TaskQueue:
 
     def get_history(
         self,
-        job_id: Optional[str] = None,
+        job_id: str | None = None,
         page: int = 0,
         page_size: int = 20,
         delete: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Query history. Optionally filter by job_id, paginate, or delete."""
         if delete and job_id:
             # Try Redis first
@@ -396,7 +396,7 @@ class TaskQueue:
             ],
         }
 
-    def _queue_info_list(self) -> List[Dict[str, Any]]:
+    def _queue_info_list(self) -> list[dict[str, Any]]:
         """Build queue info list for response."""
         return [
             {
@@ -410,7 +410,7 @@ class TaskQueue:
         ]
 
     @staticmethod
-    def _task_info_dict(task: QueueTask) -> Dict[str, Any]:
+    def _task_info_dict(task: QueueTask) -> dict[str, Any]:
         """Build a task info dict for response."""
         return {
             "job_id": task.job_id,

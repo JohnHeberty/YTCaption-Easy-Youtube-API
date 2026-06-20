@@ -6,8 +6,6 @@ Provides image description and mask generation.
 from __future__ import annotations
 from common.log_utils import get_logger
 
-from typing import Optional
-
 from fastapi import APIRouter, File, Query, UploadFile
 
 from app.api.image_utils import ndarray_to_base64png, read_input_image
@@ -25,10 +23,10 @@ router = APIRouter(tags=["Tools"])
 )
 def describe_image(
     image: UploadFile,
-    image_type: Optional[str] = Query(
+    image_type: str | None = Query(
         "Photo", description="Image type, 'Photo' or 'Anime'"
     ),
-):
+) -> DescribeImageResponse:
     """Describe an image — get tags from an image."""
     try:
         import cv2

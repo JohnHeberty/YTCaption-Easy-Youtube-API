@@ -5,8 +5,9 @@ Segue princípios SOLID:
 - Single Responsibility: Gerencia ciclo de vida de jobs
 - Interface Segregation: Implementa JobManagerInterface
 """
+from __future__ import annotations
 
-from typing import Optional, List, Dict, Any
+from typing import Any
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -28,7 +29,7 @@ class JobManager:
     - Listar e buscar jobs
     """
 
-    def __init__(self, redis_store: RedisJobStore):
+    def __init__(self, redis_store: RedisJobStore) -> None:
         """
         Initialize job manager.
 
@@ -46,8 +47,8 @@ class JobManager:
         subtitle_style: str = "static",
         aspect_ratio: str = "9:16",
         crop_position: str = "center",
-        audio_path: Optional[str] = None,
-        query: Optional[str] = None,
+        audio_path: str | None = None,
+        query: str | None = None,
     ) -> Job:
         """
         Cria um novo job.
@@ -88,7 +89,7 @@ class JobManager:
 
         return job
 
-    async def get_job(self, job_id: str) -> Optional[Job]:
+    async def get_job(self, job_id: str) -> Job | None:
         """
         Obtém job por ID.
 
@@ -105,9 +106,9 @@ class JobManager:
         job_id: str,
         status: JobStatus,
         progress: float,
-        stage_name: Optional[str] = None,
-        stage_status: Optional[str] = None,
-        stage_metadata: Optional[Dict[str, Any]] = None,
+        stage_name: str | None = None,
+        stage_status: str | None = None,
+        stage_metadata: dict[str, Any] | None = None,
     ) -> bool:
         """
         Atualiza status e progresso de job.
@@ -226,7 +227,7 @@ class JobManager:
         job_id: str,
         error_message: str,
         error_code: str = "UNKNOWN",
-        error_details: Optional[Dict[str, Any]] = None,
+        error_details: dict[str, Any] | None = None,
     ) -> bool:
         """
         Marca job como falho.
@@ -266,9 +267,9 @@ class JobManager:
 
     async def list_jobs(
         self,
-        status: Optional[JobStatus] = None,
+        status: JobStatus | None = None,
         limit: int = 100,
-    ) -> List[Job]:
+    ) -> list[Job]:
         """
         Lista jobs.
 
@@ -301,7 +302,7 @@ class JobManager:
     async def find_orphaned_jobs(
         self,
         max_age_minutes: int = 30,
-    ) -> List[Job]:
+    ) -> list[Job]:
         """
         Encontra jobs órfãos (presos em processamento).
 
@@ -313,7 +314,7 @@ class JobManager:
         """
         return await self.redis_store.find_orphaned_jobs(max_age_minutes)
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> dict[str, int]:
         """
         Retorna estatísticas de jobs.
 
@@ -331,7 +332,7 @@ class JobManager:
         """
         return await self.redis_store.cleanup_expired()
 
-    async def get_queue_info(self) -> Dict[str, Any]:
+    async def get_queue_info(self) -> dict[str, Any]:
         """
         Retorna informações da fila.
 

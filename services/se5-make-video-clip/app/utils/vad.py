@@ -3,10 +3,10 @@ Voice Activity Detection (VAD)
 
 Detecta segmentos de fala em áudio usando WebRTC VAD e análise de energia
 """
+from __future__ import annotations
 
 import wave
 import struct
-from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
@@ -43,7 +43,7 @@ class VoiceActivityDetector:
         energy_threshold: float = 0.02,
         min_speech_duration: float = 0.3,
         min_silence_duration: float = 0.3
-    ):
+    ) -> None:
         """
         Args:
             frame_duration_ms: Duração do frame (10, 20 ou 30ms)
@@ -75,8 +75,8 @@ class VoiceActivityDetector:
     def detect_speech_segments(
         self,
         audio_path: str,
-        method: Optional[VADMethod] = None
-    ) -> List[SpeechSegment]:
+        method: VADMethod | None = None
+    ) -> list[SpeechSegment]:
         """
         Detecta segmentos de fala no áudio
         
@@ -120,7 +120,7 @@ class VoiceActivityDetector:
         
         return segments
     
-    def _read_wave(self, audio_path: str) -> Tuple[int, bytes]:
+    def _read_wave(self, audio_path: str) -> tuple[int, bytes]:
         """
         Lê arquivo WAV
         
@@ -143,7 +143,7 @@ class VoiceActivityDetector:
         self,
         audio_data: bytes,
         sample_rate: int
-    ) -> List[SpeechSegment]:
+    ) -> list[SpeechSegment]:
         """
         Detecta fala usando WebRTC VAD
         
@@ -205,7 +205,7 @@ class VoiceActivityDetector:
         self,
         audio_data: bytes,
         sample_rate: int
-    ) -> List[SpeechSegment]:
+    ) -> list[SpeechSegment]:
         """
         Detecta fala usando análise de energia
         
@@ -288,8 +288,8 @@ class VoiceActivityDetector:
     
     def _filter_short_segments(
         self,
-        segments: List[SpeechSegment]
-    ) -> List[SpeechSegment]:
+        segments: list[SpeechSegment]
+    ) -> list[SpeechSegment]:
         """
         Remove segmentos muito curtos
         
@@ -316,8 +316,8 @@ class VoiceActivityDetector:
     
     def _merge_close_segments(
         self,
-        segments: List[SpeechSegment]
-    ) -> List[SpeechSegment]:
+        segments: list[SpeechSegment]
+    ) -> list[SpeechSegment]:
         """
         Merge segmentos com silêncio curto entre eles
         
@@ -355,8 +355,8 @@ class VoiceActivityDetector:
     
     def segments_to_timestamps(
         self,
-        segments: List[SpeechSegment]
-    ) -> List[Tuple[float, float]]:
+        segments: list[SpeechSegment]
+    ) -> list[tuple[float, float]]:
         """
         Converte segmentos para lista de tuplas (start, end)
         

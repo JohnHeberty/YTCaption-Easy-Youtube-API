@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Video Validator com OCR e TRSD
 
@@ -14,7 +16,7 @@ import re
 import hashlib
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Any
 from pathlib import Path
 
 # TRSD imports (Sprint 04)
@@ -74,7 +76,7 @@ class VideoValidator:
     - Confidence scoring combining OCR + Visual features
     """
     
-    def __init__(self, min_confidence: float = 0.15, frames_per_second: int = None, max_frames: int = None, redis_store: Optional[Any] = None):
+    def __init__(self, min_confidence: float = 0.15, frames_per_second: int | None = None, max_frames: int | None = None, redis_store: Any = None) -> None:
         """
         🚨 FORÇA BRUTA 100% FRAMES - ZERO TOLERÂNCIA
         
@@ -161,7 +163,7 @@ class VideoValidator:
             logger.error(f"❌ Video integrity check failed: {video_path} - {e}")
             raise VideoIntegrityError(f"Video validation failed: {e}")
     
-    def _detect_with_trsd(self, video_path: str, timeout: int = 60) -> Tuple[bool, float, str, Dict]:
+    def _detect_with_trsd(self, video_path: str, timeout: int = 60) -> tuple[bool, float, str, dict[str, Any]]:
         """
         Detecção inteligente com TRSD (Sprint 04)
         
@@ -357,7 +359,7 @@ class VideoValidator:
             # Reraise para fallback
             raise
     
-    def has_embedded_subtitles(self, video_path: str, timeout: int = 300, force_revalidation: bool = False) -> Tuple[bool, float, str, int]:
+    def has_embedded_subtitles(self, video_path: str, timeout: int = 300, force_revalidation: bool = False) -> tuple[bool, float, str, int]:
         """
         Detecta legendas embutidas no vídeo usando TRSD (se habilitado) ou OCR legado
         
@@ -412,7 +414,7 @@ class VideoValidator:
         
         return result
     
-    def _process_single_frame(self, working_path: str, ts: float) -> Optional[Tuple[str, float, float]]:
+    def _process_single_frame(self, working_path: str, ts: float) -> tuple[str, float, float] | None:
         """
         Processa um frame individual e retorna resultado OCR + Visual Features
         
@@ -462,7 +464,7 @@ class VideoValidator:
         
         return (text, combined_confidence, ts)
     
-    def _detect_with_legacy_ocr(self, video_path: str, timeout: int = 300) -> Tuple[bool, float, str]:
+    def _detect_with_legacy_ocr(self, video_path: str, timeout: int = 300) -> tuple[bool, float, str, int]:
         """
         🚨 FORÇA BRUTA 100% FRAMES - ZERO TOLERÂNCIA
         
@@ -598,7 +600,7 @@ class VideoValidator:
                 except Exception:
                     logger.debug(f"Could not remove temp transcoded file: {cleanup_path}")
     
-    def _get_all_frame_indices(self, video_path: str) -> list:
+    def _get_all_frame_indices(self, video_path: str) -> list[int]:
         """
         🚨 FORÇA BRUTA: Retorna TODOS os índices de frames do vídeo
         
@@ -627,7 +629,7 @@ class VideoValidator:
         
         return all_indices
     
-    def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> Optional[np.ndarray]:
+    def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> np.ndarray | None:
         """
         Extrai um frame do vídeo em determinado timestamp
         
@@ -665,7 +667,7 @@ class VideoValidator:
             logger.error(f"Frame extraction error at {timestamp}s: {e}")
             return None
     
-    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> Optional[np.ndarray]:
+    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> np.ndarray | None:
         """
         Fallback: Extrai frame usando FFmpeg diretamente
         
@@ -712,7 +714,7 @@ class VideoValidator:
     
     # ===== P2 Optimization: Cache Methods =====
     
-    def _check_cache(self, video_path: str) -> Optional[Tuple[bool, float, str]]:
+    def _check_cache(self, video_path: str) -> tuple[bool, float, str] | None:
         """
         Verifica cache de validação de legendas no Redis
         
@@ -746,7 +748,7 @@ class VideoValidator:
             logger.warning(f"⚠️ Cache check failed: {e}")
             return None
     
-    def _save_cache(self, video_path: str, result: Tuple[bool, float, str]) -> None:
+    def _save_cache(self, video_path: str, result: tuple[bool, float, str]) -> None:
         """
         Salva resultado de detecção no cache Redis
         
@@ -786,7 +788,7 @@ class VideoValidator:
         except Exception as e:
             logger.warning(f"⚠️ Cache save failed: {e}")
 
-    def _ensure_supported_codec(self, video_path: str) -> Tuple[str, Optional[str]]:
+    def _ensure_supported_codec(self, video_path: str) -> tuple[str, str | None]:
         """
         Garante que o vídeo está em codec suportado para OCR (H.264).
         
@@ -916,7 +918,7 @@ class VideoValidator:
         
         return min(confidence, 1.0)
     
-    def _validate_metadata(self, video_path: str, timeout: int) -> dict:
+    def _validate_metadata(self, video_path: str, timeout: int) -> dict[str, Any]:
         """
         Valida metadata do vídeo com ffprobe
         
@@ -960,7 +962,7 @@ class VideoValidator:
         
         return metadata
     
-    def _validate_frame_decode(self, video_path: str, timeout: int):
+    def _validate_frame_decode(self, video_path: str, timeout: int) -> None:
         """
         Tenta decodificar um frame do vídeo
         
@@ -990,7 +992,7 @@ class VideoValidator:
         except Exception as e:
             raise VideoIntegrityError(f"Frame decode error: {e}")
     
-    def get_video_info(self, video_path: str, timeout: int = 5) -> dict:
+    def get_video_info(self, video_path: str, timeout: int = 5) -> dict[str, Any]:
         """
         Obtém informações do vídeo
         

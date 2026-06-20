@@ -9,11 +9,12 @@ Detector inteligente de legendas embutidas baseado em:
 Sprint 01: Arquitetura base e extração de regiões
 ATUALIZADO: Migrado de EasyOCR para PaddleOCR (single engine)
 """
+from __future__ import annotations
 
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import Any
 from dataclasses import dataclass
 
 from app.trsd_models.text_region import TextLine, ROIType
@@ -31,7 +32,7 @@ class TextRegionExtractor:
     para otimizar performance e reduzir ruído.
     """
     
-    def __init__(self, config: Optional[Settings] = None):
+    def __init__(self, config: Settings | None = None) -> None:
         self.config = config or Settings()
         
         # Configurações de downscaling
@@ -56,8 +57,8 @@ class TextRegionExtractor:
         frame: np.ndarray,
         timestamp: float,
         frame_idx: int = 0,
-        roi_type: Optional[ROIType] = None
-    ) -> List[TextLine]:
+        roi_type: ROIType | None = None
+    ) -> list[TextLine]:
         """
         Extrai linhas de texto de um frame
         
@@ -109,7 +110,7 @@ class TextRegionExtractor:
         logger.debug(f"Frame @ {timestamp:.2f}s: detected {len(text_lines)} lines")
         return text_lines
     
-    def _downscale_frame(self, frame: np.ndarray) -> Tuple[np.ndarray, float]:
+    def _downscale_frame(self, frame: np.ndarray) -> tuple[np.ndarray, float]:
         """
         Downscale frame para otimizar OCR
         
@@ -128,7 +129,7 @@ class TextRegionExtractor:
         
         return frame_scaled, scale_factor
     
-    def _extract_rois(self, frame: np.ndarray) -> dict:
+    def _extract_rois(self, frame: np.ndarray) -> dict[ROIType, np.ndarray]:
         """
         Extrai ROIs (bottom, top, middle) do frame
         
@@ -180,7 +181,7 @@ class TextRegionExtractor:
         
         return thresh
     
-    def _detect_words(self, roi_prep: np.ndarray) -> List[dict]:
+    def _detect_words(self, roi_prep: np.ndarray) -> list[dict[str, Any]]:
         """
         Detecta palavras com PaddleOCR
         
@@ -215,7 +216,7 @@ class TextRegionExtractor:
             logger.warning(f"OCR failed: {e}")
             return []
     
-    def _filter_words(self, words: List[dict]) -> List[dict]:
+    def _filter_words(self, words: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Filtra palavras por confiança e conteúdo
         """
@@ -246,9 +247,9 @@ class TextRegionExtractor:
     
     def _group_words_into_lines(
         self,
-        words: List[dict],
+        words: list[dict[str, Any]],
         scale_factor: float
-    ) -> List[Tuple[Tuple[int, int, int, int], List[dict]]]:
+    ) -> list[tuple[tuple[int, int, int, int], list[dict[str, Any]]]]:
         """
         Agrupa palavras em linhas baseado em posição vertical
         
@@ -319,9 +320,9 @@ class TextRegionExtractor:
         timestamp: float,
         frame_idx: int,
         roi_type: ROIType,
-        bbox: Tuple[int, int, int, int],
-        words: List[dict]
-    ) -> Optional[TextLine]:
+        bbox: tuple[int, int, int, int],
+        words: list[dict[str, Any]]
+    ) -> TextLine | None:
         """
         Cria TextLine a partir de palavras agrupadas
         """

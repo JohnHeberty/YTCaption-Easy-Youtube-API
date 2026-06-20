@@ -14,7 +14,7 @@ from common.log_utils import get_logger
 
 import copy
 import inspect
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = get_logger(__name__)
 
@@ -69,14 +69,14 @@ class ModelPatcher:
         size: int = 0,
         current_device: Any = None,
         weight_inplace_update: bool = False,
-    ):
+    ) -> None:
         self.size = size
         self.model = model
-        self.patches: Dict[str, list] = {}
-        self.backup: Dict[str, Any] = {}
-        self.object_patches: Dict[str, Any] = {}
-        self.object_patches_backup: Dict[str, Any] = {}
-        self.model_options: Dict[str, Any] = {"transformer_options": {}}
+        self.patches: dict[str, list] = {}
+        self.backup: dict[str, Any] = {}
+        self.object_patches: dict[str, Any] = {}
+        self.object_patches_backup: dict[str, Any] = {}
+        self.model_options: dict[str, Any] = {"transformer_options": {}}
         self.model_size()  # calculates self.size and self.model_keys
         self.load_device = load_device
         self.offload_device = offload_device
@@ -117,7 +117,7 @@ class ModelPatcher:
     # Sampler configuration
     # -------------------------------------------------------------------
 
-    def set_model_sampler_cfg_function(self, sampler_cfg_function, disable_cfg1_optimization=False):
+    def set_model_sampler_cfg_function(self, sampler_cfg_function, disable_cfg1_optimization=False) -> None:
         if len(inspect.signature(sampler_cfg_function).parameters) == 3:
             self.model_options["sampler_cfg_function"] = lambda args: sampler_cfg_function(
                 args["cond"], args["uncond"], args["cond_scale"]
@@ -127,27 +127,27 @@ class ModelPatcher:
         if disable_cfg1_optimization:
             self.model_options["disable_cfg1_optimization"] = True
 
-    def set_model_sampler_post_cfg_function(self, post_cfg_function, disable_cfg1_optimization=False):
+    def set_model_sampler_post_cfg_function(self, post_cfg_function, disable_cfg1_optimization=False) -> None:
         self.model_options["sampler_post_cfg_function"] = (
             self.model_options.get("sampler_post_cfg_function", []) + [post_cfg_function]
         )
         if disable_cfg1_optimization:
             self.model_options["disable_cfg1_optimization"] = True
 
-    def set_model_unet_function_wrapper(self, unet_wrapper_function):
+    def set_model_unet_function_wrapper(self, unet_wrapper_function) -> None:
         self.model_options["model_function_wrapper"] = unet_wrapper_function
 
     # -------------------------------------------------------------------
     # Transformer patches
     # -------------------------------------------------------------------
 
-    def set_model_patch(self, patch, name):
+    def set_model_patch(self, patch, name) -> None:
         to = self.model_options["transformer_options"]
         if "patches" not in to:
             to["patches"] = {}
         to["patches"][name] = to["patches"].get(name, []) + [patch]
 
-    def set_model_patch_replace(self, patch, name, block_name, number, transformer_index=None):
+    def set_model_patch_replace(self, patch, name, block_name, number, transformer_index=None) -> None:
         to = self.model_options["transformer_options"]
         if "patches_replace" not in to:
             to["patches_replace"] = {}
@@ -156,41 +156,41 @@ class ModelPatcher:
         block = (block_name, number, transformer_index) if transformer_index is not None else (block_name, number)
         to["patches_replace"][name][block] = patch
 
-    def set_model_attn1_patch(self, patch):
+    def set_model_attn1_patch(self, patch) -> None:
         self.set_model_patch(patch, "attn1_patch")
 
-    def set_model_attn2_patch(self, patch):
+    def set_model_attn2_patch(self, patch) -> None:
         self.set_model_patch(patch, "attn2_patch")
 
-    def set_model_attn1_replace(self, patch, block_name, number, transformer_index=None):
+    def set_model_attn1_replace(self, patch, block_name, number, transformer_index=None) -> None:
         self.set_model_patch_replace(patch, "attn1", block_name, number, transformer_index)
 
-    def set_model_attn2_replace(self, patch, block_name, number, transformer_index=None):
+    def set_model_attn2_replace(self, patch, block_name, number, transformer_index=None) -> None:
         self.set_model_patch_replace(patch, "attn2", block_name, number, transformer_index)
 
-    def set_model_attn1_output_patch(self, patch):
+    def set_model_attn1_output_patch(self, patch) -> None:
         self.set_model_patch(patch, "attn1_output_patch")
 
-    def set_model_attn2_output_patch(self, patch):
+    def set_model_attn2_output_patch(self, patch) -> None:
         self.set_model_patch(patch, "attn2_output_patch")
 
-    def set_model_input_block_patch(self, patch):
+    def set_model_input_block_patch(self, patch) -> None:
         self.set_model_patch(patch, "input_block_patch")
 
-    def set_model_input_block_patch_after_skip(self, patch):
+    def set_model_input_block_patch_after_skip(self, patch) -> None:
         self.set_model_patch(patch, "input_block_patch_after_skip")
 
-    def set_model_output_block_patch(self, patch):
+    def set_model_output_block_patch(self, patch) -> None:
         self.set_model_patch(patch, "output_block_patch")
 
-    def add_object_patch(self, name, obj):
+    def add_object_patch(self, name, obj) -> None:
         self.object_patches[name] = obj
 
     # -------------------------------------------------------------------
     # Model operations
     # -------------------------------------------------------------------
 
-    def model_patches_to(self, device):
+    def model_patches_to(self, device) -> None:
         """Move all patch tensors to the given device."""
         to = self.model_options["transformer_options"]
         if "patches" in to:
@@ -227,7 +227,7 @@ class ModelPatcher:
                 self.patches[k] = current_patches
         return list(p)
 
-    def get_key_patches(self, filter_prefix=None):
+    def get_key_patches(self, filter_prefix=None) -> dict:
         model_sd = self.model_state_dict()
         result = {}
         for k in model_sd:
@@ -239,7 +239,7 @@ class ModelPatcher:
                 result[k] = (model_sd[k],)
         return result
 
-    def model_state_dict(self, filter_prefix=None):
+    def model_state_dict(self, filter_prefix=None) -> dict:
         sd = self.model.state_dict()
         if filter_prefix is not None:
             keys = list(sd.keys())
@@ -431,7 +431,7 @@ class ModelPatcher:
 
         return weight
 
-    def unpatch_model(self, device_to=None):
+    def unpatch_model(self, device_to=None) -> None:
         """Restore original weights from backup and optionally move to device."""
         keys = list(self.backup.keys())
 
@@ -458,7 +458,7 @@ class ModelPatcher:
     # -------------------------------------------------------------------
 
     @staticmethod
-    def _copy_to_param(model, key, value):
+    def _copy_to_param(model, key, value) -> None:
         """Copy value into model parameter (inplace)."""
         params = dict(model.named_parameters())
         buffers = dict(model.named_buffers())
@@ -468,7 +468,7 @@ class ModelPatcher:
             buffers[key].data.copy_(value)
 
     @staticmethod
-    def _set_attr(model, key, value):
+    def _set_attr(model, key, value) -> None:
         """Set attribute on model by dotted key path."""
         parts = key.split(".")
         obj = model

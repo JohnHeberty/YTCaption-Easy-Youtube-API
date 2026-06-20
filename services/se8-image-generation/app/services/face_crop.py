@@ -2,7 +2,9 @@
 
 Uses facexlib for face detection and alignment.
 """
-from typing import Optional
+from __future__ import annotations
+
+from typing import Any
 from common.log_utils import get_logger
 
 import cv2
@@ -13,7 +15,7 @@ logger = get_logger(__name__)
 _face_restore_helper = None
 
 
-def _get_face_restore_helper():
+def _get_face_restore_helper() -> Any:
     """Lazy-load FaceRestoreHelper singleton."""
     global _face_restore_helper
     if _face_restore_helper is not None:
@@ -40,7 +42,7 @@ def align_warp_face(
     img_rgb: np.ndarray,
     landmark: np.ndarray,
     border_mode: int = cv2.BORDER_REFLECT_101,
-) -> Optional[np.ndarray]:
+) -> np.ndarray | None:
     """Estimate affine transform from 5-point landmark to template, warp face.
 
     Args:

@@ -3,9 +3,10 @@ Comprehensive Health Checks - Sprint-07
 
 Sistema de health checks para todas as dependências.
 """
+from __future__ import annotations
 
 import asyncio
-from typing import Dict, Tuple, Optional
+from typing import Any
 from datetime import datetime
 from common.datetime_utils import now_brazil
 
@@ -18,13 +19,13 @@ logger = get_logger(__name__)
 class HealthCheckResult:
     """Resultado de um health check"""
     
-    def __init__(self, healthy: bool, details: str, latency_ms: Optional[float] = None):
+    def __init__(self, healthy: bool, details: str, latency_ms: float | None = None) -> None:
         self.healthy = healthy
         self.details = details
         self.latency_ms = latency_ms
     
-    def to_dict(self) -> Dict:
-        result = {
+    def to_dict(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
             "healthy": self.healthy,
             "details": self.details
         }
@@ -43,13 +44,13 @@ class HealthChecker:
     - Celery workers (opcional)
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.redis_store = None
         self.api_client = None
         self.settings = None
         logger.info("✅ HealthChecker initialized")
     
-    def set_dependencies(self, redis_store, api_client, settings):
+    def set_dependencies(self, redis_store: Any, api_client: Any, settings: Any) -> None:
         """Configura dependências (chamado após inicialização)"""
         self.redis_store = redis_store
         self.api_client = api_client
@@ -175,7 +176,7 @@ class HealthChecker:
         except Exception as e:
             return HealthCheckResult(False, f"Error: {str(e)[:100]}")
     
-    async def check_disk_space(self, path: Optional[str] = None) -> HealthCheckResult:
+    async def check_disk_space(self, path: str | None = None) -> HealthCheckResult:
         """
         Verifica espaço em disco.
         
@@ -259,7 +260,7 @@ class HealthChecker:
     async def check_all(
         self,
         include_celery: bool = False
-    ) -> Dict[str, HealthCheckResult]:
+    ) -> dict[str, HealthCheckResult]:
         """
         Executa todos os health checks em paralelo.
         
@@ -317,7 +318,7 @@ class HealthChecker:
         
         return health_results
     
-    def is_healthy(self, results: Dict[str, HealthCheckResult]) -> bool:
+    def is_healthy(self, results: dict[str, HealthCheckResult]) -> bool:
         """
         Determina se sistema está saudável baseado nos resultados.
         

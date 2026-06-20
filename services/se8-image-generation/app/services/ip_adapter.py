@@ -1,5 +1,8 @@
 """IP-Adapter — CLIP vision encoding + cross-attention injection."""
-from typing import Dict, List, Optional, Tuple
+from __future__ import annotations
+
+from typing import Any
+
 from common.log_utils import get_logger
 
 import numpy as np
@@ -15,7 +18,7 @@ SD_XL_CHANNELS = [640, 640, 1280, 1280, 2048, 2048, 2048]
 # Global state
 clip_vision = None
 ip_negative = None
-ip_adapters: Dict[str, dict] = {}
+ip_adapters: dict[str, dict[str, Any]] = {}
 
 
 class ImageProjModel(nn.Module):
@@ -26,7 +29,7 @@ class ImageProjModel(nn.Module):
         cross_attention_dim: int = 1024,
         clip_embeddings_dim: int = 1024,
         clip_extra_context_tokens: int = 4,
-    ):
+    ) -> None:
         super().__init__()
         self.cross_attention_dim = cross_attention_dim
         self.clip_extra_context_tokens = clip_extra_context_tokens
@@ -45,7 +48,7 @@ class ImageProjModel(nn.Module):
 class To_KV(nn.Module):
     """Projects IP-Adapter features to per-layer K/V weights for all UNet attention blocks."""
 
-    def __init__(self, cross_attention_dim: int):
+    def __init__(self, cross_attention_dim: int) -> None:
         super().__init__()
         # Determine channel dimensions based on cross_attention_dim
         if cross_attention_dim == 1280:
@@ -56,7 +59,7 @@ class To_KV(nn.Module):
         self.to_k = nn.ModuleList([nn.Linear(cross_attention_dim, ch) for ch in channels])
         self.to_v = nn.ModuleList([nn.Linear(cross_attention_dim, ch) for ch in channels])
 
-    def load_state_dict_ordered(self, sd: dict):
+    def load_state_dict_ordered(self, sd: dict) -> None:
         """Load pre-ordered k/v weight pairs from state dict."""
         k_keys = sorted([k for k in sd.keys() if "to_k" in k])
         v_keys = sorted([k for k in sd.keys() if "to_v" in k])
@@ -78,7 +81,7 @@ class IPAdapterModel(nn.Module):
         clip_embeddings_dim: int = 1024,
         clip_extra_context_tokens: int = 4,
         sdxl_plus: bool = False,
-    ):
+    ) -> None:
         super().__init__()
 
         if plus:
@@ -132,7 +135,7 @@ def load_ip_adapter(
     clip_vision_path: str,
     ip_negative_path: str,
     ip_adapter_path: str,
-):
+) -> None:
     """Load IP-Adapter: CLIP vision model, negative tensor, and adapter model."""
     global clip_vision, ip_negative
 
@@ -187,7 +190,7 @@ def clip_preprocess(image: np.ndarray) -> torch.Tensor:
     return image
 
 
-def preprocess(img: np.ndarray, ip_adapter_path: str) -> List:
+def preprocess(img: np.ndarray, ip_adapter_path: str) -> list:
     """Full IP preprocessing: CLIP vision encode -> image projection -> K/V pairs.
 
     Returns:
@@ -241,7 +244,7 @@ def preprocess(img: np.ndarray, ip_adapter_path: str) -> List:
     return [image_embeds, negative_embeds, ip_kvs, ip_unconds]
 
 
-def patch_model(model, tasks: List) -> torch.Tensor:
+def patch_model(model, tasks: list) -> torch.Tensor:
     """Patch UNet attention blocks to inject IP-adapter K/V.
 
     Args:
@@ -273,7 +276,7 @@ def patch_model(model, tasks: List) -> torch.Tensor:
     return patched_model
 
 
-def _set_ip_adapter_patches(model, ip_kvs, ip_unconds, task_idx: int):
+def _set_ip_adapter_patches(model, ip_kvs, ip_unconds, task_idx: int) -> None:
     """Set attention patches at specific UNet block indices."""
     # Input block indices for IP-Adapter
     input_block_indices = [4, 5, 7, 8]

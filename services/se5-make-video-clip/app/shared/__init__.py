@@ -3,6 +3,7 @@ Shared module - Events, exceptions, validation, integration
 
 Shared components used across the application.
 """
+from __future__ import annotations
 
 from .events import Event, EventType, EventPublisher, EventSubscriber
 from .exceptions import (

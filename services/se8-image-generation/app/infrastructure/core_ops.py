@@ -13,14 +13,15 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from collections.abc import Callable
+from typing import Any
 
 import numpy as np
 
 logger = get_logger(__name__)
 
 
-def load_model(ckpt_filename: str, vae_filename: Optional[str] = None):
+def load_model(ckpt_filename: str, vae_filename: str | None = None) -> Any:
     """Load a checkpoint file and return a StableDiffusionModel.
 
     Wraps checkpoint.load_checkpoint_guess_config into a StableDiffusionModel.
@@ -53,7 +54,7 @@ def load_model(ckpt_filename: str, vae_filename: Optional[str] = None):
     )
 
 
-def load_controlnet(ckpt_filename: str):
+def load_controlnet(ckpt_filename: str) -> Any:
     """Load a ControlNet model from file.
 
     Args:
@@ -68,7 +69,7 @@ def load_controlnet(ckpt_filename: str):
 
 def generate_empty_latent(
     width: int = 1024, height: int = 1024, batch_size: int = 1
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Generate an empty latent tensor.
 
     Args:
@@ -85,7 +86,7 @@ def generate_empty_latent(
 
 
 def decode_vae(
-    vae, latent_image: Dict[str, Any], tiled: bool = False
+    vae: Any, latent_image: dict[str, Any], tiled: bool = False
 ) -> Any:
     """Decode latent samples to pixel images.
 
@@ -107,7 +108,7 @@ def decode_vae(
     return op.decode(samples=latent_image, vae=vae)[0]
 
 
-def encode_vae(vae, pixels, tiled: bool = False) -> Dict[str, Any]:
+def encode_vae(vae: Any, pixels: Any, tiled: bool = False) -> dict[str, Any]:
     """Encode pixel images to latent samples.
 
     Args:
@@ -128,7 +129,7 @@ def encode_vae(vae, pixels, tiled: bool = False) -> Dict[str, Any]:
     return op.encode(pixels=pixels, vae=vae)[0]
 
 
-def encode_vae_inpaint(vae, pixels, mask) -> Tuple:
+def encode_vae_inpaint(vae: Any, pixels: Any, mask: Any) -> tuple:
     """Encode an image with inpainting mask for VAE.
 
     Applies mask to pixels before encoding, returns latent + mask.
@@ -162,8 +163,8 @@ def encode_vae_inpaint(vae, pixels, mask) -> Tuple:
     return latent, latent_mask
 
 
-def apply_freeu(model, b1: float = 1.3, b2: float = 1.4,
-                s1: float = 0.9, s2: float = 0.2):
+def apply_freeu(model: Any, b1: float = 1.3, b2: float = 1.4,
+                s1: float = 0.9, s2: float = 0.2) -> Any:
     """Apply FreeU v2 patching to a model.
 
     Args:
@@ -182,9 +183,9 @@ def apply_freeu(model, b1: float = 1.3, b2: float = 1.4,
 
 
 def apply_controlnet(
-    positive, negative, control_net, image,
+    positive: Any, negative: Any, control_net: Any, image: Any,
     strength: float = 1.0, start_percent: float = 0.0, end_percent: float = 1.0,
-):
+) -> tuple[Any, Any]:
     """Apply ControlNet conditioning.
 
     Args:
@@ -210,29 +211,29 @@ def apply_controlnet(
 
 
 def ksampler(
-    model,
-    positive,
-    negative,
-    latent: Dict[str, Any],
-    seed: Optional[int] = None,
+    model: Any,
+    positive: Any,
+    negative: Any,
+    latent: dict[str, Any],
+    seed: int | None = None,
     steps: int = 30,
     cfg: float = 7.0,
     sampler_name: str = "dpmpp_2m_sde_gpu",
     scheduler: str = "karras",
     denoise: float = 1.0,
     disable_noise: bool = False,
-    start_step: Optional[int] = None,
-    last_step: Optional[int] = None,
+    start_step: int | None = None,
+    last_step: int | None = None,
     force_full_denoise: bool = False,
-    callback_function: Optional[Callable] = None,
-    refiner=None,
+    callback_function: Callable[..., Any] | None = None,
+    refiner: Any = None,
     refiner_switch: int = -1,
-    previewer_start: Optional[int] = None,
-    previewer_end: Optional[int] = None,
-    sigmas=None,
-    noise_mean=None,
+    previewer_start: int | None = None,
+    previewer_end: int | None = None,
+    sigmas: Any = None,
+    noise_mean: Any = None,
     disable_preview: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run the sampling process (KSampler).
 
     This is the core sampling function that drives the diffusion process.
@@ -341,17 +342,17 @@ def ksampler(
 # VAE Approx Previewer
 # ---------------------------------------------------------------------------
 
-_vae_approx_cache: Dict[str, Any] = {}
+_vae_approx_cache: dict[str, Any] = {}
 
 
-def _make_vae_approx_class():
+def _make_vae_approx_class() -> Any:
     """Create VAEApprox class (lazy torch import)."""
     import torch
 
     class _VAEApprox(torch.nn.Module):
         """Small convnet for latent preview during sampling."""
 
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__()
             self.conv1 = torch.nn.Conv2d(4, 8, (7, 7))
             self.conv2 = torch.nn.Conv2d(8, 16, (5, 5))
@@ -363,7 +364,7 @@ def _make_vae_approx_class():
             self.conv8 = torch.nn.Conv2d(8, 3, (3, 3))
             self.current_type = None
 
-        def forward(self, x):
+        def forward(self, x: Any) -> torch.Tensor:
             extra = 11
             x = torch.nn.functional.interpolate(x, (x.shape[2] * 2, x.shape[3] * 2))
             x = torch.nn.functional.pad(x, (extra, extra, extra, extra))
@@ -376,13 +377,13 @@ def _make_vae_approx_class():
     return _VAEApprox
 
 
-def _get_VAEApprox():
+def _get_VAEApprox() -> Any:
     """Lazy VAEApprox instantiation."""
     cls = _make_vae_approx_class()
     return cls()
 
 
-def _get_previewer(model):
+def _get_previewer(model: Any) -> Callable[..., Any] | None:
     """Get or create the VAE approx previewer for latent preview."""
     import torch
     import einops

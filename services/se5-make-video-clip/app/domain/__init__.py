@@ -12,6 +12,7 @@ Domain layer - Enterprise patterns for job processing
     - JobProcessor
     - All concrete stage classes
 """
+from __future__ import annotations
 
 from .job_stage import JobStage, StageContext, StageResult, StageStatus
 from .job_processor import JobProcessor

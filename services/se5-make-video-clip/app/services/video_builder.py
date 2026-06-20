@@ -4,12 +4,13 @@ Video Builder
 Responsável pela montagem de vídeos usando FFmpeg.
 Implementa APENAS processamento de vídeo - NÃO baixa vídeos.
 """
+from __future__ import annotations
 
 import asyncio
 import json
 import shutil
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import Any
 
 # Use new exception hierarchy
 from ..shared.exceptions_v2 import (
@@ -54,11 +55,11 @@ def _build_crop_filter(position: str, width: int, height: int) -> str:
 class VideoBuilder:
     """Construtor de vídeos usando FFmpeg"""
     
-    def __init__(self, output_dir: str, 
+    def __init__(self, output_dir: str,
                  video_codec: str = "libx264",
                  audio_codec: str = "aac",
                  preset: str = "fast",
-                 crf: int = 23):
+                 crf: int = 23) -> None:
         self.output_dir = Path(output_dir)
         self.ffmpeg_path = "ffmpeg"
         self.ffprobe_path = "ffprobe"
@@ -145,9 +146,9 @@ class VideoBuilder:
             logger.error(f"❌ H264 conversion error: {e}")
             raise
     
-    async def concatenate_videos(self, 
-                                 video_files: List[str], 
-                                 output_path: str, 
+    async def concatenate_videos(self,
+                                 video_files: list[str],
+                                 output_path: str,
                                  aspect_ratio: str = "9:16",
                                  crop_position: str = "center",
                                  remove_audio: bool = True) -> str:
@@ -252,7 +253,7 @@ class VideoBuilder:
         
         # Calcular duração esperada antes da concatenação
         expected_duration = 0.0
-        resolved_video_files: List[str] = []
+        resolved_video_files: list[str] = []
         logger.info(f"📊 Input videos for concatenation:")
 
         for i, video_file in enumerate(video_files):
@@ -759,7 +760,7 @@ class VideoBuilder:
 
     async def concat_with_transitions(
         self,
-        segments: List[str],
+        segments: list[str],
         output_path: str,
         transition: str = "circleopen",
         transition_duration: float = 0.2,
@@ -978,7 +979,7 @@ class VideoBuilder:
         logger.info(f"✅ Video trimmed to {max_duration:.2f}s: {output_path}")
         return output_path
     
-    async def get_video_info(self, video_path: str) -> Dict:
+    async def get_video_info(self, video_path: str) -> dict[str, Any]:
         """Extrai informações do vídeo usando ffprobe
         
         Args:

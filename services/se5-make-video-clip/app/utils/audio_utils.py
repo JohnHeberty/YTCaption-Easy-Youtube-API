@@ -3,16 +3,16 @@ Audio utilities
 
 Helpers para extração e manipulação de áudio
 """
+from __future__ import annotations
 
 import subprocess
 import tempfile
 import os
-from typing import Optional
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
-def extract_audio(video_path: str, output_path: Optional[str] = None, 
+def extract_audio(video_path: str, output_path: str | None = None,
                   sample_rate: int = 16000, timeout: int = 30) -> str:
     """
     Extrai áudio de vídeo usando FFmpeg

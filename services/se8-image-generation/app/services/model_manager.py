@@ -19,7 +19,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import psutil
 
@@ -100,7 +100,7 @@ class LoadedModel:
     model_accelerated: bool = False
     last_used: float = field(default_factory=time.monotonic)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.device is None:
             self.device = self.model.load_device
 
@@ -150,13 +150,13 @@ class LoadedModel:
         self.last_used = time.monotonic()
         return self.real_model
 
-    def model_unload(self):
+    def model_unload(self) -> None:
         """Unload model from VRAM, move to CPU."""
         self._unload_acceleration()
         self.model.unpatch_model(self.model.offload_device)
         self.model.model_patches_to(self.model.offload_device)
 
-    def _unload_acceleration(self):
+    def _unload_acceleration(self) -> None:
         if self.model_accelerated and self.real_model is not None:
             for m in self.real_model.modules():
                 if hasattr(m, "prev_ldm_patched_cast_weights"):
@@ -164,16 +164,16 @@ class LoadedModel:
                     del m.prev_ldm_patched_cast_weights
             self.model_accelerated = False
 
-    def touch(self):
+    def touch(self) -> None:
         """Update last_used timestamp."""
         self.last_used = time.monotonic()
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if isinstance(other, LoadedModel):
             return self.model is other.model
         return NotImplemented
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return id(self.model)
 
 
@@ -216,10 +216,10 @@ class ModelManager:
     Thread-safe for concurrent load/unload operations.
     """
 
-    _instance: Optional[ModelManager] = None
+    _instance: ModelManager | None = None
     _lock_class = threading.Lock()
 
-    def __init__(self, settings=None):
+    def __init__(self, settings=None) -> None:
         from app.core.config import get_settings
         self._settings = settings or get_settings()
         self._torch = None  # lazy
@@ -232,10 +232,10 @@ class ModelManager:
         self._total_ram_mb: float = 0.0
 
         # Loaded models (LRU: most recent at index 0)
-        self._loaded_models: List[LoadedModel] = []
+        self._loaded_models: list[LoadedModel] = []
 
         # Lazy unload timer
-        self._idle_timer: Optional[threading.Timer] = None
+        self._idle_timer: threading.Timer | None = None
         self._idle_timeout = self._settings.model_idle_timeout
 
         # Force flags (configurable)
@@ -257,7 +257,7 @@ class ModelManager:
         return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         """Reset singleton (for testing)."""
         with cls._lock_class:
             if cls._instance is not None:
@@ -279,7 +279,7 @@ class ModelManager:
                 os.environ["CUDA_VISIBLE_DEVICES"] = str(device_id)
         return self._torch
 
-    def _detect_device(self):
+    def _detect_device(self) -> None:
         """Detect available compute device (CUDA/MPS/CPU)."""
         torch = self._get_torch()
 
@@ -304,7 +304,7 @@ class ModelManager:
         self._cpu_state = CPUState.CPU
         logger.warning("No GPU detected — running on CPU")
 
-    def _detect_vram_state(self):
+    def _detect_vram_state(self) -> None:
         """Determine VRAM state based on available memory."""
         torch = self._get_torch()
 
@@ -414,7 +414,7 @@ class ModelManager:
         # Fallback
         return psutil.virtual_memory().total
 
-    def get_free_memory(self, device=None, torch_free_too: bool = False):
+    def get_free_memory(self, device=None, torch_free_too: bool = False) -> int | tuple[int, int]:
         """Get free memory in bytes. Optionally return torch-reserved free too."""
         torch = self._get_torch()
         if device is None:
@@ -451,7 +451,7 @@ class ModelManager:
         """Minimum memory needed for inference (1 GB)."""
         return 1024 * 1024 * 1024
 
-    def load_models_gpu(self, models: list, memory_required: int = 0):
+    def load_models_gpu(self, models: list, memory_required: int = 0) -> None:
         """
         Load models into GPU memory with LRU eviction.
 
@@ -464,12 +464,12 @@ class ModelManager:
             if self._settings.gpu_mode == "lazy":
                 self._start_idle_timer()
 
-    def _load_models_gpu_impl(self, models: list, memory_required: int = 0):
+    def _load_models_gpu_impl(self, models: list, memory_required: int = 0) -> None:
         inference_memory = self.minimum_inference_memory()
         extra_mem = max(inference_memory, memory_required)
 
-        models_to_load: List[LoadedModel] = []
-        models_already_loaded: List[LoadedModel] = []
+        models_to_load: list[LoadedModel] = []
+        models_already_loaded: list[LoadedModel] = []
 
         for x in models:
             loaded = LoadedModel(x)
@@ -527,7 +527,7 @@ class ModelManager:
             loaded.model_load(lowvram_memory)
             self._loaded_models.insert(0, loaded)
 
-    def _free_memory(self, memory_required: int, device, keep_loaded: list):
+    def _free_memory(self, memory_required: int, device, keep_loaded: list) -> None:
         """Evict models from VRAM to free memory (LRU order, oldest first)."""
         unloaded = False
         for i in range(len(self._loaded_models) - 1, -1, -1):
@@ -549,7 +549,7 @@ class ModelManager:
                 if mem_free_torch > mem_free_total * 0.25:
                     self._soft_empty_cache()
 
-    def _unload_model_clones(self, model):
+    def _unload_model_clones(self, model) -> None:
         """Unload any cloned versions of a model."""
         to_unload = []
         for i, loaded in enumerate(self._loaded_models):
@@ -559,7 +559,7 @@ class ModelManager:
             popped = self._loaded_models.pop(i)
             popped.model_unload()
 
-    def _soft_empty_cache(self, force: bool = False):
+    def _soft_empty_cache(self, force: bool = False) -> None:
         """Release unused CUDA/MPS memory back to the system."""
         torch = self._get_torch()
         if self._cpu_state == CPUState.MPS:
@@ -569,7 +569,7 @@ class ModelManager:
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
 
-    def cleanup_models(self):
+    def cleanup_models(self) -> None:
         """Remove models with refcount <= 2 (no external references)."""
         with self._lock:
             to_delete = []
@@ -581,7 +581,7 @@ class ModelManager:
                 popped.model_unload()
                 del popped
 
-    def unload_all(self):
+    def unload_all(self) -> None:
         """Unload all models from VRAM."""
         with self._lock:
             self._free_memory(int(1e30), self.device, [])
@@ -591,7 +591,7 @@ class ModelManager:
     # Lazy unload timer
     # -----------------------------------------------------------------------
 
-    def _start_idle_timer(self):
+    def _start_idle_timer(self) -> None:
         """Start timer to unload idle models after timeout."""
         self._cancel_idle_timer()
         if self._idle_timeout > 0:
@@ -599,12 +599,12 @@ class ModelManager:
             self._idle_timer.daemon = True
             self._idle_timer.start()
 
-    def _cancel_idle_timer(self):
+    def _cancel_idle_timer(self) -> None:
         if self._idle_timer is not None:
             self._idle_timer.cancel()
             self._idle_timer = None
 
-    def _idle_unload(self):
+    def _idle_unload(self) -> None:
         """Unload models that have been idle beyond the timeout."""
         with self._lock:
             now = time.monotonic()
@@ -761,7 +761,7 @@ class ModelManager:
     _interrupt_processing = False
     _interrupt_mutex = threading.RLock()
 
-    def interrupt_current_processing(self, value: bool = True):
+    def interrupt_current_processing(self, value: bool = True) -> None:
         """Signal to interrupt the current generation."""
         with self._interrupt_mutex:
             self._interrupt_processing = value
@@ -771,7 +771,7 @@ class ModelManager:
         with self._interrupt_mutex:
             return self._interrupt_processing
 
-    def throw_if_interrupted(self):
+    def throw_if_interrupted(self) -> None:
         """Raise InterruptProcessingException if interrupted."""
         with self._interrupt_mutex:
             if self._interrupt_processing:

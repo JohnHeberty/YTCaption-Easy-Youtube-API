@@ -7,7 +7,7 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.infrastructure.celery_config import celery_app
 
@@ -47,7 +47,7 @@ def _init_worker():
     bind=True,
     max_retries=0,
 )
-def generate_image(self, request_params: Dict[str, Any]) -> Dict[str, Any]:
+def generate_image(self, request_params: dict[str, Any]) -> dict[str, Any]:
     """Process an image generation request.
 
     Args:
@@ -110,7 +110,7 @@ def generate_image(self, request_params: Dict[str, Any]) -> Dict[str, Any]:
     name="app.infrastructure.celery_tasks.stop_generation",
     bind=True,
 )
-def stop_generation(self) -> Dict[str, str]:
+def stop_generation(self) -> dict[str, str]:
     """Stop the current generation."""
     from app.services.worker import process_stop
     process_stop()
@@ -120,7 +120,7 @@ def stop_generation(self) -> Dict[str, str]:
 @celery_app.task(
     name="app.infrastructure.celery_tasks.cleanup_expired_jobs",
 )
-def cleanup_expired_jobs() -> Dict[str, Any]:
+def cleanup_expired_jobs() -> dict[str, Any]:
     """Clean up expired jobs from the history."""
     import app.services.worker as worker_module
     if worker_module.worker_queue is None:

@@ -1,4 +1,5 @@
 """Image preprocessors for ControlNet — Canny pyramid + CPDS."""
+from __future__ import annotations
 
 import cv2
 from common.log_utils import get_logger

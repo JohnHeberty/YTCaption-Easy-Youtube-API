@@ -1,7 +1,8 @@
 """VAE Interpose — latent space translation for SDXL→SD1 refiner swap."""
+from __future__ import annotations
+
 import os
 from common.log_utils import get_logger
-from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -15,7 +16,7 @@ vae_approx_filename = None
 class ResBlock(nn.Module):
     """Residual block with BatchNorm + 3 Conv2d layers + SiLU + Dropout."""
 
-    def __init__(self, ch: int):
+    def __init__(self, ch: int) -> None:
         super().__init__()
         self.norm = nn.BatchNorm2d(ch)
         self.long = nn.Sequential(
@@ -36,7 +37,7 @@ class ResBlock(nn.Module):
 class ExtractBlock(nn.Module):
     """Channel expansion block."""
 
-    def __init__(self, ch_in: int, ch_out: int):
+    def __init__(self, ch_in: int, ch_out: int) -> None:
         super().__init__()
         self.short = nn.Conv2d(ch_in, ch_out, 1)
         self.long = nn.Sequential(
@@ -64,7 +65,7 @@ class InterposerModel(nn.Module):
         ch_mid: int = 64,
         scale: float = 1.0,
         blocks: int = 12,
-    ):
+    ) -> None:
         super().__init__()
         self.head = ExtractBlock(ch_in, ch_mid)
         core = [ResBlock(ch_mid) for _ in range(blocks)]

@@ -1,8 +1,10 @@
 """
 Make-video Redis store adapter using common.job_utils.
 """
+from __future__ import annotations
+
 import os
-from typing import Optional
+from typing import Any
 
 from common.redis_utils import ResilientRedisStore
 from common.log_utils import get_logger
@@ -14,7 +16,7 @@ from app.core.models import MakeVideoJob
 logger = get_logger(__name__)
 
 class MakeVideoJobStore:
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
             max_connections=50,
@@ -37,7 +39,7 @@ class MakeVideoJobStore:
         self.redis.zadd(self.list_key, {job.id: job.created_at.timestamp()})
         return job
 
-    def get_job(self, job_id: str) -> Optional[MakeVideoJob]:
+    def get_job(self, job_id: str) -> MakeVideoJob | None:
         key = f"{self.key_prefix}{job_id}"
         data = self._resilient.get(key)
         if not data:
@@ -64,7 +66,7 @@ class MakeVideoJobStore:
                 jobs.append(job)
         return jobs
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         all_ids = self.redis.zrevrange(self.list_key, 0, -1)
         total = len(all_ids)
         by_status = {}

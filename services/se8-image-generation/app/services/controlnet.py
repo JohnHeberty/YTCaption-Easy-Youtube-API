@@ -2,10 +2,11 @@
 
 Supports: ControlNet, ControlLora, T2I-Adapter, linked-list chaining.
 """
+from __future__ import annotations
+
 import math
 from common.log_utils import get_logger
 import os
-from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -28,28 +29,28 @@ def broadcast_image_to(
 class ControlBase:
     """Abstract base for all control types. Implements linked-list chaining."""
 
-    def __init__(self, device=None):
-        self.cond_hint_original: Optional[torch.Tensor] = None
-        self.cond_hint: Optional[torch.Tensor] = None
+    def __init__(self, device=None) -> None:
+        self.cond_hint_original: torch.Tensor | None = None
+        self.cond_hint: torch.Tensor | None = None
         self.strength: float = 1.0
-        self.timestep_percent_range: Tuple[float, float] = (0.0, 1.0)
+        self.timestep_percent_range: tuple[float, float] = (0.0, 1.0)
         self.global_average_pooling: bool = False
-        self.previous_controlnet: Optional["ControlBase"] = None
+        self.previous_controlnet: ControlBase | None = None
         self.device = device
 
     def set_cond_hint(
         self,
         cond_hint: torch.Tensor,
         strength: float = 1.0,
-        timestep_percent_range: Tuple[float, float] = (0.0, 1.0),
-    ) -> "ControlBase":
+        timestep_percent_range: tuple[float, float] = (0.0, 1.0),
+    ) -> ControlBase:
         """Set the image hint and control parameters. Returns self for chaining."""
         self.cond_hint_original = cond_hint
         self.strength = strength
         self.timestep_percent_range = timestep_percent_range
         return self
 
-    def pre_run(self, model, percent_to_timestep_function):
+    def pre_run(self, model, percent_to_timestep_function) -> None:
         """Convert percent range to timestep range; recurse to linked controls."""
         self.timestep_range = (
             percent_to_timestep_function(self.timestep_percent_range[0]),
@@ -58,24 +59,24 @@ class ControlBase:
         if self.previous_controlnet is not None:
             self.previous_controlnet.pre_run(model, percent_to_timestep_function)
 
-    def set_previous_controlnet(self, controlnet: "ControlBase"):
+    def set_previous_controlnet(self, controlnet: ControlBase) -> None:
         """Link another ControlNet in the chain."""
         self.previous_controlnet = controlnet
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """Recursively clean up linked controls, free memory."""
         self.cond_hint = None
         if self.previous_controlnet is not None:
             self.previous_controlnet.cleanup()
 
-    def get_models(self) -> List:
+    def get_models(self) -> list:
         """Recursively collect all ModelPatchers from the chain."""
         models = []
         if self.previous_controlnet is not None:
             models.extend(self.previous_controlnet.get_models())
         return models
 
-    def copy_to(self, c: "ControlBase"):
+    def copy_to(self, c: ControlBase) -> None:
         """Copy settings to another ControlBase."""
         c.cond_hint_original = self.cond_hint_original
         c.strength = self.strength
@@ -88,11 +89,11 @@ class ControlBase:
 
     def control_merge(
         self,
-        control_input: Optional[torch.Tensor],
-        control_output: Optional[Dict[str, List[torch.Tensor]]],
-        control_prev: Optional[Dict[str, List[torch.Tensor]]],
+        control_input: torch.Tensor | None,
+        control_output: dict[str, list[torch.Tensor]] | None,
+        control_prev: dict[str, list[torch.Tensor]] | None,
         output_dtype: torch.dtype,
-    ) -> Dict[str, List[torch.Tensor]]:
+    ) -> dict[str, list[torch.Tensor]]:
         """Core merge logic for ControlNet outputs."""
         output = {"input": [], "middle": [], "output": []}
 
@@ -135,7 +136,7 @@ class ControlNet(ControlBase):
         device=None,
         load_device=None,
         manual_cast_dtype=None,
-    ):
+    ) -> None:
         super().__init__(device)
         from ldm_patched.modules.model_patcher import ModelPatcher
 
@@ -156,7 +157,7 @@ class ControlNet(ControlBase):
         t: torch.Tensor,
         cond: dict,
         batched_number: int,
-    ) -> Dict[str, List[torch.Tensor]]:
+    ) -> dict[str, list[torch.Tensor]]:
         """Main inference method. Run ControlNet on input."""
         # Check timestep range
         timestep = t[0].item()
@@ -198,7 +199,7 @@ class ControlNet(ControlBase):
 
         return self.control_merge(None, control, None, x_noisy.dtype)
 
-    def copy(self) -> "ControlNet":
+    def copy(self) -> ControlNet:
         """Create a new ControlNet with same config."""
         c = ControlNet(
             self.control_model,
@@ -210,14 +211,14 @@ class ControlNet(ControlBase):
         self.copy_to(c)
         return c
 
-    def get_models(self) -> List:
+    def get_models(self) -> list:
         return [self.control_model_wrapped]
 
-    def pre_run(self, model, percent_to_timestep_function):
+    def pre_run(self, model, percent_to_timestep_function) -> None:
         super().pre_run(model, percent_to_timestep_function)
         self.model_sampling_current = model.model_sampling
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         super().cleanup()
         self.model_sampling_current = None
 
@@ -225,14 +226,14 @@ class ControlNet(ControlBase):
 class ControlLora(ControlNet):
     """ControlNet variant using LoRA weights. Builds model dynamically at pre_run."""
 
-    def __init__(self, control_weights: dict, global_average_pooling=False, device=None):
+    def __init__(self, control_weights: dict, global_average_pooling=False, device=None) -> None:
         ControlBase.__init__(self, device)
         self.control_weights = control_weights
         self.global_average_pooling = global_average_pooling
         self.control_model = None
         self.control_model_wrapped = None
 
-    def pre_run(self, model, percent_to_timestep_function):
+    def pre_run(self, model, percent_to_timestep_function) -> None:
         """Build ControlNet from diffusion model weights + LoRA control weights."""
         super(ControlNet, self).pre_run(model, percent_to_timestep_function)
 
@@ -274,17 +275,17 @@ class ControlLora(ControlNet):
             offload_device="cpu",
         )
 
-    def copy(self) -> "ControlLora":
+    def copy(self) -> ControlLora:
         c = ControlLora(self.control_weights, self.global_average_pooling, self.device)
         self.copy_to(c)
         return c
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         super().cleanup()
         self.control_model = None
         self.control_model_wrapped = None
 
-    def get_models(self) -> List:
+    def get_models(self) -> list:
         return []
 
     def inference_memory_requirements(self, dtype) -> int:
@@ -296,11 +297,11 @@ class ControlLora(ControlNet):
 class T2IAdapter(ControlBase):
     """T2I-Adapter support (IP-Adapter, color, canny, etc.)."""
 
-    def __init__(self, t2i_model, channels_in: int, device=None):
+    def __init__(self, t2i_model, channels_in: int, device=None) -> None:
         super().__init__(device)
         self.t2i_model = t2i_model
         self.channels_in = channels_in
-        self.control_input: Optional[torch.Tensor] = None
+        self.control_input: torch.Tensor | None = None
 
     def get_control(
         self,
@@ -308,7 +309,7 @@ class T2IAdapter(ControlBase):
         t: torch.Tensor,
         cond: dict,
         batched_number: int,
-    ) -> Dict[str, List[torch.Tensor]]:
+    ) -> dict[str, list[torch.Tensor]]:
         """Run T2I-Adapter inference."""
         timestep = t[0].item()
         min_t, max_t = self.timestep_range
@@ -343,7 +344,7 @@ class T2IAdapter(ControlBase):
 
         return self.control_merge(None, control, None, x_noisy.dtype)
 
-    def copy(self) -> "T2IAdapter":
+    def copy(self) -> T2IAdapter:
         c = T2IAdapter(self.t2i_model, self.channels_in, self.device)
         self.copy_to(c)
         return c

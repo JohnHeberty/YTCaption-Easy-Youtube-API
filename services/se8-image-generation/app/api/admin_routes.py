@@ -1,5 +1,8 @@
 """Admin routes for SE8 Image Generation."""
+from __future__ import annotations
+
 import os
+from typing import Any
 import time
 
 from fastapi import APIRouter
@@ -8,7 +11,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 @router.get("/stats")
-async def stats():
+async def stats() -> dict[str, Any]:
     """System statistics."""
     import app.services.worker as worker_mod
     queue_info = {}
@@ -33,7 +36,7 @@ async def stats():
 
 
 @router.post("/cleanup")
-async def cleanup():
+async def cleanup() -> dict[str, Any]:
     """Cleanup old output files and job history."""
     cleaned = 0
     output_dir = os.getenv("OUTPUT_DIR", "./data/outputs")

@@ -2,6 +2,7 @@
 Video Status Factory
 Cria instância do VideoStatusStore (substitui blacklist_factory.py)
 """
+from __future__ import annotations
 
 from app.core.config import get_settings
 from .video_status_store import VideoStatusStore

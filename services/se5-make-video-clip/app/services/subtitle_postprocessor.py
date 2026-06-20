@@ -8,9 +8,10 @@ Pipeline:
 4. Merge cues próximos (gap < 120ms)
 5. Enforce duração mínima (120ms)
 """
+from __future__ import annotations
 
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Any
+from typing import Any
 import subprocess
 import json
 import tempfile
@@ -60,14 +61,14 @@ class SubtitleCue:
 class SpeechGatedSubtitles:
     """
     Garante que legendas só aparecem quando há fala.
-    
+
     Parâmetros:
     - pre_pad: 60ms (cue pode começar antes do fonema)
     - post_pad: 120ms (cue fica após fonema, melhor legibilidade)
     - min_duration: 120ms (mínimo para ser legível)
     - merge_gap: 120ms (se gap < 120ms, juntar cues)
     """
-    
+
     def __init__(
         self,
         pre_pad: float = 0.06,
@@ -77,7 +78,7 @@ class SpeechGatedSubtitles:
         merge_gap: float = 0.12,
         vad_threshold: float = 0.5,
         model_path: str = '/app/models/silero_vad.jit'
-    ):
+    ) -> None:
         self.pre_pad = pre_pad
         self.post_pad = post_pad
         self.word_post_pad = word_post_pad  # 🆕 Novo parâmetro
@@ -85,21 +86,21 @@ class SpeechGatedSubtitles:
         self.merge_gap = merge_gap
         self.vad_threshold = vad_threshold
         self.model_path = model_path
-        
+
         # Carregar modelo VAD vendorizado (não torch.hub runtime)
         self.model = None
         self.vad_available = False
         self.webrtc_vad = None
-        
+
         self._load_vad_model()
-    
-    def _load_vad_model(self):
+
+    def _load_vad_model(self) -> None:
         """Carrega modelo VAD com fallbacks"""
         if not TORCH_AVAILABLE:
             logger.warning("⚠️ torch não disponível, pulando silero-vad")
             self._load_fallback_vad()
             return
-        
+
         try:
             # Tentar carregar silero-vad vendorizado
             if os.path.exists(self.model_path):
@@ -113,10 +114,10 @@ class SpeechGatedSubtitles:
                 )
         except Exception as e:
             logger.warning(f"⚠️ Erro ao carregar silero-vad: {e}")
-        
+
         self._load_fallback_vad()
-    
-    def _load_fallback_vad(self):
+
+    def _load_fallback_vad(self) -> None:
         """Carrega VAD fallback (webrtcvad ou RMS)"""
         # Fallback 1: webrtcvad (leve)
         try:
@@ -126,17 +127,17 @@ class SpeechGatedSubtitles:
             return
         except ImportError:
             logger.warning("⚠️ webrtcvad não disponível")
-        
+
         # Fallback 2: RMS simples (degradado)
         logger.warning("⚠️ VAD total fallback: usando RMS simples")
-    
+
     def detect_speech_segments(
         self,
         audio_path: str
-    ) -> Tuple[List[SpeechSegment], bool]:
+    ) -> tuple[list[SpeechSegment], bool]:
         """
         Detecta segmentos de fala usando VAD (silero-vad ou webrtcvad).
-        
+
         Returns:
             (segments: List[SpeechSegment], vad_ok: bool)
             vad_ok=False indica fallback usado
@@ -146,27 +147,27 @@ class SpeechGatedSubtitles:
             segments = self._detect_with_silero(audio_path)
             logger.info(f"🎙️ Detectados {len(segments)} segmentos de fala (silero)")
             return segments, True
-        
+
         elif self.webrtc_vad is not None:
             # Fallback: webrtcvad (leve)
             logger.info("🔄 Usando webrtcvad (fallback)")
             segments = self._detect_with_webrtc(audio_path)
             return segments, False
-        
+
         else:
             # Último recurso: RMS simples
             logger.warning("⚠️ VAD total fallback: usando RMS simples")
             segments = self._detect_with_rms(audio_path)
             return segments, False
-    
-    def _detect_with_silero(self, audio_path: str) -> List[SpeechSegment]:
+
+    def _detect_with_silero(self, audio_path: str) -> list[SpeechSegment]:
         """Detecção com silero-vad"""
         if not TORCH_AVAILABLE or not VAD_UTILS_AVAILABLE:
             logger.error("⚠️ torch ou vad_utils não disponível para silero-vad")
             return []
-        
+
         wav = load_audio_torch(audio_path, sampling_rate=16000)
-        
+
         speech_timestamps = get_speech_timestamps(
             wav,
             self.model,
@@ -175,45 +176,45 @@ class SpeechGatedSubtitles:
             min_speech_duration_ms=250,
             min_silence_duration_ms=100
         )
-        
-        segments = []
+
+        segments: list[SpeechSegment] = []
         for ts in speech_timestamps:
             segments.append(SpeechSegment(
                 start=ts['start'] / 16000.0,
                 end=ts['end'] / 16000.0,
                 confidence=1.0
             ))
-        
+
         return segments
-    
-    def _detect_with_webrtc(self, audio_path: str) -> List[SpeechSegment]:
+
+    def _detect_with_webrtc(self, audio_path: str) -> list[SpeechSegment]:
         """Fallback com webrtcvad (leve)"""
         if not VAD_UTILS_AVAILABLE:
             logger.error("⚠️ vad_utils não disponível")
             return []
-        
+
         # Converter para 16kHz mono WAV (requerido por webrtcvad)
         wav_path = convert_to_16k_wav(audio_path)
-        
-        segments = []
+
+        segments: list[SpeechSegment] = []
         try:
             with wave.open(wav_path, 'rb') as wf:
                 frames = wf.readframes(wf.getnframes())
                 sample_rate = wf.getframerate()
-                
+
                 # Processar em chunks de 30ms
                 frame_duration = 30  # ms
                 frame_size = int(sample_rate * frame_duration / 1000) * 2
-                
+
                 speech_start = None
                 for i in range(0, len(frames), frame_size):
                     frame = frames[i:i+frame_size]
                     if len(frame) < frame_size:
                         break
-                    
+
                     is_speech = self.webrtc_vad.is_speech(frame, sample_rate)
                     timestamp = i / (sample_rate * 2)  # bytes to seconds
-                    
+
                     if is_speech and speech_start is None:
                         speech_start = timestamp
                     elif not is_speech and speech_start is not None:
@@ -223,7 +224,7 @@ class SpeechGatedSubtitles:
                             confidence=0.8  # Lower confidence for fallback
                         ))
                         speech_start = None
-                
+
                 # Adicionar último segmento se existir
                 if speech_start is not None:
                     duration = validate_audio_format(audio_path)['duration']
@@ -232,15 +233,15 @@ class SpeechGatedSubtitles:
                         end=duration,
                         confidence=0.8
                     ))
-        
+
         finally:
             # Limpar arquivo temporário
             if wav_path != audio_path and os.path.exists(wav_path):
                 os.remove(wav_path)
-        
+
         return segments
-    
-    def _detect_with_rms(self, audio_path: str) -> List[SpeechSegment]:
+
+    def _detect_with_rms(self, audio_path: str) -> list[SpeechSegment]:
         """Fallback RMS simples (degradado)"""
         try:
             import librosa
@@ -252,29 +253,29 @@ class SpeechGatedSubtitles:
             else:
                 # Sem vad_utils, tentar ffprobe direto
                 try:
-                    cmd = ['ffprobe', '-v', 'error', '-show_entries', 
+                    cmd = ['ffprobe', '-v', 'error', '-show_entries',
                            'format=duration', '-of', 'json', audio_path]
                     result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
                     data = json.loads(result.stdout)
                     duration = float(data['format']['duration'])
                 except Exception:
                     duration = 300.0  # 5min default
-            
+
             return [SpeechSegment(start=0.0, end=duration, confidence=0.1)]
-        
+
         y, sr = librosa.load(audio_path, sr=16000)
         rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
-        
+
         # Threshold: 10% do RMS máximo
         threshold = np.max(rms) * 0.1
-        
-        segments = []
+
+        segments: list[SpeechSegment] = []
         in_speech = False
         speech_start = None
-        
+
         for i, r in enumerate(rms):
             timestamp = i * 512 / sr
-            
+
             if r > threshold and not in_speech:
                 speech_start = timestamp
                 in_speech = True
@@ -285,7 +286,7 @@ class SpeechGatedSubtitles:
                     confidence=0.5  # Muito baixa confidence
                 ))
                 in_speech = False
-        
+
         # Adicionar último segmento se existir
         if in_speech:
             duration = len(y) / sr
@@ -294,93 +295,93 @@ class SpeechGatedSubtitles:
                 end=duration,
                 confidence=0.5
             ))
-        
+
         return segments
-    
+
     def gate_subtitles(
         self,
-        cues: List[SubtitleCue],
-        speech_segments: List[SpeechSegment],
+        cues: list[SubtitleCue],
+        speech_segments: list[SpeechSegment],
         audio_duration: float
-    ) -> List[SubtitleCue]:
+    ) -> list[SubtitleCue]:
         """
         Aplica gating: remove/clamp cues para dentro dos speech segments.
-        
+
         Args:
             audio_duration: Duração total do áudio (para clamp final)
-        
+
         Regras:
         1. Se cue NÃO intersecta nenhum segment → DROP
         2. Se intersecta → CLAMP dentro do segment (com padding)
         3. Se duração < min_duration → ajustar
         4. Se gap entre cues < merge_gap → MERGE
         """
-        gated_cues = []
+        gated_cues: list[SubtitleCue] = []
         dropped_count = 0
-        
+
         for cue in cues:
             # Encontrar speech segment que intersecta
             intersecting_segment = self._find_intersecting_segment(
                 cue, speech_segments
             )
-            
+
             if intersecting_segment is None:
                 # DROP: cue fora de fala
                 logger.debug(f"⚠️ DROP cue '{cue.text}' (fora de fala)")
                 dropped_count += 1
                 continue
-            
+
             # ────────────────────────────────────────────────────────────
             # CLAMP: ajustar start/end para dentro do segment (com padding)
             # ────────────────────────────────────────────────────────────
             # 🔧 CORREÇÃO: RESPEITAR cue.end original (não estender demais)
             # Problema anterior: clamped_end ia até segment.end + post_pad,
             # fazendo palavras "durarem demais" e causando sobreposição
-            
+
             # Limites permitidos pelo speech segment
             allowed_start = max(0.0, intersecting_segment.start - self.pre_pad)
             allowed_end = min(audio_duration, intersecting_segment.end + self.post_pad)
-            
+
             # Start: limitar ao range permitido
             clamped_start = max(allowed_start, cue.start)
-            
+
             # End: usar o MENOR entre:
             #   1. cue.end + word_post_pad (micro folga)
             #   2. allowed_end (fim do speech segment + post_pad)
             # Isso evita que palavras "se estendam" até o fim da fala
             clamped_end = min(allowed_end, cue.end + self.word_post_pad)
-            
+
             # Garantir duração mínima
             if clamped_end - clamped_start < self.min_duration:
                 clamped_end = min(allowed_end, clamped_start + self.min_duration)
-            
+
             # Garantia final: end >= start
             if clamped_end <= clamped_start:
                 clamped_end = min(allowed_end, clamped_start + self.min_duration)
-            
+
             gated_cues.append(SubtitleCue(
                 index=cue.index,
                 start=clamped_start,
                 end=clamped_end,
                 text=cue.text
             ))
-        
+
         # MERGE: juntar cues próximos
         merged_cues = self._merge_close_cues(gated_cues)
-        
+
         merged_count = len(gated_cues) - len(merged_cues)
         logger.info(
             f"✅ Speech gating: {len(merged_cues)}/{len(cues)} cues finais, "
             f"{dropped_count} dropped, {merged_count} merged"
         )
-        
+
         return merged_cues
-    
+
     def _find_intersecting_segment(
         self,
         cue: SubtitleCue,
-        segments: List[SpeechSegment]
-    ) -> Optional[SpeechSegment]:
+        segments: list[SpeechSegment]
+    ) -> SpeechSegment | None:
         """Encontra speech segment que intersecta o cue"""
         for segment in segments:
             if self._intervals_intersect(
@@ -389,7 +390,7 @@ class SpeechGatedSubtitles:
             ):
                 return segment
         return None
-    
+
     def _intervals_intersect(
         self,
         a_start: float, a_end: float,
@@ -397,18 +398,18 @@ class SpeechGatedSubtitles:
     ) -> bool:
         """Verifica se dois intervalos intersectam"""
         return not (a_end < b_start or b_end < a_start)
-    
-    def _merge_close_cues(self, cues: List[SubtitleCue]) -> List[SubtitleCue]:
+
+    def _merge_close_cues(self, cues: list[SubtitleCue]) -> list[SubtitleCue]:
         """Merge cues se gap < merge_gap"""
         if not cues:
             return []
-        
-        merged = [cues[0]]
-        
+
+        merged: list[SubtitleCue] = [cues[0]]
+
         for cue in cues[1:]:
             prev = merged[-1]
             gap = cue.start - prev.end
-            
+
             if gap < self.merge_gap:
                 # MERGE: juntar com anterior
                 merged[-1] = SubtitleCue(
@@ -419,18 +420,18 @@ class SpeechGatedSubtitles:
                 )
             else:
                 merged.append(cue)
-        
+
         return merged
-    
+
     def validate_speech_gating(
         self,
-        cues: List[SubtitleCue],
-        speech_segments: List[SpeechSegment],
+        cues: list[SubtitleCue],
+        speech_segments: list[SpeechSegment],
         vad_ok: bool
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Valida que cues estão alinhados com fala.
-        
+
         Métrica: % de cues fora de fala = 0% (quando VAD OK)
         """
         if not cues:
@@ -442,23 +443,23 @@ class SpeechGatedSubtitles:
                 'passed': True,
                 'target': '0% quando VAD OK'
             }
-        
+
         cues_outside_speech = 0
-        
+
         for cue in cues:
             has_speech = self._find_intersecting_segment(cue, speech_segments) is not None
-            
+
             if not has_speech:
                 cues_outside_speech += 1
                 logger.warning(
                     f"⚠️ Cue fora de fala: '{cue.text}' @ {cue.start:.2f}s"
                 )
-        
+
         pct_outside = (cues_outside_speech / len(cues) * 100)
-        
+
         # Métrica condicionada: 0% apenas quando VAD OK
         passed = (pct_outside == 0) if vad_ok else None
-        
+
         return {
             'total_cues': len(cues),
             'cues_outside_speech': cues_outside_speech,
@@ -470,11 +471,11 @@ class SpeechGatedSubtitles:
 
 def process_subtitles_with_vad(
     audio_path: str,
-    raw_cues: List[Dict]
-) -> Tuple[List[Dict], bool]:
+    raw_cues: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], bool]:
     """
     Pipeline completo: raw cues → VAD gating → cues finais.
-    
+
     Returns:
         (gated_cues, vad_ok)
     """
@@ -484,13 +485,13 @@ def process_subtitles_with_vad(
         min_duration=0.12,
         merge_gap=0.12
     )
-    
+
     # 1. Detectar speech segments
     speech_segments, vad_ok = processor.detect_speech_segments(audio_path)
-    
+
     if not vad_ok:
         logger.warning("⚠️ VAD fallback usado, qualidade de gating degradada")
-    
+
     # 🔧 BYPASS: Se VAD fallback não detectou fala nenhuma, não aplicar gating
     # (previne filtrar todas as legendas por erro do VAD)
     if not vad_ok and len(speech_segments) == 0:
@@ -499,21 +500,21 @@ def process_subtitles_with_vad(
             "Retornando raw_cues SEM gating (bypass)"
         )
         return raw_cues, False
-    
+
     # 🔧 BYPASS 2: Se VAD fallback detectou muito pouco (<10% do áudio),
     # usar áudio completo como segment
     if not vad_ok and len(speech_segments) > 0:
         # Calcular % do áudio coberto por speech segments
         try:
-            cmd = ['ffprobe', '-v', 'error', '-show_entries', 
+            cmd = ['ffprobe', '-v', 'error', '-show_entries',
                    'format=duration', '-of', 'json', audio_path]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             data = json.loads(result.stdout)
             audio_dur = float(data['format']['duration'])
-            
+
             speech_dur = sum(seg.end - seg.start for seg in speech_segments)
             speech_ratio = speech_dur / audio_dur
-            
+
             if speech_ratio < 0.1:  # Menos de 10% é fala
                 logger.warning(
                     f"⚠️ VAD fallback detectou apenas {speech_ratio*100:.1f}% de fala! "
@@ -522,14 +523,14 @@ def process_subtitles_with_vad(
                 speech_segments = [SpeechSegment(start=0.0, end=audio_dur, confidence=0.1)]
         except Exception:
             pass  # Se falhar, continuar com segments existentes
-    
+
     # 2. Obter duração do áudio
     if VAD_UTILS_AVAILABLE:
         audio_duration = validate_audio_format(audio_path)['duration']
     else:
         # Fallback sem vad_utils
         try:
-            cmd = ['ffprobe', '-v', 'error', '-show_entries', 
+            cmd = ['ffprobe', '-v', 'error', '-show_entries',
                    'format=duration', '-of', 'json', audio_path]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             data = json.loads(result.stdout)
@@ -537,16 +538,16 @@ def process_subtitles_with_vad(
         except Exception as e:
             logger.error(f"⚠️ Erro ao obter duração do áudio: {e}")
             audio_duration = 300.0  # 5min default
-    
+
     # 3. Converter raw cues para SubtitleCue
     cues = [
         SubtitleCue(i, c['start'], c['end'], c['text'])
         for i, c in enumerate(raw_cues)
     ]
-    
+
     # 4. Aplicar gating
     gated_cues = processor.gate_subtitles(cues, speech_segments, audio_duration)
-    
+
     # 5. Converter de volta para dict
     return [
         {'start': c.start, 'end': c.end, 'text': c.text}

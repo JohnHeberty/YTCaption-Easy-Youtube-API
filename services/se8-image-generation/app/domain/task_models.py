@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class TaskType(str, Enum):
@@ -39,7 +39,7 @@ class GenerationFinishReason(str, Enum):
 @dataclass
 class ImageGenerationResult:
     """Single generated image result."""
-    im: Optional[str] = None
+    im: str | None = None
     seed: str = ""
     finish_reason: GenerationFinishReason = GenerationFinishReason.SUCCESS
 
@@ -49,20 +49,20 @@ class QueueTask:
     """Tracks one generation job through the queue lifecycle."""
     job_id: str
     task_type: TaskType
-    req_param: Dict[str, Any]
-    webhook_url: Optional[str] = None
+    req_param: dict[str, Any]
+    webhook_url: str | None = None
     is_finished: bool = False
     finish_progress: int = 0
     in_queue_mills: int = field(default_factory=lambda: int(time.time() * 1000))
     start_mills: int = 0
     finish_mills: int = 0
     finish_with_error: bool = False
-    task_status: Optional[str] = None
-    task_step_preview: Optional[str] = None
-    task_result: Optional[List[ImageGenerationResult]] = None
-    error_message: Optional[str] = None
+    task_status: str | None = None
+    task_step_preview: str | None = None
+    task_result: list[ImageGenerationResult] | None = None
+    error_message: str | None = None
 
-    def set_progress(self, progress: int, status: Optional[str] = None) -> None:
+    def set_progress(self, progress: int, status: str | None = None) -> None:
         self.finish_progress = max(0, min(progress, 100))
         if status is not None:
             self.task_status = status
@@ -72,9 +72,9 @@ class QueueTask:
 
     def set_result(
         self,
-        result: List[ImageGenerationResult],
+        result: list[ImageGenerationResult],
         finish_with_error: bool = False,
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> None:
         self.task_result = result
         self.finish_with_error = finish_with_error
@@ -94,7 +94,7 @@ class AsyncTask:
     """
     prompt: str = ""
     negative_prompt: str = ""
-    style_selections: List[str] = field(default_factory=list)
+    style_selections: list[str] = field(default_factory=list)
     performance_selection: str = "Speed"
     aspect_ratios_selection: str = "1024×1024"
     image_number: int = 1
@@ -106,24 +106,24 @@ class AsyncTask:
     base_model_name: str = ""
     refiner_model_name: str = ""
     refiner_switch: float = 0.5
-    loras: List[Dict[str, Any]] = field(default_factory=list)
+    loras: list[dict[str, Any]] = field(default_factory=list)
 
     # Image input
     input_image_checkbox: bool = False
     current_tab: str = "prompt"
-    uov_method: Optional[str] = None
-    uov_input_image: Optional[str] = None
-    upscale_value: Optional[float] = None
-    outpaint_selections: List[str] = field(default_factory=list)
-    inpaint_input_image: Optional[Dict[str, str]] = None
-    inpaint_additional_prompt: Optional[str] = None
-    inpaint_mask_image_upload: Optional[str] = None
+    uov_method: str | None = None
+    uov_input_image: str | None = None
+    upscale_value: float | None = None
+    outpaint_selections: list[str] = field(default_factory=list)
+    inpaint_input_image: dict[str, str] | None = None
+    inpaint_additional_prompt: str | None = None
+    inpaint_mask_image_upload: str | None = None
     inpaint_negative_prompt: str = ""
     inpaint_respective_field: float = 0.5
     inpaint_strength: float = 1.0
     inpaint_erode_or_dilate: int = 0
     inpaint_mask_upload_overlay: float = 0.0
-    inpaint_mask_model: Optional[str] = None
+    inpaint_mask_model: str | None = None
 
     # Advanced
     disable_preview: bool = False
@@ -137,7 +137,7 @@ class AsyncTask:
     clip_skip: int = 2
     sampler_name: str = "dpmpp_2m_ssd_gpu"
     scheduler_name: str = "karras"
-    vae_name: Optional[str] = None
+    vae_name: str | None = None
     overwrite_step: int = -1
     overwrite_switch: int = -1
     overwrite_width: int = -1
@@ -166,21 +166,21 @@ class AsyncTask:
     metadata_scheme: str = "fooocus"
 
     # ControlNet tasks: {cn_type: [[img, stop, weight], ...]}
-    cn_tasks: Dict[str, List[List[Any]]] = field(default_factory=dict)
+    cn_tasks: dict[str, list[list[Any]]] = field(default_factory=dict)
 
     # Image prompts (IP-Adapter)
-    image_prompts: List[Dict[str, Any]] = field(default_factory=list)
+    image_prompts: list[dict[str, Any]] = field(default_factory=list)
 
     # Enhance
-    enhance_input_image: Optional[str] = None
+    enhance_input_image: str | None = None
     enhance_checkbox: bool = False
-    enhance_uov_method: Optional[str] = None
+    enhance_uov_method: str | None = None
     enhance_uov_processing_order: str = "Before First Enhancement"
     enhance_uov_prompt_type: str = "Same to Detailed Prompt"
-    enhance_ctrlnets: List[Any] = field(default_factory=list)
+    enhance_ctrlnets: list[Any] = field(default_factory=list)
     should_enhance: bool = False
     images_to_enhance_count: int = 0
-    enhance_stats: Dict[str, Any] = field(default_factory=dict)
+    enhance_stats: dict[str, Any] = field(default_factory=dict)
     debugging_enhance_masks_checkbox: bool = False
     debugging_dino: bool = False
     dino_erode_or_dilate: int = 0
@@ -192,7 +192,7 @@ class AsyncTask:
     outpaint_distance_bottom: int = 0
 
     # Webhook
-    webhook_url: Optional[str] = None
+    webhook_url: str | None = None
     require_base64: bool = False
 
 
@@ -201,7 +201,7 @@ class TaskOutputs:
 
     def __init__(self, task: QueueTask) -> None:
         self.task = task
-        self.outputs: List[Any] = []
+        self.outputs: list[Any] = []
 
     def append(self, args: tuple) -> None:
         self.outputs.append(args)

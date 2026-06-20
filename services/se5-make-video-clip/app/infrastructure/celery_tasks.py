@@ -3,6 +3,7 @@ Celery Tasks for Make-Video Service
 
 Tasks de processamento assíncrono para criação de vídeos.
 """
+from __future__ import annotations
 
 import os
 import asyncio
@@ -13,7 +14,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from common.datetime_utils import now_brazil
 
-from typing import List, Dict, Optional
+from typing import Any
 
 from .celery_config import celery_app
 from celery import signals
@@ -58,7 +59,7 @@ subtitle_gen = None
 video_validator = None
 blacklist = None
 
-def get_instances():
+def get_instances() -> tuple[Any, Any, Any, Any, Any]:
     """Inicializa instâncias globais se necessário"""
     global redis_store, api_client, video_builder, shorts_cache, subtitle_gen, video_validator, blacklist
     
@@ -101,9 +102,9 @@ def get_instances():
     return redis_store, api_client, video_builder, shorts_cache, subtitle_gen
 
 async def update_job_status(job_id: str, status: JobStatus, 
-                           progress: float = None, 
-                           stage_updates: Dict = None,
-                           error: Dict = None):
+                           progress: float | None = None, 
+                           stage_updates: dict[str, Any] | None = None,
+                           error: dict[str, Any] | None = None) -> None:
     """Atualiza status do job no Redis com retry automático"""
     store, _, _, _, _ = get_instances()
     
@@ -182,7 +183,7 @@ async def _transform_crop_and_validate_video(
     video_validator,
     blacklist,
     job_logger
-) -> Optional[str]:
+) -> str | None:
     """
     Helper: Transform → Crop → Move → Validate → Finalize
     
@@ -336,7 +337,7 @@ async def _transform_crop_and_validate_video(
         return None
 
 @signals.task_failure.connect
-def task_failure_handler(task_id, exception, args, kwargs, traceback, einfo, **kw):
+def task_failure_handler(task_id, exception, args, kwargs, traceback, einfo, **kw) -> None:
     """Log Celery worker failures with full context."""
     logger.error(
         "Celery task_failure | task_id=%s error=%s",
@@ -351,7 +352,7 @@ def task_failure_handler(task_id, exception, args, kwargs, traceback, einfo, **k
     acks_late=True,         # ACK após completar (não antes)
     reject_on_worker_lost=True  # Re-enfileirar se worker crashar
 )
-def process_make_video(self, job_id: str):
+def process_make_video(self, job_id: str) -> None:
     """
     Task principal: Processa criação de vídeo completa
     
@@ -436,7 +437,7 @@ def process_make_video(self, job_id: str):
             }
         ))
 
-async def _process_make_video_with_domain(job_id: str):
+async def _process_make_video_with_domain(job_id: str) -> Any:
     """
     Processamento assíncrono usando Domain-Driven Design
     
@@ -470,7 +471,7 @@ async def _process_make_video_with_domain(job_id: str):
     
     return result
 
-async def _process_make_video_async(job_id: str):
+async def _process_make_video_async(job_id: str) -> None:
     """Processamento assíncrono do vídeo (implementação legada)"""
     
     # Criar logger específico para este job
@@ -1282,7 +1283,7 @@ async def _process_make_video_async(job_id: str):
     acks_late=True,
     reject_on_worker_lost=True
 )
-def process_download_pipeline(self, job_id: str):
+def process_download_pipeline(self, job_id: str) -> None:
     """
     Task: Pipeline completo de download e validacao de shorts.
 
@@ -1320,7 +1321,7 @@ def process_download_pipeline(self, job_id: str):
             pass
 
 
-async def _process_download_pipeline_async(job_id: str):
+async def _process_download_pipeline_async(job_id: str) -> None:
     """Async implementation of download pipeline."""
     store, api_client, video_builder, shorts_cache, subtitle_gen = get_instances()
     settings = get_settings()
@@ -1472,7 +1473,7 @@ async def _process_download_pipeline_async(job_id: str):
 
 
 @celery_app.task(name='app.infrastructure.celery_tasks.cleanup_temp_files')
-def cleanup_temp_files():
+def cleanup_temp_files() -> None:
     """Limpa arquivos temporários antigos"""
     logger.info("🧹 Running temp files cleanup...")
     
@@ -1516,7 +1517,7 @@ def cleanup_temp_files():
     logger.info(f"✅ Cleanup complete: {removed_count} temp directories removed")
 
 @celery_app.task(name='app.infrastructure.celery_tasks.cleanup_old_shorts')
-def cleanup_old_shorts():
+def cleanup_old_shorts() -> None:
     """Limpa shorts não usados há muito tempo"""
     logger.info("🧹 Running shorts cache cleanup...")
     
@@ -1529,7 +1530,7 @@ def cleanup_old_shorts():
     logger.info(f"✅ Cleanup complete: {removed_count} old shorts removed")
 
 @celery_app.task(name='app.infrastructure.celery_tasks.recover_orphaned_jobs')
-def recover_orphaned_jobs():
+def recover_orphaned_jobs() -> dict[str, Any]:
     """
     Auto-recovery de jobs órfãos (Sprint-01)
     
@@ -1719,7 +1720,7 @@ async def _recover_single_job(job: Job) -> bool:
         logger.error(f"❌ [RECOVERY] Error recovering job {job.job_id}: {e}", exc_info=True)
         return False
 
-def _determine_next_stage(current_stage: str, checkpoint: dict) -> Optional[JobStatus]:
+def _determine_next_stage(current_stage: str, checkpoint: dict[str, Any]) -> JobStatus | None:
     """
     Determina próxima etapa a executar baseado em checkpoint
     
@@ -1768,7 +1769,7 @@ def _determine_next_stage(current_stage: str, checkpoint: dict) -> Optional[JobS
         # Stage desconhecida, começar do início
         return JobStatus.QUEUED
 
-async def _validate_job_prerequisites(job: Job, next_stage: JobStatus) -> dict:
+async def _validate_job_prerequisites(job: Job, next_stage: JobStatus) -> dict[str, Any]:
     """
     Valida que pré-requisitos para a próxima etapa existem
     
@@ -1866,7 +1867,7 @@ def _stage_to_progress(stage: JobStatus) -> float:
 
 # Funções auxiliares de checkpoint (Sprint-01)
 
-async def _save_checkpoint(job_id: str, completed_stage: str):
+async def _save_checkpoint(job_id: str, completed_stage: str) -> None:
     """Salva checkpoint de progresso"""
     store, _, _, _, _ = get_instances()
     key = f"make_video:checkpoint:{job_id}"
@@ -1893,7 +1894,7 @@ async def _save_checkpoint(job_id: str, completed_stage: str):
     except Exception as e:
         logger.error(f"Error saving checkpoint for {job_id}: {e}")
 
-async def _load_checkpoint(job_id: str) -> Optional[dict]:
+async def _load_checkpoint(job_id: str) -> dict[str, Any] | None:
     """Carrega checkpoint de progresso"""
     store, _, _, _, _ = get_instances()
     key = f"make_video:checkpoint:{job_id}"
@@ -1908,7 +1909,7 @@ async def _load_checkpoint(job_id: str) -> Optional[dict]:
         logger.error(f"Error loading checkpoint for {job_id}: {e}")
         return None
 
-async def _delete_checkpoint(job_id: str):
+async def _delete_checkpoint(job_id: str) -> None:
     """Deleta checkpoint após job completar"""
     store, _, _, _, _ = get_instances()
     key = f"make_video:checkpoint:{job_id}"
@@ -1923,7 +1924,7 @@ async def _delete_checkpoint(job_id: str):
 # SPRINT-02: Granular Stage Checkpoints
 # =============================================================================
 
-async def _save_stage_checkpoint(job_id: str, stage: str, data: dict):
+async def _save_stage_checkpoint(job_id: str, stage: str, data: dict[str, Any]) -> None:
     """Save granular checkpoint within a stage (Sprint-02)"""
     store, _, _, _, _ = get_instances()
     key = f"make_video:stage_checkpoint:{job_id}:{stage}"
@@ -1939,7 +1940,7 @@ async def _save_stage_checkpoint(job_id: str, stage: str, data: dict):
     except Exception as e:
         logger.error(f"Error saving stage checkpoint: {e}")
 
-async def _load_stage_checkpoint(job_id: str, stage: str) -> Optional[dict]:
+async def _load_stage_checkpoint(job_id: str, stage: str) -> dict[str, Any] | None:
     """Load granular checkpoint within a stage (Sprint-02)"""
     store, _, _, _, _ = get_instances()
     key = f"make_video:stage_checkpoint:{job_id}:{stage}"
@@ -1954,7 +1955,7 @@ async def _load_stage_checkpoint(job_id: str, stage: str) -> Optional[dict]:
         logger.error(f"Error loading stage checkpoint: {e}")
         return None
 
-async def _delete_stage_checkpoint(job_id: str, stage: str):
+async def _delete_stage_checkpoint(job_id: str, stage: str) -> None:
     """Delete stage checkpoint (Sprint-02)"""
     store, _, _, _, _ = get_instances()
     key = f"make_video:stage_checkpoint:{job_id}:{stage}"
@@ -2017,17 +2018,17 @@ def _calculate_stage_timeout(
 class SimpleCircuitBreaker:
     """Simplified circuit breaker for external services (Sprint-04)"""
     
-    def __init__(self, failure_threshold: int = 5):
+    def __init__(self, failure_threshold: int = 5) -> None:
         self.failure_count = 0
         self.failure_threshold = failure_threshold
         self.last_failure_time = None
         self.is_open = False
     
-    def record_success(self):
+    def record_success(self) -> None:
         self.failure_count = 0
         self.is_open = False
     
-    def record_failure(self):
+    def record_failure(self) -> None:
         self.failure_count += 1
         self.last_failure_time = now_brazil()
         
@@ -2063,7 +2064,7 @@ _circuit_breakers = {
 class SimpleMetrics:
     """Simple metrics tracking (Sprint-05)"""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.jobs_started = 0
         self.jobs_completed = 0
         self.jobs_failed = 0
@@ -2071,7 +2072,7 @@ class SimpleMetrics:
         self.orphans_recovered = 0
         self.orphans_failed = 0
     
-    def reset(self):
+    def reset(self) -> None:
         self.__init__()
 
 _metrics = SimpleMetrics()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 OCR Detector - Backward Compatibility Wrapper
 

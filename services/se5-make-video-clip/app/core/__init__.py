@@ -3,6 +3,7 @@ Core module - Configuration and base models
 
 Central configuration, constants, and data models for the make-video service.
 """
+from __future__ import annotations
 
 from .config import get_settings
 from .constants import (

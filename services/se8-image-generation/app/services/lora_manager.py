@@ -13,12 +13,12 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 logger = get_logger(__name__)
 
 
-def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict, Dict]:
+def match_lora(lora_data: dict[str, Any], to_load: dict[str, str]) -> tuple[dict, dict]:
     """Match LoRA file keys to model state_dict keys.
 
     Supports: fooocus format, regular LoRA, diffusers LoRA, transformers LoRA,
@@ -31,8 +31,8 @@ def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict
     Returns:
         (patch_dict, remaining_dict) — matched patches and unmatched LoRA keys.
     """
-    patch_dict: Dict[str, Any] = {}
-    loaded_keys: Set[str] = set()
+    patch_dict: dict[str, Any] = {}
+    loaded_keys: set[str] = set()
 
     for model_key, lora_key in to_load.items():
         real_load_key = lora_key
@@ -183,7 +183,7 @@ def match_lora(lora_data: Dict[str, Any], to_load: Dict[str, str]) -> Tuple[Dict
     return patch_dict, remaining_dict
 
 
-def get_file_from_folder_list(name: str, folders: List[str]) -> Optional[str]:
+def get_file_from_folder_list(name: str, folders: list[str]) -> str | None:
     """Resolve a filename by searching through a list of folders.
 
     Args:
@@ -213,7 +213,7 @@ def get_file_from_folder_list(name: str, folders: List[str]) -> Optional[str]:
     return None
 
 
-def get_enabled_loras(loras: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
+def get_enabled_loras(loras: list[dict[str, Any]]) -> list[tuple[str, float]]:
     """Extract enabled LoRAs as (filename, weight) tuples.
 
     Args:
@@ -238,9 +238,9 @@ def get_enabled_loras(loras: List[Dict[str, Any]]) -> List[Tuple[str, float]]:
 def refresh_loras_for_models(
     model_base,
     model_refiner,
-    loras: List[Tuple[str, float]],
-    base_model_additional_loras: Optional[List[Tuple[str, float]]] = None,
-):
+    loras: list[tuple[str, float]],
+    base_model_additional_loras: list[tuple[str, float]] | None = None,
+) -> None:
     """Refresh LoRAs for both base and refiner models.
 
     Args:

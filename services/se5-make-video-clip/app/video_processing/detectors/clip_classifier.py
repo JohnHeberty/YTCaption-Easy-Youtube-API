@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 CLIP-based zero-shot subtitle classifier.
 
@@ -8,7 +10,7 @@ Uses OpenAI's CLIP model for zero-shot classification of video frames.
 import torch
 import cv2
 import numpy as np
-from typing import Dict, List
+from typing import Any
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 
@@ -35,7 +37,7 @@ class CLIPClassifier(BaseSubtitleDetector):
         prompts: Text prompts for classification
     """
     
-    def __init__(self, device: str = None, n_frames: int = 6):
+    def __init__(self, device: str | None = None, n_frames: int = 6) -> None:
         """
         Initialize CLIP classifier.
         
@@ -49,8 +51,8 @@ class CLIPClassifier(BaseSubtitleDetector):
         if device is None:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         
-        self.device = device
-        self.n_frames = n_frames
+        self.device: str = device
+        self.n_frames: int = n_frames
         
         # Load CLIP model (cached after first download)
         logger.info("[CLIP] Loading model on %s...", self.device)
@@ -58,7 +60,7 @@ class CLIPClassifier(BaseSubtitleDetector):
         self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
         
         # Zero-shot prompts
-        self.prompts = [
+        self.prompts: list[str] = [
             "A video frame with burned-in subtitles at the bottom",
             "A video frame with hardcoded text captions or subtitles",
             "A clean video frame without any subtitles or text overlays",
@@ -67,7 +69,7 @@ class CLIPClassifier(BaseSubtitleDetector):
         
         logger.info("[CLIP] Model loaded successfully")
     
-    def detect(self, video_path: str) -> Dict:
+    def detect(self, video_path: str) -> dict[str, Any]:
         """
         Detect subtitles using CLIP zero-shot classification.
         
@@ -102,7 +104,7 @@ class CLIPClassifier(BaseSubtitleDetector):
             }
         
         # Classify each frame
-        frame_results = []
+        frame_results: list[dict[str, Any]] = []
         for i, frame in enumerate(frames):
             result = self._classify_frame(frame)
             frame_results.append(result)
@@ -129,7 +131,7 @@ class CLIPClassifier(BaseSubtitleDetector):
             }
         }
     
-    def _classify_frame(self, frame: np.ndarray) -> Dict:
+    def _classify_frame(self, frame: np.ndarray) -> dict[str, Any]:
         """
         Classify a single frame using CLIP.
         
@@ -175,7 +177,7 @@ class CLIPClassifier(BaseSubtitleDetector):
             'confidence': confidence
         }
     
-    def _extract_frames(self, video_path: str, n_frames: int = 6) -> List[np.ndarray]:
+    def _extract_frames(self, video_path: str, n_frames: int = 6) -> list[np.ndarray]:
         """
         Extract frames from video at evenly distributed timestamps.
         
@@ -205,14 +207,14 @@ class CLIPClassifier(BaseSubtitleDetector):
         
         # Calculate timestamps (20%-95% of video duration)
         # Avoid very start/end (often has different content)
-        timestamps = []
+        timestamps: list[float] = []
         for i in range(n_frames):
             ratio = 0.2 + (i / (n_frames - 1)) * 0.75  # 0.2 to 0.95
             ts = duration * ratio
             timestamps.append(ts)
         
         # Extract frames
-        frames = []
+        frames: list[np.ndarray] = []
         for ts in timestamps:
             cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000)
             ret, frame = cap.read()

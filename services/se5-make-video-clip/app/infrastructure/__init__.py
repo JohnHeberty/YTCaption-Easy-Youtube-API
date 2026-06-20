@@ -3,6 +3,7 @@ Infrastructure module - Celery, Redis, Logging, Metrics
 
 Infrastructure components for async processing, caching, observability.
 """
+from __future__ import annotations
 
 from .celery_config import celery_app
 from .redis_store import MakeVideoJobStore as RedisJobStore

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Subtitle Processing module - Detection, classification, generation
 

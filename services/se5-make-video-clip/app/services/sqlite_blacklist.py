@@ -2,13 +2,15 @@
 SQLite Blacklist Manager
 Gerencia lista negra de vídeos com legendas embutidas usando SQLite
 """
+from __future__ import annotations
 
 import sqlite3
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Optional, Dict, List
+from typing import Any
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -24,7 +26,7 @@ class SQLiteBlacklist:
     - Interface compatível com ShortsBlacklist
     """
     
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str) -> None:
         """
         Args:
             db_path: Caminho do arquivo de banco de dados SQLite
@@ -39,7 +41,7 @@ class SQLiteBlacklist:
         
         logger.info(f"✅ SQLiteBlacklist initialized: {self.db_path}")
     
-    def _init_schema(self):
+    def _init_schema(self) -> None:
         """Cria schema se não existir"""
         with self._get_conn() as conn:
             self._ensure_schema(conn)
@@ -47,7 +49,7 @@ class SQLiteBlacklist:
             logger.debug("Schema initialized successfully")
     
     @contextmanager
-    def _get_conn(self):
+    def _get_conn(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager para conexões SQLite"""
         conn = sqlite3.connect(str(self.db_path), timeout=5.0)
         conn.row_factory = sqlite3.Row
@@ -63,7 +65,7 @@ class SQLiteBlacklist:
         finally:
             conn.close()
 
-    def _ensure_schema(self, conn):
+    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
         """Garante que pragmas e tabela existam (idempotente)"""
         # Habilitar WAL mode (write-ahead logging)
         conn.execute("PRAGMA journal_mode=WAL")
@@ -83,7 +85,7 @@ class SQLiteBlacklist:
             """
         )
     
-    def add(self, video_id: str, reason: str, confidence: float, metadata: Optional[Dict] = None):
+    def add(self, video_id: str, reason: str, confidence: float, metadata: dict[str, Any] | None = None) -> None:
         """
         Adiciona vídeo à blacklist permanentemente
         
@@ -120,7 +122,7 @@ class SQLiteBlacklist:
             ).fetchone()
             return row is not None
     
-    def get_entry(self, video_id: str) -> Optional[Dict]:
+    def get_entry(self, video_id: str) -> dict[str, Any] | None:
         """
         Retorna entrada completa da blacklist
         
@@ -182,7 +184,7 @@ class SQLiteBlacklist:
             ).fetchone()
             return row["count"]
     
-    def list_all(self, limit: int = 100, offset: int = 0) -> List[Dict]:
+    def list_all(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """
         Lista todos vídeos na blacklist
         

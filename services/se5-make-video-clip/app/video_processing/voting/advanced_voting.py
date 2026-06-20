@@ -4,8 +4,9 @@ Advanced voting strategies for ensemble detection.
 Sprint 07 - Confidence-Weighted Voting
 Improves upon simple weighted average by considering confidence of each prediction.
 """
+from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Any
 
 
 class ConfidenceWeightedVoting:
@@ -27,16 +28,16 @@ class ConfidenceWeightedVoting:
         Decision: YES (0.3325 > 0.3175) ✅ High-confidence model prevails!
     """
     
-    def __init__(self, name: str = 'confidence_weighted'):
+    def __init__(self, name: str = 'confidence_weighted') -> None:
         """
         Initialize confidence-weighted voting.
-        
+
         Args:
             name: Strategy name for metadata
         """
         self.name = name
-    
-    def vote(self, votes: Dict) -> Dict:
+
+    def vote(self, votes: dict[str, Any]) -> dict[str, Any]:
         """
         Compute confidence-weighted vote.
         
@@ -104,18 +105,18 @@ class MajorityWithThreshold:
     This prevents low-confidence majority decisions.
     """
     
-    def __init__(self, min_avg_confidence: float = 0.65, name: str = 'majority_threshold'):
+    def __init__(self, min_avg_confidence: float = 0.65, name: str = 'majority_threshold') -> None:
         """
         Initialize majority voting with threshold.
-        
+
         Args:
             min_avg_confidence: Minimum average confidence for majority (default: 0.65)
             name: Strategy name
         """
         self.min_avg_confidence = min_avg_confidence
         self.name = name
-    
-    def vote(self, votes: Dict) -> Dict:
+
+    def vote(self, votes: dict[str, Any]) -> dict[str, Any]:
         """
         Compute majority vote with confidence check.
         
@@ -184,18 +185,18 @@ class UnanimousConsensus:
     This is an optimization for obvious cases.
     """
     
-    def __init__(self, min_confidence: float = 0.75, name: str = 'unanimous'):
+    def __init__(self, min_confidence: float = 0.75, name: str = 'unanimous') -> None:
         """
         Initialize unanimous consensus.
-        
+
         Args:
             min_confidence: Minimum confidence required for each model (default: 0.75)
             name: Strategy name
         """
         self.min_confidence = min_confidence
         self.name = name
-    
-    def vote(self, votes: Dict) -> Dict:
+
+    def vote(self, votes: dict[str, Any]) -> dict[str, Any] | None:
         """
         Check for unanimous consensus.
         

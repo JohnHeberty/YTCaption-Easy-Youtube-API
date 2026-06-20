@@ -5,10 +5,10 @@ Segue princípios SOLID:
 - Single Responsibility: Cada função valida um tipo específico de entrada
 - Pure Functions: Sem side effects, retornam True/False ou sanitizam dados
 """
+from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional, List
 
 
 class QueryValidator:

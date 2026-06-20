@@ -4,11 +4,12 @@ Tesseract OCR detector for subtitle detection.
 Sprint 06/07 - Alternative detector to replace low-performing CLIP.
 Uses pytesseract for OCR-based subtitle detection.
 """
+from __future__ import annotations
 
 import cv2
 import numpy as np
 import pytesseract
-from typing import Dict, List
+from typing import Any
 from PIL import Image
 
 from .base_detector import BaseSubtitleDetector
@@ -34,7 +35,7 @@ class TesseractDetector(BaseSubtitleDetector):
         roi_height: float = 0.3,
         min_text_length: int = 10,
         detection_threshold: float = 0.5
-    ):
+    ) -> None:
         """
         Initialize Tesseract detector.
         
@@ -53,7 +54,7 @@ class TesseractDetector(BaseSubtitleDetector):
         # Tesseract config optimized for subtitles
         self.tesseract_config = '--psm 6 --oem 3'  # Uniform block of text, LSTM mode
     
-    def detect(self, video_path: str) -> Dict:
+    def detect(self, video_path: str) -> dict[str, Any]:
         """
         Detect subtitles using Tesseract OCR.
         
@@ -176,7 +177,7 @@ class TesseractDetector(BaseSubtitleDetector):
         # Convert to PIL Image
         return Image.fromarray(binary)
     
-    def _extract_frames(self, video_path: str, n_frames: int = 6) -> List[np.ndarray]:
+    def _extract_frames(self, video_path: str, n_frames: int = 6) -> list[np.ndarray]:
         """
         Extract frames from video at evenly distributed timestamps.
         

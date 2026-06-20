@@ -6,8 +6,9 @@ Exceções ricas em contexto com error codes, tracking e serialização.
 
 Pattern: Exception Hierarchy + Error Codes
 """
+from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Any
 from enum import Enum
 from datetime import datetime
 from common.datetime_utils import now_brazil
@@ -106,13 +107,13 @@ class EnhancedMakeVideoException(Exception):
         self,
         message: str,
         error_code: ErrorCode,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None,
-        job_id: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
+        job_id: str | None = None,
         recoverable: bool = False,
-        reason: Optional[str] = None,
-        subtitle_path: Optional[str] = None
-    ):
+        reason: str | None = None,
+        subtitle_path: str | None = None
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.error_code = error_code
@@ -134,7 +135,7 @@ class EnhancedMakeVideoException(Exception):
         else:
             self.cause_traceback = None
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Serializa exceção para dicionário (API responses, logs)
         
@@ -191,9 +192,9 @@ class AudioProcessingException(EnhancedMakeVideoException):
         self,
         message: str,
         error_code: ErrorCode = ErrorCode.AUDIO_PROCESSING_FAILED,  # FIX: Default to avoid missing argument error
-        audio_path: Optional[str] = None,
-        **kwargs
-    ):
+        audio_path: str | None = None,
+        **kwargs: Any
+    ) -> None:
         if audio_path:
             if 'details' not in kwargs:
                 kwargs['details'] = {}
@@ -217,10 +218,10 @@ class VideoProcessingException(EnhancedMakeVideoException):
         self,
         message: str,
         error_code: ErrorCode,
-        video_id: Optional[str] = None,
-        video_path: Optional[str] = None,
-        **kwargs
-    ):
+        video_id: str | None = None,
+        video_path: str | None = None,
+        **kwargs: Any
+    ) -> None:
         if 'details' not in kwargs:
             kwargs['details'] = {}
         
@@ -248,10 +249,10 @@ class MicroserviceException(EnhancedMakeVideoException):
         message: str,
         error_code: ErrorCode,
         service_name: str,
-        endpoint: Optional[str] = None,
-        status_code: Optional[int] = None,
-        **kwargs
-    ):
+        endpoint: str | None = None,
+        status_code: int | None = None,
+        **kwargs: Any
+    ) -> None:
         if 'details' not in kwargs:
             kwargs['details'] = {}
         
@@ -283,9 +284,9 @@ class SystemException(EnhancedMakeVideoException):
         self,
         message: str,
         error_code: ErrorCode,
-        component: Optional[str] = None,
-        **kwargs
-    ):
+        component: str | None = None,
+        **kwargs: Any
+    ) -> None:
         if component:
             if 'details' not in kwargs:
                 kwargs['details'] = {}
@@ -306,8 +307,8 @@ def create_audio_error(
     message: str,
     error_code: ErrorCode,
     audio_path: str,
-    job_id: Optional[str] = None,
-    cause: Optional[Exception] = None
+    job_id: str | None = None,
+    cause: Exception | None = None
 ) -> AudioProcessingException:
     """Helper para criar AudioProcessingException com contexto padrão"""
     return AudioProcessingException(
@@ -323,10 +324,10 @@ def create_audio_error(
 def create_video_error(
     message: str,
     error_code: ErrorCode,
-    video_id: Optional[str] = None,
-    video_path: Optional[str] = None,
-    job_id: Optional[str] = None,
-    cause: Optional[Exception] = None
+    video_id: str | None = None,
+    video_path: str | None = None,
+    job_id: str | None = None,
+    cause: Exception | None = None
 ) -> VideoProcessingException:
     """Helper para criar VideoProcessingException com contexto padrão"""
     return VideoProcessingException(
@@ -347,10 +348,10 @@ def create_api_error(
     message: str,
     service_name: str,
     error_code: ErrorCode = ErrorCode.API_INVALID_RESPONSE,
-    endpoint: Optional[str] = None,
-    status_code: Optional[int] = None,
-    job_id: Optional[str] = None,
-    cause: Optional[Exception] = None
+    endpoint: str | None = None,
+    status_code: int | None = None,
+    job_id: str | None = None,
+    cause: Exception | None = None
 ) -> MicroserviceException:
     """Helper para criar MicroserviceException com contexto padrão"""
     return MicroserviceException(
@@ -379,11 +380,11 @@ class MakeVideoException(EnhancedMakeVideoException):
         self,
         message: str,
         error_code: ErrorCode = ErrorCode.UNKNOWN_ERROR,
-        details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None,
-        job_id: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        cause: Exception | None = None,
+        job_id: str | None = None,
         recoverable: bool = False
-    ):
+    ) -> None:
         """
         Args:
             message: Mensagem de erro (obrigatória)

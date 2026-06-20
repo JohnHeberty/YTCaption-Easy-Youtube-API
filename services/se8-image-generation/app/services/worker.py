@@ -16,7 +16,7 @@ import io
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from app.domain.task_models import (
     AsyncTask,
@@ -32,8 +32,8 @@ from app.services.task_queue import TaskQueue
 logger = get_logger(__name__)
 
 # Module-level state
-worker_queue: Optional[TaskQueue] = None
-_last_model_name: Optional[str] = None
+worker_queue: TaskQueue | None = None
+_last_model_name: str | None = None
 
 
 def process_stop() -> None:
@@ -45,7 +45,7 @@ def process_stop() -> None:
         logger.warning("Failed to interrupt processing: %s", e)
 
 
-def _detect_task_type(req: Dict[str, Any]) -> TaskType:
+def _detect_task_type(req: dict[str, Any]) -> TaskType:
     """Detect task type from request parameters."""
     current_tab = req.get("current_tab", "prompt")
     if current_tab == "uov" or req.get("uov_input_image"):
@@ -59,7 +59,7 @@ def _detect_task_type(req: Dict[str, Any]) -> TaskType:
     return TaskType.TEXT_TO_IMAGE
 
 
-def _build_async_task(req: Dict[str, Any]) -> AsyncTask:
+def _build_async_task(req: dict[str, Any]) -> AsyncTask:
     """Build AsyncTask from request parameters."""
     advanced = req.get("advanced_params") or {}
     if isinstance(advanced, dict):
@@ -145,7 +145,7 @@ def _save_output_file(
     img,
     output_dir: str = "",
     subfolder: str = "",
-    filename: Optional[str] = None,
+    filename: str | None = None,
 ) -> str:
     """Save a PIL/numpy image to the outputs directory. Returns the file path."""
     import numpy as np
@@ -197,7 +197,7 @@ def _save_and_log(
     width: int,
     height: int,
     persist_image: bool = True,
-) -> List[str]:
+) -> list[str]:
     """Save images and log metadata. Returns list of file paths."""
     import numpy as np
     from datetime import datetime
@@ -227,7 +227,7 @@ def _save_and_log(
     return img_paths
 
 
-def _parse_aspect_ratio(aspect: str) -> Tuple[int, int]:
+def _parse_aspect_ratio(aspect: str) -> tuple[int, int]:
     """Parse aspect ratio string like '1024×1024' to (width, height)."""
     import re
     m = re.match(r"(\d+)\s*[×x*]\s*(\d+)", aspect)
@@ -263,7 +263,7 @@ def _apply_style(
     prompt: str,
     negative: str,
     styles: list,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Apply style presets to prompt/negative."""
     # Styles are typically prompt templates
     positive_additions = []
@@ -326,9 +326,9 @@ def _apply_performance_defaults(async_task: AsyncTask) -> None:
             async_task.refiner_model_name = "None"
 
 
-def _parse_image_prompts(image_prompts: list) -> Dict[str, List]:
+def _parse_image_prompts(image_prompts: list) -> dict[str, list]:
     """Parse V2 image_prompts into cn_tasks format."""
-    cn_tasks: Dict[str, List] = {"cn_ip": [], "cn_ip_face": [], "cn_canny": [], "cn_cpds": []}
+    cn_tasks: dict[str, list] = {"cn_ip": [], "cn_ip_face": [], "cn_canny": [], "cn_cpds": []}
     for prompt_item in image_prompts:
         if not isinstance(prompt_item, dict):
             continue
@@ -353,7 +353,7 @@ def _parse_image_prompts(image_prompts: list) -> Dict[str, List]:
 def _process_prompt(
     async_task: AsyncTask,
     pipeline: Any,
-) -> Tuple[list, bool, list, int]:
+) -> tuple[list, bool, list, int]:
     """Process prompt: refresh models, encode text. Returns (tasks, use_expansion, loras, progress)."""
     import random
 
@@ -390,7 +390,7 @@ def _process_prompt(
     return tasks, False, async_task.loras, 0
 
 
-def _apply_vary(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
+def _apply_vary(async_task: AsyncTask, tasks: list) -> tuple[list, dict]:
     """Apply upscale/vary mode. Returns modified tasks and state."""
     if not async_task.uov_input_image:
         return tasks, {}
@@ -408,7 +408,7 @@ def _apply_vary(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
     return tasks, {"mode": "vary", "method": method, "denoising": denoising}
 
 
-def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> Tuple[list, dict]:
+def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> tuple[list, dict]:
     """Apply inpaint mode. Creates InpaintWorker, encodes VAE latent, patches UNet.
 
     Full Fooocus inpaint flow:
@@ -465,7 +465,7 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
         task["width"] = crop_w
         task["height"] = crop_h
 
-    logger.info(
+    logger.warning(
         "InpaintWorker created: crop=%dx%d, k=%.3f, strength=%.2f",
         crop_w, crop_h, k, async_task.inpaint_strength,
     )
@@ -491,16 +491,39 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
         device = ldm_patched.modules.model_management.get_torch_device()
 
         # Convert interested_fill (HWC uint8) to tensor [1, C, H, W] float [0,1]
-        fill_tensor = torch.from_numpy(worker.interested_fill).float().permute(2, 0, 1).unsqueeze(0) / 255.0
-        fill_tensor = fill_tensor.to(device=device)
+        # Use torch.tensor() to guarantee non-inference tensor (not torch.from_numpy)
+        fill_np = worker.interested_fill.astype(np.float32) / 255.0
+        fill_tensor = torch.tensor(fill_np, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0)
 
-        # Convert interested_mask to tensor [1, H, W] float [0,1]
+        # Convert interested_mask to tensor [1, 1, H, W] float [0,1]
         mask_np = (worker.interested_mask > 0.5).astype(np.float32) if worker.interested_mask.max() <= 1.0 else worker.interested_mask.astype(np.float32) / 255.0
-        mask_tensor = torch.from_numpy(mask_np).float().unsqueeze(0).to(device=device)
+        mask_tensor = torch.tensor(mask_np, dtype=torch.float32).unsqueeze(0)
+        mask_chw = mask_tensor.unsqueeze(1)  # [1, 1, H, W]
 
-        # Encode image+mask to latent via VAE
-        from modules.core import encode_vae_inpaint
-        latent, latent_mask = encode_vae_inpaint(vae, fill_tensor, mask_tensor)
+        # Apply mask blending (matching encode_vae_inpaint logic):
+        # masked region → 0.5 (gray), unmasked region → original pixel values
+        blended = fill_tensor * (1 - mask_chw) + 0.5 * mask_chw
+
+        # Move to GPU — ensure tensors are NOT inference tensors
+        blended = blended.to(device=device)
+        mask_tensor = mask_tensor.to(device=device)
+
+        # Encode blended image to latent via VAE
+        # Must run inside @torch.inference_mode() to match the context where the
+        # VAE model weights were loaded (refresh_base_model uses @_no_grad → inference_mode)
+        latent = None
+        with torch.inference_mode():
+            latent = vae.encode(blended)  # [1, 4, h, w]
+
+        # Create latent-space mask: upsample mask to latent dimensions, pool by 8
+        B, C, H, W = latent.shape
+        mask_for_latent = mask_tensor.unsqueeze(1)  # [1, 1, H_orig, W_orig]
+        latent_mask = torch.nn.functional.interpolate(
+            mask_for_latent, size=(H * 8, W * 8), mode="bilinear"
+        ).round()
+        latent_mask = torch.nn.functional.max_pool2d(
+            latent_mask, (8, 8)
+        ).round().to(latent.device, latent.dtype)  # [1, 1, H, W]
 
         # Store latent in InpaintWorker for sampler access
         worker.load_latent(latent, latent_mask)
@@ -511,7 +534,7 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
         inpaint_latent = latent
         inpaint_latent_mask = latent_mask
 
-        logger.info(
+        logger.warning(
             "Inpaint VAE encoded: latent shape=%s, mask shape=%s",
             list(latent.shape), list(latent_mask.shape),
         )
@@ -531,7 +554,7 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
                 # Store patched model for use in _process_diffusion
                 # We don't replace pipeline.final_unet because the pipeline
                 # handles model cloning internally. Instead, we store it in state.
-                logger.info("InpaintHead patched into UNet successfully")
+                logger.warning("InpaintHead patched into UNet successfully")
             else:
                 logger.warning("Inpaint: pipeline.final_unet not available for patching")
         else:
@@ -544,7 +567,7 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
                     model = getattr(pipeline, "final_unet", None)
                     if model is not None:
                         patched_model = worker.patch(inpaint_head_path, latent, latent_mask, model)
-                        logger.info("InpaintHead downloaded and patched into UNet")
+                        logger.warning("InpaintHead downloaded and patched into UNet")
             except Exception as e:
                 logger.warning("Failed to download/patch InpaintHead: %s", e)
 
@@ -564,7 +587,7 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
     }
 
 
-def _apply_upscale(async_task: AsyncTask, tasks: list) -> Tuple[list, dict]:
+def _apply_upscale(async_task: AsyncTask, tasks: list) -> tuple[list, dict]:
     """Apply upscale mode. Returns modified tasks and state."""
     if async_task.uov_method not in ("upscale_15", "upscale_2", "upscale_fast", "upscale_custom"):
         return tasks, {}
@@ -602,9 +625,9 @@ def _process_diffusion(
     pipeline: Any,
     async_task: AsyncTask,
     task: dict,
-    progress_callback: Optional[Any] = None,
-    inpaint_state: Optional[dict] = None,
-) -> List[Any]:
+    progress_callback: Any | None = None,
+    inpaint_state: dict | None = None,
+) -> list[Any]:
     """Run the actual diffusion process. Returns list of output images.
 
     When inpaint_state is provided with an inpaint_latent, uses it instead of
@@ -866,7 +889,7 @@ def task_schedule_loop() -> None:
             time.sleep(0.05)
 
 
-def blocking_get_task_result(job_id: str) -> Optional[List[ImageGenerationResult]]:
+def blocking_get_task_result(job_id: str) -> list[ImageGenerationResult] | None:
     """Poll for task result (synchronous). Used by sync API endpoints."""
     if worker_queue is None:
         return None

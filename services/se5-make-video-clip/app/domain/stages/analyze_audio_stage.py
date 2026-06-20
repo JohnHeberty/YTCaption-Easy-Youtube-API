@@ -8,8 +8,10 @@ AnalyzeAudioStage - Analyze audio file and calculate video duration
     - Validate audio length constraints
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...core.constants import ProcessingLimits
@@ -21,7 +23,7 @@ logger = get_logger(__name__)
 class AnalyzeAudioStage(JobStage):
     """Stage 1: Analyze uploaded audio file"""
     
-    def __init__(self, video_builder):
+    def __init__(self, video_builder) -> None:
         """
         Initialize stage
         
@@ -35,12 +37,12 @@ class AnalyzeAudioStage(JobStage):
         )
         self.video_builder = video_builder
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate audio file exists"""
         # Audio path will be found in execute()
         pass
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Analyze audio file
         

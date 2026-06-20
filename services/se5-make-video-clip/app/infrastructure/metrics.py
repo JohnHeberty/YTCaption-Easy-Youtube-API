@@ -3,6 +3,7 @@ Prometheus metrics
 
 Métricas para monitoramento do serviço
 """
+from __future__ import annotations
 
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
 
@@ -97,6 +98,6 @@ blacklist_size = Gauge(
 )
 
 
-def get_metrics():
+def get_metrics() -> bytes:
     """Retorna métricas em formato Prometheus"""
     return generate_latest()

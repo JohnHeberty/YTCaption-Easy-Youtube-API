@@ -1,7 +1,8 @@
 """ESRGAN upscaler — lazy-loaded 4x super-resolution."""
+from __future__ import annotations
+
 import collections
 from common.log_utils import get_logger
-from typing import Optional
 
 import numpy as np
 import torch

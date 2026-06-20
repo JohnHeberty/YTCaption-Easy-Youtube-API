@@ -7,7 +7,9 @@ FetchShortsStage - Search for YouTube shorts matching query
     - Validate results
 """
 
-from typing import Dict, Any
+from __future__ import annotations
+
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import VideoProcessingException, ErrorCode
@@ -18,7 +20,7 @@ logger = get_logger(__name__)
 class FetchShortsStage(JobStage):
     """Stage 2: Fetch shorts from YouTube API"""
     
-    def __init__(self, api_client):
+    def __init__(self, api_client) -> None:
         """
         Initialize stage
         
@@ -32,7 +34,7 @@ class FetchShortsStage(JobStage):
         )
         self.api_client = api_client
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate query is present"""
         if not context.query or not context.query.strip():
             raise VideoProcessingException(
@@ -42,7 +44,7 @@ class FetchShortsStage(JobStage):
                 job_id=context.job_id,
             )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Fetch shorts from YouTube
         

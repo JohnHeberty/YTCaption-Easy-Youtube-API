@@ -4,13 +4,13 @@ File Logger - Sistema de logging em arquivo para debug detalhado
 Salva logs em /app/data/logs com rotação automática.
 Cada job tem seu próprio arquivo de log para facilitar debug.
 """
+from __future__ import annotations
 
 import logging
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
-from typing import Optional
 from common.datetime_utils import now_brazil
 
 from common.log_utils import get_logger
@@ -30,7 +30,7 @@ class FileLogger:
     _loggers = {}
     
     @classmethod
-    def setup(cls):
+    def setup(cls) -> None:
         """Configurar sistema de logging global"""
         if cls._initialized:
             return
@@ -124,7 +124,7 @@ class FileLogger:
         return logger
     
     @classmethod
-    def cleanup_old_logs(cls, days: int = 7):
+    def cleanup_old_logs(cls, days: int = 7) -> None:
         """Limpar logs antigos (executar periodicamente)"""
         if not cls.LOGS_DIR.exists():
             return

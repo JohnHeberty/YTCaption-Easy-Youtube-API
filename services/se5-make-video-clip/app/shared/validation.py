@@ -4,9 +4,10 @@ Advanced Input Validation
 Validação abrangente com sanitization e regras de negócio.
 Pattern: Data Transfer Object (DTO) com validação
 """
+from __future__ import annotations
 
 from pydantic import BaseModel, field_validator, ConfigDict, Field
-from typing import Optional, List
+from typing import Any
 from pathlib import Path
 from enum import Enum
 import re
@@ -246,7 +247,7 @@ class VideoFileValidator:
         logger.debug(f"✅ Video file validated: {file_path.name}")
     
     @classmethod
-    def validate_with_ffprobe(cls, file_path: Path) -> dict:
+    def validate_with_ffprobe(cls, file_path: Path) -> dict[str, Any]:
         """
         Valida vídeo usando ffprobe (validação profunda)
         

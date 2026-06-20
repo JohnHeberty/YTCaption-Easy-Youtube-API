@@ -6,7 +6,7 @@ V2 uses JSON with base64-encoded images.
 from __future__ import annotations
 from common.log_utils import get_logger
 
-from typing import List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Header, Query
 
@@ -32,13 +32,13 @@ router = APIRouter(prefix="/v2/generation", tags=["GenerateV2"])
 )
 def text_to_image_with_ip(
     req: Text2ImgRequestWithPrompt,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None,
         alias="accept",
         description="Override Accept header, 'image/png' for output bytes",
     ),
-):
+) -> Any:
     """Text to image with image prompts (JSON, base64 images)."""
     if accept_query:
         accept = accept_query
@@ -53,11 +53,11 @@ def text_to_image_with_ip(
 )
 def image_upscale_vary_v2(
     req: ImgUpscaleOrVaryRequestJson,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image upscale or vary (V2 — JSON)."""
     if accept_query:
         accept = accept_query
@@ -72,11 +72,11 @@ def image_upscale_vary_v2(
 )
 def image_inpaint_outpaint_v2(
     req: ImgInpaintOrOutpaintRequestJson,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image inpaint or outpaint (V2 — JSON)."""
     if accept_query:
         accept = accept_query
@@ -91,11 +91,11 @@ def image_inpaint_outpaint_v2(
 )
 def image_prompt_v2(
     req: ImgPromptRequestJson,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image prompt (V2 — JSON)."""
     if accept_query:
         accept = accept_query
@@ -110,11 +110,11 @@ def image_prompt_v2(
 )
 def image_enhance_v2(
     req: ImageEnhanceRequestJson,
-    accept: Optional[str] = Header(None),
-    accept_query: Optional[str] = Query(
+    accept: str | None = Header(None),
+    accept_query: str | None = Query(
         None, alias="accept", description="Override Accept header"
     ),
-):
+) -> Any:
     """Image enhance (V2 — JSON)."""
     if accept_query:
         accept = accept_query

@@ -7,9 +7,11 @@ GenerateSubtitlesStage - Transcribe audio and generate word-by-word subtitles
     - Generate SRT file with word-by-word captions
 """
 
-from pathlib import Path
-from typing import Dict, Any, List
+from __future__ import annotations
+
 import re
+from pathlib import Path
+from typing import Any
 
 from ..job_stage import JobStage, StageContext
 from ...shared.exceptions import AudioProcessingException, ErrorCode
@@ -20,7 +22,7 @@ logger = get_logger(__name__)
 class GenerateSubtitlesStage(JobStage):
     """Stage 6: Generate subtitles with VAD"""
     
-    def __init__(self, api_client, subtitle_generator, vad_processor):
+    def __init__(self, api_client, subtitle_generator, vad_processor) -> None:
         """
         Initialize stage
         
@@ -38,7 +40,7 @@ class GenerateSubtitlesStage(JobStage):
         self.subtitle_generator = subtitle_generator
         self.vad_processor = vad_processor
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate audio path exists"""
         if not context.audio_path or not context.audio_path.exists():
             raise AudioProcessingException(
@@ -47,7 +49,7 @@ class GenerateSubtitlesStage(JobStage):
                 job_id=context.job_id,
             )
     
-    async def execute(self, context: StageContext) -> Dict[str, Any]:
+    async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Generate subtitles with speech gating
         
@@ -151,7 +153,7 @@ class GenerateSubtitlesStage(JobStage):
             'words_per_caption': words_per_caption,
         }
     
-    def _extract_word_cues(self, segments: List[Dict]) -> List[Dict[str, Any]]:
+    def _extract_word_cues(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Extract word-level cues from transcription segments"""
         raw_cues = []
         
@@ -191,7 +193,7 @@ class GenerateSubtitlesStage(JobStage):
         
         return raw_cues
     
-    def _group_cues_into_segments(self, cues: List[Dict], segment_size: int = 10) -> List[Dict]:
+    def _group_cues_into_segments(self, cues: list[dict[str, Any]], segment_size: int = 10) -> list[dict[str, Any]]:
         """Group cues into segments"""
         segments = []
         
@@ -206,7 +208,7 @@ class GenerateSubtitlesStage(JobStage):
         
         return segments
     
-    async def compensate(self, context: StageContext):
+    async def compensate(self, context: StageContext) -> None:
         """Delete subtitle file"""
         if context.subtitle_path and context.subtitle_path.exists():
             logger.info(f"↩️  Deleting subtitle file: {context.subtitle_path}")

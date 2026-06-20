@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Video Processing module - Frame extraction, OCR, validation
 

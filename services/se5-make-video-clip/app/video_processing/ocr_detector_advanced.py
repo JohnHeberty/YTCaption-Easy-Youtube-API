@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 PaddleOCR Detector - Single Engine System
 
@@ -10,7 +12,6 @@ Features: Thread-safe, GPU support, Singleton pattern
 
 import cv2
 import numpy as np
-from typing import List, Tuple, Optional
 from dataclasses import dataclass
 import threading
 import os
@@ -31,7 +32,7 @@ class OCRResult:
     """Resultado de detecção OCR"""
     text: str
     confidence: float
-    bbox: Tuple[int, int, int, int]  # (x, y, w, h)
+    bbox: tuple[int, int, int, int]  # (x, y, w, h)
     engine: str = 'paddleocr'
 
 class PaddleOCRDetector:
@@ -45,7 +46,7 @@ class PaddleOCRDetector:
     - GPU support
     """
     
-    def __init__(self, use_gpu: bool = False):
+    def __init__(self, use_gpu: bool = False) -> None:
         """
         Inicializa detector com PaddleOCR
         
@@ -79,7 +80,7 @@ class PaddleOCRDetector:
             logger.error(f"Failed to initialize PaddleOCR: {e}")
             raise
     
-    def detect_text(self, frame: np.ndarray) -> List[OCRResult]:
+    def detect_text(self, frame: np.ndarray) -> list[OCRResult]:
         """
         Detecta texto em frame usando PaddleOCR
         
@@ -97,8 +98,8 @@ class PaddleOCRDetector:
     def detect_subtitle_in_frame(
         self,
         frame: np.ndarray,
-        min_confidence: float = 60.0
-    ):
+        min_confidence: float = 60.0,
+    ) -> 'PaddleOCRDetector.DetectionResult':
         """
         Detecta legenda em frame (compatibilidade com calibrador)
         
@@ -129,7 +130,7 @@ class PaddleOCRDetector:
         
         return DetectionResult(has_sub, conf, texts)
     
-    def _run_paddleocr(self, frame: np.ndarray) -> List[OCRResult]:
+    def _run_paddleocr(self, frame: np.ndarray) -> list[OCRResult]:
         """
         Executa PaddleOCR no frame
         
@@ -203,7 +204,7 @@ class PaddleOCRDetector:
 _ocr_detector_instance = None
 _ocr_detector_lock = threading.Lock()
 
-def get_ocr_detector():
+def get_ocr_detector() -> PaddleOCRDetector:
     """
     Retorna instância singleton do OCR Detector (PaddleOCR ONLY)
     

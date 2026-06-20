@@ -14,7 +14,7 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = get_logger(__name__)
 
@@ -42,9 +42,9 @@ class StableDiffusionModel:
         vae=None,
         clip=None,
         clip_vision=None,
-        filename: Optional[str] = None,
-        vae_filename: Optional[str] = None,
-    ):
+        filename: str | None = None,
+        vae_filename: str | None = None,
+    ) -> None:
         self.unet = unet
         self.vae = vae
         self.clip = clip
@@ -60,12 +60,12 @@ class StableDiffusionModel:
         self.visited_loras: str = ''
 
         # Key maps for LoRA matching
-        self.lora_key_map_unet: Dict[str, str] = {}
-        self.lora_key_map_clip: Dict[str, str] = {}
+        self.lora_key_map_unet: dict[str, str] = {}
+        self.lora_key_map_clip: dict[str, str] = {}
 
         self._init_lora_key_maps()
 
-    def _init_lora_key_maps(self):
+    def _init_lora_key_maps(self) -> None:
         """Initialize LoRA key maps from model state dicts."""
         try:
             from ldm_patched.modules.lora import model_lora_keys_unet, model_lora_keys_clip
@@ -107,7 +107,7 @@ class StableDiffusionModel:
     def has_vae(self) -> bool:
         return self.vae is not None
 
-    def refresh_loras(self, loras: List[Tuple[str, float]]):
+    def refresh_loras(self, loras: list[tuple[str, float]]) -> None:
         """Load and apply LoRA weights to this model.
 
         Uses visited_loras cache to skip reload if config hasn't changed.
@@ -160,7 +160,7 @@ class StableDiffusionModel:
         for lora_filename, weight in loras_to_load:
             self._apply_single_lora(lora_filename, weight)
 
-    def _resolve_lora_path(self, name: str) -> Optional[str]:
+    def _resolve_lora_path(self, name: str) -> str | None:
         """Resolve a LoRA name to a file path using config paths."""
         try:
             from modules.config import paths_loras
@@ -179,7 +179,7 @@ class StableDiffusionModel:
                         return path
             return None
 
-    def _apply_single_lora(self, lora_filename: str, weight: float):
+    def _apply_single_lora(self, lora_filename: str, weight: float) -> None:
         """Load a single LoRA file and apply to UNet and CLIP."""
         import torch
         from ldm_patched.modules.utils import load_torch_file

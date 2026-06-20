@@ -4,9 +4,10 @@ Blacklist Manager - Gerenciamento de vídeos reprovados
 Impede reprocessamento de vídeos que foram rejeitados na validação.
 Usa VideoStatusStore (SQLite) para persistência eficiente com ACID.
 """
+from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Any
 from datetime import datetime
 import json
 
@@ -29,7 +30,7 @@ class BlacklistManager:
     - Histórico permanente
     """
     
-    def __init__(self, db_path: str = "data/database/video_status.db"):
+    def __init__(self, db_path: str = "data/database/video_status.db") -> None:
         """
         Inicializa BlacklistManager com SQLite backend
         
@@ -47,7 +48,7 @@ class BlacklistManager:
         
         logger.info(f"✅ BlacklistManager initialized with SQLite: {db_path}")
     
-    def _migrate_from_json_if_needed(self):
+    def _migrate_from_json_if_needed(self) -> None:
         """
         Migra dados do JSON legado para SQLite (executa apenas uma vez)
         
@@ -110,7 +111,7 @@ class BlacklistManager:
         """
         return self.store.is_rejected(video_id)
     
-    async def add(self, video_id: str, reason: str = "", metadata: Optional[Dict] = None):
+    async def add(self, video_id: str, reason: str = "", metadata: dict[str, Any] | None = None) -> None:
         """
         Adicionar vídeo ao blacklist
         
@@ -131,7 +132,7 @@ class BlacklistManager:
         
         logger.info(f"⚫ Blacklisted: {video_id} - {reason}")
     
-    async def remove(self, video_id: str):
+    async def remove(self, video_id: str) -> None:
         """
         Remover vídeo do blacklist
         
@@ -157,7 +158,7 @@ class BlacklistManager:
             logger.error(f"❌ Failed to remove from blacklist: {e}")
             raise
     
-    async def get_all(self) -> List[Dict]:
+    async def get_all(self) -> list[dict[str, Any]]:
         """
         Obter todos os vídeos blacklisted
         

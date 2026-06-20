@@ -10,7 +10,7 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 from dataclasses import dataclass
-from typing import Any, Optional, Tuple
+from typing import Any
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,7 @@ _ldm_modules = None
 _ldm_utils = None
 
 
-def _get_ldm():
+def _get_ldm() -> dict[str, Any]:
     """Lazy-load ldm_patched modules."""
     global _ldm_modules, _ldm_utils
     if _ldm_modules is None:
@@ -64,7 +64,7 @@ def _get_ldm():
     return _ldm_modules
 
 
-def _get_utils():
+def _get_utils() -> Any:
     global _ldm_utils
     if _ldm_utils is None:
         _ldm_utils = _get_ldm()["utils"]
@@ -80,7 +80,7 @@ class CLIP:
     Handles tokenization and encoding of text prompts.
     """
 
-    def __init__(self, target=None, embedding_directory=None, no_init=False):
+    def __init__(self, target=None, embedding_directory=None, no_init=False) -> None:
         if no_init:
             return
 
@@ -107,7 +107,7 @@ class CLIP:
         )
         self.layer_idx = None
 
-    def clone(self):
+    def clone(self) -> CLIP:
         n = CLIP(no_init=True)
         n.patcher = self.patcher.clone()
         n.cond_stage_model = self.cond_stage_model
@@ -115,16 +115,16 @@ class CLIP:
         n.layer_idx = self.layer_idx
         return n
 
-    def add_patches(self, patches, strength_patch=1.0, strength_model=1.0):
+    def add_patches(self, patches, strength_patch=1.0, strength_model=1.0) -> Any:
         return self.patcher.add_patches(patches, strength_patch, strength_model)
 
-    def clip_layer(self, layer_idx):
+    def clip_layer(self, layer_idx) -> None:
         self.layer_idx = layer_idx
 
-    def tokenize(self, text, return_word_ids=False):
+    def tokenize(self, text, return_word_ids=False) -> Any:
         return self.tokenizer.tokenize_with_weights(text, return_word_ids)
 
-    def encode_from_tokens(self, tokens, return_pooled=False):
+    def encode_from_tokens(self, tokens, return_pooled=False) -> Any:
         if self.layer_idx is not None:
             self.cond_stage_model.clip_layer(self.layer_idx)
         else:
@@ -133,22 +133,22 @@ class CLIP:
         cond, pooled = self.cond_stage_model.encode_token_weights(tokens)
         return (cond, pooled) if return_pooled else cond
 
-    def encode(self, text):
+    def encode(self, text) -> Any:
         tokens = self.tokenize(text)
         return self.encode_from_tokens(tokens)
 
-    def load_sd(self, sd):
+    def load_sd(self, sd) -> Any:
         return self.cond_stage_model.load_sd(sd)
 
-    def get_sd(self):
+    def get_sd(self) -> Any:
         return self.cond_stage_model.state_dict()
 
-    def load_model(self):
+    def load_model(self) -> Any:
         from app.services.model_manager import get_model_manager
         get_model_manager().load_models_gpu([self.patcher])
         return self.patcher
 
-    def get_key_patches(self):
+    def get_key_patches(self) -> Any:
         return self.patcher.get_key_patches()
 
 
@@ -161,7 +161,7 @@ class VAE:
     Handles tiled and batched encode/decode with OOM fallback.
     """
 
-    def __init__(self, sd=None, device=None, config=None, dtype=None):
+    def __init__(self, sd=None, device=None, config=None, dtype=None) -> None:
         from app.services.model_manager import get_model_manager
         ldm = _get_ldm()
         mm = ldm["model_management"]
@@ -237,7 +237,7 @@ class VAE:
             self.first_stage_model, load_device=self.device, offload_device=offload_device
         )
 
-    def decode(self, samples_in):
+    def decode(self, samples_in) -> Any:
         """Decode latent samples to pixel images. Falls back to tiled on OOM."""
         import torch
         from app.services.model_manager import get_model_manager
@@ -268,7 +268,7 @@ class VAE:
         pixel_samples = pixel_samples.to(self.output_device).movedim(1, -1)
         return pixel_samples
 
-    def encode(self, pixel_samples):
+    def encode(self, pixel_samples) -> Any:
         """Encode pixel images to latent space."""
         import torch
         from app.services.model_manager import get_model_manager
@@ -297,7 +297,7 @@ class VAE:
 
         return latent_samples
 
-    def _decode_tiled(self, samples, tile_x=64, tile_y=64, overlap=16):
+    def _decode_tiled(self, samples, tile_x=64, tile_y=64, overlap=16) -> Any:
         """Tiled VAE decode for large images."""
         import torch
         utils = _get_utils()
@@ -316,7 +316,7 @@ class VAE:
         )
         return output
 
-    def _encode_tiled(self, pixel_samples, tile_x=512, tile_y=512, overlap=64):
+    def _encode_tiled(self, pixel_samples, tile_x=512, tile_y=512, overlap=64) -> Any:
         """Tiled VAE encode for large images."""
         utils = _get_utils()
         encode_fn = lambda a: self.first_stage_model.encode((2.0 * a - 1.0).to(self.vae_dtype).to(self.device)).float()
@@ -352,7 +352,7 @@ def load_checkpoint_guess_config(
     embedding_directory=None,
     output_model: bool = True,
     vae_filename_param=None,
-) -> Tuple[Any, Any, Any, Optional[str], Any]:
+    ) -> tuple[Any, Any, Any, str | None, Any]:
     """
     Load a checkpoint file and auto-detect model type.
 
@@ -439,7 +439,7 @@ def load_checkpoint_guess_config(
     return model_patcher, clip, vae, vae_filename, clipvision
 
 
-def _load_model_weights(model, sd):
+def _load_model_weights(model, sd) -> Any:
     """Load state dict into model, logging missing/unexpected keys."""
     m, u = model.load_state_dict(sd, strict=False)
     if m:
@@ -447,7 +447,7 @@ def _load_model_weights(model, sd):
     return model
 
 
-def load_lora_for_models(model, clip, lora_path, strength_model=1.0, strength_clip=1.0):
+def load_lora_for_models(model, clip, lora_path, strength_model=1.0, strength_clip=1.0) -> tuple[Any, Any]:
     """Load a LoRA file and apply it to model and/or clip."""
     ldm = _get_ldm()
 

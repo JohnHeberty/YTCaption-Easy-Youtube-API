@@ -3,6 +3,8 @@ Backward compatibility shim for exceptions_v2 imports.
 All classes are re-exported from exceptions.py with aliases
 matching the v2 naming convention.
 """
+from __future__ import annotations
+
 from .exceptions import (
     EnhancedMakeVideoException,
     AudioProcessingException,

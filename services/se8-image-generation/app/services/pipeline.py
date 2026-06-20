@@ -22,7 +22,7 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 import numpy as np
 
@@ -43,7 +43,7 @@ class Pipeline:
     and diffusion processing. Thread-safe singleton via module-level instance.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty pipeline — no models loaded."""
         from app.services.model_base import StableDiffusionModel
 
@@ -59,22 +59,22 @@ class Pipeline:
         self.final_expansion = None
 
         # ControlNet cache
-        self.loaded_controlnets: Dict[str, Any] = {}
+        self.loaded_controlnets: dict[str, Any] = {}
 
         # Clip encode cache
-        self._clip_cond_cache: Dict[str, Any] = {}
+        self._clip_cond_cache: dict[str, Any] = {}
 
         # Lazy-loaded config paths
-        self._paths_checkpoints: Optional[List[str]] = None
-        self._paths_loras: Optional[List[str]] = None
-        self._path_vae: Optional[str] = None
-        self._path_embeddings: Optional[str] = None
+        self._paths_checkpoints: list[str] | None = None
+        self._paths_loras: list[str] | None = None
+        self._path_vae: str | None = None
+        self._path_embeddings: str | None = None
 
     # -------------------------------------------------------------------------
     # Config path resolution
     # -------------------------------------------------------------------------
 
-    def _get_paths_checkpoints(self) -> List[str]:
+    def _get_paths_checkpoints(self) -> list[str]:
         if self._paths_checkpoints is None:
             try:
                 from modules.config import paths_checkpoints
@@ -85,7 +85,7 @@ class Pipeline:
                 self._paths_checkpoints = [os.path.join(md, "checkpoints"), os.path.join(md, "unet")]
         return self._paths_checkpoints
 
-    def _get_paths_loras(self) -> List[str]:
+    def _get_paths_loras(self) -> list[str]:
         if self._paths_loras is None:
             try:
                 from modules.config import paths_loras
@@ -120,7 +120,7 @@ class Pipeline:
     # Model loading helpers
     # -------------------------------------------------------------------------
 
-    def _resolve_filename(self, name: str, folder_list: List[str]) -> Optional[str]:
+    def _resolve_filename(self, name: str, folder_list: list[str]) -> str | None:
         """Resolve a model name to a file path using folder list."""
         if name in (None, 'None', 'none', ''):
             return None
@@ -156,7 +156,7 @@ class Pipeline:
     # -------------------------------------------------------------------------
 
     @_no_grad
-    def refresh_base_model(self, name: str, vae_name: Optional[str] = None):
+    def refresh_base_model(self, name: str, vae_name: str | None = None):
         """Load or reload the base model.
 
         Skips if the model filename hasn't changed (cache check).
@@ -257,8 +257,8 @@ class Pipeline:
     @_no_grad
     def refresh_loras(
         self,
-        loras: List[Tuple[str, float]],
-        base_model_additional_loras: Optional[List] = None,
+        loras: list[tuple[str, float]],
+        base_model_additional_loras: list | None = None,
     ):
         """Refresh LoRA weights for base and refiner models."""
         if not isinstance(base_model_additional_loras, list):
@@ -268,7 +268,7 @@ class Pipeline:
         self.model_refiner.refresh_loras(loras)
 
     @_no_grad
-    def refresh_controlnets(self, model_paths: List[Optional[str]]):
+    def refresh_controlnets(self, model_paths: list[str | None]):
         """Load/cache ControlNet models, unload unused ones."""
         from app.infrastructure.operators import ControlNetApplyAdvanced
 
@@ -332,7 +332,7 @@ class Pipeline:
         return result
 
     @_no_grad
-    def clip_encode(self, texts: List[str], pool_top_k: int = 1):
+    def clip_encode(self, texts: list[str], pool_top_k: int = 1):
         """Encode a list of texts with CLIP, concatenating conditions.
 
         Args:
@@ -402,10 +402,10 @@ class Pipeline:
         self,
         refiner_model_name: str,
         base_model_name: str,
-        loras: List[Tuple[str, float]],
-        base_model_additional_loras: Optional[List] = None,
+        loras: list[tuple[str, float]],
+        base_model_additional_loras: list | None = None,
         use_synthetic_refiner: bool = False,
-        vae_name: Optional[str] = None,
+        vae_name: str | None = None,
     ):
         """Reload all models and apply LoRAs.
 
@@ -450,7 +450,7 @@ class Pipeline:
     # -------------------------------------------------------------------------
 
     @_no_grad
-    def vae_parse(self, latent: Dict[str, Any]) -> Dict[str, Any]:
+    def vae_parse(self, latent: dict[str, Any]) -> dict[str, Any]:
         """Apply VAE interpose for refiner VAE swap."""
         if self.final_refiner_vae is None:
             return latent
@@ -538,7 +538,7 @@ class Pipeline:
         width: int,
         height: int,
         image_seed: int,
-        callback: Optional[Callable],
+        callback: Callable | None,
         sampler_name: str,
         scheduler_name: str,
         latent=None,
@@ -547,7 +547,7 @@ class Pipeline:
         cfg_scale: float = 7.0,
         refiner_swap_method: str = "joint",
         disable_preview: bool = False,
-    ) -> List[np.ndarray]:
+    ) -> list[np.ndarray]:
         """Run the full diffusion process.
 
         Handles base-to-refiner switching with 3 methods:
@@ -787,7 +787,7 @@ class Pipeline:
             return cond
 
     @staticmethod
-    def pytorch_to_numpy(x) -> List[np.ndarray]:
+    def pytorch_to_numpy(x) -> list[np.ndarray]:
         """Convert PyTorch tensor(s) to list of numpy uint8 images."""
         import torch
         if x is None:
@@ -812,10 +812,10 @@ class Pipeline:
 # ---------------------------------------------------------------------------
 # Module-level singleton
 # ---------------------------------------------------------------------------
-_pipeline: Optional[Pipeline] = None
+_pipeline: Pipeline | None = None
 
 
-def get_pipeline(pipeline: Optional[Pipeline] = None) -> Pipeline:
+def get_pipeline(pipeline: Pipeline | None = None) -> Pipeline:
     """Get or create the singleton Pipeline instance.
 
     Args:
