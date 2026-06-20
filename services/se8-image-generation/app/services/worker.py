@@ -594,13 +594,13 @@ def process_generate(async_job: QueueTask) -> None:
         if async_task.inpaint_input_image:
             tasks, inpaint_state = _apply_inpaint(async_task, tasks)
 
-        # Step 3b: Set up InpaintWorker for latent-level masking
+        # Step 3b: InpaintWorker reference for post_process (crop paste)
         inpaint_worker_ref = None
         if inpaint_state.get("mode") == "inpaint":
             inpaint_worker_ref = inpaint_state["worker"]
-            import modules.inpaint_worker as miw
-            miw.current_task = inpaint_worker_ref
-            logger.info("InpaintWorker: current_task set for latent-level masking")
+            logger.info("InpaintWorker: crop=%dx%d, will post_process after diffusion",
+                        inpaint_worker_ref.interested_image.shape[1],
+                        inpaint_worker_ref.interested_image.shape[0])
 
         # Step 4: Apply FreeU
         _apply_freeu(async_task, pipeline)
@@ -704,14 +704,8 @@ def process_generate(async_job: QueueTask) -> None:
         logger.exception("Generation failed: %s", e)
         async_job.set_result([], True, str(e))
     finally:
-        # Clean up InpaintWorker
-        if inpaint_worker_ref is not None:
-            try:
-                import modules.inpaint_worker as miw
-                miw.current_task = None
-                logger.info("InpaintWorker: current_task cleared")
-            except Exception:
-                pass
+        # Clean up InpaintWorker reference
+        inpaint_worker_ref = None
         if worker_queue:
             worker_queue.finish_task(async_job.job_id)
 
