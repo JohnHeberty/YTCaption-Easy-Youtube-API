@@ -2,7 +2,7 @@ import re
 import json
 from urllib.parse import quote_plus
 
-from .utils import fetch_url, get_thumbnail_urls, extract_initial_data
+from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
 
 
 def _extract_search_video_details(video_renderer):
@@ -211,7 +211,7 @@ def _fetch_continuation_page(continuation_token, timeout=10):
     if not continuation_token:
         return {"error": "No continuation token provided"}, None
 
-    continuation_url = "https://www.youtube.com/youtubei/v1/search?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+    continuation_url = f"https://www.youtube.com/youtubei/v1/search?key={get_innertube_api_key()}"
 
     headers = {
         "X-YouTube-Client-Name": "1",

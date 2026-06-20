@@ -4,11 +4,11 @@ Resilient Redis store with connection pooling and circuit breaker
 import inspect
 import socket
 import logging
+import time
 from typing import Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 from redis import Redis
 from redis.connection import ConnectionPool
-from redis.exceptions import RedisError, ConnectionError, TimeoutError
 
 from common.datetime_utils import now_brazil
 
@@ -231,7 +231,6 @@ class ResilientRedisStore:
                 return
             except Exception as e:
                 if attempt < max_retries - 1:
-                    import time
                     wait_time = 2 ** attempt
                     logger.warning(
                         f"⚠️ Redis connection attempt {attempt + 1}/{max_retries} failed, "
@@ -248,39 +247,50 @@ class ResilientRedisStore:
             return self.circuit_breaker.call(func, *args, **kwargs)
         else:
             return func(*args, **kwargs)
+
+    def _safe_call(self, operation: str, func, *args, default=None, **kwargs):
+        """Execute a Redis operation with circuit breaker and error handling.
+
+        Args:
+            operation: Name for logging (e.g., "GET", "SET").
+            func: The Redis method to call.
+            *args: Positional args for the method.
+            default: Value to return on error.
+            **kwargs: Keyword args for the method.
+
+        Returns:
+            Result of the operation, or *default* on error.
+        """
+        try:
+            return self._execute_with_circuit_breaker(func, *args, **kwargs)
+        except CircuitBreakerOpenError:
+            logger.warning("Circuit breaker open, skipping %s", operation)
+            return default
+        except Exception as e:
+            logger.error("Redis %s failed: %s", operation, e)
+            return default
     
     def ping(self) -> bool:
         """
         Verifica se Redis está acessível.
-        
+
         Returns:
             True se conectado, False caso contrário
         """
-        try:
-            return self._execute_with_circuit_breaker(self.redis.ping)
-        except Exception as e:
-            logger.error(f"Redis ping failed: {e}")
-            return False
-    
+        return self._safe_call("PING", self.redis.ping, default=False)
+
     def get(self, key: str) -> Optional[str]:
         """
         Obtém valor do Redis.
-        
+
         Args:
             key: Chave
-        
+
         Returns:
             Valor ou None se não encontrado/erro
         """
-        try:
-            return self._execute_with_circuit_breaker(self.redis.get, key)
-        except CircuitBreakerOpenError:
-            logger.warning(f"Circuit breaker open, skipping GET {key}")
-            return None
-        except Exception as e:
-            logger.error(f"Redis GET failed for key {key}: {e}")
-            return None
-    
+        return self._safe_call(f"GET {key}", self.redis.get, key)
+
     def set(
         self,
         key: str,
@@ -288,11 +298,11 @@ class ResilientRedisStore:
         ex: Optional[int] = None,
         px: Optional[int] = None,
         nx: bool = False,
-        xx: bool = False
+        xx: bool = False,
     ) -> bool:
         """
         Define valor no Redis.
-        
+
         Args:
             key: Chave
             value: Valor
@@ -300,111 +310,75 @@ class ResilientRedisStore:
             px: Expiration em milissegundos
             nx: Set only if not exists
             xx: Set only if exists
-        
+
         Returns:
             True se sucesso, False caso contrário
         """
-        try:
-            result = self._execute_with_circuit_breaker(
-                self.redis.set,
-                key,
-                value,
-                ex=ex,
-                px=px,
-                nx=nx,
-                xx=xx
-            )
-            return bool(result)
-        except CircuitBreakerOpenError:
-            logger.warning(f"Circuit breaker open, skipping SET {key}")
-            return False
-        except Exception as e:
-            logger.error(f"Redis SET failed for key {key}: {e}")
-            return False
-    
+        result = self._safe_call(
+            f"SET {key}",
+            self.redis.set,
+            key,
+            value,
+            ex=ex,
+            px=px,
+            nx=nx,
+            xx=xx,
+            default=False,
+        )
+        return bool(result)
+
     def setex(self, key: str, time: int, value: str) -> bool:
         """
         Define valor com expiração.
-        
+
         Args:
             key: Chave
             time: TTL em segundos
             value: Valor
-        
+
         Returns:
             True se sucesso, False caso contrário
         """
-        try:
-            result = self._execute_with_circuit_breaker(
-                self.redis.setex,
-                key,
-                time,
-                value
-            )
-            return bool(result)
-        except CircuitBreakerOpenError:
-            logger.warning(f"Circuit breaker open, skipping SETEX {key}")
-            return False
-        except Exception as e:
-            logger.error(f"Redis SETEX failed for key {key}: {e}")
-            return False
-    
+        result = self._safe_call(
+            f"SETEX {key}", self.redis.setex, key, time, value, default=False
+        )
+        return bool(result)
+
     def delete(self, *keys: str) -> int:
         """
         Deleta chaves.
-        
+
         Args:
             keys: Chaves para deletar
-        
+
         Returns:
             Número de chaves deletadas
         """
-        try:
-            return self._execute_with_circuit_breaker(self.redis.delete, *keys)
-        except CircuitBreakerOpenError:
-            logger.warning(f"Circuit breaker open, skipping DELETE {keys}")
-            return 0
-        except Exception as e:
-            logger.error(f"Redis DELETE failed for keys {keys}: {e}")
-            return 0
-    
+        return self._safe_call(f"DELETE {keys}", self.redis.delete, *keys, default=0)
+
     def exists(self, *keys: str) -> int:
         """
         Verifica existência de chaves.
-        
+
         Args:
             keys: Chaves para verificar
-        
+
         Returns:
             Número de chaves que existem
         """
-        try:
-            return self._execute_with_circuit_breaker(self.redis.exists, *keys)
-        except CircuitBreakerOpenError:
-            logger.warning(f"Circuit breaker open, skipping EXISTS {keys}")
-            return 0
-        except Exception as e:
-            logger.error(f"Redis EXISTS failed for keys {keys}: {e}")
-            return 0
-    
+        return self._safe_call(f"EXISTS {keys}", self.redis.exists, *keys, default=0)
+
     def keys(self, pattern: str = "*") -> list:
         """
         Lista chaves por pattern.
-        
+
         Args:
             pattern: Pattern de busca
-        
+
         Returns:
             Lista de chaves
         """
-        try:
-            return self._execute_with_circuit_breaker(self.redis.keys, pattern)
-        except CircuitBreakerOpenError:
-            logger.warning(f"Circuit breaker open, skipping KEYS {pattern}")
-            return []
-        except Exception as e:
-            logger.error(f"Redis KEYS failed for pattern {pattern}: {e}")
-            return []
+        return self._safe_call(f"KEYS {pattern}", self.redis.keys, pattern, default=[])
     
     def close(self):
         """Fecha conexões do pool"""

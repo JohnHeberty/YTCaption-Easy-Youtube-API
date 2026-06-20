@@ -200,7 +200,7 @@ class DomainJobProcessor:
             if self.event_publisher:
                 await self.event_publisher.publish_job_completed(
                     job_id=job_id,
-                    result=result.dict()
+                    result=result.model_dump()
                 )
             
             logger.info(f"🎉 Job {job_id} completed successfully (Domain-Driven)!")

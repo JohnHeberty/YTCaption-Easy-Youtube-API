@@ -139,3 +139,15 @@ def parse_view_count(view_count_text: str) -> Optional[int]:
         return int(view_count_text.replace(",", ""))
     except (ValueError, TypeError):
         return None
+
+
+_DEFAULT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+
+
+def get_innertube_api_key() -> str:
+    """Return YouTube InnerTube API key from config, with safe fallback."""
+    try:
+        from app.core.config import get_settings
+        return get_settings().youtube_innertube_api_key
+    except Exception:
+        return _DEFAULT_INNERTUBE_KEY

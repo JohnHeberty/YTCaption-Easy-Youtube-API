@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 try:
     from common.job_utils.models import StandardJob, JobStatus, generate_job_id
@@ -164,5 +164,4 @@ class VoiceProfile(BaseModel):
     sample_rate: int = 24000
     status: str = "active"
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    # json_encoders removed — Pydantic v2 handles datetime natively

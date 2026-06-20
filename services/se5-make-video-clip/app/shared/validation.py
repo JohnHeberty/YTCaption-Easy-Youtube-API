@@ -5,7 +5,7 @@ Validação abrangente com sanitization e regras de negócio.
 Pattern: Data Transfer Object (DTO) com validação
 """
 
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, field_validator, ConfigDict, Field
 from typing import Optional, List
 from pathlib import Path
 from enum import Enum
@@ -52,7 +52,8 @@ class CreateVideoRequestValidated(BaseModel):
     subtitle_style: SubtitleStyle = Field(default=SubtitleStyle.DYNAMIC, description="Subtitle style")
     aspect_ratio: str = Field(default=AspectRatios.VERTICAL.value, description="Video aspect ratio")
     
-    @validator('query')
+    @field_validator('query')
+    @classmethod
     def sanitize_query(cls, v: str) -> str:
         """
         Sanitiza query removendo caracteres perigosos
@@ -75,7 +76,8 @@ class CreateVideoRequestValidated(BaseModel):
         
         return sanitized
     
-    @validator('max_shorts')
+    @field_validator('max_shorts')
+    @classmethod
     def validate_max_shorts(cls, v: int) -> int:
         """
         Valida max_shorts baseado em lógica de negócio
@@ -90,7 +92,8 @@ class CreateVideoRequestValidated(BaseModel):
         
         return max(ProcessingLimits.MIN_SHORTS_COUNT, min(v, ProcessingLimits.MAX_SHORTS_COUNT))
     
-    @validator('aspect_ratio')
+    @field_validator('aspect_ratio')
+    @classmethod
     def validate_aspect_ratio(cls, v: str) -> str:
         """Valida formato de aspect ratio"""
         # Verificar se é um dos valores enum válidos
@@ -105,12 +108,9 @@ class CreateVideoRequestValidated(BaseModel):
         
         return v
     
-    class Config:
-        # Não permitir campos extras (security)
-        extra = 'forbid'
-        
-        # Schema para documentação
-        schema_extra = {
+    model_config = ConfigDict(
+        extra='forbid',
+        json_schema_extra={
             "example": {
                 "query": "funny cats",
                 "max_shorts": 15,
@@ -119,6 +119,7 @@ class CreateVideoRequestValidated(BaseModel):
                 "aspect_ratio": "9:16"
             }
         }
+    )
 
 class AudioFileValidator:
     """

@@ -1,22 +1,26 @@
 """
 Exception handling utilities
 """
+from common.exceptions import ServiceError
 from .handlers import (
     BaseServiceException,
     ValidationException,
     ResourceNotFoundException,
     ProcessingException,
     ServiceUnavailableException,
+    RateLimitException,
     create_exception_handler,
-    setup_exception_handlers
+    setup_exception_handlers,
 )
 
 __all__ = [
+    'ServiceError',
     'BaseServiceException',
     'ValidationException',
     'ResourceNotFoundException',
     'ProcessingException',
     'ServiceUnavailableException',
+    'RateLimitException',
     'create_exception_handler',
-    'setup_exception_handlers'
+    'setup_exception_handlers',
 ]

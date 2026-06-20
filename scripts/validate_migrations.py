@@ -23,15 +23,15 @@ print()
 # Test 1: Common library imports
 print("📦 Teste 1: Importando biblioteca common...")
 try:
-    from common.logging import setup_structured_logging, get_logger
-    from common.redis import ResilientRedisStore
-    from common.exceptions import setup_exception_handlers
-    from common.models import BaseJob, JobStatus
+    from common.log_utils import setup_structured_logging, get_logger
+    from common.redis_utils.resilient_store import ResilientRedisStore
+    from common.exception_handlers import setup_exception_handlers
+    from common.job_utils import StandardJob, JobStatus
     print("✅ Common library importada com sucesso")
     print(f"   - Logging: {setup_structured_logging.__name__}")
     print(f"   - Redis: {ResilientRedisStore.__name__}")
     print(f"   - Exceptions: {setup_exception_handlers.__name__}")
-    print(f"   - Models: {BaseJob.__name__}, {JobStatus.__name__}")
+    print(f"   - Models: {StandardJob.__name__}, {JobStatus.__name__}")
 except Exception as e:
     print(f"❌ Erro ao importar common library: {e}")
     sys.exit(1)

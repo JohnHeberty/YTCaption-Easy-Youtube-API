@@ -131,8 +131,6 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             job.update_stage("detecting", "completed", progress=100.0)
             job.update_stage("inpainting", "completed", progress=100.0)
             store.save_job(job.job_id, job.model_dump(mode="json"))
-            await se10.close()
-            await se8.close()
             return
 
         masks = segment_result.get("masks", [])
@@ -141,8 +139,6 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             job.error = "SE10 detected objects but returned no masks"
             job.update_stage("detecting", "failed", error="No masks returned")
             store.save_job(job.job_id, job.model_dump(mode="json"))
-            await se10.close()
-            await se8.close()
             return
 
         job.objects_detected = len(masks)
@@ -185,8 +181,6 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             job.error = "SE8 returned empty result"
             job.update_stage("inpainting", "failed", error="Empty SE8 result")
             store.save_job(job.job_id, job.model_dump(mode="json"))
-            await se10.close()
-            await se8.close()
             return
 
         # Save to file — base64 from SE8 file download is valid PNG

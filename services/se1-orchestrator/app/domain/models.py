@@ -21,7 +21,7 @@ except ImportError:
     def now_brazil() -> datetime:
         return datetime.now(BRAZIL_TZ)
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import hashlib
 
 
@@ -227,18 +227,17 @@ class PipelineRequest(BaseModel):
     apply_highpass_filter: Optional[bool] = Field(default=False, description="Aplicar filtro passa-alta no áudio.")
     set_sample_rate_16k: Optional[bool] = Field(default=True, description="Forçar sample rate em 16kHz.")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-                "language": "pt",
-                "language_out": "en",
-                "remove_noise": True,
-                "convert_to_mono": True,
-                "apply_highpass_filter": False,
-                "set_sample_rate_16k": True,
-            }
+    model_config = ConfigDict(json_schema_extra={
+        "example": {
+            "youtube_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "language": "pt",
+            "language_out": "en",
+            "remove_noise": True,
+            "convert_to_mono": True,
+            "apply_highpass_filter": False,
+            "set_sample_rate_16k": True,
         }
+    })
 
 
 class PipelineResponse(BaseModel):

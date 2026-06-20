@@ -45,7 +45,7 @@ class PipelineJobV2(StandardJob):
         JobStatus.CANCELLED: PipelineStatus.CANCELLED,
     }
 
-    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
+    # json_encoders removed — Pydantic v2 handles datetime natively
 
     @classmethod
     def create_new(cls, youtube_url: str, **kwargs) -> "PipelineJobV2":

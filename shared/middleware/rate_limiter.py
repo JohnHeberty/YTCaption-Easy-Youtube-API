@@ -18,7 +18,7 @@ Usage (in main.py)::
 """
 import asyncio
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -40,7 +40,7 @@ class _IPBucket:
 
     async def is_allowed(self, max_requests: int, window: timedelta) -> bool:
         async with self.lock:
-            now = datetime.utcnow()
+            now = datetime.now(tz=timezone.utc)
             cutoff = now - window
             while self.timestamps and self.timestamps[0] < cutoff:
                 self.timestamps.popleft()

@@ -7,6 +7,7 @@ from typing import Any, Optional, Dict, List
 from .utils import (
     fetch_url,
     get_thumbnail_urls,
+    get_innertube_api_key,
     parse_duration_to_seconds,
     parse_iso8601_date,
     parse_view_count,
@@ -22,7 +23,7 @@ INNERTUBE_PAYLOAD_BASE: dict[str, Any] = {
     }
 }
 
-INNERTUBE_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+INNERTUBE_API_KEY = _DEFAULT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 
 def is_valid_video_id(video_id: str) -> bool:
     """Check if a string is a valid YouTube video ID"""
@@ -72,7 +73,7 @@ def get_video_info(url_or_id: str, timeout: int = 5) -> Dict[str, Any]:
 
     try:
         player_url = (
-            f"https://www.youtube.com/youtubei/v1/player?key={INNERTUBE_API_KEY}"
+            f"https://www.youtube.com/youtubei/v1/player?key={get_innertube_api_key()}"
         )
         player_data = fetch_url(
             player_url, method="POST", json_data=inner_tube_payload, timeout=timeout
@@ -252,7 +253,7 @@ def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) 
 
     related_videos = []
     try:
-        next_url = f"https://www.youtube.com/youtubei/v1/next?key={INNERTUBE_API_KEY}"
+        next_url = f"https://www.youtube.com/youtubei/v1/next?key={get_innertube_api_key()}"
         next_data = fetch_url(
             next_url, method="POST", json_data=inner_tube_payload, timeout=timeout
         )

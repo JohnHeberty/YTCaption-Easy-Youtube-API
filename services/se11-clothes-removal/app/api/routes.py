@@ -1,8 +1,11 @@
 """Job routes for SE11 Clothes Removal."""
+import os
+import shutil
 import uuid
 
 from fastapi import APIRouter, HTTPException
 
+from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
 from app.core.models import (
     ClothesRemovalJob,
@@ -83,10 +86,6 @@ async def delete_job(job_id: str):
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    import os
-    import shutil
-
-    from app.core.config import settings
     output_dir = os.path.join(settings.output_dir, job_id)
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir, ignore_errors=True)
