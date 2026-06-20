@@ -36,6 +36,10 @@ class IJobStore(Protocol):
         """Lista jobs recentes."""
         ...
 
+    def cleanup_all(self) -> int:
+        """Remove todos os jobs do store. Retorna quantidade removida."""
+        ...
+
 
 class IAudioProcessor(Protocol):
     """Protocolo para processamento de áudio."""

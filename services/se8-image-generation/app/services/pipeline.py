@@ -28,6 +28,13 @@ import numpy as np
 
 logger = get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Named constants for diffusion thresholds
+# ---------------------------------------------------------------------------
+DENOISE_REFINER_THRESHOLD = 0.9
+KARRAS_EXPONENT = 0.834
+VAE_SIGMA_MULTIPLIER = 1.4
+
 
 class Pipeline:
     """Main image generation pipeline.
@@ -506,10 +513,10 @@ class Pipeline:
         assert refiner_swap_method in ('joint', 'separate', 'vae')
 
         if self.final_refiner_vae is not None and self.final_refiner_unet is not None:
-            if denoise > 0.9:
+            if denoise > DENOISE_REFINER_THRESHOLD:
                 return self.final_vae, self.final_refiner_vae
             else:
-                karras_threshold = (float(steps - switch) / float(steps)) ** 0.834
+                karras_threshold = (float(steps - switch) / float(steps)) ** KARRAS_EXPONENT
                 if denoise > karras_threshold:
                     return self.final_vae, None
                 else:
@@ -563,11 +570,11 @@ class Pipeline:
 
         # Refiner selection based on denoise level
         if self.final_refiner_vae is not None and self.final_refiner_unet is not None:
-            if denoise > 0.9:
+            if denoise > DENOISE_REFINER_THRESHOLD:
                 refiner_swap_method = 'vae'
             else:
                 refiner_swap_method = 'joint'
-                karras_threshold = (float(steps - switch) / float(steps)) ** 0.834
+                karras_threshold = (float(steps - switch) / float(steps)) ** KARRAS_EXPONENT
                 if denoise > karras_threshold:
                     target_unet, target_vae = self.final_unet, self.final_vae
                     target_refiner_unet, target_refiner_vae = None, None
@@ -708,7 +715,7 @@ class Pipeline:
 
             sampled_latent = self.vae_parse(sampled_latent)
 
-            k_sigmas = 1.4
+            k_sigmas = VAE_SIGMA_MULTIPLIER
             sigmas = self.calculate_sigmas(
                 sampler=sampler_name, scheduler=scheduler_name,
                 steps=steps, denoise=denoise,
@@ -808,9 +815,16 @@ class Pipeline:
 _pipeline: Optional[Pipeline] = None
 
 
-def get_pipeline() -> Pipeline:
-    """Get or create the singleton Pipeline instance."""
+def get_pipeline(pipeline: Optional[Pipeline] = None) -> Pipeline:
+    """Get or create the singleton Pipeline instance.
+
+    Args:
+        pipeline: Optional override for DI/testing. If provided, sets the
+                  singleton and returns the injected instance.
+    """
     global _pipeline
+    if pipeline is not None:
+        _pipeline = pipeline
     if _pipeline is None:
         _pipeline = Pipeline()
     return _pipeline

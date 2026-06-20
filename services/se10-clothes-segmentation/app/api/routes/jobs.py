@@ -22,9 +22,18 @@ _job_manager = None
 _job_manager_lock = threading.Lock()
 
 
-def _get_job_manager():
-    """Lazy-create JobManager with Redis connection (thread-safe)."""
+def _get_job_manager(job_manager=None):
+    """Lazy-create JobManager with Redis connection (thread-safe).
+
+    Args:
+        job_manager: Optional override for DI/testing. If provided, sets the
+                     module-level instance and returns it.
+    """
     global _job_manager
+    if job_manager is not None:
+        _job_manager = job_manager
+        return _job_manager
+
     if _job_manager is not None:
         return _job_manager
 
