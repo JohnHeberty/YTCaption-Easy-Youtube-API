@@ -25,9 +25,12 @@ class ClothingClass(str, Enum):
 
 CLOTHING_CLASSES: list[str] = [c.value for c in ClothingClass]
 
+PERSON_CLASSES: list[str] = ["person", "woman", "man"]
+
 DEFAULT_BOX_THRESHOLD: float = 0.10
 DEFAULT_TEXT_THRESHOLD: float = 0.10
 DEFAULT_MAX_AREA_PCT: float = 0.29
+DEFAULT_MAX_AREA_PCT_PERSON: float = 0.80
 DEFAULT_MAX_OBJECTS: int = 50
 
 ALLOWED_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png")

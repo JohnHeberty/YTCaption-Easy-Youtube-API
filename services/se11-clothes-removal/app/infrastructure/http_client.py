@@ -82,8 +82,12 @@ class SE10Client(ServiceClient):
         classes: str | None = None,
         box_threshold: float | None = None,
         text_threshold: float | None = None,
+        mode: str = "clothes",
     ) -> dict[str, Any]:
-        """Send image to SE10 for clothing segmentation.
+        """Send image to SE10 for segmentation.
+
+        Args:
+            mode: "clothes" for clothing detection, "person" for person detection.
 
         Returns dict with keys: detected, objects, masks, mask_image, processing_time_ms
         """
@@ -95,6 +99,8 @@ class SE10Client(ServiceClient):
             form_data["box_threshold"] = str(box_threshold)
         if text_threshold is not None:
             form_data["text_threshold"] = str(text_threshold)
+        if mode:
+            form_data["mode"] = mode
 
         response = await self._request_with_retry(
             "POST",
@@ -130,7 +136,9 @@ class SE8Client(ServiceClient):
         prompt: str = "",
         negative_prompt: str = "",
         inpaint_strength: float = 1.0,
-        style: str = "Fooocus Inpaint",
+        inpaint_respective_field: float = 0.9,
+        style: str = "",
+        loras: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
@@ -140,7 +148,9 @@ class SE8Client(ServiceClient):
             prompt: Inpainting prompt
             negative_prompt: Negative prompt
             inpaint_strength: Strength of inpainting (0.0-1.0)
+            inpaint_respective_field: Crop area fraction (0.0-1.0)
             style: Style selection
+            loras: Optional LoRA overrides
 
         Returns dict with keys: base64, url, seed, finish_reason
         """
@@ -149,12 +159,26 @@ class SE8Client(ServiceClient):
 
         # Use stronger negative prompt for cleaner results
         if not negative_prompt:
-            negative_prompt = "deformed, blurry, low quality, extra limbs, disfigured, poorly drawn face, watermark, text, ugly"
+            negative_prompt = (
+                "deformed, blurry, low quality, extra limbs, disfigured, "
+                "poorly drawn face, watermark, text, ugly, bad anatomy, "
+                "bad proportions, mutated hands, extra fingers"
+            )
+
+        # Default LoRAs: SDXL offset (quality) only — NSFW LoRAs are incompatible with JuggernautXL
+        if loras is None:
+            loras = [
+                {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+            ]
 
         payload: dict[str, Any] = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
-            "style_selections": [style],
+            "style_selections": [style] if style else [],
             "performance_selection": "Speed",
             "aspect_ratios_selection": aspect_str,
             "image_number": 1,
@@ -162,6 +186,7 @@ class SE8Client(ServiceClient):
             "sharpness": 2.0,
             "guidance_scale": 4.0,
             "base_model_name": "juggernautXL_v8Rundiffusion.safetensors",
+            "loras": loras,
             "input_image": image_b64,
             "input_mask": mask_b64,
             "inpaint_additional_prompt": prompt,
@@ -170,7 +195,7 @@ class SE8Client(ServiceClient):
             "advanced_params": {
                 "inpaint_engine": "v2.6",
                 "inpaint_strength": inpaint_strength,
-                "inpaint_respective_field": 0.8,
+                "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
             },
         }
@@ -181,10 +206,12 @@ class SE8Client(ServiceClient):
             json=payload,
         )
         result = response.json()
-        if isinstance(result, list) and len(result) > 0:
-            item = result[0]
-        else:
-            item = result
+        # SE8 may return list-of-lists or list-of-dicts — unwrap until we get a dict
+        item = result
+        while isinstance(item, list) and len(item) > 0:
+            item = item[0]
+        if not isinstance(item, dict):
+            raise Exception(f"SE8 returned unexpected type: {type(item).__name__}, value: {str(item)[:200]}")
 
         # SE8 returns file URL when require_base64=False — download image bytes
         url_val = item.get("url", "")
