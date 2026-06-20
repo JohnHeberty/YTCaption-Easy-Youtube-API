@@ -8,18 +8,7 @@ Pattern: Publisher-Subscriber / Observer
 from enum import Enum
 from dataclasses import dataclass, asdict
 from datetime import datetime
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 
 from typing import Dict, Any, Optional, Callable, Coroutine
 import json

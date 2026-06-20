@@ -11,17 +11,7 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from datetime import datetime
-try:
-    from common.datetime_utils import now_brazil
-except ImportError:
-    from datetime import timezone
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        from backports.zoneinfo import ZoneInfo
-    BRAZIL_TZ = ZoneInfo("America/Sao_Paulo")
-    def now_brazil() -> datetime:
-        return datetime.now(BRAZIL_TZ)
+from common.datetime_utils import now_brazil
 import cv2
 import numpy as np
 from common.log_utils import get_logger
