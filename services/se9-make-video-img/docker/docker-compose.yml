@@ -9,11 +9,14 @@ services:
     env_file:
       - ../.env
     environment:
+      - PYTHONPATH=/app
       - SE7_URL=http://host.docker.internal:8007
       - SE8_URL=http://host.docker.internal:8008
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
+      - ../../../shared:/app/common
+      - ../app:/app/app
       - ../data/outputs:/app/data/outputs
       - ../data/logs:/app/data/logs
     networks:
