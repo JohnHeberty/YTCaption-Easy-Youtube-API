@@ -1,7 +1,7 @@
 # 🏗️ Arquitetura do Projeto - YTCaption
 
-> **Última atualização**: 2026-02-28  
-> **Status**: ✅ Estrutura Modular Implementada
+> **Última atualização**: 2026-06-19
+> **Status**: ✅ Estrutura Modular Implementada — SE1-SE10
 
 ## 📐 Visão Geral
 
@@ -21,15 +21,19 @@ O YTCaption utiliza uma **arquitetura de microserviços** com **Clean Architectu
 
 ```
 YTCaption-Easy-Youtube-API/
-├── orchestrator/           # Coordenador central (porta 8000 interno / 8006 externo)
 ├── services/
-│   ├── video-downloader/   # Download YouTube (porta 8002)
-│   ├── audio-normalization/ # Processamento áudio (porta 8003)
-│   ├── audio-transcriber/  # Transcrição (porta 8004) ⭐ REORGANIZADO
-│   ├── youtube-search/     # Busca vídeos (porta 8001)
-│   └── make-video/         # Geração vídeos (porta 8005) ⭐ REFERÊNCIA
-├── common/                 # Biblioteca compartilhada
-└── docs/                   # Documentação centralizada
+│   ├── se1-orchestrator/         # Coordenador central (porta 8001)
+│   ├── se2-video-downloader/     # Download YouTube (porta 8002)
+│   ├── se3-audio-normalization/  # Processamento audio (porta 8003)
+│   ├── se4-audio-transcriber/    # Transcricao (porta 8004)
+│   ├── se5-make-video-clip/      # Composicao video shorts (porta 8005)
+│   ├── se6-youtube-search/       # Busca videos (porta 8006)
+│   ├── se7-audio-generation/     # Geracao audio TTS (porta 8007)
+│   ├── se8-image-generation/     # Geracao imagens SDXL (porta 8008)
+│   ├── se9-make-video-img/       # Geracao video images+audio (porta 8009)
+│   └── se10-clothes-segmentation/ # Segmentacao roupas (porta 8010)
+├── shared/                       # Biblioteca compartilhada (ytcaption-common)
+└── docs/                         # Documentacao centralizada
 ```
 
 ---
@@ -147,31 +151,32 @@ graph TD
 
 ---
 
-## 📦 Common Library
+## 📦 Shared Library
 
-Biblioteca compartilhada por todos os microserviços:
+Biblioteca compartilhada por todos os microserviços (`shared/` → importa como `common`):
 
 ```
-common/
-├── config_utils/        # Configurações centralizadas
-│   └── base_settings.py
-├── exception_handlers/  # Handlers HTTP globais
-│   └── handlers.py
+shared/
+├── config_utils/        # Configuracoes centralizadas
+│   └── base_settings.py # BaseServiceSettings (padrao monorepo)
+├── fastapi_utils.py     # create_service_app(), create_api_key_dependency()
 ├── log_utils/          # Logging estruturado
 │   └── structured.py
-├── models/             # Modelos compartilhados
-│   └── base.py
-└── redis_utils/        # Client Redis resiliente
-    └── resilient_store.py
+├── health_utils.py     # ServiceHealthChecker
+├── datetime_utils/     # now_brazil()
+├── job_utils/          # Models, store, routes factory
+│   └── models.py       # StandardJob, JobStatus, StageInfo
+├── http_utils/         # ResilientHttpClient
+├── redis_utils/        # Client Redis resiliente
+├── exception_handlers/ # Handlers HTTP globais
+├── middleware/          # Rate limiter, body size
+└── test_utils/         # Fixtures e mocks
 ```
 
-**Instalação em cada serviço:**
+**Instalacao em cada servico:**
 ```bash
-# Via symbolic link
-ln -s ../../common ./common
-
-# Ou via pip editable install
-pip install -e ../../common
+# Via pip editable install
+pip install -e ../shared
 ```
 
 ---
@@ -327,12 +332,17 @@ make calibrate        # Otimização de parâmetros
 
 ## 📚 Referências
 
-### Documentação por Serviço
-- [Audio Transcriber](./services/se4-audio-transcriber/README.md) - ⭐ Estrutura modular
-- [Make Video](./services/se5-make-video-clip/README.md) - ⭐ Referência arquitetural
-- [Video Downloader](./services/se2-video-downloader/README.md)
-- [Audio Normalization](./services/se3-audio-normalization/README.md)
-- [YouTube Search](./services/se6-youtube-search/README.md)
+### Documentacao por Servico
+- [SE1 Orchestrator](../../services/se1-orchestrator/README.md)
+- [SE2 Video Downloader](../../services/se2-video-downloader/README.md)
+- [SE3 Audio Normalization](../../services/se3-audio-normalization/README.md)
+- [SE4 Audio Transcriber](../../services/se4-audio-transcriber/README.md) — Estrutura modular
+- [SE5 Make Video Clip](../../services/se5-make-video-clip/README.md) — Referencia arquitetural
+- [SE6 YouTube Search](../../services/se6-youtube-search/README.md)
+- [SE7 Audio Generation](../../services/se7-audio-generation/README.md) — Chatterbox TTS
+- [SE8 Image Generation](../../services/se8-image-generation/README.md) — Stable Diffusion
+- [SE9 Make Video IMG](../../services/se9-make-video-img/README.md) — Pipeline imagens+audio
+- [SE10 Clothes Segmentation](../../services/se10-clothes-segmentation/README.md) — SAM-2
 
 ### Guias Técnicos
 - [stack-standardization.md](./reference/stack-standardization.md) - Padrões de stack e estrutura de serviços
@@ -352,7 +362,11 @@ make calibrate        # Otimização de parâmetros
 ### Em Progresso
 - ✅ Audio-transcriber: Estrutura modular completa
 - ✅ Make-video: Estrutura madura com calibração
-- ⏳ Demais serviços: Migração gradual para estrutura modular
+- ✅ SE7 Audio Generation: Chatterbox TTS (GPU)
+- ✅ SE8 Image Generation: Stable Diffusion (GPU)
+- ✅ SE9 Make Video IMG: Pipeline imagens+audio
+- ✅ SE10 Clothes Segmentation: SAM-2
+- ✅ Padronizacao: BaseServiceSettings em todos os services
 
 ### Planejado
 - 🔄 Extrair rotas do main.py para app/api/router.py

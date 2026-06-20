@@ -33,11 +33,16 @@ Use este hub para encontrar rapidamente:
 ### Services
 
 - [Services index](./services/README.md)
-- [Orchestrator](./orchestrator/README.md)
-- [Audio Normalization](./services/se3-audio-normalization/README.md)
-- [Audio Transcriber](./services/se4-audio-transcriber/README.md)
-- [Make Video](./services/se5-make-video-clip/README.md)
-- [Video Downloader](./services/se2-video-downloader/README.md)
+- [SE1 Orchestrator](../services/se1-orchestrator/README.md) — Coordenacao do pipeline
+- [SE2 Video Downloader](../services/se2-video-downloader/README.md) — Download de video
+- [SE3 Audio Normalization](../services/se3-audio-normalization/README.md) — Normalizacao de audio
+- [SE4 Audio Transcriber](../services/se4-audio-transcriber/README.md) — Transcricao (Whisper)
+- [SE5 Make Video Clip](../services/se5-make-video-clip/README.md) — Video a partir de shorts
+- [SE6 YouTube Search](../services/se6-youtube-search/README.md) — Busca YouTube
+- [SE7 Audio Generation](../services/se7-audio-generation/README.md) — Geracao de audio (Chatterbox)
+- [SE8 Image Generation](../services/se8-image-generation/README.md) — Geracao de imagens (SDXL)
+- [SE9 Make Video IMG](../services/se9-make-video-img/README.md) — Video a partir de imagens
+- [SE10 Clothes Segmentation](../services/se10-clothes-segmentation/README.md) — Segmentacao de roupas
 
 ### Architecture Decisions
 

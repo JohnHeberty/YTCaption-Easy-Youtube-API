@@ -1,6 +1,6 @@
-# se1-orchestrator
+# SE1 -- Orchestrator
 
-Orquestrador central do pipeline de transcricao de videos do YouTube. Recebe requisicoes de processamento, coordena a execucao em tres estagios (download de audio, normalizacao, transcricao) delegando a microservicos dedicados (se2-video-downloader, se3-audio-normalization, se4-audio-transcriber) e persiste o progresso dos jobs no Redis. Expoe endpoints REST para iniciar pipelines, consultar status, acompanhar progresso em tempo real via SSE e administrar o servico (cleanup, factory reset).
+> Orquestrador central do pipeline de transcricao de videos do YouTube
 
 ## Quick Start
 

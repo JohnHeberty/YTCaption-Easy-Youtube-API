@@ -1,6 +1,6 @@
-# Make-Video Service
+# SE5 -- Make Video Clip
 
-Orchestrates video creation from audio + YouTube Shorts + subtitles. Part of the YTCaption microservice ecosystem.
+> Composicao de video a partir de shorts do YouTube + audio + legendas
 
 ## Quick Start
 
@@ -46,7 +46,6 @@ make api-health
 | DELETE | `/jobs/{job_id}` | Delete job and its output |
 | GET | `/download/{job_id}` | Download completed video file |
 | GET | `/cache/stats` | Shorts cache statistics |
-| GET | `/admin/stats` | Admin dashboard stats |
 
 Both `/download` and `/make-video` return `202 Accepted` with a `job_id` for polling via `GET /jobs/{job_id}`.
 
