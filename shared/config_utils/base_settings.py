@@ -1,6 +1,8 @@
 """
 Base settings with validation using Pydantic v2
 """
+from __future__ import annotations
+
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
@@ -61,7 +63,7 @@ class LoggingSettings(BaseSettings):
 
     @field_validator('log_level')
     @classmethod
-    def validate_log_level(cls, v):
+    def validate_log_level(cls, v: str) -> str:
         """Valida log level"""
         valid_levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
         v_upper = v.upper()
@@ -71,7 +73,7 @@ class LoggingSettings(BaseSettings):
 
     @field_validator('log_format')
     @classmethod
-    def validate_log_format(cls, v):
+    def validate_log_format(cls, v: str) -> str:
         """Valida log format"""
         valid_formats = ['json', 'text']
         v_lower = v.lower()
@@ -153,7 +155,7 @@ class BaseServiceSettings(BaseSettings):
 
     @field_validator('environment')
     @classmethod
-    def validate_environment(cls, v):
+    def validate_environment(cls, v: str) -> str:
         """Valida environment"""
         valid_envs = ['development', 'staging', 'production']
         v_lower = v.lower()
@@ -163,7 +165,7 @@ class BaseServiceSettings(BaseSettings):
 
     @field_validator('port')
     @classmethod
-    def validate_port(cls, v):
+    def validate_port(cls, v: int) -> int:
         """Valida port"""
         if not (1 <= v <= 65535):
             raise ValueError('port must be between 1 and 65535')
@@ -171,14 +173,14 @@ class BaseServiceSettings(BaseSettings):
 
     @field_validator('workers')
     @classmethod
-    def validate_workers(cls, v):
+    def validate_workers(cls, v: int) -> int:
         """Valida workers"""
         if v < 1:
             raise ValueError('workers must be at least 1')
         return v
 
     @model_validator(mode='after')
-    def set_celery_defaults_from_redis(self):
+    def set_celery_defaults_from_redis(self) -> BaseServiceSettings:
         """Fallback: se broker/backend não definido, usa redis_url."""
         if self.celery_broker_url is None:
             self.celery_broker_url = self.redis_url
@@ -188,7 +190,7 @@ class BaseServiceSettings(BaseSettings):
 
     @field_validator('cache_ttl_hours')
     @classmethod
-    def validate_cache_ttl(cls, v):
+    def validate_cache_ttl(cls, v: int) -> int:
         """Valida cache TTL"""
         if v < 1:
             raise ValueError('cache_ttl_hours must be at least 1')
@@ -196,13 +198,13 @@ class BaseServiceSettings(BaseSettings):
 
     @field_validator('max_file_size_mb')
     @classmethod
-    def validate_max_file_size(cls, v):
+    def validate_max_file_size(cls, v: int) -> int:
         """Valida max file size"""
         if v < 1:
             raise ValueError('max_file_size_mb must be at least 1')
         return v
 
-    def create_directories(self):
+    def create_directories(self) -> None:
         """Cria diretórios necessários.
 
         NOTE: Side-effect removed from settings constructor. Call explicitly

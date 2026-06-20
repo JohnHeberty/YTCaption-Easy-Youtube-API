@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Standardized health check utilities for YTCaption microservices.
 
@@ -18,7 +20,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 try:
     from common.datetime_utils import now_brazil
@@ -49,7 +51,7 @@ class CheckResult:
     detail: str = ""
     latency_ms: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         result = {"status": self.status}
         if self.detail:
             result["message"] = self.detail
@@ -68,10 +70,10 @@ class ServiceHealthChecker:
         result = await checker.check_all()
     """
 
-    def __init__(self, service_name: str, version: str = "unknown"):
+    def __init__(self, service_name: str, version: str = "unknown") -> None:
         self.service_name = service_name
         self.version = version
-        self._checks: Dict[str, Callable] = {}
+        self._checks: dict[str, Callable[..., Any]] = {}
 
     def add_check(self, name: str, check_fn: Callable) -> None:
         """Add a health check function.
@@ -82,13 +84,13 @@ class ServiceHealthChecker:
         """
         self._checks[name] = check_fn
 
-    async def check_all(self) -> Dict[str, Any]:
+    async def check_all(self) -> dict[str, Any]:
         """Run all registered checks and return standardized health response.
 
         Returns:
             Dict with keys: status, service, version, timestamp, checks
         """
-        checks_results: Dict[str, Any] = {}
+        checks_results: dict[str, Any] = {}
         overall_status = "healthy"
 
         for name, check_fn in self._checks.items():
@@ -126,7 +128,7 @@ class ServiceHealthChecker:
         }
 
     @staticmethod
-    def check_redis(redis_client) -> CheckResult:
+    def check_redis(redis_client: Any) -> CheckResult:
         """Check Redis connectivity.
 
         Args:
@@ -202,7 +204,7 @@ class ServiceHealthChecker:
             return CheckResult(name="ffmpeg", status="error", detail=str(e))
 
     @staticmethod
-    def check_celery(celery_app) -> CheckResult:
+    def check_celery(celery_app: Any) -> CheckResult:
         """Check Celery worker availability.
 
         Args:

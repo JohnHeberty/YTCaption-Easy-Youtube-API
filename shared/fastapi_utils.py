@@ -22,8 +22,10 @@ Usage:
         setup_routers=lambda a: a.include_router(my_router),
     )
 """
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional, Sequence
+from typing import Any, AsyncIterator, Callable, Optional, Sequence
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,14 +41,14 @@ def create_service_app(
     title: str,
     description: str = "",
     version: str = "1.0.0",
-    settings: Optional[Dict[str, Any]] = None,
+    settings: Optional[dict[str, Any]] = None,
     lifespan: Optional[Callable[[FastAPI], AsyncIterator[None]]] = None,
     setup_routers: Optional[Callable[[FastAPI], None]] = None,
     use_shared_exception_handlers: bool = True,
-    cors_options: Optional[Dict[str, Any]] = None,
-    rate_limit_options: Optional[Dict[str, Any]] = None,
+    cors_options: Optional[dict[str, Any]] = None,
+    rate_limit_options: Optional[dict[str, Any]] = None,
     body_size_mb: Optional[int] = None,
-    extra_middleware: Optional[List[tuple]] = None,
+    extra_middleware: Optional[list[tuple[Any, dict[str, Any] | None]]] = None,
     **fastapi_kwargs: Any,
 ) -> FastAPI:
     """Create a configured FastAPI application.
@@ -132,7 +134,7 @@ def create_service_app(
 # ------------------------------------------------------------------ #
 
 
-def _get(settings: Optional[Dict[str, Any]], key: str, default: Any = None) -> Any:
+def _get(settings: Optional[dict[str, Any]], key: str, default: Any = None) -> Any:
     """Safely read a key from an optional dict-like settings."""
     if settings is None:
         return default
@@ -168,9 +170,9 @@ def _compose_lifespan(
 
 
 def _resolve_cors(
-    explicit: Optional[Dict[str, Any]],
-    settings: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
+    explicit: Optional[dict[str, Any]],
+    settings: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
     """Resolve CORS middleware arguments."""
     if explicit is not None:
         return explicit
@@ -186,9 +188,9 @@ def _resolve_cors(
 
 
 def _resolve_rate_limit(
-    explicit: Optional[Dict[str, Any]],
-    settings: Optional[Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
+    explicit: Optional[dict[str, Any]],
+    settings: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
     """Resolve RateLimiterMiddleware arguments."""
     if explicit is not None:
         return explicit
@@ -203,7 +205,7 @@ def _resolve_rate_limit(
 
 def _resolve_body_size(
     explicit_mb: Optional[int],
-    settings: Optional[Dict[str, Any]],
+    settings: Optional[dict[str, Any]],
 ) -> Optional[int]:
     """Resolve body size in bytes."""
     if explicit_mb is not None:
@@ -223,8 +225,8 @@ _DEFAULT_EXEMPT_PATHS = frozenset({"/", "/health", "/health/deep", "/ping"})
 
 def create_api_key_dependency(
     api_key: Optional[str],
-    exempt_paths: Optional[List[str]] = None,
-) -> Callable:
+    exempt_paths: Optional[list[str]] = None,
+) -> Callable[[Request], Any]:
     """Create a FastAPI dependency that validates ``X-API-Key`` header.
 
     Args:

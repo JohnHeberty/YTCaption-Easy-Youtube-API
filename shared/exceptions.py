@@ -4,7 +4,9 @@ Standardized exception hierarchy for YTCaption microservices.
 All services should extend these base classes for service-specific exceptions.
 Common exceptions cover: job lifecycle, validation, Redis, HTTP, and processing errors.
 """
-from typing import Optional
+from __future__ import annotations
+
+from typing import Any, Optional
 
 
 class ServiceError(Exception):
@@ -26,8 +28,8 @@ class ServiceError(Exception):
         message: Optional[str] = None,
         error_code: Optional[str] = None,
         status_code: Optional[int] = None,
-        details: Optional[dict] = None,
-    ):
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
         if message is not None:
             self.message = message
         if error_code is not None:
@@ -37,7 +39,7 @@ class ServiceError(Exception):
         self.details = details or {}
         super().__init__(self.message)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize exception to dict for API responses."""
         result = {
             "error": self.error_code,

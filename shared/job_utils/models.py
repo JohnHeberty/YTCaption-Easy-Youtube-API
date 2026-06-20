@@ -4,9 +4,11 @@ Standard job models for all microservices.
 Provides a unified job lifecycle with consistent status tracking,
 progress updates, and stage-level observability.
 """
+from __future__ import annotations
+
 import hashlib
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 
@@ -41,42 +43,42 @@ class StageInfo(BaseModel):
     display_name: str = ""
     status: StageStatus = StageStatus.PENDING
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
-    progress_message: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    error_message: Optional[str] = None
+    progress_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_message: str | None = None
 
     metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def start(self):
+    def start(self) -> None:
         self.status = StageStatus.PROCESSING
         self.started_at = now_brazil()
 
-    def complete(self, message: Optional[str] = None):
+    def complete(self, message: str | None = None) -> None:
         self.status = StageStatus.COMPLETED
         self.completed_at = now_brazil()
         self.progress = 100.0
         if message:
             self.progress_message = message
 
-    def fail(self, error: str):
+    def fail(self, error: str) -> None:
         self.status = StageStatus.FAILED
         self.completed_at = now_brazil()
         self.error_message = error
 
-    def skip(self, reason: Optional[str] = None):
+    def skip(self, reason: str | None = None) -> None:
         self.status = StageStatus.SKIPPED
         self.completed_at = now_brazil()
         if reason:
             self.progress_message = reason
 
-    def update_progress(self, progress: float, message: Optional[str] = None):
+    def update_progress(self, progress: float, message: str | None = None) -> None:
         self.progress = max(0.0, min(100.0, progress))
         if message:
             self.progress_message = message
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         if not self.started_at:
             return None
         end = self.completed_at or now_brazil()
@@ -87,67 +89,67 @@ class StandardJob(BaseModel):
     id: str = Field(default="")
     status: JobStatus = JobStatus.PENDING
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
-    progress_message: Optional[str] = None
+    progress_message: str | None = None
     created_at: datetime = Field(default_factory=now_brazil)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     expires_at: datetime = Field(default_factory=lambda: now_brazil() + timedelta(hours=24))
-    error_message: Optional[str] = None
-    error_type: Optional[str] = None
-    correlation_id: Optional[str] = None
+    error_message: str | None = None
+    error_type: str | None = None
+    correlation_id: str | None = None
     retry_count: int = 0
 
     stages: dict[str, StageInfo] = Field(default_factory=dict)
 
-    def mark_as_queued(self):
+    def mark_as_queued(self) -> None:
         self.status = JobStatus.QUEUED
 
-    def mark_as_processing(self, message: Optional[str] = None):
+    def mark_as_processing(self, message: str | None = None) -> None:
         self.status = JobStatus.PROCESSING
         if not self.started_at:
             self.started_at = now_brazil()
         if message:
             self.progress_message = message
 
-    def mark_as_completed(self, message: Optional[str] = None):
+    def mark_as_completed(self, message: str | None = None) -> None:
         self.status = JobStatus.COMPLETED
         self.completed_at = now_brazil()
         self.progress = 100.0
         if message:
             self.progress_message = message
 
-    def mark_as_failed(self, error: str, error_type: Optional[str] = None):
+    def mark_as_failed(self, error: str, error_type: str | None = None) -> None:
         self.status = JobStatus.FAILED
         self.completed_at = now_brazil()
         self.error_message = error
         self.error_type = error_type or "UnknownError"
 
-    def mark_as_cancelled(self, reason: Optional[str] = None):
+    def mark_as_cancelled(self, reason: str | None = None) -> None:
         self.status = JobStatus.CANCELLED
         self.completed_at = now_brazil()
         if reason:
             self.error_message = f"Cancelled: {reason}"
 
-    def update_progress(self, progress: float, message: Optional[str] = None):
+    def update_progress(self, progress: float, message: str | None = None) -> None:
         self.progress = max(0.0, min(100.0, progress))
         if message:
             self.progress_message = message
 
-    def increment_retry(self):
+    def increment_retry(self) -> None:
         self.retry_count += 1
 
-    def add_stage(self, name: str, display_name: Optional[str] = None) -> StageInfo:
+    def add_stage(self, name: str, display_name: str | None = None) -> StageInfo:
         stage = StageInfo(name=name, display_name=display_name or name)
         self.stages[name] = stage
         return stage
 
-    def get_current_stage(self) -> Optional[StageInfo]:
+    def get_current_stage(self) -> StageInfo | None:
         processing = [s for s in self.stages.values() if s.status == StageStatus.PROCESSING]
         if processing:
             return processing[0]
         return None
 
-    def update_overall_progress(self):
+    def update_overall_progress(self) -> None:
         if not self.stages:
             return
         total = len(self.stages)
@@ -163,7 +165,7 @@ class StandardJob(BaseModel):
         return self.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED)
 
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         if not self.started_at:
             return None
         end = self.completed_at or now_brazil()
@@ -177,7 +179,7 @@ class JobResponse(BaseModel):
     message: str = ""
     progress: float = 0.0
 
-    correlation_id: Optional[str] = None
+    correlation_id: str | None = None
 
 
 class JobListResponse(BaseModel):
@@ -190,7 +192,7 @@ class JobListResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     message: str
-    details: Optional[dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 def generate_job_id(*parts: str, prefix: str = "") -> str:

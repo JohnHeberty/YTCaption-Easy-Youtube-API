@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Logging utilities shared across all microservices
 """

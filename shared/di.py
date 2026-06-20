@@ -26,6 +26,8 @@ Usage::
     # run test logic …
     store.reset()                            # back to production
 """
+from __future__ import annotations
+
 from typing import Callable, Generic, Optional, TypeVar
 
 T = TypeVar("T")

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Resilient HTTP client with retry and exponential backoff.
 
@@ -11,7 +13,7 @@ Usage:
 """
 import asyncio
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 import httpx
 
@@ -51,15 +53,15 @@ class ResilientHttpClient:
         max_retries: int = 3,
         min_wait: float = 2.0,
         max_wait: float = 60.0,
-        headers: Optional[Dict[str, str]] = None,
-    ):
+        headers: dict[str, str] | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_retries = max_retries
         self.min_wait = min_wait
         self.max_wait = max_wait
         self._headers = headers or {}
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the underlying httpx client."""
@@ -71,7 +73,7 @@ class ResilientHttpClient:
             )
         return self._client
 
-    async def close(self):
+    async def close(self) -> None:
         """Close the underlying HTTP client."""
         if self._client and not self._client.is_closed:
             await self._client.aclose()
@@ -130,7 +132,7 @@ class ResilientHttpClient:
         """DELETE request with retry."""
         return await self._request_with_retry("DELETE", path, **kwargs)
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Check health of the target service.
 
         Returns:

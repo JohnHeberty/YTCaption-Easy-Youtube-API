@@ -1,6 +1,8 @@
 """
 Setup configuration for YTCaption Common Library
 """
+from __future__ import annotations
+
 from setuptools import setup, find_packages
 
 # The directory is 'common', installed as 'common' namespace

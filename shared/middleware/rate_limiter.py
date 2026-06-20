@@ -16,10 +16,12 @@ Usage (in main.py)::
             window_seconds=settings['rate_limit_period'],
         )
 """
+from __future__ import annotations
+
 import asyncio
 from collections import deque
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
-from typing import Dict
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -35,7 +37,7 @@ class _IPBucket:
     __slots__ = ("timestamps", "lock")
 
     def __init__(self) -> None:
-        self.timestamps: deque = deque()
+        self.timestamps: deque[datetime] = deque()
         self.lock = asyncio.Lock()
 
     async def is_allowed(self, max_requests: int, window: timedelta) -> bool:
@@ -65,16 +67,16 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
 
     def __init__(
         self,
-        app,
+        app: object,
         max_requests: int = 100,
         window_seconds: int = 60,
-        exclude_paths: tuple = ("/health", "/metrics", "/docs", "/openapi.json"),
+        exclude_paths: tuple[str, ...] = ("/health", "/metrics", "/docs", "/openapi.json"),
     ) -> None:
         super().__init__(app)
         self.max_requests = max_requests
         self.window = timedelta(seconds=window_seconds)
         self.exclude_paths = tuple(exclude_paths)
-        self._buckets: Dict[str, _IPBucket] = {}
+        self._buckets: dict[str, _IPBucket] = {}
         self._buckets_lock = asyncio.Lock()
 
     async def _get_bucket(self, ip: str) -> _IPBucket:
@@ -83,7 +85,9 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
                 self._buckets[ip] = _IPBucket()
             return self._buckets[ip]
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[object]]
+    ) -> JSONResponse | object:
         if request.url.path.startswith(self.exclude_paths):
             return await call_next(request)
 

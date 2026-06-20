@@ -1,8 +1,11 @@
 """
 Standard exception handlers for FastAPI applications
 """
+from __future__ import annotations
+
 import logging
-from typing import Callable
+from typing import Any, Callable
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
@@ -25,8 +28,8 @@ class BaseServiceException(ServiceError):
         message: str,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         error_code: str = "INTERNAL_ERROR",
-        details: dict = None,
-    ):
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(
             message=message,
             error_code=error_code,
@@ -37,8 +40,8 @@ class BaseServiceException(ServiceError):
 
 class ValidationException(BaseServiceException):
     """Exceção de validação"""
-    
-    def __init__(self, message: str, details: dict = None):
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             message=message,
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,8 +52,8 @@ class ValidationException(BaseServiceException):
 
 class ResourceNotFoundException(BaseServiceException):
     """Exceção quando recurso não é encontrado"""
-    
-    def __init__(self, resource_type: str, resource_id: str):
+
+    def __init__(self, resource_type: str, resource_id: str) -> None:
         super().__init__(
             message=f"{resource_type} not found: {resource_id}",
             status_code=status.HTTP_404_NOT_FOUND,
@@ -64,8 +67,8 @@ class ResourceNotFoundException(BaseServiceException):
 
 class ProcessingException(BaseServiceException):
     """Exceção durante processamento"""
-    
-    def __init__(self, message: str, details: dict = None):
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             message=message,
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -76,12 +79,12 @@ class ProcessingException(BaseServiceException):
 
 class ServiceUnavailableException(BaseServiceException):
     """Exceção quando serviço está indisponível"""
-    
-    def __init__(self, service_name: str, reason: str = None):
+
+    def __init__(self, service_name: str, reason: str | None = None) -> None:
         message = f"Service unavailable: {service_name}"
         if reason:
             message += f" - {reason}"
-        
+
         super().__init__(
             message=message,
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -95,8 +98,8 @@ class ServiceUnavailableException(BaseServiceException):
 
 class RateLimitException(BaseServiceException):
     """Exceção quando rate limit é excedido"""
-    
-    def __init__(self, limit: int, window: str):
+
+    def __init__(self, limit: int, window: str) -> None:
         super().__init__(
             message=f"Rate limit exceeded: {limit} requests per {window}",
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -112,22 +115,22 @@ def create_exception_handler(
     exception_class: type,
     default_status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
     log_traceback: bool = True
-) -> Callable:
+) -> Callable[[Request, Exception], Any]:
     """
     Factory para criar exception handlers.
-    
+
     Args:
         exception_class: Classe da exceção
         default_status_code: Status code padrão
         log_traceback: Se deve logar traceback completo
-    
+
     Returns:
         Handler function
     """
-    
+
     async def handler(request: Request, exc: Exception) -> JSONResponse:
         """Handler da exceção"""
-        
+
         # Extrai informações da exceção
         if isinstance(exc, BaseServiceException):
             status_code = exc.status_code
@@ -139,7 +142,7 @@ def create_exception_handler(
             error_code = "INTERNAL_ERROR"
             message = str(exc)
             details = {}
-        
+
         # Log
         log_data = {
             'error_code': error_code,
@@ -148,45 +151,45 @@ def create_exception_handler(
             'path': request.url.path,
             'method': request.method
         }
-        
+
         if log_traceback:
             logger.error(f"Exception occurred: {error_code}", exc_info=True, extra=log_data)
         else:
             logger.error(f"Exception occurred: {error_code}", extra=log_data)
-        
+
         # Resposta
         response_data = {
             'error': error_code,
             'message': message
         }
-        
+
         if details:
             response_data['details'] = details
-        
+
         return JSONResponse(
             status_code=status_code,
             content=response_data
         )
-    
+
     return handler
 
 
-def setup_exception_handlers(app: FastAPI, debug: bool = False):
+def setup_exception_handlers(app: FastAPI, debug: bool = False) -> None:
     """
     Configura exception handlers padrão para a aplicação.
-    
+
     Args:
         app: Instância FastAPI
         debug: Se True, inclui detalhes completos de erros
-    
+
     Examples:
         >>> app = FastAPI()
         >>> setup_exception_handlers(app, debug=False)
     """
-    
+
     # Handler para ServiceError e subclasses (inclui BaseServiceException)
     @app.exception_handler(ServiceError)
-    async def service_exception_handler(request: Request, exc: ServiceError):
+    async def service_exception_handler(request: Request, exc: ServiceError) -> JSONResponse:
         logger.error(
             f"Service exception: {exc.error_code}",
             exc_info=True,
@@ -204,10 +207,10 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
             status_code=exc.status_code,
             content=response_data,
         )
-    
+
     # Handler para validation errors do Pydantic
     @app.exception_handler(RequestValidationError)
-    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
         logger.warning(
             "Validation error",
             extra={
@@ -216,7 +219,7 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
                 'errors': exc.errors()
             }
         )
-        
+
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={
@@ -225,10 +228,10 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
                 'details': exc.errors()
             }
         )
-    
+
     # Handler para HTTP exceptions do Starlette
     @app.exception_handler(StarletteHTTPException)
-    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         logger.warning(
             f"HTTP exception: {exc.status_code}",
             extra={
@@ -237,7 +240,7 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
                 'method': request.method
             }
         )
-        
+
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -245,10 +248,10 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
                 'message': exc.detail
             }
         )
-    
+
     # Handler global para exceções não tratadas
     @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.critical(
             "Unhandled exception",
             exc_info=True,
@@ -258,22 +261,22 @@ def setup_exception_handlers(app: FastAPI, debug: bool = False):
                 'exception_type': type(exc).__name__
             }
         )
-        
+
         response_data = {
             'error': 'INTERNAL_ERROR',
             'message': 'An unexpected error occurred'
         }
-        
+
         # Em debug mode, inclui detalhes
         if debug:
             response_data['details'] = {
                 'exception_type': type(exc).__name__,
                 'exception_message': str(exc)
             }
-        
+
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=response_data
         )
-    
+
     logger.info("Exception handlers configured")

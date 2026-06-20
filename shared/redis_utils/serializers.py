@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Versioned serialization for Redis data.
 
@@ -11,7 +13,7 @@ Version history:
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ class ModelSerializer:
     """
 
     @staticmethod
-    def serialize(model_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def serialize(model_dict: dict[str, Any]) -> dict[str, Any]:
         """Serialize model dict with version tag.
 
         Args:
@@ -57,7 +59,7 @@ class ModelSerializer:
         return data
 
     @staticmethod
-    def deserialize(data: Dict[str, Any]) -> Dict[str, Any]:
+    def deserialize(data: dict[str, Any]) -> dict[str, Any]:
         """Deserialize data from Redis with automatic version migration.
 
         Args:
@@ -81,7 +83,7 @@ class ModelSerializer:
             return data
 
     @staticmethod
-    def _migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+    def _migrate_v1_to_v2(data: dict[str, Any]) -> dict[str, Any]:
         """Migrate v1.0 data to v2.0 format.
 
         v1.0 -> v2.0 changes:
@@ -107,7 +109,7 @@ class ModelSerializer:
         return data
 
     @staticmethod
-    def serialize_to_json(model_dict: Dict[str, Any]) -> str:
+    def serialize_to_json(model_dict: dict[str, Any]) -> str:
         """Serialize model dict to JSON string with version tag.
 
         Args:
@@ -120,7 +122,7 @@ class ModelSerializer:
         return json.dumps(data, default=str)
 
     @staticmethod
-    def deserialize_from_json(json_str: str) -> Dict[str, Any]:
+    def deserialize_from_json(json_str: str) -> dict[str, Any]:
         """Deserialize JSON string with automatic version migration.
 
         Args:
