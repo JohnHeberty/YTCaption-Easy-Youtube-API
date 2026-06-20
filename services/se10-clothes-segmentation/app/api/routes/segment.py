@@ -25,6 +25,7 @@ async def segment_clothes(
     classes: str | None = Form(None, description="Comma-separated class override"),
     box_threshold: float | None = Form(None, description="Detection confidence threshold"),
     text_threshold: float | None = Form(None, description="Text matching threshold"),
+    mode: str = Form("clothes", description="Detection mode: 'clothes' or 'person'"),
 ) -> SegmentResponse:
     if not file.filename:
         return SegmentResponse(
@@ -85,11 +86,12 @@ async def segment_clothes(
         loop = asyncio.get_running_loop()
         result: dict[str, Any] = await loop.run_in_executor(
             executor,
-            lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold: segmentor.segment(
+            lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold, _mode=mode: segmentor.segment(
                 image_bytes=_img,
                 classes=_cls,
                 box_threshold=_bt,
                 text_threshold=_tt,
+                mode=_mode,
             ),
         )
     except Exception as e:
@@ -101,9 +103,10 @@ async def segment_clothes(
         )
 
     if not result["detected"]:
+        label = "persons" if mode == "person" else "clothing items"
         return SegmentResponse(
             success=True,
-            message="No clothing items detected",
+            message=f"No {label} detected",
             result=SegmentResult(
                 detected=False,
                 object_count=0,
@@ -114,9 +117,10 @@ async def segment_clothes(
         )
 
     objects = [DetectedObject(**obj) for obj in result["objects"]]
+    label = "persons" if mode == "person" else "clothing items"
     return SegmentResponse(
         success=True,
-        message=f"Detected {len(objects)} clothing items",
+        message=f"Detected {len(objects)} {label}",
         result=SegmentResult(
             detected=True,
             object_count=len(objects),

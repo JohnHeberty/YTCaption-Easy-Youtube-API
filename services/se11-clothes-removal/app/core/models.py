@@ -62,12 +62,22 @@ class StageInfo(BaseModel):
 class CreateClothesRemovalRequest(BaseModel):
     """Request to create a clothes removal job."""
     image: str = Field(description="Image as base64 string or HTTP URL")
+    mode: str = Field(
+        default="clothes",
+        description="Detection mode: 'clothes' for clothing removal, 'person' for full person removal",
+    )
     classes: str | None = Field(
         default=None,
         description="Comma-separated clothing classes to detect (e.g. 'shirt,pants,dress'). None = all clothing.",
     )
-    prompt: str = Field(default="nude, naked body, smooth skin", description="Inpainting prompt")
-    negative_prompt: str = Field(default="clothes, clothing, fabric, wrinkles, folds", description="Negative prompt")
+    prompt: str = Field(
+        default="",
+        description="Inpainting prompt (what to generate in masked area). Empty = use default clothes removal prompt.",
+    )
+    negative_prompt: str = Field(
+        default="",
+        description="Negative prompt (what to avoid generating). Empty = use default.",
+    )
     box_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 detection threshold")
     text_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 text matching threshold")
     inpaint_strength: float = Field(default=1.0, ge=0.0, le=1.0, description="SE8 inpaint strength")

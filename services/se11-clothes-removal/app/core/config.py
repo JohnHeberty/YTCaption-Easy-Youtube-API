@@ -26,9 +26,9 @@ class ClothesRemovalSettings(BaseServiceSettings):
     se8_api_key: str = "se8-test-key-2026"
     se8_timeout: int = 300
 
-    # === INPAINTING DEFAULTS ===
-    default_prompt: str = "nude, naked body, smooth skin"
-    default_negative_prompt: str = "clothes, clothing, fabric, wrinkles, folds"
+    # === INPAINTING DEFAULTS (clothes removal on women) ===
+    default_prompt: str = "smooth natural female skin, realistic body, anatomically correct, high quality photograph"
+    default_negative_prompt: str = "clothes, fabric, clothing, wrinkles, folds, text, watermark, deformed, blurry, extra limbs, disfigured, bad anatomy"
     default_inpaint_strength: float = Field(default=1.0, ge=0.0, le=1.0)
     default_box_threshold: float = Field(default=0.10, ge=0.0, le=1.0)
     default_text_threshold: float = Field(default=0.10, ge=0.0, le=1.0)

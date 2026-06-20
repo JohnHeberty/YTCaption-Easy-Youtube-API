@@ -94,9 +94,28 @@ def combine_masks(masks: list[str]) -> str:
     return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 
+DEFAULT_PERSON_PROMPT = "background, wall, curtain, environment, scenery"
+DEFAULT_PERSON_NEGATIVE = "person, human, body, skin, clothing, face, hair, limbs, nude"
+
+DEFAULT_CLOTHES_PROMPT = (
+    "photorealistic female body, natural skin texture, smooth skin, "
+    "detailed skin pores, natural lighting, anatomically correct, "
+    "high quality photograph, realistic shadows on skin, "
+    "professional photography, soft lighting"
+)
+DEFAULT_CLOTHES_NEGATIVE = (
+    "clothes, fabric, clothing, shirt, blouse, bra, straps, underwear, "
+    "wrinkles, folds, text, watermark, deformed, blurry, "
+    "extra limbs, disfigured, poorly drawn, ugly, duplicate, "
+    "morbid, mutated, bad anatomy, bad proportions, "
+    "cartoon, anime, painting, illustration, CGI, 3d render"
+)
+
+
 async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
     """Main pipeline: image → SE10 (detect) → combine masks → SE8 (inpaint) → result."""
-    logger.info("Starting clothes removal pipeline for job %s", job.job_id)
+    mode = job.request.mode or "clothes"
+    logger.info("Starting %s removal pipeline for job %s", mode, job.job_id)
 
     se10 = SE10Client()
     se8 = SE8Client()
@@ -106,7 +125,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         image_bytes = _decode_image(job.request.image)
         logger.info("Job %s: image decoded (%d bytes)", job.job_id, len(image_bytes))
 
-        # === Stage 2: SE10 — Detect clothing ===
+        # === Stage 2: SE10 — Detect ===
         job.status = ClothesRemovalJobStatus.DETECTING
         job.update_stage("detecting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -118,6 +137,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             classes=job.request.classes,
             box_threshold=job.request.box_threshold,
             text_threshold=job.request.text_threshold,
+            mode=mode,
         )
         seg_time = time.time() - t0
         logger.info(
@@ -156,25 +176,40 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         # === Stage 4: SE8 — Inpainting ===
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
+        # Mode-specific prompt and inpaint params
+        if mode == "person":
+            prompt = DEFAULT_PERSON_PROMPT
+            negative_prompt = DEFAULT_PERSON_NEGATIVE
+            inpaint_respective_field = 1.0
+        else:
+            prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
+            negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
+            inpaint_respective_field = 0.9
+
         t1 = time.time()
         inpaint_result = await se8.inpaint(
             image_b64=image_b64,
             mask_b64=combined_mask,
-            prompt=job.request.prompt,
-            negative_prompt=job.request.negative_prompt,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
             inpaint_strength=job.request.inpaint_strength,
+            inpaint_respective_field=inpaint_respective_field,
         )
         inpaint_time = time.time() - t1
         logger.info("Job %s: SE8 inpainting completed in %.1fs", job.job_id, inpaint_time)
 
         # === Stage 5: Save result ===
+        # SE8 may return a list or dict
+        if isinstance(inpaint_result, list) and len(inpaint_result) > 0:
+            inpaint_result = inpaint_result[0]
+
         logger.info(
             "Job %s: SE8 response keys=%s, base64_len=%s, url_len=%s, finish_reason=%s",
             job.job_id,
-            list(inpaint_result.keys()),
-            len(inpaint_result.get("base64", "")) if inpaint_result.get("base64") else 0,
-            len(inpaint_result.get("url", "")) if inpaint_result.get("url") else 0,
-            inpaint_result.get("finish_reason"),
+            list(inpaint_result.keys()) if isinstance(inpaint_result, dict) else str(type(inpaint_result)),
+            len(inpaint_result.get("base64", "")) if isinstance(inpaint_result, dict) and inpaint_result.get("base64") else 0,
+            len(inpaint_result.get("url", "")) if isinstance(inpaint_result, dict) and inpaint_result.get("url") else 0,
+            inpaint_result.get("finish_reason") if isinstance(inpaint_result, dict) else None,
         )
         result_b64 = inpaint_result.get("base64", "")
         if not result_b64:

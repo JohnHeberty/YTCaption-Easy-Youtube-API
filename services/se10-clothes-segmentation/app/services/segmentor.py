@@ -23,9 +23,11 @@ from common.log_utils import get_logger
 from app.core.config import ClothesSegSettings
 from app.core.constants import (
     CLOTHING_CLASSES,
+    PERSON_CLASSES,
     DEFAULT_BOX_THRESHOLD,
     DEFAULT_TEXT_THRESHOLD,
     DEFAULT_MAX_AREA_PCT,
+    DEFAULT_MAX_AREA_PCT_PERSON,
     DEFAULT_MAX_OBJECTS,
     CHECKPOINT_GROUNDINGDINO,
     CHECKPOINT_SAM2_TINY,
@@ -137,17 +139,26 @@ class ClothesSegmentor:
         text_threshold: float | None = None,
         max_area_pct: float | None = None,
         max_objects: int | None = None,
+        mode: str = "clothes",
     ) -> dict[str, Any]:
         """Run full segmentation pipeline on image bytes.
 
+        Args:
+            mode: "clothes" for clothing detection, "person" for person detection.
+                  When "person", defaults to PERSON_CLASSES and relaxes area filter to 80%.
+
         Returns:
-            dict with keys: detected, objects, mask_image, processing_time_ms
+            dict with keys: detected, objects, mask_image, masks, processing_time_ms
         """
         t0 = time.time()
-        classes = classes or CLOTHING_CLASSES
+        if mode == "person":
+            classes = classes or PERSON_CLASSES
+            max_area_pct = max_area_pct or DEFAULT_MAX_AREA_PCT_PERSON
+        else:
+            classes = classes or CLOTHING_CLASSES
+            max_area_pct = max_area_pct or self.settings.max_area_pct
         box_threshold = box_threshold or self.settings.box_threshold
         text_threshold = text_threshold or self.settings.text_threshold
-        max_area_pct = max_area_pct or self.settings.max_area_pct
         max_objects = max_objects or self.settings.max_objects
 
         # Decode image

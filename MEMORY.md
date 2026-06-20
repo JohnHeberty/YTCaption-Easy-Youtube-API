@@ -1,11 +1,13 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-20)
+- **SE11 Person Removal Mode** — MODE="person" implementado em SE10+SE11, E2E validado
 - **Strong Typing Batch 7 SE8** — 44 SE8-image-generation files typed (all py_compile OK)
 - **Strong Typing Batch 6 SE5** — 33 SE5-make-video-clip files typed (all py_compile OK)
 - **Strong Typing Batch 5 SE6** — 33 SE6-youtube-search files typed (all py_compile OK)
 - **Strong Typing Batch 4** — 29 SE3-audio-normalization files typed (all py_compile OK)
 - **Clean Code Audit COMPLETE** — 5-phase audit across all 11 services + shared library
+- **INVESTIGATION.md QA Audit** — 36/36 items verified, 1 typo fixed, 3 omissions added, CHECK.md deleted
 - **Commits**: `51202c2` (SE9+Pydantic v2), `c20c55a` (SE11 E2E+SE8 inpaint), `3526fe7` (agent docs), `64014b7` (Fase 3 SE6+SE7), `4ae828d` (Fase 4 SE1-SE4), `a02c75c` (Fase 5 SE5+SE8)
 - **Fase 1**: Exception hierarchy consolidated (ServiceError→BaseServiceException), BaseJob dead code removed (135 lines), SE8 worker.py:481 bug fix, SE6 hardcoded API keys→get_innertube_api_key(), SE7 Celery mismatch fixed, SE7 test imports removed, SE8+SE10 Pydantic v2 config, rate_limiter utcnow→now(UTC), ResilientRedisStore._safe_call extraction
 - **Fase 2**: SE9+SE11 already committed (redis_store._use_raw, redundant close removal, models cleanup)
@@ -57,6 +59,7 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - ✅ **E2E passou (compose-persisted)**: SE11 → SE10 → SE8 → RGB 482×789, 449KB, ~84s
 - ✅ **PNG transparency fix**: resultado é RGB (não RGBA)
 - ✅ **Inpainting quality fix**: aspect ratio dinâmico, inpaint_respective_field=0.8, sem styles agressivas
+- ✅ **Person removal mode**: `mode="person"` — SE10 detecta pessoa, SE8 remove com prompt de fundo, 100% background preserved
 
 ### SE11 Config
 - Port: 8011, API_KEY: se11-test-key-2026
@@ -74,6 +77,12 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 6. **advanced_params always sent** — engine/strength/field sempre enviados ao SE8
 
 ## SE10 — Clothes Segmentation
+
+### Person Mode (2026-06-20)
+- `POST /v1/segment` aceita `mode="person"` (default: `"clothes"`)
+- `PERSON_CLASSES = ["person", "woman", "man"]` — joinhado como `"person. woman. man."`
+- `DEFAULT_MAX_AREA_PCT_PERSON = 0.80` (era 0.29 para roupas — pessoa pode cobrir 40%+ da imagem)
+- Backward compatible: `mode` é opcional, default `"clothes"` mantém comportamento existente
 
 ### Docker Deploy
 - Container: `ytcaption-se10-clothes-segmentation`, port 8010
@@ -220,5 +229,7 @@ All 44 py_compile OK, no logic changes.
 3. ✅ E2E validated — full SE11→SE10→SE8 pipeline, compose-persisted images
 4. ✅ Pydantic v2 migration completa — 348/348 arquivos, zero warnings
 5. ✅ SE8 Docker rebuild — all inpainting fixes persisted (2026-06-20)
-6. Integração SE11 ao SE1 ou APIs externas
-7. SE10 detection quality — GroundingDINO occasionally misplaces objects (e.g., blouse at wrong y-position)
+6. ✅ SE11 Person removal mode — SE10 mode=person + SE11 pipeline adaptado, E2E validated
+7. Integração SE11 ao SE1 ou APIs externas
+8. SE10 detection quality — GroundingDINO occasionally misplaces objects (e.g., blouse at wrong y-position)
+9. Color-based hybrid: usar mask vermelha (Test_Selected.png) como SAM2 point prompt para refinamento
