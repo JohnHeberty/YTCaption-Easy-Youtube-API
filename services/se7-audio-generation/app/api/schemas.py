@@ -1,4 +1,6 @@
-from typing import Any, Optional
+from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -44,17 +46,17 @@ class JobDetailResponse(FlexibleSchema):
     id: str
     status: str
     progress: float = 0.0
-    progress_message: Optional[str] = None
+    progress_message: str | None = None
     created_at: str
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    voice_id: Optional[str] = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    voice_id: str | None = None
     has_voice_cloning: bool = False
     exaggeration: float = 0.5
     cfg_weight: float = 0.5
     temperature: float = 0.8
-    output_duration_seconds: Optional[float] = None
-    error_message: Optional[str] = None
+    output_duration_seconds: float | None = None
+    error_message: str | None = None
     stages: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -80,4 +82,4 @@ class HealthResponse(FlexibleSchema):
 class ErrorResponse(FlexibleSchema):
     error: str
     message: str
-    details: Optional[dict[str, Any]] = None
+    details: dict[str, Any] | None = None

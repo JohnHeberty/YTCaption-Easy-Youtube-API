@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import torch
 
@@ -28,7 +30,7 @@ class TTSGenerator(ITTSGenerator):
         max_text_length: int = 5000,
         chunk_size: int = 1000,
         silence_between_paras_ms: int = 0,
-    ):
+    ) -> None:
         self._model = model_manager
         self._store = job_store
         self._output_dir = Path(output_dir)
@@ -38,7 +40,7 @@ class TTSGenerator(ITTSGenerator):
         self._silence_ms = silence_between_paras_ms
 
     def generate(
-        self, job: AudioGenerationJob, audio_prompt_path: Optional[str] = None
+        self, job: AudioGenerationJob, audio_prompt_path: str | None = None
     ) -> AudioGenerationJob:
         text = job.input_text.strip()
 
@@ -72,7 +74,7 @@ class TTSGenerator(ITTSGenerator):
         return job
 
     def _execute_stage(
-        self, job: AudioGenerationJob, stage_name: str, action=None
+        self, job: AudioGenerationJob, stage_name: str, action: Any = None
     ) -> None:
         stage = job.stages.get(stage_name)
         if stage:
@@ -87,13 +89,13 @@ class TTSGenerator(ITTSGenerator):
         self,
         job: AudioGenerationJob,
         chunks: list[str],
-        audio_prompt_path: Optional[str],
-    ) -> list:
+        audio_prompt_path: str | None,
+    ) -> list[Any]:
         stage = job.stages.get(STAGE_AUDIO_GENERATION)
         if stage:
             stage.start()
 
-        wave_arrays = []
+        wave_arrays: list[Any] = []
         total = len(chunks)
         for i, chunk in enumerate(chunks):
             wav = self._model.generate(

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
@@ -18,7 +22,7 @@ async def create_voice_profile(
     description: str = Form(""),
     file: UploadFile = File(...),
     mgr: VoiceProfileManager = Depends(voice_manager),
-):
+) -> VoiceProfileCreateResponse:
     try:
         content = await file.read()
         if not content:
@@ -47,7 +51,7 @@ async def create_voice_profile(
 @router.get("")
 async def list_voice_profiles(
     mgr: VoiceProfileManager = Depends(voice_manager),
-):
+) -> dict[str, Any]:
     profiles = mgr.list_profiles()
     return {
         "profiles": [p.model_dump() for p in profiles],
@@ -59,7 +63,7 @@ async def list_voice_profiles(
 async def get_voice_profile(
     voice_id: str,
     mgr: VoiceProfileManager = Depends(voice_manager),
-):
+) -> dict[str, Any]:
     try:
         profile = mgr.get_profile(voice_id)
         return profile.model_dump()
@@ -71,7 +75,7 @@ async def get_voice_profile(
 async def download_voice_sample(
     voice_id: str,
     mgr: VoiceProfileManager = Depends(voice_manager),
-):
+) -> FileResponse:
     try:
         profile = mgr.get_profile(voice_id)
         return FileResponse(
@@ -87,7 +91,7 @@ async def download_voice_sample(
 async def delete_voice_profile(
     voice_id: str,
     mgr: VoiceProfileManager = Depends(voice_manager),
-):
+) -> DeleteVoiceResponse:
     try:
         mgr.delete_profile(voice_id)
         return DeleteVoiceResponse(

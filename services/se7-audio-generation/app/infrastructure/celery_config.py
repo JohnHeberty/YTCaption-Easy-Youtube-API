@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from common.celery_utils import create_celery_app
 from common.log_utils import get_logger
 from app.core.constants import CELERY_TIME_LIMIT, CELERY_SOFT_TIME_LIMIT

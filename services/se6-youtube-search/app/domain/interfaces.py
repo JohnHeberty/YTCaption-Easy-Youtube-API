@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 """
 Domain interfaces for YouTube Search service.
 
 Defines contracts for YouTube search operations following Interface Segregation Principle.
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
+from typing import Any
 
 
 class YouTubeSearchInterface(ABC):
@@ -15,7 +17,7 @@ class YouTubeSearchInterface(ABC):
     """
 
     @abstractmethod
-    async def get_video_info(self, video_id: str) -> Dict[str, Any]:
+    async def get_video_info(self, video_id: str) -> dict[str, Any]:
         """
         Get information about a specific video.
 
@@ -33,7 +35,7 @@ class YouTubeSearchInterface(ABC):
     @abstractmethod
     async def get_channel_info(
         self, channel_id: str, include_videos: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get information about a specific channel.
 
@@ -50,7 +52,7 @@ class YouTubeSearchInterface(ABC):
         pass
 
     @abstractmethod
-    async def get_playlist_info(self, playlist_id: str) -> Dict[str, Any]:
+    async def get_playlist_info(self, playlist_id: str) -> dict[str, Any]:
         """
         Get information about a specific playlist.
 
@@ -66,7 +68,7 @@ class YouTubeSearchInterface(ABC):
         pass
 
     @abstractmethod
-    async def search_videos(self, query: str, max_results: int = 10) -> Dict[str, Any]:
+    async def search_videos(self, query: str, max_results: int = 10) -> dict[str, Any]:
         """
         Search for videos matching the query.
 
@@ -85,7 +87,7 @@ class YouTubeSearchInterface(ABC):
     @abstractmethod
     async def get_related_videos(
         self, video_id: str, max_results: int = 10
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get videos related to a specific video.
 
@@ -102,7 +104,7 @@ class YouTubeSearchInterface(ABC):
         pass
 
     @abstractmethod
-    async def search_shorts(self, query: str, max_results: int = 10) -> Dict[str, Any]:
+    async def search_shorts(self, query: str, max_results: int = 10) -> dict[str, Any]:
         """
         Search for YouTube Shorts matching the query.
 
@@ -132,7 +134,7 @@ class JobStoreInterface(ABC):
         pass
 
     @abstractmethod
-    def get_job(self, job_id: str) -> Optional[Any]:
+    def get_job(self, job_id: str) -> Any | None:
         """Get job by ID."""
         pass
 
@@ -147,11 +149,11 @@ class JobStoreInterface(ABC):
         pass
 
     @abstractmethod
-    def list_jobs(self, limit: int = 100) -> List[Any]:
+    def list_jobs(self, limit: int = 100) -> list[Any]:
         """List all jobs."""
         pass
 
     @abstractmethod
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get storage statistics."""
         pass

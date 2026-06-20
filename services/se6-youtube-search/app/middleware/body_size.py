@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Body size limit middleware for FastAPI/Starlette applications.
 Rejects requests that exceed the configured max body size.
@@ -10,11 +12,11 @@ from fastapi.responses import JSONResponse
 class BodySizeMiddleware(BaseHTTPMiddleware):
     """Middleware that rejects requests whose Content-Length exceeds max_size bytes."""
 
-    def __init__(self, app, max_size: int):
-        super().__init__(app)
+    def __init__(self, app: object, max_size: int) -> None:
+        super().__init__(app)  # type: ignore[arg-type]
         self.max_size = max_size
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: object) -> JSONResponse:  # type: ignore[override]
         # Verificar Content-Length se presente
         content_length = request.headers.get("content-length")
         if content_length and int(content_length) > self.max_size:
@@ -27,4 +29,4 @@ class BodySizeMiddleware(BaseHTTPMiddleware):
                     )
                 },
             )
-        return await call_next(request)
+        return await call_next(request)  # type: ignore[misc]

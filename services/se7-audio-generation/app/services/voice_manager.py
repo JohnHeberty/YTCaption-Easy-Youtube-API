@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from pathlib import Path
 
@@ -13,7 +15,7 @@ logger = get_logger(__name__)
 
 
 class VoiceProfileManager:
-    def __init__(self, store: IVoiceStore, voices_dir: str):
+    def __init__(self, store: IVoiceStore, voices_dir: str) -> None:
         self._store = store
         self._voices_dir = Path(voices_dir)
         self._voices_dir.mkdir(parents=True, exist_ok=True)

@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from fastapi import APIRouter, Depends
 
 from common.health_utils import ServiceHealthChecker
@@ -11,12 +15,12 @@ router = APIRouter(tags=["Health"])
 
 
 @router.get("/")
-async def root():
+async def root() -> dict[str, str]:
     settings = get_settings()
     return {"service": settings.app_name, "version": settings.app_version, "status": "running"}
 
 
-def _check_redis(store: IJobStore) -> dict:
+def _check_redis(store: IJobStore) -> dict[str, str]:
     try:
         store.list_jobs(1)
         return {"name": "redis", "status": "ok"}
@@ -28,7 +32,7 @@ def _check_redis(store: IJobStore) -> dict:
 async def health(
     model_mgr: IModelManager = Depends(model_manager),
     store: IJobStore = Depends(job_store),
-):
+) -> dict[str, Any]:
     settings = get_settings()
     checker = ServiceHealthChecker("audio-generation", version=settings.app_version)
 

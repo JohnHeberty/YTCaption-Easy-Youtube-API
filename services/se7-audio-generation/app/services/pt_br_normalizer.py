@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Portuguese (PT-BR) text normalizer for TTS pronunciation improvement.
 
@@ -23,7 +25,7 @@ logger = get_logger(__name__)
 # Tildes: ã→a, õ→o (remove nasal marker — Chatterbox handles pronunciation)
 # C-cedilla: ç→c (most common issue)
 # Everything else: just strip the accent mark
-_CHAR_MAP = {
+_CHAR_MAP: dict[str, str] = {
     # C-cedilla
     'ç': 'c', 'Ç': 'C',
     # Tildes

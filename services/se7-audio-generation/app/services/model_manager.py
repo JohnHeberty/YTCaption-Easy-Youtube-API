@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from common.log_utils import get_logger
 
@@ -19,15 +21,15 @@ REQUIRED_FILES = ["ve.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt", T
 
 
 class ChatterboxModelManager(IModelManager):
-    def __init__(self):
+    def __init__(self) -> None:
         settings = get_settings()
         self._model_name = settings.model_name
         self._model_dir = Path(settings.model_dir)
         self._model_dir.mkdir(parents=True, exist_ok=True)
         self._device = self._resolve_device(settings.device)
-        self._model = None
+        self._model: Any = None
         self._sr = 24000
-        self._loaded_at: Optional[float] = None
+        self._loaded_at: float | None = None
 
     @staticmethod
     def _resolve_device(device_str: str) -> str:
@@ -126,14 +128,14 @@ class ChatterboxModelManager(IModelManager):
             self._loaded_at = None
             logger.info("Chatterbox model unloaded")
 
-    def generate(self, text: str, audio_prompt_path: Optional[str] = None,
+    def generate(self, text: str, audio_prompt_path: str | None = None,
                  exaggeration: float = 0.5, temperature: float = 0.8,
-                 cfg_weight: float = 0.5):
+                 cfg_weight: float = 0.5) -> Any:
         self.load_model()
         if self._model is None:
             raise ModelNotAvailable(device=self._device)
 
-        kwargs = dict(
+        kwargs: dict[str, Any] = dict(
             text=text,
             language_id="pt",
             exaggeration=exaggeration,
@@ -149,9 +151,9 @@ class ChatterboxModelManager(IModelManager):
         except Exception as e:
             raise ResourceExhausted(f"Generation failed: {e}") from e
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         import torch
-        model_files = {}
+        model_files: dict[str, bool] = {}
         for f in REQUIRED_FILES:
             p = self._model_dir / f
             model_files[f] = p.exists()

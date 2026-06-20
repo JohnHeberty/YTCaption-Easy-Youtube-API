@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import Field, field_validator
 
@@ -44,8 +46,8 @@ class ServiceSettings(BaseServiceSettings):
     poll_interval_seconds: int = Field(default=2, env="POLL_INTERVAL_SECONDS")
 
     # Celery
-    celery_broker_url: Optional[str] = None
-    celery_result_backend: Optional[str] = None
+    celery_broker_url: str | None = None
+    celery_result_backend: str | None = None
     celery_task_time_limit: int = Field(default=600, env="CELERY_TASK_TIME_LIMIT")
     celery_task_soft_time_limit: int = Field(default=500, env="CELERY_TASK_SOFT_TIME_LIMIT")
 

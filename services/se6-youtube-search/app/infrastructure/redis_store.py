@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 """
 YouTube search Redis store adapter.
 """
 import os
 import json
-from typing import Optional, List
+from typing import Any
 from datetime import timedelta
 
 from common.redis_utils import ResilientRedisStore
@@ -16,7 +18,7 @@ logger = get_logger(__name__)
 
 
 class YouTubeSearchJobStore:
-    def __init__(self, redis_url: str = "redis://localhost:6379/0"):
+    def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
             max_connections=50,
@@ -39,7 +41,7 @@ class YouTubeSearchJobStore:
             self.redis.zadd(self.list_key, {job.id: job.created_at.timestamp()})
         return saved
 
-    def get_job(self, job_id: str) -> Optional[YouTubeSearchJob]:
+    def get_job(self, job_id: str) -> YouTubeSearchJob | None:
         key = self._job_key(job_id)
         data = self._resilient.get(key)
         if data:
@@ -56,7 +58,7 @@ class YouTubeSearchJobStore:
             self.redis.zrem(self.list_key, job_id)
         return deleted
 
-    def list_jobs(self, limit: int = 20) -> List[YouTubeSearchJob]:
+    def list_jobs(self, limit: int = 20) -> list[YouTubeSearchJob]:
         job_ids = self.redis.zrevrange(self.list_key, 0, limit - 1)
         jobs = []
         for job_id in job_ids:
@@ -65,9 +67,9 @@ class YouTubeSearchJobStore:
                 jobs.append(job)
         return jobs
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         total = self.redis.zcard(self.list_key)
-        by_status = {}
+        by_status: dict[str, int] = {}
         for job_id in self.redis.zrange(self.list_key, 0, -1):
             job = self.get_job(job_id)
             if job:
@@ -92,8 +94,8 @@ class YouTubeSearchJobStore:
                 removed += 1
         return removed
 
-    async def start_cleanup_task(self):
+    async def start_cleanup_task(self) -> None:
         pass
 
-    async def stop_cleanup_task(self):
+    async def stop_cleanup_task(self) -> None:
         pass

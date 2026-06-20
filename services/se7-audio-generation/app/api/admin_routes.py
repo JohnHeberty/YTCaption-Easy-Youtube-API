@@ -1,4 +1,8 @@
+from __future__ import annotations
+
 """Admin routes for SE7 Audio Generation."""
+from typing import Any
+
 from fastapi import APIRouter, Depends
 
 from app.infrastructure.dependencies import job_store
@@ -8,10 +12,10 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
 @router.get("/stats")
-async def stats(store: IJobStore = Depends(job_store)):
+async def stats(store: IJobStore = Depends(job_store)) -> dict[str, Any]:
     """System statistics."""
     jobs = store.list_jobs(limit=100)
-    status_counts = {}
+    status_counts: dict[str, int] = {}
     for job in jobs:
         s = job.status.value if hasattr(job.status, "value") else str(job.status)
         status_counts[s] = status_counts.get(s, 0) + 1
@@ -26,7 +30,7 @@ async def stats(store: IJobStore = Depends(job_store)):
 
 
 @router.post("/cleanup")
-async def cleanup(store: IJobStore = Depends(job_store)):
+async def cleanup(store: IJobStore = Depends(job_store)) -> dict[str, Any]:
     """Cleanup completed and failed jobs."""
     jobs = store.list_jobs(limit=100)
     cleaned = 0

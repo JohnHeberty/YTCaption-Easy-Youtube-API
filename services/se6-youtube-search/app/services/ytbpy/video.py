@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import re
 from urllib.parse import urlparse, parse_qs
 from datetime import timedelta
 import json
-from typing import Any, Optional, Dict, List
+from typing import Any
 
 from .utils import (
     fetch_url,
@@ -31,7 +33,7 @@ def is_valid_video_id(video_id: str) -> bool:
         return False
     return re.match(r"^[A-Za-z0-9_-]{11}$", video_id) is not None
 
-def extract_video_id(url_or_id: str) -> Optional[str]:
+def extract_video_id(url_or_id: str) -> str | None:
     """Extract YouTube video ID from URL or return ID if already provided"""
     if not url_or_id or is_valid_video_id(url_or_id):
         return url_or_id
@@ -57,7 +59,7 @@ def extract_video_id(url_or_id: str) -> Optional[str]:
 
     return None
 
-def get_video_info(url_or_id: str, timeout: int = 5) -> Dict[str, Any]:
+def get_video_info(url_or_id: str, timeout: int = 5) -> dict[str, Any]:
     """Get video information using YouTube's InnerTube API without an API key"""
     video_id = extract_video_id(url_or_id)
     if not video_id:
@@ -214,7 +216,7 @@ def get_video_info(url_or_id: str, timeout: int = 5) -> Dict[str, Any]:
 
     return video_info
 
-def get_video_info_oembed(url_or_id: str, timeout: int = 5) -> Dict[str, Any]:
+def get_video_info_oembed(url_or_id: str, timeout: int = 5) -> dict[str, Any]:
     """Alternative function to get video info using YouTube's API endpoints without API key"""
     video_id = extract_video_id(url_or_id)
     if not video_id:
@@ -242,7 +244,7 @@ def get_video_info_oembed(url_or_id: str, timeout: int = 5) -> Dict[str, Any]:
 
     return video_info
 
-def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) -> List[Dict[str, Any]]:
+def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) -> list[dict[str, Any]]:
     """Get related videos for a YouTube video"""
     video_id = extract_video_id(url_or_id)
     if not video_id:
@@ -329,7 +331,7 @@ def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) 
     return related_videos
 
 
-def is_short(video_info: Dict[str, Any]) -> bool:
+def is_short(video_info: dict[str, Any]) -> bool:
     """
     Determine if a video is a YouTube Short
     

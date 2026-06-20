@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 """
 Celery tasks for YouTube search service.
 
 Implements async task processing with timeouts and retry policies.
 """
-from typing import Dict, Any
+from typing import Any
 import asyncio
 
 from celery import signals
@@ -25,7 +27,7 @@ from common.log_utils import get_logger
 logger = get_logger(__name__)
 
 @signals.task_failure.connect
-def task_failure_handler(task_id, exception, args, kwargs, traceback, einfo, **kw):
+def task_failure_handler(task_id: Any, exception: Any, args: Any, kwargs: Any, traceback: Any, einfo: Any, **kw: Any) -> None:
     """Log Celery worker failures with full context."""
     logger.error(
         "Celery task_failure | task_id=%s error=%s",
@@ -49,7 +51,7 @@ processor.job_store = job_store
     max_retries=CELERY_TASK_MAX_RETRIES,
     default_retry_delay=CELERY_TASK_RETRY_DELAY_SECONDS,
 )
-def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
+def youtube_search_task(self, job_dict: dict[str, Any]) -> dict[str, Any]:
     """
     Celery task to process YouTube search job.
 
@@ -106,7 +108,7 @@ def youtube_search_task(self, job_dict: Dict[str, Any]) -> Dict[str, Any]:
     name='cleanup_expired_jobs',
     time_limit=60,  # 1 minute
 )
-def cleanup_expired_jobs() -> Dict[str, Any]:
+def cleanup_expired_jobs() -> dict[str, Any]:
     """
     Periodic task to cleanup expired jobs.
 

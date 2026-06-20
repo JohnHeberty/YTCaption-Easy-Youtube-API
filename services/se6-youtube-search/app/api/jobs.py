@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Jobs API endpoints for YouTube Search service.
 
@@ -11,7 +13,7 @@ This module contains job management endpoints:
 
 import asyncio
 import json
-from typing import Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Depends, Query, Path
 from fastapi.responses import Response

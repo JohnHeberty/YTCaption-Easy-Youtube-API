@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 YouTube search job model.
 
@@ -7,7 +9,7 @@ while inheriting standard lifecycle.
 import hashlib
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -45,49 +47,49 @@ class StageInfo(BaseModel):
     display_name: str = ""
     status: StageStatus = StageStatus.PENDING
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
-    progress_message: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    progress_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class Job(BaseModel):
     id: str
     status: JobStatus = JobStatus.PENDING
     search_type: SearchType = SearchType.VIDEO
-    query: Optional[str] = None
-    video_id: Optional[str] = None
-    channel_id: Optional[str] = None
-    playlist_id: Optional[str] = None
+    query: str | None = None
+    video_id: str | None = None
+    channel_id: str | None = None
+    playlist_id: str | None = None
     max_results: int = 10
     include_videos: bool = False
-    result: Optional[Dict[str, Any]] = None
+    result: dict[str, Any] | None = None
     progress: float = 0.0
-    error_message: Optional[str] = None
-    received_at: Optional[datetime] = None
+    error_message: str | None = None
+    received_at: datetime | None = None
     created_at: datetime = Field(default_factory=now_brazil)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
-    stages: List[StageInfo] = Field(default_factory=list)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    expires_at: datetime | None = None
+    stages: list[StageInfo] = Field(default_factory=list)
 
-    def mark_as_queued(self):
+    def mark_as_queued(self) -> None:
         self.status = JobStatus.QUEUED
 
-    def mark_as_processing(self):
+    def mark_as_processing(self) -> None:
         self.status = JobStatus.PROCESSING
         self.started_at = now_brazil()
 
-    def mark_as_completed(self):
+    def mark_as_completed(self) -> None:
         self.status = JobStatus.COMPLETED
         self.completed_at = now_brazil()
         self.progress = 100.0
 
-    def mark_as_failed(self, error: str):
+    def mark_as_failed(self, error: str) -> None:
         self.status = JobStatus.FAILED
         self.error_message = error
         self.completed_at = now_brazil()
 
-    def add_stage(self, name: str, display_name: str = ""):
+    def add_stage(self, name: str, display_name: str = "") -> StageInfo:
         stage = StageInfo(name=name, display_name=display_name)
         self.stages.append(stage)
         return stage
@@ -100,7 +102,7 @@ def generate_job_id(params: str, prefix: str = "ys_") -> str:
 
 class YouTubeSearchJob(Job):
     @classmethod
-    def create_new(cls, search_type: SearchType, **kwargs) -> "YouTubeSearchJob":
+    def create_new(cls, search_type: SearchType, **kwargs: Any) -> YouTubeSearchJob:
         params = f"{search_type.value}_{kwargs.get('query', '')}_{kwargs.get('video_id', '')}_{kwargs.get('channel_id', '')}_{kwargs.get('playlist_id', '')}"
         job_id = generate_job_id(params, prefix="ys_")
 
@@ -116,50 +118,50 @@ class YouTubeSearchJob(Job):
 
 class VideoInfo(BaseModel):
     video_id: str
-    title: Optional[str] = None
-    thumbnails: Optional[Dict[str, Any]] = None
-    url: Optional[str] = None
-    description: Optional[str] = None
-    duration: Optional[str] = None
-    duration_seconds: Optional[int] = None
-    views_count: Optional[int] = None
-    view_count_text: Optional[str] = None
-    likes_count: Optional[int] = None
-    publish_date: Optional[int] = None
-    publish_date_text: Optional[str] = None
-    upload_date: Optional[int] = None
+    title: str | None = None
+    thumbnails: dict[str, Any] | None = None
+    url: str | None = None
+    description: str | None = None
+    duration: str | None = None
+    duration_seconds: int | None = None
+    views_count: int | None = None
+    view_count_text: str | None = None
+    likes_count: int | None = None
+    publish_date: int | None = None
+    publish_date_text: str | None = None
+    upload_date: int | None = None
 
 
 class ChannelInfo(BaseModel):
     channel_id: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    subscriber_count: Optional[int] = None
-    video_count: Optional[int] = None
-    playlist_uploads_id: Optional[str] = None
+    title: str | None = None
+    description: str | None = None
+    thumbnail_url: str | None = None
+    subscriber_count: int | None = None
+    video_count: int | None = None
+    playlist_uploads_id: str | None = None
 
 
 class PlaylistInfo(BaseModel):
     playlist_id: str
-    title: Optional[str] = None
-    description: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    video_count: Optional[int] = None
-    channel_id: Optional[str] = None
+    title: str | None = None
+    description: str | None = None
+    thumbnail_url: str | None = None
+    video_count: int | None = None
+    channel_id: str | None = None
 
 
 class SearchRequest(BaseModel):
     search_type: SearchType
-    query: Optional[str] = None
-    video_id: Optional[str] = None
-    channel_id: Optional[str] = None
-    playlist_id: Optional[str] = None
+    query: str | None = None
+    video_id: str | None = None
+    channel_id: str | None = None
+    playlist_id: str | None = None
     max_results: int = 10
 
 
 class JobListResponse(BaseModel):
-    jobs: List[Job]
+    jobs: list[Job]
     total: int
 
 
@@ -170,7 +172,7 @@ class DeleteJobResponse(BaseModel):
 
 class SearchStatsSummary(BaseModel):
     total_jobs: int = Field(..., description="Quantidade total de jobs armazenados no Redis.")
-    by_status: Dict[str, int] = Field(
+    by_status: dict[str, int] = Field(
         default_factory=dict,
         description="Quantidade de jobs agrupada por status.",
         examples=[{"completed": 12, "processing": 1, "failed": 2}],
@@ -179,27 +181,27 @@ class SearchStatsSummary(BaseModel):
 
 class HealthCheckComponent(BaseModel):
     status: str = Field(..., description="Status do componente verificado.")
-    message: Optional[str] = Field(
+    message: str | None = Field(
         default=None,
         description="Mensagem adicional da verificação quando aplicável.",
     )
-    jobs: Optional[SearchStatsSummary] = Field(
+    jobs: SearchStatsSummary | None = Field(
         default=None,
         description="Resumo de jobs quando a checagem do Redis estiver disponível.",
     )
-    free_gb: Optional[float] = Field(
+    free_gb: float | None = Field(
         default=None,
         description="Espaço livre em disco, em gigabytes.",
     )
-    percent_free: Optional[float] = Field(
+    percent_free: float | None = Field(
         default=None,
         description="Percentual de espaço livre em disco.",
     )
-    workers: Optional[int] = Field(
+    workers: int | None = Field(
         default=None,
         description="Quantidade de workers Celery ativos detectados.",
     )
-    active_tasks: Optional[int] = Field(
+    active_tasks: int | None = Field(
         default=None,
         description="Quantidade total de tasks ativas nos workers Celery.",
     )
@@ -210,7 +212,7 @@ class HealthResponse(BaseModel):
     service: str = Field(..., description="Nome do serviço.", examples=["youtube-search"])
     version: str = Field(..., description="Versão atual do serviço.")
     timestamp: str = Field(..., description="Timestamp ISO-8601 da verificação.")
-    checks: Dict[str, HealthCheckComponent] = Field(
+    checks: dict[str, HealthCheckComponent] = Field(
         default_factory=dict,
         description="Resultado detalhado das verificações de dependências e recursos.",
     )
@@ -220,7 +222,7 @@ class RootResponse(BaseModel):
     service: str = Field(..., description="Nome amigável do serviço.")
     version: str = Field(..., description="Versão atual do serviço.")
     status: str = Field(..., description="Estado resumido do serviço.", examples=["running"])
-    endpoints: Dict[str, str] = Field(
+    endpoints: dict[str, str] = Field(
         default_factory=dict,
         description="Mapa com os principais endpoints públicos e seu uso resumido.",
     )
@@ -241,7 +243,7 @@ class CleanupResponse(BaseModel):
         default=0,
         description="Quantidade de tasks removidas da fila do Celery.",
     )
-    errors: List[str] = Field(
+    errors: list[str] = Field(
         default_factory=list,
         description="Lista de erros não fatais encontrados durante a limpeza.",
     )
@@ -253,11 +255,11 @@ class CeleryStatsResponse(BaseModel):
     broker: str = Field(..., description="Broker configurado para o Celery.")
     backend: str = Field(..., description="Backend configurado para o Celery.")
     queue: str = Field(..., description="Nome da fila principal do serviço.")
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None,
         description="Mensagem de erro quando não foi possível consultar o Celery.",
     )
-    status: Optional[str] = Field(
+    status: str | None = Field(
         default=None,
         description="Estado resumido da integração com o Celery quando indisponível.",
     )
@@ -271,11 +273,11 @@ class SearchServiceStatsResponse(SearchStatsSummary):
 
 
 class QueueStatsResponse(BaseModel):
-    broker: Optional[str] = Field(
+    broker: str | None = Field(
         default=None,
         description="Broker configurado para processar a fila.",
     )
-    queue_name: Optional[str] = Field(
+    queue_name: str | None = Field(
         default=None,
         description="Nome da fila monitorada.",
     )
@@ -283,15 +285,15 @@ class QueueStatsResponse(BaseModel):
         default=0,
         description="Quantidade de workers ativos no momento da consulta.",
     )
-    registered_tasks: List[str] = Field(
+    registered_tasks: list[str] = Field(
         default_factory=list,
         description="Tasks registradas nos workers Celery.",
     )
-    active_tasks: Dict[str, List[Dict[str, Any]]] = Field(
+    active_tasks: dict[str, list[dict[str, Any]]] = Field(
         default_factory=dict,
         description="Tasks ativas por worker.",
     )
-    scheduled_tasks: Dict[str, List[Dict[str, Any]]] = Field(
+    scheduled_tasks: dict[str, list[dict[str, Any]]] = Field(
         default_factory=dict,
         description="Tasks agendadas por worker.",
     )
@@ -299,7 +301,7 @@ class QueueStatsResponse(BaseModel):
         ...,
         description="Indica se foi possível detectar workers ativos ou responder à inspeção.",
     )
-    error: Optional[str] = Field(
+    error: str | None = Field(
         default=None,
         description="Mensagem de erro retornada quando a inspeção da fila falha.",
     )

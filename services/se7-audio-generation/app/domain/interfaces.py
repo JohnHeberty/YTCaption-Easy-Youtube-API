@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any
 
 from .models import AudioGenerationJob, VoiceProfile
 
@@ -20,7 +22,7 @@ class IModelManager(ABC):
         pass
 
     @abstractmethod
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         pass
 
     @property
@@ -37,11 +39,11 @@ class IModelManager(ABC):
     def generate(
         self,
         text: str,
-        audio_prompt_path: Optional[str] = None,
+        audio_prompt_path: str | None = None,
         exaggeration: float = 0.5,
         temperature: float = 0.8,
         cfg_weight: float = 0.5,
-    ) -> object:
+    ) -> Any:
         pass
 
 
@@ -53,7 +55,7 @@ class IJobStore(ABC):
         pass
 
     @abstractmethod
-    def get_job(self, job_id: str) -> Optional[AudioGenerationJob]:
+    def get_job(self, job_id: str) -> AudioGenerationJob | None:
         pass
 
     @abstractmethod
@@ -77,7 +79,7 @@ class IVoiceStore(ABC):
         pass
 
     @abstractmethod
-    def get_profile(self, voice_id: str) -> Optional[VoiceProfile]:
+    def get_profile(self, voice_id: str) -> VoiceProfile | None:
         pass
 
     @abstractmethod
@@ -94,6 +96,6 @@ class ITTSGenerator(ABC):
 
     @abstractmethod
     def generate(
-        self, job: AudioGenerationJob, audio_prompt_path: Optional[str] = None
+        self, job: AudioGenerationJob, audio_prompt_path: str | None = None
     ) -> AudioGenerationJob:
         pass

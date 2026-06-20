@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Infrastructure layer for YouTube Search service.
 

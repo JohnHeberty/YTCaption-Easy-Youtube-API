@@ -1,17 +1,19 @@
+from __future__ import annotations
+
 import re
 import json
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 import socket
 from datetime import datetime
-from typing import Optional
+from typing import Any
 import os
 
-proxys = {}
+proxys: list[dict[str, Any]] = []
 if os.path.exists("proxies.txt"):
     with open("proxies.txt", "r") as file:
-        proxys = [row.strip().split(":") for row in file.readlines()]
-        if proxys:
+        proxys_raw: list[list[str]] = [row.strip().split(":") for row in file.readlines()]
+        if proxys_raw:
             # proxy[0] : 23.95.150.145
             # proxy[1] : 6114
             # proxy[2] : qobuswsu
@@ -22,10 +24,10 @@ if os.path.exists("proxies.txt"):
                     "https": f"http://{proxy[2]}:{proxy[3]}@{proxy[0]}:{proxy[1]}/",
                     "live": True
                 }
-            for proxy in proxys
+            for proxy in proxys_raw
             ]
 
-def next_proxie() -> None:
+def next_proxie() -> bool:
     """Disable proxy settings"""
     global proxys
     if proxys:
@@ -36,7 +38,7 @@ def next_proxie() -> None:
             return True
     return False
 
-def get_thumbnail_urls(video_id):
+def get_thumbnail_urls(video_id: str) -> dict[str, dict[str, Any]]:
     """Generate thumbnail URLs for a YouTube video"""
     base_url = f"https://img.youtube.com/vi/{video_id}"
     return {
@@ -52,7 +54,13 @@ def get_thumbnail_urls(video_id):
     }
 
 
-def fetch_url(url, headers=None, timeout=5, method="GET", json_data=None):
+def fetch_url(
+    url: str,
+    headers: dict[str, str] | None = None,
+    timeout: int = 5,
+    method: str = "GET",
+    json_data: dict[str, Any] | None = None,
+) -> str | None:
     """Fetch content from a URL"""
     if headers is None:
         headers = {
@@ -87,7 +95,7 @@ def fetch_url(url, headers=None, timeout=5, method="GET", json_data=None):
         return None
 
 
-def extract_json_data(html_content, pattern):
+def extract_json_data(html_content: str | None, pattern: str) -> Any | None:
     """Helper to extract JSON data using regex pattern"""
     if not html_content:
         return None
@@ -101,12 +109,12 @@ def extract_json_data(html_content, pattern):
     return None
 
 
-def extract_initial_data(html_content):
+def extract_initial_data(html_content: str | None) -> dict[str, Any] | None:
     """Extract initial data from HTML content"""
     return extract_json_data(html_content, r"ytInitialData\s*=\s*({.+?});</script>")
 
 
-def parse_duration_to_seconds(duration_text):
+def parse_duration_to_seconds(duration_text: str | None) -> int | None:
     """Parse duration text to seconds"""
     if not duration_text:
         return None
@@ -123,12 +131,12 @@ def parse_duration_to_seconds(duration_text):
     return None
 
 
-def parse_iso8601_date(date_string: str) -> Optional[int]:
+def parse_iso8601_date(date_string: str) -> int | None:
     """Parse ISO 8601 date to timestamp."""
     return int(datetime.fromisoformat(date_string).timestamp()) if date_string else None
 
 
-def parse_view_count(view_count_text: str) -> Optional[int]:
+def parse_view_count(view_count_text: str) -> int | None:
     """Convert view count text like '1,072,836,095 views' to integer."""
     if not view_count_text:
         return None

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Dependency Injection for YouTube Search service.
 
@@ -6,16 +8,16 @@ Factory functions that create and cache service dependencies.
 from functools import lru_cache
 
 from common.di import Dep
-from app.core.config import get_settings
+from app.core.config import ServiceSettings, get_settings
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
 
 
 @lru_cache(maxsize=1)
-def _get_settings():
+def _get_settings() -> ServiceSettings:
     return get_settings()
 
 
-def get_settings_dep():
+def get_settings_dep() -> ServiceSettings:
     return _get_settings()
 
 
