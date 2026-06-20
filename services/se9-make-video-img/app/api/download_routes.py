@@ -1,4 +1,6 @@
 """Download route for completed videos."""
+from __future__ import annotations
+
 import os
 
 from fastapi import APIRouter, HTTPException
@@ -13,7 +15,7 @@ store = VideoJobStore()
 
 
 @router.get("/download/{job_id}")
-async def download_video(job_id: str):
+async def download_video(job_id: str) -> FileResponse:
     """Download the completed video file."""
     job_data = store.get_job(job_id)
     if not job_data:

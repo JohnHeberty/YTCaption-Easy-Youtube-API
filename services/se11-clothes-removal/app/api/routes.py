@@ -1,7 +1,10 @@
 """Job routes for SE11 Clothes Removal."""
+from __future__ import annotations
+
 import os
 import shutil
 import uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
@@ -22,7 +25,7 @@ store = ClothesRemovalJobStore()
 
 
 @router.get("/")
-async def root():
+async def root() -> dict[str, Any]:
     """Service info endpoint."""
     return {
         "service": "clothes-removal",
@@ -40,7 +43,7 @@ async def root():
 
 
 @router.post("/jobs", response_model=CreateClothesRemovalResponse)
-async def create_job(request: CreateClothesRemovalRequest):
+async def create_job(request: CreateClothesRemovalRequest) -> CreateClothesRemovalResponse:
     """Create a new clothes removal job."""
     job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
 
@@ -62,7 +65,7 @@ async def create_job(request: CreateClothesRemovalRequest):
 
 
 @router.get("/jobs/{job_id}", response_model=JobStatusResponse)
-async def get_job_status(job_id: str):
+async def get_job_status(job_id: str) -> JobStatusResponse:
     """Get the status of a clothes removal job."""
     job_data = store.get_job(job_id)
     if not job_data:
@@ -80,7 +83,7 @@ async def get_job_status(job_id: str):
 
 
 @router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str):
+async def delete_job(job_id: str) -> dict[str, str]:
     """Delete a clothes removal job and its files."""
     job_data = store.get_job(job_id)
     if not job_data:
@@ -99,7 +102,7 @@ async def delete_job(job_id: str):
 
 
 @router.get("/jobs")
-async def list_jobs():
+async def list_jobs() -> dict[str, Any]:
     """List all clothes removal jobs."""
     jobs = store.list_jobs()
     return {

@@ -1,7 +1,10 @@
 """HTTP clients for communicating with SE7 and SE8."""
+from __future__ import annotations
+
 import asyncio
+from typing import Any
+
 from common.log_utils import get_logger
-from typing import Optional
 
 import httpx
 
@@ -13,7 +16,7 @@ logger = get_logger(__name__)
 class ServiceClient:
     """Base HTTP client with retry logic."""
 
-    def __init__(self, base_url: str = None, api_key: str = None, timeout: int = None):
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: int | None = None) -> None:
         self.base_url = base_url or ""
         self.api_key = api_key or ""
         self.timeout = timeout or 30
@@ -23,7 +26,7 @@ class ServiceClient:
             timeout=self.timeout,
         )
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.aclose()
 
     async def _request_with_retry(
@@ -31,7 +34,7 @@ class ServiceClient:
         method: str,
         url: str,
         max_retries: int = 3,
-        **kwargs,
+        **kwargs: Any,
     ) -> httpx.Response:
         last_error = None
         for attempt in range(max_retries):
@@ -53,7 +56,7 @@ class ServiceClient:
 class SE7Client(ServiceClient):
     """Client for SE7 Audio Generation service."""
 
-    def __init__(self, base_url: str = None, api_key: str = None, timeout: int = None):
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: int | None = None) -> None:
         super().__init__(
             base_url=base_url or settings.se7_url,
             api_key=api_key or settings.se7_api_key,
@@ -64,13 +67,13 @@ class SE7Client(ServiceClient):
         self,
         text: str,
         voice_id: str = "builtin_feminino",
-        exaggeration: float = None,
-        cfg_weight: float = None,
-        temperature: float = None,
+        exaggeration: float | None = None,
+        cfg_weight: float | None = None,
+        temperature: float | None = None,
         normalize_text: bool = True,
     ) -> str:
         """Create an audio generation job. Returns job_id."""
-        data = {
+        data: dict[str, str] = {
             "text": text,
             "voice_id": voice_id,
             "exaggeration": str(exaggeration if exaggeration is not None else settings.tts_exaggeration),
@@ -82,7 +85,7 @@ class SE7Client(ServiceClient):
         result = response.json()
         return result.get("job_id") or result.get("id")
 
-    async def poll_job(self, job_id: str) -> dict:
+    async def poll_job(self, job_id: str) -> dict[str, Any]:
         """Poll job status until completed."""
         import time
         start = time.time()
@@ -110,7 +113,7 @@ class SE8Client(ServiceClient):
     POST /v1/generation/text-to-image returns a list of image objects.
     """
 
-    def __init__(self, base_url: str = None, api_key: str = None, timeout: int = None):
+    def __init__(self, base_url: str | None = None, api_key: str | None = None, timeout: int | None = None) -> None:
         super().__init__(
             base_url=base_url or settings.se8_url,
             api_key=api_key or settings.se8_api_key,
@@ -124,9 +127,9 @@ class SE8Client(ServiceClient):
         height: int = 1024,
         steps: int = 30,
         performance: str = "Quality",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Generate image synchronously. Returns list of image dicts with 'url' key."""
-        payload = {
+        payload: dict[str, Any] = {
             "prompt": prompt,
             "width": width,
             "height": height,

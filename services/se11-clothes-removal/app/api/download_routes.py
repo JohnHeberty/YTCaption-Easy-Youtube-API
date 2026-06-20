@@ -1,4 +1,6 @@
 """Download routes for SE11 Clothes Removal."""
+from __future__ import annotations
+
 import os
 
 from fastapi import APIRouter, HTTPException
@@ -11,7 +13,7 @@ store = ClothesRemovalJobStore()
 
 
 @router.get("/jobs/{job_id}/download")
-async def download_result(job_id: str):
+async def download_result(job_id: str) -> FileResponse:
     """Download the result image for a completed job."""
     job_data = store.get_job(job_id)
     if not job_data:

@@ -1,7 +1,8 @@
 """Background worker for processing clothes removal jobs."""
+from __future__ import annotations
+
 import asyncio
 import threading
-from typing import Optional
 
 from common.log_utils import get_logger
 
@@ -10,19 +11,19 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 
 logger = get_logger(__name__)
 
-_worker_thread: Optional[threading.Thread] = None
+_worker_thread: threading.Thread | None = None
 _stop_event = threading.Event()
 
 
 class ClothesRemovalWorker:
     """Worker that processes clothes removal jobs from the queue."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.store = ClothesRemovalJobStore()
         self.running = False
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
-    def start(self):
+    def start(self) -> None:
         """Start the worker in a background thread."""
         if self.running:
             return
@@ -33,7 +34,7 @@ class ClothesRemovalWorker:
         _worker_thread.start()
         logger.info("Clothes removal worker started")
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop the worker."""
         self.running = False
         _stop_event.set()
@@ -41,7 +42,7 @@ class ClothesRemovalWorker:
             self._loop.call_soon_threadsafe(self._loop.stop)
         logger.info("Clothes removal worker stopped")
 
-    def _run_loop(self):
+    def _run_loop(self) -> None:
         """Main worker loop with a persistent event loop."""
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
@@ -59,7 +60,7 @@ class ClothesRemovalWorker:
 
         self._loop.close()
 
-    def _get_next_job(self) -> Optional[ClothesRemovalJob]:
+    def _get_next_job(self) -> ClothesRemovalJob | None:
         """Get the next queued job from the store."""
         jobs = self.store.list_jobs()
         for job_data in jobs:
@@ -67,7 +68,7 @@ class ClothesRemovalWorker:
                 return ClothesRemovalJob(**job_data)
         return None
 
-    async def _process_job(self, job: ClothesRemovalJob):
+    async def _process_job(self, job: ClothesRemovalJob) -> None:
         """Process a single clothes removal job."""
         logger.info("Processing job %s", job.job_id)
         try:
@@ -80,7 +81,7 @@ class ClothesRemovalWorker:
             self.store.save_job(job.job_id, job.model_dump(mode="json"))
 
 
-_worker: Optional[ClothesRemovalWorker] = None
+_worker: ClothesRemovalWorker | None = None
 
 
 def get_worker() -> ClothesRemovalWorker:

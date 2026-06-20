@@ -1,7 +1,9 @@
 """Pydantic models for the Make Video IMG service."""
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+
 from pydantic import BaseModel, Field
 from common.datetime_utils import now_brazil
 
@@ -25,20 +27,20 @@ class StageStatus(str, Enum):
 class StageInfo(BaseModel):
     status: StageStatus = StageStatus.PENDING
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
-    error: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
-    def start(self):
+    def start(self) -> None:
         self.status = StageStatus.PROCESSING
         self.started_at = now_brazil()
 
-    def complete(self):
+    def complete(self) -> None:
         self.status = StageStatus.COMPLETED
         self.completed_at = now_brazil()
         self.progress = 100.0
 
-    def fail(self, error: str):
+    def fail(self, error: str) -> None:
         self.status = StageStatus.FAILED
         self.completed_at = now_brazil()
         self.error = error
@@ -74,7 +76,7 @@ class CreateVideoRequest(BaseModel):
     voice_id: str = "builtin_feminino"
     aspect_ratio: str = "9:16"
     zoom_style: str = "random"
-    webhook_url: Optional[str] = None
+    webhook_url: str | None = None
     normalize_text: bool = True
 
 
@@ -89,14 +91,14 @@ class VideoJob(BaseModel):
         "assembling_video": StageInfo(),
     }
     request: CreateVideoRequest
-    audio_path: Optional[str] = None
-    video_path: Optional[str] = None
+    audio_path: str | None = None
+    video_path: str | None = None
     images: list[str] = []
     created_at: datetime = Field(default_factory=now_brazil)
     updated_at: datetime = Field(default_factory=now_brazil)
-    error: Optional[str] = None
+    error: str | None = None
 
-    def update_progress(self):
+    def update_progress(self) -> None:
         stage_progress = {
             "generating_audio": (0, 40),
             "generating_images": (40, 70),
@@ -124,9 +126,9 @@ class JobStatusResponse(BaseModel):
     job_id: str
     status: str
     progress: float
-    stages: dict[str, dict]
+    stages: dict[str, dict[str, object]]
     created_at: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class WebhookPayload(BaseModel):
@@ -135,7 +137,7 @@ class WebhookPayload(BaseModel):
     post_id: str
     status: str
     download_url: str
-    title: Optional[str] = None
+    title: str | None = None
     hashtags: list[str] = []
-    duration_seconds: Optional[int] = None
-    file_size_mb: Optional[float] = None
+    duration_seconds: int | None = None
+    file_size_mb: float | None = None

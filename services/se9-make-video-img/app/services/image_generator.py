@@ -1,5 +1,9 @@
 """Image generation service using SE8."""
+from __future__ import annotations
+
 import os
+from collections.abc import Awaitable, Callable
+
 from common.log_utils import get_logger
 
 from app.core.constants import IMAGE_ASPECT_RATIOS
@@ -18,12 +22,12 @@ class ImageGenerator:
         "professional photography, 8k resolution"
     )
 
-    def __init__(self, client=None, cinematic_suffix: str = None):
+    def __init__(self, client: SE8Client | None = None, cinematic_suffix: str | None = None) -> None:
         self.client = client or SE8Client()
         if cinematic_suffix is not None:
             self.cinematic_suffix = cinematic_suffix
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.close()
 
     def _get_dimensions(self, aspect_ratio: str) -> tuple[int, int]:
@@ -37,11 +41,11 @@ class ImageGenerator:
         steps: int = 30,
         performance: str = "Quality",
         output_dir: str = "/tmp",
-        progress_callback=None,
+        progress_callback: Callable[[float], Awaitable[None]] | None = None,
     ) -> list[str]:
         """Generate images for all scenes. Returns list of image paths."""
         width, height = self._get_dimensions(aspect_ratio)
-        image_paths = []
+        image_paths: list[str] = []
 
         sorted_scenes = sorted(scenes, key=lambda s: s.t)
 
@@ -76,5 +80,3 @@ class ImageGenerator:
                 await progress_callback(progress)
 
         return image_paths
-
-

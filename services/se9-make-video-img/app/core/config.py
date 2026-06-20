@@ -1,6 +1,7 @@
 """Application configuration using BaseServiceSettings from shared library."""
+from __future__ import annotations
+
 from functools import lru_cache
-from typing import Optional
 
 from pydantic import ConfigDict, Field
 
@@ -57,7 +58,7 @@ class MakeVideoImgSettings(BaseServiceSettings):
     ffmpeg_segment_timeout: int = 60
     ffmpeg_total_timeout: int = 300
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> object:
         return getattr(self, key, None)
 
 

@@ -1,4 +1,5 @@
 """Domain constants for clothes segmentation service."""
+from __future__ import annotations
 
 from enum import Enum
 

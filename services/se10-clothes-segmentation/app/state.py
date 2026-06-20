@@ -1,14 +1,15 @@
 """Shared application state for SE10 Clothes Segmentation."""
+from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.services.segmentor import ClothesSegmentor
 
-_segmentor: Optional["ClothesSegmentor"] = None
+_segmentor: ClothesSegmentor | None = None
 
 
-def get_segmentor(segmentor: Optional["ClothesSegmentor"] = None) -> Optional["ClothesSegmentor"]:
+def get_segmentor(segmentor: ClothesSegmentor | None = None) -> ClothesSegmentor | None:
     """Return the loaded segmentor instance.
 
     Args:
@@ -21,7 +22,7 @@ def get_segmentor(segmentor: Optional["ClothesSegmentor"] = None) -> Optional["C
     return _segmentor
 
 
-def set_segmentor(segmentor: "ClothesSegmentor") -> None:
+def set_segmentor(segmentor: ClothesSegmentor) -> None:
     """Set the segmentor instance (called during startup)."""
     global _segmentor
     _segmentor = segmentor

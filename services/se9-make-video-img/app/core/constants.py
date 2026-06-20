@@ -1,4 +1,5 @@
 """Constants for the Make Video IMG service."""
+from __future__ import annotations
 
 JOB_ID_PREFIX = "rbg_"
 JOB_PREFIX = "rbg_job:"

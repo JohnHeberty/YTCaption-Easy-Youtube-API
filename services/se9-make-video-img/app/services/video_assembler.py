@@ -1,8 +1,11 @@
 """Video assembly service using FFmpeg."""
+from __future__ import annotations
+
+import asyncio
 import os
-from common.log_utils import get_logger
 import random
-from typing import Optional
+
+from common.log_utils import get_logger
 
 from app.core.config import settings
 from app.core.constants import TRANSITIONS
@@ -85,7 +88,7 @@ class VideoAssembler:
         num_scenes_needed = len(scene_durations)
 
         title_duration = settings.title_card_duration
-        title_path = None
+        title_path: str | None = None
         if hook_text:
             title_path = os.path.join(output_dir, "title_card.mp4")
             logger.info("Creating title card: %.1fs", title_duration)
@@ -129,7 +132,7 @@ class VideoAssembler:
     ) -> list[str]:
         """Create individual video segments from images."""
         cycled_images = [image_paths[i % len(image_paths)] for i in range(len(scene_durations))]
-        segment_paths = []
+        segment_paths: list[str] = []
         for i, (img_path, dur) in enumerate(zip(cycled_images, scene_durations)):
             segment_path = os.path.join(output_dir, f"segment_{i}.mp4")
             scene_style = chosen_seq[i % len(chosen_seq)]
@@ -231,8 +234,6 @@ class VideoAssembler:
             import shutil
             shutil.copy2(audio_path, output_path)
             return
-
-        import asyncio
 
         sr, cl = await self._probe_audio_properties(audio_path)
 

@@ -1,5 +1,9 @@
 """Webhook notification sender with exponential backoff retry."""
+from __future__ import annotations
+
 import asyncio
+from typing import Any
+
 from common.log_utils import get_logger
 
 import httpx
@@ -23,7 +27,7 @@ async def send_webhook(job: VideoJob) -> None:
 
     external_url = settings.external_url or f"http://localhost:{settings.port}"
 
-    payload = {
+    payload: dict[str, Any] = {
         "event": "video_ready",
         "job_id": job.job_id,
         "post_id": job.request.post_id,
