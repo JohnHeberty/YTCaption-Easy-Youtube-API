@@ -12,7 +12,7 @@ Corrige automaticamente:
 import asyncio
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from app.shared.exceptions_v2 import (
@@ -357,7 +357,7 @@ class VideoCompatibilityFixer:
         self,
         video_dir: Path,
         pattern: str = "*.mp4"
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Re-processa vídeos incompatíveis em um diretório.
         Útil para corrigir vídeos já baixados.

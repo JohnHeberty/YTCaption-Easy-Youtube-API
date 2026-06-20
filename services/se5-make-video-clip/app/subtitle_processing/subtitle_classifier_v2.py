@@ -10,7 +10,7 @@ Data: 2026-02-07
 
 from enum import Enum
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Any
 import numpy as np
 from collections import Counter
 
@@ -68,7 +68,7 @@ class ClassificationResult:
     # Detalhamento
     tracks_by_category: Dict[str, int]
     subtitle_tracks: List[Track]
-    metrics_summary: Dict[str, any]
+    metrics_summary: Dict[str, Any]
 
 class SubtitleClassifierV2:
     """

@@ -627,7 +627,7 @@ class VideoValidator:
         
         return all_indices
     
-    def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> Optional[any]:
+    def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> Optional[np.ndarray]:
         """
         Extrai um frame do vídeo em determinado timestamp
         
@@ -665,7 +665,7 @@ class VideoValidator:
             logger.error(f"Frame extraction error at {timestamp}s: {e}")
             return None
     
-    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> Optional[any]:
+    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> Optional[np.ndarray]:
         """
         Fallback: Extrai frame usando FFmpeg diretamente
         

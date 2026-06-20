@@ -51,42 +51,6 @@ class OCRResult:
     has_subtitle: bool
     readable_words: List[str]  # Palavras legíveis detectadas
 
-class OCRDetector:
-    """
-    Detector de legendas usando EasyOCR com validação de palavras legíveis
-    
-    Pipeline de processamento:
-    1. EasyOCR extrai texto
-    2. Regex limpa texto (apenas letras e números)
-    3. Remove letras/números isolados
-    4. Filtra palavras com >2 caracteres
-    5. Valida se há palavras legíveis em PT/EN
-    """
-    
-    # Palavras comuns em português e inglês para validação
-    COMMON_WORDS_PT = {
-        'que', 'não', 'uma', 'para', 'com', 'por', 'isso', 'mais', 'este', 'esta',
-        'seu', 'sua', 'foi', 'ser', 'tem', 'pode', 'mas', 'como', 'muito', 'quando',
-        'sem', 'sim', 'bem', 'também', 'só', 'até', 'depois', 'antes', 'entre', 'sobre',
-        'então', 'agora', 'sempre', 'nunca', 'outro', 'nova', 'novo', 'grande', 'mesmo',
-        'ainda', 'onde', 'ano', 'dia', 'vez', 'porque', 'aqui', 'lá', 'ali', 'hoje',
-        'ontem', 'amanhã', 'noite', 'manhã', 'tarde', 'hora', 'minuto', 'segundo',
-        'casa', 'pai', 'mãe', 'filho', 'filha', 'irmão', 'irmã', 'homem', 'mulher',
-        'vida', 'morte', 'amor', 'olhar', 'ver', 'fazer', 'dar', 'ter', 'vir', 'ir',
-        'dizer', 'falar', 'pensar', 'querer', 'saber', 'poder', 'dever', 'achar'
-    }
-    
-    COMMON_WORDS_EN = {
-        'the', 'and', 'for', 'you', 'are', 'not', 'this', 'that', 'with', 'from',
-        'have', 'was', 'were', 'been', 'will', 'can', 'but', 'what', 'all', 'when',
-        'time', 'year', 'day', 'way', 'its', 'may', 'any', 'only', 'now', 'new',
-        'make', 'work', 'know', 'take', 'see', 'come', 'get', 'use', 'find', 'give',
-        'tell', 'ask', 'try', 'call', 'hand', 'part', 'about', 'after', 'back',
-        'just', 'good', 'another', 'where', 'every', 'much', 'before', 'right',
-        'mean', 'old', 'great', 'same', 'because', 'turn', 'here', 'show', 'why',
-        'help', 'put', 'different', 'away', 'again', 'off', 'went', 'number'
-    }
-
 # ===== SINGLETON PATTERN (P1 Optimization) =====
 _global_ocr_detector = None
 _detector_lock = None
@@ -125,6 +89,29 @@ class OCRDetector:
     IMPORTANTE: Use get_ocr_detector() ao invés de instanciar diretamente
     para aproveitar otimização singleton (P1).
     """
+    
+    COMMON_WORDS_PT = {
+        'que', 'não', 'uma', 'para', 'com', 'por', 'isso', 'mais', 'este', 'esta',
+        'seu', 'sua', 'foi', 'ser', 'tem', 'pode', 'mas', 'como', 'muito', 'quando',
+        'sem', 'sim', 'bem', 'também', 'só', 'até', 'depois', 'antes', 'entre', 'sobre',
+        'então', 'agora', 'sempre', 'nunca', 'outro', 'nova', 'novo', 'grande', 'mesmo',
+        'ainda', 'onde', 'ano', 'dia', 'vez', 'porque', 'aqui', 'lá', 'ali', 'hoje',
+        'ontem', 'amanhã', 'noite', 'manhã', 'tarde', 'hora', 'minuto', 'segundo',
+        'casa', 'pai', 'mãe', 'filho', 'filha', 'irmão', 'irmã', 'homem', 'mulher',
+        'vida', 'morte', 'amor', 'olhar', 'ver', 'fazer', 'dar', 'ter', 'vir', 'ir',
+        'dizer', 'falar', 'pensar', 'querer', 'saber', 'poder', 'dever', 'achar'
+    }
+    
+    COMMON_WORDS_EN = {
+        'the', 'and', 'for', 'you', 'are', 'not', 'this', 'that', 'with', 'from',
+        'have', 'was', 'were', 'been', 'will', 'can', 'but', 'what', 'all', 'when',
+        'time', 'year', 'day', 'way', 'its', 'may', 'any', 'only', 'now', 'new',
+        'make', 'work', 'know', 'take', 'see', 'come', 'get', 'use', 'find', 'give',
+        'tell', 'ask', 'try', 'call', 'hand', 'part', 'about', 'after', 'back',
+        'just', 'good', 'another', 'where', 'every', 'much', 'before', 'right',
+        'mean', 'old', 'great', 'same', 'because', 'turn', 'here', 'show', 'why',
+        'help', 'put', 'different', 'away', 'again', 'off', 'went', 'number'
+    }
     
     def __init__(self):
         """

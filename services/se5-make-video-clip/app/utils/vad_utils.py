@@ -5,7 +5,7 @@ Fornece funções compatíveis com silero-vad vendorizado (modelo JIT),
 sem dependência de torch.hub em runtime.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import subprocess
 import os
 import tempfile
@@ -276,7 +276,7 @@ def convert_to_16k_wav(
         logger.error(f"Erro em convert_to_16k_wav: {e}")
         raise
 
-def validate_audio_format(audio_path: str) -> Dict[str, any]:
+def validate_audio_format(audio_path: str) -> Dict[str, Any]:
     """
     Valida formato de áudio usando ffprobe.
     

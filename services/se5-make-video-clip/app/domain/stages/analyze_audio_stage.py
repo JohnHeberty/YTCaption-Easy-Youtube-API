@@ -63,7 +63,7 @@ class AnalyzeAudioStage(JobStage):
             raise AudioProcessingException(
                 f"Audio file not found for job {context.job_id}",
                 error_code=ErrorCode.AUDIO_FILE_NOT_FOUND,
-                details={'expected_path': str(audio_base_path)},
+                details={'expected_path': str(audio_path)},
                 job_id=context.job_id,
             )
         

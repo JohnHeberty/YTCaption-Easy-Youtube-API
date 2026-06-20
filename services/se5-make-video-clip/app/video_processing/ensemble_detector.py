@@ -10,6 +10,7 @@ Combines PaddleOCR, CLIP, and EasyOCR with weighted voting for robust detection.
 from typing import Dict, List, Optional
 import time
 
+from common.log_utils import get_logger
 from .detectors.base_detector import BaseSubtitleDetector
 from .detectors.paddle_detector import PaddleDetector
 from .detectors.clip_classifier import CLIPClassifier
@@ -21,6 +22,8 @@ from .voting import (
     ConflictDetector,
     UncertaintyEstimator
 )
+
+logger = get_logger(__name__)
 
 
 class EnsembleSubtitleDetector:
@@ -63,12 +66,12 @@ class EnsembleSubtitleDetector:
         """
         if detectors is None:
             # Create default detectors
-            print("[Ensemble] Initializing default detectors...")
+            logger.info("[Ensemble] Initializing default detectors...")
             self.paddle = PaddleDetector(roi_mode='multi')
             self.clip = CLIPClassifier()
             self.easyocr = EasyOCRDetector(languages=['en'])
             self.detectors = [self.paddle, self.clip, self.easyocr]
-            print(f"[Ensemble] Loaded {len(self.detectors)} detectors")
+            logger.info("[Ensemble] Loaded %d detectors", len(self.detectors))
         else:
             self.detectors = detectors
             # Try to map detectors to attributes by model name
@@ -90,11 +93,11 @@ class EnsembleSubtitleDetector:
         
         if enable_conflict_detection:
             self.conflict_detector = ConflictDetector()
-            print("[Ensemble] Conflict detection enabled")
+            logger.info("[Ensemble] Conflict detection enabled")
         
         if enable_uncertainty_estimation:
             self.uncertainty_estimator = UncertaintyEstimator()
-            print("[Ensemble] Uncertainty estimation enabled")
+            logger.info("[Ensemble] Uncertainty estimation enabled")
         
         # Confidence-weighted voting (Sprint 07)
         self.confidence_weighted_voting = ConfidenceWeightedVoting()
@@ -114,7 +117,7 @@ class EnsembleSubtitleDetector:
                 'metadata': dict
             }
         """
-        print(f"\n[Ensemble] Processing video: {video_path}")
+        logger.info("[Ensemble] Processing video: %s", video_path)
         start_time = time.time()
         
         # Run all detectors
@@ -122,7 +125,7 @@ class EnsembleSubtitleDetector:
         for detector in self.detectors:
             model_name = detector.get_model_name()
             
-            print(f"[Ensemble] Running {model_name}...")
+            logger.info("[Ensemble] Running %s...", model_name)
             detector_start = time.time()
             
             try:
@@ -137,10 +140,10 @@ class EnsembleSubtitleDetector:
                     'time': detector_time
                 }
                 
-                print(f"[Ensemble]   {model_name}: {result['has_subtitles']} (conf: {result['confidence']:.2f}, time: {detector_time:.2f}s)")
+                logger.info("[Ensemble]   %s: %s (conf: %.2f, time: %.2fs)", model_name, result['has_subtitles'], result['confidence'], detector_time)
                 
             except Exception as e:
-                print(f"[Ensemble]   {model_name}: ERROR - {e}")
+                logger.warning("[Ensemble]   %s: ERROR - %s", model_name, e)
                 # Skip failed detectors (don't add to votes)
                 continue
         
@@ -162,19 +165,19 @@ class EnsembleSubtitleDetector:
             final_result['conflict_analysis'] = conflict_analysis
             
             if conflict_analysis['has_conflict']:
-                print(f"[Ensemble] ⚠️  Conflict detected: {conflict_analysis['conflict_type']} (severity: {conflict_analysis['severity']})")
+                logger.warning("[Ensemble] Conflict detected: %s (severity: %s)", conflict_analysis['conflict_type'], conflict_analysis['severity'])
                 for rec in conflict_analysis['recommendations']:
-                    print(f"[Ensemble]   → {rec}")
+                    logger.info("[Ensemble]   → %s", rec)
         
         # Sprint 07: Uncertainty estimation
         if self.enable_uncertainty_estimation:
             uncertainty_analysis = self.uncertainty_estimator.estimate(votes, final_result)
             final_result['uncertainty_analysis'] = uncertainty_analysis
             
-            print(f"[Ensemble] Uncertainty: {uncertainty_analysis['uncertainty_level']} (score: {uncertainty_analysis['uncertainty_score']:.3f})")
+            logger.info("[Ensemble] Uncertainty: %s (score: %.3f)", uncertainty_analysis['uncertainty_level'], uncertainty_analysis['uncertainty_score'])
             
             if uncertainty_analysis['uncertainty_level'] == 'high':
-                print(f"[Ensemble] ⚠️  High uncertainty - decision may be unreliable")
+                logger.warning("[Ensemble] High uncertainty - decision may be unreliable")
         
         total_time = time.time() - start_time
         
@@ -184,7 +187,7 @@ class EnsembleSubtitleDetector:
         final_result['metadata']['total_time'] = total_time
         final_result['metadata']['num_detectors'] = len(self.detectors)
         
-        print(f"[Ensemble] Final decision: {final_result['has_subtitles']} (conf: {final_result['confidence']:.2f}, time: {total_time:.2f}s)")
+        logger.info("[Ensemble] Final decision: %s (conf: %.2f, time: %.2fs)", final_result['has_subtitles'], final_result['confidence'], total_time)
         
         return final_result
     
@@ -357,4 +360,4 @@ class EnsembleSubtitleDetector:
             if model_name in weights:
                 detector.set_weight(weights[model_name])
         
-        print(f"[Ensemble] Custom weights set: {weights}")
+        logger.info("[Ensemble] Custom weights set: %s", weights)
