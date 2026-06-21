@@ -19,12 +19,13 @@ logger = get_logger(__name__)
 BEST_CLOTHING_CLASSES = "spaghetti strap, camisole, top, blouse, shirt"
 
 DEFAULT_CLOTHES_PROMPT = (
-    "skin texture, seamless blending, consistent skin tone, "
-    "photorealistic, soft lighting, natural shadows on skin"
+    "bare skin, smooth skin surface, realistic skin texture, "
+    "photorealistic, professional photography, consistent skin tone"
 )
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, text, watermark, "
     "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
+    "nipples, areola, "
     "color mismatch, visible seams, collage, "
     "bad anatomy, deformed skin, wrinkled, scarred"
 )
@@ -84,6 +85,35 @@ def combine_masks(masks: list[str]) -> str:
 
     combined = (combined > 127).astype(np.uint8) * 255
     _, buffer = cv2.imencode(".png", combined)
+    return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
+
+
+def dilate_mask(mask_b64: str, kernel_size: int = 21, iterations: int = 2) -> str:
+    """Dilate (expand) a binary mask to cover edges and thin features.
+
+    Args:
+        mask_b64: Base64 data URI of binary mask.
+        kernel_size: Size of the dilation kernel.
+        iterations: Number of dilation passes.
+
+    Returns:
+        Dilated mask as base64 data URI.
+    """
+    import cv2
+    import numpy as np
+
+    raw = _strip_data_uri(mask_b64)
+    mask_bytes = base64.b64decode(_fix_b64_padding(raw))
+    nparr = np.frombuffer(mask_bytes, np.uint8)
+    mask = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        return mask_b64
+
+    mask = (mask > 127).astype(np.uint8) * 255
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    dilated = cv2.dilate(mask, kernel, iterations=iterations)
+
+    _, buffer = cv2.imencode(".png", dilated)
     return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 
@@ -246,7 +276,8 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         combined_mask = combine_masks(masks)
-        logger.info("Job %s: combined %d masks", job.job_id, len(masks))
+        combined_mask = dilate_mask(combined_mask, kernel_size=21, iterations=2)
+        logger.info("Job %s: combined %d masks + dilated", job.job_id, len(masks))
 
         # === Stage 4: SE8 — Inpainting ===
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")

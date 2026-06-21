@@ -197,7 +197,7 @@ class SE8Client(ServiceClient):
                 "inpaint_strength": inpaint_strength,
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
-                "inpaint_erode_or_dilate": -20,
+                "inpaint_erode_or_dilate": -10,
             },
         }
 
