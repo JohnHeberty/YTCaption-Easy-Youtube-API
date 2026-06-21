@@ -665,6 +665,11 @@ def _process_diffusion(
     switch = async_task.overwrite_switch if async_task.overwrite_switch > 0 else steps
 
     # Process diffusion
+    denoise = 1.0
+    if inpaint_state and inpaint_state.get("strength") is not None:
+        denoise = float(inpaint_state["strength"])
+        logger.info("Inpaint denoise strength = %.2f", denoise)
+
     imgs = pipeline.process_diffusion(
         positive_cond=positive_cond,
         negative_cond=negative_cond,
@@ -677,6 +682,7 @@ def _process_diffusion(
         sampler_name=async_task.sampler_name,
         scheduler_name=async_task.scheduler_name,
         latent=initial_latent,
+        denoise=denoise,
     )
 
     return imgs if imgs else []

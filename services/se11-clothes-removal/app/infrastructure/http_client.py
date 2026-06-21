@@ -135,8 +135,8 @@ class SE8Client(ServiceClient):
         mask_b64: str,
         prompt: str = "",
         negative_prompt: str = "",
-        inpaint_strength: float = 1.0,
-        inpaint_respective_field: float = 0.9,
+        inpaint_strength: float = 0.4,
+        inpaint_respective_field: float = 0.85,
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -165,7 +165,7 @@ class SE8Client(ServiceClient):
                 "bad proportions, mutated hands, extra fingers"
             )
 
-        # Default LoRAs: SDXL offset (quality) only — NSFW LoRAs are incompatible with JuggernautXL
+        # Default LoRAs: SDXL offset only (Detail Tweaker too heavy for 24GB GPU)
         if loras is None:
             loras = [
                 {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
@@ -179,7 +179,7 @@ class SE8Client(ServiceClient):
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "style_selections": [style] if style else [],
-            "performance_selection": "Speed",
+            "performance_selection": "Quality",
             "aspect_ratios_selection": aspect_str,
             "image_number": 1,
             "image_seed": -1,
@@ -197,19 +197,33 @@ class SE8Client(ServiceClient):
                 "inpaint_strength": inpaint_strength,
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
+                "inpaint_erode_or_dilate": -20,
             },
         }
 
-        response = await self._request_with_retry(
-            "POST",
-            "/v1/generation/image-inpaint-outpaint",
-            json=payload,
-        )
-        result = response.json()
-        # SE8 may return list-of-lists or list-of-dicts — unwrap until we get a dict
-        item = result
-        while isinstance(item, list) and len(item) > 0:
-            item = item[0]
+        # Retry loop for empty SE8 results (CUDA assertion failures return [])
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            response = await self._request_with_retry(
+                "POST",
+                "/v1/generation/image-inpaint-outpaint",
+                json=payload,
+            )
+            result = response.json()
+            # SE8 may return list-of-lists or list-of-dicts — unwrap until we get a dict
+            item = result
+            while isinstance(item, list) and len(item) > 0:
+                item = item[0]
+            if isinstance(item, dict) and item.get("finish_reason") == "SUCCESS":
+                break
+            if isinstance(item, list) and len(item) == 0:
+                logger.warning("SE8 returned empty list (attempt %d/%d), retrying...", attempt + 1, max_attempts)
+                import asyncio
+                await asyncio.sleep(3)
+                continue
+            if isinstance(item, dict):
+                break
+
         if not isinstance(item, dict):
             raise Exception(f"SE8 returned unexpected type: {type(item).__name__}, value: {str(item)[:200]}")
 

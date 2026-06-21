@@ -1,7 +1,8 @@
-"""Pipeline for SE11 Clothes Removal — orchestrates SE10 → SE8."""
+"""Pipeline for SE11 Clothes Removal — orchestrates SE10 → SE8 → post-process."""
 from __future__ import annotations
 
 import base64
+import io
 import os
 import time
 
@@ -15,38 +16,44 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 
 logger = get_logger(__name__)
 
+BEST_CLOTHING_CLASSES = "spaghetti strap, camisole, top, blouse, shirt"
+
+DEFAULT_CLOTHES_PROMPT = (
+    "skin texture, seamless blending, consistent skin tone, "
+    "photorealistic, soft lighting"
+)
+DEFAULT_CLOTHES_NEGATIVE = (
+    "clothes, fabric, bra, straps, underwear, text, watermark, "
+    "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
+    "nipples, areola, breasts, nudity, exposed skin, bare chest, "
+    "color mismatch, skin tone mismatch, visible seams, collage"
+)
+
 
 def _decode_image(image_input: str) -> bytes:
-    """Decode base64 image or fetch from URL. Returns raw bytes."""
     if image_input.startswith(("http://", "https://")):
         import httpx
         resp = httpx.get(image_input, timeout=30)
         resp.raise_for_status()
         return resp.content
-
-    # Strip data URI prefix if present
     if "," in image_input and image_input.startswith("data:"):
         image_input = image_input.split(",", 1)[1]
-
     return base64.b64decode(_fix_b64_padding(image_input))
 
 
 def _to_data_uri(b64_str: str, mime: str = "image/png") -> str:
-    """Ensure base64 string has data URI prefix."""
     if b64_str.startswith("data:"):
         return b64_str
     return f"data:{mime};base64,{b64_str}"
 
 
 def _strip_data_uri(data_uri: str) -> str:
-    """Strip data URI prefix, return raw base64."""
     if "," in data_uri and data_uri.startswith("data:"):
         return data_uri.split(",", 1)[1]
     return data_uri
 
 
 def _fix_b64_padding(s: str) -> str:
-    """Fix base64 padding if missing."""
     missing = len(s) % 4
     if missing:
         s += "=" * (4 - missing)
@@ -54,66 +61,122 @@ def _fix_b64_padding(s: str) -> str:
 
 
 def combine_masks(masks: list[str]) -> str:
-    """Combine multiple binary masks into one using OpenCV union.
-
-    Args:
-        masks: List of base64 PNG masks (with or without data URI prefix).
-
-    Returns:
-        Combined mask as base64 data URI (data:image/png;base64,...).
-    """
     import cv2
     import numpy as np
 
     combined = None
-    for i, mask_b64 in enumerate(masks):
+    for mask_b64 in masks:
         raw = _strip_data_uri(mask_b64)
         mask_bytes = base64.b64decode(_fix_b64_padding(raw))
         nparr = np.frombuffer(mask_bytes, np.uint8)
         mask_img = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
         if mask_img is None:
             continue
-
         if combined is None:
             combined = mask_img
         else:
-            # Resize if dimensions differ
             if combined.shape != mask_img.shape:
                 mask_img = cv2.resize(mask_img, (combined.shape[1], combined.shape[0]))
-            # Union of masks
             combined = cv2.bitwise_or(combined, mask_img)
 
     if combined is None:
         raise ValueError("No valid masks to combine")
 
-    # Ensure binary
     combined = (combined > 127).astype(np.uint8) * 255
-
-    # Encode as PNG base64
     _, buffer = cv2.imencode(".png", combined)
     return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 
-DEFAULT_PERSON_PROMPT = "background, wall, curtain, environment, scenery"
-DEFAULT_PERSON_NEGATIVE = "person, human, body, skin, clothing, face, hair, limbs, nude"
+def filter_clothing_objects(objects: list[dict], image_height: int) -> list[dict]:
+    filtered = []
+    for obj in objects:
+        bbox = obj.get("bbox", [0, 0, 0, 0])
+        x1, y1, x2, y2 = bbox
+        center_y = (y1 + y2) / 2
+        bbox_width = x2 - x1
+        bbox_height = y2 - y1
 
-DEFAULT_CLOTHES_PROMPT = (
-    "photorealistic female body, natural skin texture, smooth skin, "
-    "detailed skin pores, natural lighting, anatomically correct, "
-    "high quality photograph, realistic shadows on skin, "
-    "professional photography, soft lighting"
-)
-DEFAULT_CLOTHES_NEGATIVE = (
-    "clothes, fabric, clothing, shirt, blouse, bra, straps, underwear, "
-    "wrinkles, folds, text, watermark, deformed, blurry, "
-    "extra limbs, disfigured, poorly drawn, ugly, duplicate, "
-    "morbid, mutated, bad anatomy, bad proportions, "
-    "cartoon, anime, painting, illustration, CGI, 3d render"
-)
+        if center_y > image_height * 0.65:
+            logger.info("Filtered %s at center_y=%d (bottom 35%%)", obj.get("class_name"), center_y)
+            continue
+        if center_y < image_height * 0.10:
+            logger.info("Filtered %s at center_y=%d (top 10%%)", obj.get("class_name"), center_y)
+            continue
+        if bbox_width > 0.8 * bbox_height * 2:
+            logger.info("Filtered %s (bbox too wide: %dx%d)", obj.get("class_name"), bbox_width, bbox_height)
+            continue
+
+        filtered.append(obj)
+    return filtered
+
+
+def post_process_blend(
+    original_bytes: bytes,
+    inpainted_bytes: bytes,
+    mask_b64: str,
+    blend_kernel: int = 51,
+    original_weight: float = 0.15,
+) -> bytes:
+    """Alpha-blend inpainted result with original image for smoother transition.
+
+    Args:
+        original_bytes: Original image bytes.
+        inpainted_bytes: Inpainted image bytes from SE8.
+        mask_b64: Binary mask (data URI) indicating inpainted region.
+        blend_kernel: Gaussian blur kernel size for soft mask edges.
+        original_weight: How much of the original to preserve (0-1).
+
+    Returns:
+        Blended image as PNG bytes.
+    """
+    import cv2
+    import numpy as np
+
+    orig_arr = np.frombuffer(original_bytes, np.uint8)
+    orig = cv2.imdecode(orig_arr, cv2.IMREAD_COLOR)
+    if orig is None:
+        return inpainted_bytes
+
+    inp_arr = np.frombuffer(inpainted_bytes, np.uint8)
+    inp = cv2.imdecode(inp_arr, cv2.IMREAD_COLOR)
+    if inp is None:
+        return inpainted_bytes
+
+    if orig.shape != inp.shape:
+        inp = cv2.resize(inp, (orig.shape[1], orig.shape[0]))
+
+    raw = _strip_data_uri(mask_b64)
+    mask_bytes = base64.b64decode(_fix_b64_padding(raw))
+    mask_arr = np.frombuffer(mask_bytes, np.uint8)
+    mask = cv2.imdecode(mask_arr, cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        return inpainted_bytes
+
+    if orig.shape[:2] != mask.shape:
+        mask = cv2.resize(mask, (orig.shape[1], orig.shape[0]))
+
+    mask = (mask > 127).astype(np.uint8) * 255
+
+    # Gaussian blur for soft edges
+    k = blend_kernel if blend_kernel % 2 == 1 else blend_kernel + 1
+    soft_mask = cv2.GaussianBlur(mask.astype(np.float32), (k, k), 0)
+    soft_mask = soft_mask / 255.0
+
+    # Alpha blend: inpainted area weighted by soft_mask, original everywhere else
+    alpha = soft_mask[:, :, np.newaxis]
+    blended = (inp.astype(np.float32) * alpha + orig.astype(np.float32) * (1.0 - alpha))
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+
+    # Preserve original pixels fully outside mask
+    mask_binary = mask > 127
+    outside_mask = ~mask_binary
+    blended[outside_mask] = orig[outside_mask]
+
+    _, buffer = cv2.imencode(".png", blended)
+    return buffer.tobytes()
 
 
 async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """Main pipeline: image → SE10 (detect) → combine masks → SE8 (inpaint) → result."""
     mode = job.request.mode or "clothes"
     logger.info("Starting %s removal pipeline for job %s", mode, job.job_id)
 
@@ -121,23 +184,28 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
     se8 = SE8Client()
 
     try:
-        # === Stage 1: Decode image ===
         image_bytes = _decode_image(job.request.image)
         logger.info("Job %s: image decoded (%d bytes)", job.job_id, len(image_bytes))
+
+        from PIL import Image as PILImage
+        img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+        image_height = img.size[1]
 
         # === Stage 2: SE10 — Detect ===
         job.status = ClothesRemovalJobStatus.DETECTING
         job.update_stage("detecting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
+        effective_classes = job.request.classes or BEST_CLOTHING_CLASSES
+
         t0 = time.time()
         segment_result = await se10.segment(
             image_bytes=image_bytes,
             filename=f"{job.job_id}.jpg",
-            classes=job.request.classes,
+            classes=effective_classes,
             box_threshold=job.request.box_threshold,
-            text_threshold=job.request.text_threshold,
-            mode=mode,
+            text_threshold=0.05,
+            mode="clothes",
         )
         seg_time = time.time() - t0
         logger.info(
@@ -154,15 +222,22 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
+        objects = segment_result.get("objects", [])
+        filtered_objects = filter_clothing_objects(objects, image_height)
+        logger.info(
+            "Job %s: filtered %d → %d objects",
+            job.job_id, len(objects), len(filtered_objects),
+        )
+
         masks = segment_result.get("masks", [])
         if not masks:
             job.status = ClothesRemovalJobStatus.FAILED
             job.error = "SE10 detected objects but returned no masks"
-            job.update_stage("detecting", "failed", error="No masks returned")
+            job.update_stage("detecting", "failed", error="No masks")
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        job.objects_detected = len(masks)
+        job.objects_detected = len(filtered_objects)
         job.update_stage("detecting", "completed", progress=100.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -176,15 +251,10 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         # === Stage 4: SE8 — Inpainting ===
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # Mode-specific prompt and inpaint params
-        if mode == "person":
-            prompt = DEFAULT_PERSON_PROMPT
-            negative_prompt = DEFAULT_PERSON_NEGATIVE
-            inpaint_respective_field = 1.0
-        else:
-            prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
-            negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
-            inpaint_respective_field = 0.9
+        prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
+        negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
+        inpaint_respective_field = 0.85
+        inpaint_strength = 0.4
 
         t1 = time.time()
         inpaint_result = await se8.inpaint(
@@ -192,26 +262,16 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             mask_b64=combined_mask,
             prompt=prompt,
             negative_prompt=negative_prompt,
-            inpaint_strength=job.request.inpaint_strength,
+            inpaint_strength=inpaint_strength,
             inpaint_respective_field=inpaint_respective_field,
         )
         inpaint_time = time.time() - t1
         logger.info("Job %s: SE8 inpainting completed in %.1fs", job.job_id, inpaint_time)
 
-        # === Stage 5: Save result ===
-        # SE8 may return a list or dict
         if isinstance(inpaint_result, list) and len(inpaint_result) > 0:
             inpaint_result = inpaint_result[0]
 
-        logger.info(
-            "Job %s: SE8 response keys=%s, base64_len=%s, url_len=%s, finish_reason=%s",
-            job.job_id,
-            list(inpaint_result.keys()) if isinstance(inpaint_result, dict) else str(type(inpaint_result)),
-            len(inpaint_result.get("base64", "")) if isinstance(inpaint_result, dict) and inpaint_result.get("base64") else 0,
-            len(inpaint_result.get("url", "")) if isinstance(inpaint_result, dict) and inpaint_result.get("url") else 0,
-            inpaint_result.get("finish_reason") if isinstance(inpaint_result, dict) else None,
-        )
-        result_b64 = inpaint_result.get("base64", "")
+        result_b64 = inpaint_result.get("base64", "") if isinstance(inpaint_result, dict) else ""
         if not result_b64:
             job.status = ClothesRemovalJobStatus.FAILED
             job.error = "SE8 returned empty result"
@@ -219,36 +279,24 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        # Save to file — base64 from SE8 file download is valid PNG
+        # === Stage 5: Post-process — alpha blend with original ===
+        raw_decode = _strip_data_uri(result_b64)
+        result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
+
+        blended_bytes = post_process_blend(
+            original_bytes=image_bytes,
+            inpainted_bytes=result_bytes,
+            mask_b64=combined_mask,
+            blend_kernel=51,
+            original_weight=0.15,
+        )
+
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
         result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
 
-        logger.info("Job %s: result_b64 length=%d", job.job_id, len(result_b64))
-        raw_decode = _strip_data_uri(result_b64)
-        result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
-        logger.info("Job %s: decoded %d bytes", job.job_id, len(result_bytes))
-
-        # Validate and ensure RGB output
-        try:
-            import cv2
-            import numpy as np
-            nparr = np.frombuffer(result_bytes, np.uint8)
-            decoded = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
-            if decoded is not None:
-                if decoded.ndim == 3 and decoded.shape[2] == 4:
-                    logger.info("Job %s: converting BGRA → BGR", job.job_id)
-                    bgr = cv2.cvtColor(decoded, cv2.COLOR_BGRA2BGR)
-                    cv2.imwrite(result_path, bgr)
-                else:
-                    cv2.imwrite(result_path, decoded)
-            else:
-                with open(result_path, "wb") as f:
-                    f.write(result_bytes)
-        except Exception as e:
-            logger.warning("Job %s: cv2 convert failed (%s), saving raw bytes", job.job_id, e)
-            with open(result_path, "wb") as f:
-                f.write(result_bytes)
+        with open(result_path, "wb") as f:
+            f.write(blended_bytes)
 
         job.result_path = result_path
         job.status = ClothesRemovalJobStatus.COMPLETED
