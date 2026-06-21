@@ -93,13 +93,37 @@ class StableDiffusionModel:
         self.clip_with_lora = self.clip.clone() if self.clip is not None else None
 
         for lora_filename, weight in loras_to_load:
-            lora_unmatch = ldm_patched.modules.utils.load_torch_file(lora_filename, safe_load=False)
-            lora_unet, lora_unmatch = match_lora(lora_unmatch, self.lora_key_map_unet)
-            lora_clip, lora_unmatch = match_lora(lora_unmatch, self.lora_key_map_clip)
+            lora_data = ldm_patched.modules.utils.load_torch_file(lora_filename, safe_load=False)
 
-            if len(lora_unmatch) > 12:
-                # model mismatch
+            # Direct LoRA matching: always rebuild key_map from model state_dict
+            key_map_unet = {}
+            if self.unet is not None:
+                for k in self.unet.model.state_dict().keys():
+                    if k.startswith("diffusion_model.") and k.endswith(".weight"):
+                        lora_key = k[len("diffusion_model."):-len(".weight")].replace(".", "_")
+                        key_map_unet[f"lora_unet_{lora_key}"] = k
+                self.lora_key_map_unet = key_map_unet
+                print(f'Built UNet LoRA key map: {len(key_map_unet)} entries')
+
+            key_map_clip = {}
+            if self.clip is not None and hasattr(self.clip, 'cond_stage_model') and self.clip.cond_stage_model is not None:
+                for k in self.clip.cond_stage_model.state_dict().keys():
+                    if k.endswith(".weight"):
+                        lora_key = k.replace(".", "_")
+                        key_map_clip[f"lora_clip_{lora_key}"] = k
+                self.lora_key_map_clip = key_map_clip
+                print(f'Built CLIP LoRA key map: {len(key_map_clip)} entries')
+
+            lora_unet, lora_unmatch = match_lora(lora_data, key_map_unet)
+            lora_clip, lora_unmatch_clip = match_lora(lora_unmatch, key_map_clip)
+
+            total_loaded = len(lora_unet) + len(lora_clip)
+            if total_loaded == 0:
+                print(f'LoRA [{lora_filename}]: 0 keys matched, skipping')
                 continue
+
+            if total_loaded > 0:
+                print(f'LoRA [{lora_filename}]: {total_loaded} keys matched (unet={len(lora_unet)}, clip={len(lora_clip)})')
 
             if len(lora_unmatch) > 0:
                 print(f'Loaded LoRA [{lora_filename}] for model [{self.filename}] '
