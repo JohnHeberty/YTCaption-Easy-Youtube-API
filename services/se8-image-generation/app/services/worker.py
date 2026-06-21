@@ -454,6 +454,13 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
     # Ensure mask is binary (255=masked, 0=keep)
     mask = (mask > 127).astype(np.uint8) * 255
 
+    # Apply erode_or_dilate if requested
+    erode_dilate = async_task.inpaint_erode_or_dilate or 0
+    if erode_dilate != 0:
+        from modules.util import erode_or_dilate
+        mask = erode_or_dilate(mask, erode_dilate)
+        logger.info("Inpaint mask erode_or_dilate=%d applied", erode_dilate)
+
     # Create InpaintWorker from modules (legacy, correct implementation)
     import modules.inpaint_worker as miw
     k = async_task.inpaint_respective_field or 0.618

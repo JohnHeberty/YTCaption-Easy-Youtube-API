@@ -20,13 +20,13 @@ BEST_CLOTHING_CLASSES = "spaghetti strap, camisole, top, blouse, shirt"
 
 DEFAULT_CLOTHES_PROMPT = (
     "skin texture, seamless blending, consistent skin tone, "
-    "photorealistic, soft lighting"
+    "photorealistic, soft lighting, natural shadows on skin"
 )
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, text, watermark, "
     "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
-    "nipples, areola, breasts, nudity, exposed skin, bare chest, "
-    "color mismatch, skin tone mismatch, visible seams, collage"
+    "color mismatch, visible seams, collage, "
+    "bad anatomy, deformed skin, wrinkled, scarred"
 )
 
 
@@ -254,7 +254,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
         negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
         inpaint_respective_field = 0.85
-        inpaint_strength = 0.4
+        inpaint_strength = 0.75
 
         t1 = time.time()
         inpaint_result = await se8.inpaint(
@@ -279,24 +279,16 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        # === Stage 5: Post-process — alpha blend with original ===
+        # === Stage 5: Save result ===
         raw_decode = _strip_data_uri(result_b64)
         result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
-
-        blended_bytes = post_process_blend(
-            original_bytes=image_bytes,
-            inpainted_bytes=result_bytes,
-            mask_b64=combined_mask,
-            blend_kernel=51,
-            original_weight=0.15,
-        )
 
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
         result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
 
         with open(result_path, "wb") as f:
-            f.write(blended_bytes)
+            f.write(result_bytes)
 
         job.result_path = result_path
         job.status = ClothesRemovalJobStatus.COMPLETED
