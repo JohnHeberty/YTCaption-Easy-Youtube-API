@@ -165,11 +165,11 @@ class SE8Client(ServiceClient):
                 "bad proportions, mutated hands, extra fingers"
             )
 
-        # Default LoRAs: SDXL offset only (Detail Tweaker too heavy for 24GB GPU)
+        # LoRAs: sd_xl_offset (quality) + add-detail-xl (skin detail)
         if loras is None:
             loras = [
                 {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
                 {"enabled": True, "model_name": "None", "weight": 1.0},
                 {"enabled": True, "model_name": "None", "weight": 1.0},
                 {"enabled": True, "model_name": "None", "weight": 1.0},

@@ -122,12 +122,15 @@ class StableDiffusionModel:
 
         # Cache check
         loras_str = str(loras)
+        print(f"DEBUG refresh_loras: unet={'loaded' if self.unet else 'None'}, filename={self.filename}, cache={self.visited_loras[:30] if self.visited_loras else 'empty'}, loras={loras_str[:60]}")
         if self.visited_loras == loras_str:
+            print(f"DEBUG refresh_loras: cache HIT, skipping")
             return
 
         self.visited_loras = loras_str
 
         if self.unet is None:
+            print(f"DEBUG refresh_loras: unet is None, skipping")
             return
 
         logger.info(f"Loading LoRAs {loras_str} for model [{self.filename}]")
@@ -151,6 +154,8 @@ class StableDiffusionModel:
 
         if not loras_to_load:
             return
+
+        print(f"DEBUG refresh_loras: loading {len(loras_to_load)} LoRAs")
 
         # Clone models for LoRA patching
         self.unet_with_lora = self.unet.clone() if self.unet is not None else None
@@ -184,6 +189,7 @@ class StableDiffusionModel:
         import torch
         from ldm_patched.modules.utils import load_torch_file
 
+        print(f"DEBUG _apply_single_lora: {lora_filename}, weight={weight}")
         lora_data = load_torch_file(lora_filename, safe_load=False)
 
         # Direct matching: build model_key -> lora_prefix mapping from state_dict
@@ -191,6 +197,13 @@ class StableDiffusionModel:
         clip_patches = {}
 
         if self.unet is not None and hasattr(self.unet, 'model'):
+            sdk = list(self.unet.model.state_dict().keys())
+            diffusion_keys = [k for k in sdk if k.startswith("diffusion_model.") and k.endswith(".weight")]
+            print(f"DEBUG UNet state_dict: {len(sdk)} total keys, {len(diffusion_keys)} diffusion_model.*.weight keys")
+            if diffusion_keys:
+                print(f"DEBUG UNet first diffusion key: {diffusion_keys[0]}")
+            else:
+                print(f"DEBUG UNet first 5 keys: {sdk[:5]}")
             for k in self.unet.model.state_dict().keys():
                 if k.startswith("diffusion_model.") and k.endswith(".weight"):
                     lora_prefix = "lora_unet_" + k[len("diffusion_model."):-len(".weight")].replace(".", "_")
@@ -214,19 +227,18 @@ class StableDiffusionModel:
 
         total = len(unet_patches) + len(clip_patches)
         if total == 0:
-            logger.warning("LoRA [%s]: 0 keys matched, skipping", lora_filename)
+            print(f"DEBUG LoRA [{lora_filename}]: 0 keys matched, skipping")
             return
 
-        logger.info("LoRA [%s]: %d keys matched (unet=%d, clip=%d), weight=%.2f",
-                     lora_filename, total, len(unet_patches), len(clip_patches), weight)
+        print(f"DEBUG LoRA [{lora_filename}]: {total} keys matched (unet={len(unet_patches)}, clip={len(clip_patches)}), weight={weight}")
 
         if self.unet_with_lora is not None and unet_patches:
             loaded = self.unet_with_lora.add_patches(unet_patches, weight)
-            logger.info("LoRA [%s] → UNet: %d keys applied", lora_filename, len(loaded))
+            print(f"DEBUG LoRA [{lora_filename}] → UNet: {len(loaded)} keys applied")
 
         if self.clip_with_lora is not None and clip_patches:
             loaded = self.clip_with_lora.add_patches(clip_patches, weight)
-            logger.info("LoRA [%s] → CLIP: %d keys applied", lora_filename, len(loaded))
+            print(f"DEBUG LoRA [{lora_filename}] → CLIP: {len(loaded)} keys applied")
 
     def __repr__(self) -> str:
         parts = [f"StableDiffusionModel(filename={self.filename!r}"]
