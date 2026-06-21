@@ -185,6 +185,13 @@ class StableDiffusionModel:
         from ldm_patched.modules.utils import load_torch_file
         from modules.lora import match_lora
 
+        # Rebuild key maps if empty (model may have been loaded after init)
+        if not self.lora_key_map_unet and self.unet is not None:
+            logger.info("Rebuilding LoRA key maps (UNet now available)")
+            self._init_lora_key_maps()
+            logger.info("Key maps rebuilt: unet=%d, clip=%d",
+                        len(self.lora_key_map_unet), len(self.lora_key_map_clip))
+
         lora_data = load_torch_file(lora_filename, safe_load=False)
 
         # Match LoRA keys to UNet
@@ -192,14 +199,24 @@ class StableDiffusionModel:
         # Match LoRA keys to CLIP
         lora_clip, unmatch_clip = match_lora(lora_data, self.lora_key_map_clip)
 
-        # Warn on excessive unmatched keys (model mismatch)
+        total_loaded = len(lora_unet) + len(lora_clip)
         total_unmatch = len(unmatch_unet) + len(unmatch_clip)
-        if total_unmatch > 12:
+        total_lora_keys = total_loaded + total_unmatch
+
+        # Skip if zero keys matched (true mismatch) — but allow high unmatched count
+        # when the key_map is empty (lazy model loading) and many keys were loaded
+        if total_loaded == 0 and total_unmatch > 12:
             logger.warning(
-                f"LoRA [{lora_filename}] has {total_unmatch} unmatched keys — "
+                f"LoRA [{lora_filename}] has {total_unmatch} unmatched keys, 0 loaded — "
                 f"possible model mismatch, skipping"
             )
             return
+
+        if total_unmatch > 12:
+            logger.info(
+                f"LoRA [{lora_filename}]: {total_loaded} keys loaded, "
+                f"{total_unmatch} unmatched (key_map may be incomplete)"
+            )
 
         if unmatch_unet:
             logger.info(
