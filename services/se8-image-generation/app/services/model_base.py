@@ -183,68 +183,50 @@ class StableDiffusionModel:
         """Load a single LoRA file and apply to UNet and CLIP."""
         import torch
         from ldm_patched.modules.utils import load_torch_file
-        from modules.lora import match_lora
-
-        # Rebuild key maps if empty (model may have been loaded after init)
-        if not self.lora_key_map_unet and self.unet is not None:
-            logger.info("Rebuilding LoRA key maps (UNet now available)")
-            self._init_lora_key_maps()
-            logger.info("Key maps rebuilt: unet=%d, clip=%d",
-                        len(self.lora_key_map_unet), len(self.lora_key_map_clip))
 
         lora_data = load_torch_file(lora_filename, safe_load=False)
 
-        # Match LoRA keys to UNet
-        lora_unet, unmatch_unet = match_lora(lora_data, self.lora_key_map_unet)
-        # Match LoRA keys to CLIP
-        lora_clip, unmatch_clip = match_lora(lora_data, self.lora_key_map_clip)
+        # Direct matching: build model_key -> lora_prefix mapping from state_dict
+        unet_patches = {}
+        clip_patches = {}
 
-        total_loaded = len(lora_unet) + len(lora_clip)
-        total_unmatch = len(unmatch_unet) + len(unmatch_clip)
-        total_lora_keys = total_loaded + total_unmatch
+        if self.unet is not None and hasattr(self.unet, 'model'):
+            for k in self.unet.model.state_dict().keys():
+                if k.startswith("diffusion_model.") and k.endswith(".weight"):
+                    lora_prefix = "lora_unet_" + k[len("diffusion_model."):-len(".weight")].replace(".", "_")
+                    up_key = lora_prefix + ".lora_up.weight"
+                    down_key = lora_prefix + ".lora_down.weight"
+                    alpha_key = lora_prefix + ".alpha"
+                    if up_key in lora_data and down_key in lora_data:
+                        alpha = lora_data[alpha_key].item() if alpha_key in lora_data else None
+                        unet_patches[k] = ("lora", (lora_data[up_key], lora_data[down_key], alpha, None))
 
-        # Skip if zero keys matched (true mismatch) — but allow high unmatched count
-        # when the key_map is empty (lazy model loading) and many keys were loaded
-        if total_loaded == 0 and total_unmatch > 12:
-            logger.warning(
-                f"LoRA [{lora_filename}] has {total_unmatch} unmatched keys, 0 loaded — "
-                f"possible model mismatch, skipping"
-            )
+        if self.clip is not None and hasattr(self.clip, 'cond_stage_model') and self.clip.cond_stage_model is not None:
+            for k in self.clip.cond_stage_model.state_dict().keys():
+                if k.endswith(".weight"):
+                    lora_prefix = "lora_clip_" + k.replace(".", "_")
+                    up_key = lora_prefix + ".lora_up.weight"
+                    down_key = lora_prefix + ".lora_down.weight"
+                    alpha_key = lora_prefix + ".alpha"
+                    if up_key in lora_data and down_key in lora_data:
+                        alpha = lora_data[alpha_key].item() if alpha_key in lora_data else None
+                        clip_patches[k] = ("lora", (lora_data[up_key], lora_data[down_key], alpha, None))
+
+        total = len(unet_patches) + len(clip_patches)
+        if total == 0:
+            logger.warning("LoRA [%s]: 0 keys matched, skipping", lora_filename)
             return
 
-        if total_unmatch > 12:
-            logger.info(
-                f"LoRA [{lora_filename}]: {total_loaded} keys loaded, "
-                f"{total_unmatch} unmatched (key_map may be incomplete)"
-            )
+        logger.info("LoRA [%s]: %d keys matched (unet=%d, clip=%d), weight=%.2f",
+                     lora_filename, total, len(unet_patches), len(clip_patches), weight)
 
-        if unmatch_unet:
-            logger.info(
-                f"LoRA [{lora_filename}] for UNet [{self.filename}]: "
-                f"{len(unmatch_unet)} unmatched keys"
-            )
+        if self.unet_with_lora is not None and unet_patches:
+            loaded = self.unet_with_lora.add_patches(unet_patches, weight)
+            logger.info("LoRA [%s] → UNet: %d keys applied", lora_filename, len(loaded))
 
-        # Apply to UNet
-        if self.unet_with_lora is not None and lora_unet:
-            loaded_keys = self.unet_with_lora.add_patches(lora_unet, weight)
-            logger.info(
-                f"LoRA [{lora_filename}] → UNet [{self.filename}]: "
-                f"{len(loaded_keys)} keys at weight {weight}"
-            )
-            for key in lora_unet:
-                if key not in loaded_keys:
-                    logger.debug(f"UNet LoRA key skipped: {key}")
-
-        # Apply to CLIP
-        if self.clip_with_lora is not None and lora_clip:
-            loaded_keys = self.clip_with_lora.add_patches(lora_clip, weight)
-            logger.info(
-                f"LoRA [{lora_filename}] → CLIP [{self.filename}]: "
-                f"{len(loaded_keys)} keys at weight {weight}"
-            )
-            for key in lora_clip:
-                if key not in loaded_keys:
-                    logger.debug(f"CLIP LoRA key skipped: {key}")
+        if self.clip_with_lora is not None and clip_patches:
+            loaded = self.clip_with_lora.add_patches(clip_patches, weight)
+            logger.info("LoRA [%s] → CLIP: %d keys applied", lora_filename, len(loaded))
 
     def __repr__(self) -> str:
         parts = [f"StableDiffusionModel(filename={self.filename!r}"]
