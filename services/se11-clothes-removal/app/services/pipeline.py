@@ -16,7 +16,7 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 
 logger = get_logger(__name__)
 
-BEST_CLOTHING_CLASSES = "spaghetti strap, camisole, top, blouse, shirt"
+BEST_CLOTHING_CLASSES = "top, blouse, camisole, shirt, spaghetti strap"
 
 DEFAULT_CLOTHES_PROMPT = (
     "natural skin tone matching surrounding skin, seamless texture, "
@@ -25,9 +25,9 @@ DEFAULT_CLOTHES_PROMPT = (
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, text, watermark, "
     "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
-    "nipples, areola, breast, "
+    "nipples, areola, breast, nudity, nude, naked, "
     "color mismatch, visible seams, collage, "
-    "bad anatomy, deformed skin"
+    "bad anatomy, deformed skin, wrinkled, scarred"
 )
 
 
@@ -117,27 +117,34 @@ def dilate_mask(mask_b64: str, kernel_size: int = 21, iterations: int = 2) -> st
     return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 
+def _keep_object(obj: dict, image_height: int) -> bool:
+    """Return True if the object should be kept (used for mask filtering).
+
+    Filters out:
+    - Bottom detections (likely curtain/false positives): center_y > 75% of height
+    - Top detections (face/hair): center_y < 5% of height
+    - Extremely wide boxes: width > 3x height
+    """
+    bbox = obj.get("bbox", [0, 0, 0, 0])
+    x1, y1, x2, y2 = bbox
+    center_y = (y1 + y2) / 2
+    bbox_width = x2 - x1
+    bbox_height = y2 - y1
+
+    if center_y > image_height * 0.75:
+        logger.info("Filtered %s at center_y=%d (bottom 25%%)", obj.get("class_name"), center_y)
+        return False
+    if center_y < image_height * 0.05:
+        logger.info("Filtered %s at center_y=%d (top 5%%)", obj.get("class_name"), center_y)
+        return False
+    if bbox_height > 0 and bbox_width > 3.0 * bbox_height:
+        logger.info("Filtered %s (bbox too wide: %dx%d)", obj.get("class_name"), bbox_width, bbox_height)
+        return False
+    return True
+
+
 def filter_clothing_objects(objects: list[dict], image_height: int) -> list[dict]:
-    filtered = []
-    for obj in objects:
-        bbox = obj.get("bbox", [0, 0, 0, 0])
-        x1, y1, x2, y2 = bbox
-        center_y = (y1 + y2) / 2
-        bbox_width = x2 - x1
-        bbox_height = y2 - y1
-
-        if center_y > image_height * 0.65:
-            logger.info("Filtered %s at center_y=%d (bottom 35%%)", obj.get("class_name"), center_y)
-            continue
-        if center_y < image_height * 0.10:
-            logger.info("Filtered %s at center_y=%d (top 10%%)", obj.get("class_name"), center_y)
-            continue
-        if bbox_width > 0.8 * bbox_height * 2:
-            logger.info("Filtered %s (bbox too wide: %dx%d)", obj.get("class_name"), bbox_width, bbox_height)
-            continue
-
-        filtered.append(obj)
-    return filtered
+    return [obj for obj in objects if _keep_object(obj, image_height)]
 
 
 def post_process_blend(
@@ -253,17 +260,25 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             return
 
         objects = segment_result.get("objects", [])
-        filtered_objects = filter_clothing_objects(objects, image_height)
+        all_masks = segment_result.get("masks", [])
+
+        # Filter objects AND their corresponding masks together
+        filtered_objects = []
+        filtered_masks = []
+        for i, obj in enumerate(objects):
+            if _keep_object(obj, image_height):
+                filtered_objects.append(obj)
+                if i < len(all_masks):
+                    filtered_masks.append(all_masks[i])
         logger.info(
             "Job %s: filtered %d → %d objects",
             job.job_id, len(objects), len(filtered_objects),
         )
 
-        masks = segment_result.get("masks", [])
-        if not masks:
+        if not filtered_masks:
             job.status = ClothesRemovalJobStatus.FAILED
-            job.error = "SE10 detected objects but returned no masks"
-            job.update_stage("detecting", "failed", error="No masks")
+            job.error = "SE10 detected objects but all were filtered out"
+            job.update_stage("detecting", "failed", error="All objects filtered")
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
@@ -275,9 +290,9 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         job.update_stage("inpainting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        combined_mask = combine_masks(masks)
+        combined_mask = combine_masks(filtered_masks)
         combined_mask = dilate_mask(combined_mask, kernel_size=21, iterations=2)
-        logger.info("Job %s: combined %d masks + dilated", job.job_id, len(masks))
+        logger.info("Job %s: combined %d filtered masks + dilated", job.job_id, len(filtered_masks))
 
         # === Stage 4: SE8 — Inpainting ===
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
@@ -285,7 +300,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
         negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
         inpaint_respective_field = 0.85
-        inpaint_strength = 0.75
+        inpaint_strength = 0.70
 
         t1 = time.time()
         inpaint_result = await se8.inpaint(
