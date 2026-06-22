@@ -165,12 +165,12 @@ class SE8Client(ServiceClient):
                 "bad proportions, mutated hands, extra fingers"
             )
 
-        # LoRAs: sd_xl_offset (quality) + add-detail-xl (skin detail)
+        # LoRAs: NsfwPov (skin) + offset (quality) + detail (texture)
         if loras is None:
             loras = [
+                {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.2},
                 {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
                 {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
                 {"enabled": True, "model_name": "None", "weight": 1.0},
                 {"enabled": True, "model_name": "None", "weight": 1.0},
             ]
@@ -179,7 +179,7 @@ class SE8Client(ServiceClient):
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "style_selections": [style] if style else [],
-            "performance_selection": "Quality",
+            "performance_selection": "Speed",
             "aspect_ratios_selection": aspect_str,
             "image_number": 1,
             "image_seed": -1,

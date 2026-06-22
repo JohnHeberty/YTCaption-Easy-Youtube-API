@@ -19,15 +19,15 @@ logger = get_logger(__name__)
 BEST_CLOTHING_CLASSES = "spaghetti strap, camisole, top, blouse, shirt"
 
 DEFAULT_CLOTHES_PROMPT = (
-    "bare skin, smooth skin surface, realistic skin texture, "
-    "photorealistic, professional photography, consistent skin tone"
+    "natural skin tone matching surrounding skin, seamless texture, "
+    "photorealistic, professional photography, soft lighting"
 )
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, text, watermark, "
     "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
-    "nipples, areola, "
+    "nipples, areola, breast, "
     "color mismatch, visible seams, collage, "
-    "bad anatomy, deformed skin, wrinkled, scarred"
+    "bad anatomy, deformed skin"
 )
 
 
