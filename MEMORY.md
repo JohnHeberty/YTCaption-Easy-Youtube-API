@@ -2,12 +2,14 @@
 
 ## Última sessão (2026-06-22)
 - **SE11 Mask Filtering Fix** — CRITICAL BUG: masks were not filtered with objects, so bottom detections (curtain false positives) polluted the combined mask
+- **Hybrid Person→Torso Fallback** — when clothing detection < 5% coverage, auto-falls back to person detection minus head (22% bbox)
 - **Mask filter thresholds**: bottom 75%, top 5%, width>3x height
 - **Denoise tuned**: 0.75→0.70 (enough for skin gen, low enough to avoid nipples)
 - **Negative prompt strengthened**: added nudity/nude/naked, wrinkle/scarred
-- **SE8 CUDA assertion**: intermittent `handle_0 INTERNAL ASSERT FAILED at driver_api.cpp:15`, requires restart between heavy requests
-- **SE10 detection limitation**: GroundingDINO misplaces blouse at bottom (curtain area) for Test.png, strap detections (y=480-510) are correct but tiny (0.3-2.6% area)
-- **Commit**: `e99c2e8` (mask filtering + denoise + negative prompt)
+- **E2E Validated**: SE10 clothes+person, SE8 inpainting (3 LoRAs), SE11 full pipeline (clothes+person)
+- **Tests**: 11/11 passing, all source files py_compile OK
+- **SE8 CUDA assertion**: intermittent `upsample_nearest2d` driver bug, requires restart
+- **Commits**: `e99c2e8`, `2ad5730`, `6e3d1e4`, `7631cd0`
 - **Previous session commits**: `6f1b161`, `48cd6d9`, `e1bc46a`, `a340fac`, `4c0907d`, `84e5ddf`, `774dc7a`, `70a439a`
 - **Fase 1**: Exception hierarchy consolidated (ServiceError→BaseServiceException), BaseJob dead code removed (135 lines), SE8 worker.py:481 bug fix, SE6 hardcoded API keys→get_innertube_api_key(), SE7 Celery mismatch fixed, SE7 test imports removed, SE8+SE10 Pydantic v2 config, rate_limiter utcnow→now(UTC), ResilientRedisStore._safe_call extraction
 - **Fase 2**: SE9+SE11 already committed (redis_store._use_raw, redundant close removal, models cleanup)
@@ -56,10 +58,15 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - ✅ Todos os módulos py_compile OK
 - ✅ API server inicia, health/ping respondem
 - ✅ Deep health detecta SE8=ok, SE10=ok
-- ✅ **E2E passou (compose-persisted)**: SE11 → SE10 → SE8 → RGB 482×789, 449KB, ~84s
+- ✅ **E2E clothes mode**: SE11→SE10→SE8 → RGB 482×789, 398KB, ~40s, mean_diff=2.4, PSNR=40.5dB
+- ✅ **E2E person mode**: SE11→SE10→SE8 → RGB 482×789, 404KB, ~35s, mean_diff=2.8, PSNR=39.3dB
+- ✅ **SE8 direct inpainting**: 3 LoRAs (NsfwPov+detail+offset), 22s, PSNR=29.6dB
+- ✅ **SE10 clothes**: 5 objects/5 masks, 15s
+- ✅ **SE10 person**: 2 objects/2 masks, 15s
+- ✅ **Face preservation**: 0% change in top 30% across all tests
+- ✅ **Hybrid fallback**: auto-activates when clothing coverage < 5%
 - ✅ **PNG transparency fix**: resultado é RGB (não RGBA)
-- ✅ **Inpainting quality fix**: aspect ratio dinâmico, inpaint_respective_field=0.8, sem styles agressivas
-- ✅ **Person removal mode**: `mode="person"` — SE10 detecta pessoa, SE8 remove com prompt de fundo, 100% background preserved
+- ✅ **Inpainting quality fix**: aspect ratio dinâmico, inpaint_respective_field=0.85, 3 LoRAs
 
 ### SE11 Config
 - Port: 8011, API_KEY: se11-test-key-2026
@@ -239,6 +246,8 @@ All 44 py_compile OK, no logic changes.
 4. ✅ Pydantic v2 migration completa — 348/348 arquivos, zero warnings
 5. ✅ SE8 Docker rebuild — all inpainting fixes persisted (2026-06-20)
 6. ✅ SE11 Person removal mode — SE10 mode=person + SE11 pipeline adaptado, E2E validated
-7. Integração SE11 ao SE1 ou APIs externas
-8. SE10 detection quality — GroundingDINO occasionally misplaces objects (e.g., blouse at wrong y-position)
-9. Color-based hybrid: usar mask vermelha (Test_Selected.png) como SAM2 point prompt para refinamento
+7. ✅ SE11 Mask filtering fix — objects + masks paired, hybrid fallback
+8. ✅ SE11 Denoise tuning — 0.70 sweet spot, negative prompt strengthened
+9. SE8 CUDA assertion mitigation — investigate GPU driver version or add graceful restart
+10. Color matching improvement — test inpaint_disable_initial_latent or color correction post-processing
+11. Integração SE11 ao SE1 ou APIs externas
