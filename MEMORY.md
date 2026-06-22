@@ -1,14 +1,14 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-06-20)
-- **SE11 Person Removal Mode** — MODE="person" implementado em SE10+SE11, E2E validado
-- **Strong Typing Batch 7 SE8** — 44 SE8-image-generation files typed (all py_compile OK)
-- **Strong Typing Batch 6 SE5** — 33 SE5-make-video-clip files typed (all py_compile OK)
-- **Strong Typing Batch 5 SE6** — 33 SE6-youtube-search files typed (all py_compile OK)
-- **Strong Typing Batch 4** — 29 SE3-audio-normalization files typed (all py_compile OK)
-- **Clean Code Audit COMPLETE** — 5-phase audit across all 11 services + shared library
-- **INVESTIGATION.md QA Audit** — 36/36 items verified, 1 typo fixed, 3 omissions added, CHECK.md deleted
-- **Commits**: `51202c2` (SE9+Pydantic v2), `c20c55a` (SE11 E2E+SE8 inpaint), `3526fe7` (agent docs), `64014b7` (Fase 3 SE6+SE7), `4ae828d` (Fase 4 SE1-SE4), `a02c75c` (Fase 5 SE5+SE8)
+## Última sessão (2026-06-22)
+- **SE11 Mask Filtering Fix** — CRITICAL BUG: masks were not filtered with objects, so bottom detections (curtain false positives) polluted the combined mask
+- **Mask filter thresholds**: bottom 75%, top 5%, width>3x height
+- **Denoise tuned**: 0.75→0.70 (enough for skin gen, low enough to avoid nipples)
+- **Negative prompt strengthened**: added nudity/nude/naked, wrinkle/scarred
+- **SE8 CUDA assertion**: intermittent `handle_0 INTERNAL ASSERT FAILED at driver_api.cpp:15`, requires restart between heavy requests
+- **SE10 detection limitation**: GroundingDINO misplaces blouse at bottom (curtain area) for Test.png, strap detections (y=480-510) are correct but tiny (0.3-2.6% area)
+- **Commit**: `e99c2e8` (mask filtering + denoise + negative prompt)
+- **Previous session commits**: `6f1b161`, `48cd6d9`, `e1bc46a`, `a340fac`, `4c0907d`, `84e5ddf`, `774dc7a`, `70a439a`
 - **Fase 1**: Exception hierarchy consolidated (ServiceError→BaseServiceException), BaseJob dead code removed (135 lines), SE8 worker.py:481 bug fix, SE6 hardcoded API keys→get_innertube_api_key(), SE7 Celery mismatch fixed, SE7 test imports removed, SE8+SE10 Pydantic v2 config, rate_limiter utcnow→now(UTC), ResilientRedisStore._safe_call extraction
 - **Fase 2**: SE9+SE11 already committed (redis_store._use_raw, redundant close removal, models cleanup)
 - **Fase 3**: SE6 enum consolidation (removed duplicate SearchType/JobStatus from constants.py), f-string→%s logging, asyncio.run() replacement; SE7 generator re-raise fix (critical: swallowed errors→Celery false success)
@@ -66,15 +66,24 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - DIVISOR=11, Redis DB=11
 - SE10_URL=http://host.docker.internal:8010 (Docker) / http://localhost:8010 (local)
 - SE8_URL=http://host.docker.internal:8008 (Docker) / http://localhost:8008 (local)
-- DEFAULT_PROMPT="nude, naked body, smooth skin"
+- DEFAULT_PROMPT="natural skin tone matching surrounding skin, seamless texture, photorealistic, professional photography, soft lighting"
+- denoise=0.70, inpaint_respective_field=0.85, erode_or_dilate=-10
+- LoRAs: NsfwPov(0.2) + offset(0.1) + detail(0.8)
+- BEST_CLOTHING_CLASSES="top, blouse, camisole, shirt, spaghetti strap"
+- Mask dilation: kernel=21, iter=2
+- text_threshold=0.05 for SE10
 
 ### Fixes aplicados
 1. **base64 padding** — `_fix_b64_padding()` antes de `b64.b64decode()`
 2. **PNG transparency** — `require_base64=False` em SE8 client + download via file URL, evita base64 truncado do SE8
 3. **Aspect ratio dinâmico** — `_pick_sdxl_ratio()` detecta proporção da imagem e escolhe SDXL ratio mais próximo
 4. **Styles limpas** — removido "Fooocus Enhance" e "Fooocus Sharp" que alteravam demais a aparência
-5. **inpaint_respective_field=0.8** — crop cobre mais contexto ao redor da máscara (era 0.5 default)
+5. **inpaint_respective_field=0.85** — crop cobre mais contexto ao redor da máscara
 6. **advanced_params always sent** — engine/strength/field sempre enviados ao SE8
+7. **Mask filtering fix** — objetos E masks são filtrados juntos via `_keep_object()`, evita masks de false positives (cortina) no combined mask
+8. **Negative prompt** — removido "exposed skin" (auto-sabotava CFG), adicionado nudity/nude/naked/wrinkled/scarred
+9. **Denoise 0.70** — sweet spot: suficiente para gerar pele, baixo o bastante para evitar nipples
+10. **LoRA matching fix** — direct matching de `model.state_dict().keys()` para key_map vazio
 
 ## SE10 — Clothes Segmentation
 
