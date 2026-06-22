@@ -102,7 +102,7 @@ class TestModels:
 
         req = CreateClothesRemovalRequest(image="test_base64")
         assert req.classes is None
-        assert req.prompt == "nude, naked body, smooth skin"
+        assert req.prompt == ""
         assert req.box_threshold == 0.10
         assert req.inpaint_strength == 1.0
 
