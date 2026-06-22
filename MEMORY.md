@@ -1,15 +1,14 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-22)
-- **SE11 Mask Filtering Fix** — CRITICAL BUG: masks were not filtered with objects, so bottom detections (curtain false positives) polluted the combined mask
-- **Hybrid Person→Torso Fallback** — when clothing detection < 5% coverage, auto-falls back to person detection minus head (22% bbox)
-- **Mask filter thresholds**: bottom 75%, top 5%, width>3x height
-- **Denoise tuned**: 0.75→0.70 (enough for skin gen, low enough to avoid nipples)
-- **Negative prompt strengthened**: added nudity/nude/naked, wrinkle/scarred
-- **E2E Validated**: SE10 clothes+person, SE8 inpainting (3 LoRAs), SE11 full pipeline (clothes+person)
-- **Tests**: 11/11 passing, all source files py_compile OK
-- **SE8 CUDA assertion**: intermittent `upsample_nearest2d` driver bug, requires restart
-- **Commits**: `e99c2e8`, `2ad5730`, `6e3d1e4`, `7631cd0`
+- **SE11 Quality Pipeline v2** — 6 improvements: auto erosion, coverage cap, max 3 objects, per-garment, webhook, HSV color transfer (reverted to BGR after testing)
+- **Strict filtering**: max 3 objects by confidence, min confidence 0.10, coverage cap at 15% with erosion
+- **Auto erosion**: erode_or_dilate computed from mask coverage (-5 to -30)
+- **Per-garment mode**: optional flag to inpaint each mask separately
+- **Webhook**: POST to webhook_url on job completion
+- **Test results**: v21 (clothes) mean=2.3 PSNR=40.7dB, v22 (person) mean=2.8 PSNR=39.1dB
+- **SE8 CUDA mitigation**: retry backoff 5/10/15s, cache clear reverted (broke inpainting)
+- **Commits**: `e99c2e8`, `2ad5730`, `6e3d1e4`, `7631cd0`, `5d5659f`, `06b9c67`, `269856a`
 - **Previous session commits**: `6f1b161`, `48cd6d9`, `e1bc46a`, `a340fac`, `4c0907d`, `84e5ddf`, `774dc7a`, `70a439a`
 - **Fase 1**: Exception hierarchy consolidated (ServiceError→BaseServiceException), BaseJob dead code removed (135 lines), SE8 worker.py:481 bug fix, SE6 hardcoded API keys→get_innertube_api_key(), SE7 Celery mismatch fixed, SE7 test imports removed, SE8+SE10 Pydantic v2 config, rate_limiter utcnow→now(UTC), ResilientRedisStore._safe_call extraction
 - **Fase 2**: SE9+SE11 already committed (redis_store._use_raw, redundant close removal, models cleanup)
