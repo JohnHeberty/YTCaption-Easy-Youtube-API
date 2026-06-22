@@ -147,6 +147,75 @@ def filter_clothing_objects(objects: list[dict], image_height: int) -> list[dict
     return [obj for obj in objects if _keep_object(obj, image_height)]
 
 
+async def _get_torso_mask(
+    se10: "SE10Client",
+    image_bytes: bytes,
+    filename: str,
+    image_height: int,
+) -> str | None:
+    """Detect person, subtract head region, return torso mask as data URI.
+
+    Used as fallback when clothing detection gives poor coverage (< 5%).
+    """
+    import cv2
+    import numpy as np
+
+    resp = await se10.segment(
+        image_bytes=image_bytes,
+        filename=filename,
+        classes="person, woman, man",
+        box_threshold=0.30,
+        text_threshold=0.25,
+        mode="person",
+    )
+    if not resp.get("detected") or not resp.get("masks"):
+        logger.warning("Person detection failed for torso fallback")
+        return None
+
+    objects = resp.get("objects", [])
+    masks = resp.get("masks", [])
+    if not objects or not masks:
+        return None
+
+    # Take the largest person mask
+    best_idx = 0
+    best_area = 0
+    for i, obj in enumerate(objects):
+        if obj.get("area_pct", 0) > best_area:
+            best_area = obj["area_pct"]
+            best_idx = i
+
+    mask_b64 = masks[best_idx]
+    raw = _strip_data_uri(mask_b64)
+    mask_bytes_raw = base64.b64decode(_fix_b64_padding(raw))
+    nparr = np.frombuffer(mask_bytes_raw, np.uint8)
+    pmask = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+    if pmask is None:
+        return None
+
+    binary = (pmask > 127).astype(np.uint8) * 255
+    h, w = binary.shape
+
+    # Get person bounding box from mask contours
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    largest = max(contours, key=cv2.contourArea)
+    px1, py1, pw, ph = cv2.boundingRect(largest)
+
+    # Subtract head: top 22% of person bounding box
+    head_h = int(ph * 0.22)
+    head_mask = np.zeros_like(binary)
+    head_mask[py1:py1 + head_h, px1:px1 + pw] = 255
+    torso = cv2.bitwise_and(binary, cv2.bitwise_not(head_mask))
+
+    coverage = (torso > 0).sum() / torso.size * 100
+    logger.info("Torso mask: coverage=%.1f%%, head subtracted y=%d-%d", coverage, py1, py1 + head_h)
+
+    _, buf = cv2.imencode(".png", torso)
+    return f"data:image/png;base64,{base64.b64encode(buf).decode()}"
+
+
 def post_process_blend(
     original_bytes: bytes,
     inpainted_bytes: bytes,
@@ -276,11 +345,19 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         )
 
         if not filtered_masks:
-            job.status = ClothesRemovalJobStatus.FAILED
-            job.error = "SE10 detected objects but all were filtered out"
-            job.update_stage("detecting", "failed", error="All objects filtered")
-            store.save_job(job.job_id, job.model_dump(mode="json"))
-            return
+            # Fallback: try person → torso mask when clothing detection fails
+            logger.info("Job %s: no clothing masks after filtering, trying person→torso fallback", job.job_id)
+            torso_mask = await _get_torso_mask(se10, image_bytes, f"{job.job_id}.jpg", image_height)
+            if torso_mask:
+                filtered_masks = [torso_mask]
+                filtered_objects = [{"class_name": "person_torso", "area_pct": 0, "confidence": 0, "bbox": [0, 0, 0, 0]}]
+                logger.info("Job %s: using person→torso fallback mask", job.job_id)
+            else:
+                job.status = ClothesRemovalJobStatus.FAILED
+                job.error = "SE10 detected objects but all were filtered out, and person fallback failed"
+                job.update_stage("detecting", "failed", error="All objects filtered + fallback failed")
+                store.save_job(job.job_id, job.model_dump(mode="json"))
+                return
 
         job.objects_detected = len(filtered_objects)
         job.update_stage("detecting", "completed", progress=100.0)
@@ -293,6 +370,23 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         combined_mask = combine_masks(filtered_masks)
         combined_mask = dilate_mask(combined_mask, kernel_size=21, iterations=2)
         logger.info("Job %s: combined %d filtered masks + dilated", job.job_id, len(filtered_masks))
+
+        # Check mask coverage — if too low, try person→torso fallback
+        import cv2 as _cv2
+        import numpy as _np
+        raw_mask = _strip_data_uri(combined_mask)
+        mask_arr = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_mask)), _np.uint8)
+        mask_img = _cv2.imdecode(mask_arr, _cv2.IMREAD_GRAYSCALE)
+        if mask_img is not None:
+            coverage = (mask_img > 127).sum() / mask_img.size * 100
+            logger.info("Job %s: clothing mask coverage=%.1f%%", job.job_id, coverage)
+            if coverage < 5.0:
+                logger.info("Job %s: low coverage, trying person→torso fallback", job.job_id)
+                torso_mask = await _get_torso_mask(se10, image_bytes, f"{job.job_id}.jpg", image_height)
+                if torso_mask:
+                    combined_mask = dilate_mask(torso_mask, kernel_size=21, iterations=2)
+                    filtered_objects = [{"class_name": "person_torso", "area_pct": coverage, "confidence": 0, "bbox": [0, 0, 0, 0]}]
+                    logger.info("Job %s: using person→torso mask (was %.1f%%)", job.job_id, coverage)
 
         # === Stage 4: SE8 — Inpainting ===
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
