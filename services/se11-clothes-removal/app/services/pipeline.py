@@ -143,6 +143,60 @@ def _keep_object(obj: dict, image_height: int) -> bool:
     return True
 
 
+def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -> bytes:
+    """Match mean color of inpainted region to surrounding skin.
+
+    Computes mean BGR of the inpainted region and the surrounding unmasked
+    border, then shifts the inpainted pixels to match the surrounding tone.
+    """
+    import cv2
+    import numpy as np
+
+    orig = cv2.imdecode(np.frombuffer(original_bytes, np.uint8), cv2.IMREAD_COLOR)
+    result = cv2.imdecode(np.frombuffer(result_bytes, np.uint8), cv2.IMREAD_COLOR)
+    if orig is None or result is None or orig.shape != result.shape:
+        return result_bytes
+
+    raw = _strip_data_uri(mask_b64)
+    mask_bytes = base64.b64decode(_fix_b64_padding(raw))
+    mask = cv2.imdecode(np.frombuffer(mask_bytes, np.uint8), cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        return result_bytes
+
+    mask_bin = (mask > 127).astype(np.uint8)
+    h, w = mask_bin.shape
+
+    # Get surrounding border (eroded mask subtracted from dilated mask)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
+    dilated = cv2.dilate(mask_bin, kernel, iterations=1)
+    eroded = cv2.erode(mask_bin, kernel, iterations=1)
+    border = (dilated - eroded).astype(bool)
+
+    # Ensure mask is 3-channel for multiplication
+    mask_3ch = mask_bin[:, :, None].astype(np.float32)
+
+    inpainted_mean = result[mask_bin > 0].mean(axis=0) if (mask_bin > 0).any() else None
+    border_mean = orig[border].mean(axis=0) if border.any() else None
+
+    if inpainted_mean is None or border_mean is None:
+        return result_bytes
+
+    # Compute shift: push inpainted pixels toward surrounding color
+    shift = border_mean - inpainted_mean
+    shift_3ch = shift[np.newaxis, np.newaxis, :].astype(np.float32)
+
+    # Apply shift with mask weight (full shift inside, gradual at edges)
+    corrected = result.astype(np.float32) + shift_3ch * mask_3ch * 0.6
+    corrected = np.clip(corrected, 0, 255).astype(np.uint8)
+
+    # Preserve unmasked pixels exactly
+    unmasked = (mask_bin == 0)[:, :, None]
+    corrected = np.where(unmasked, orig, corrected)
+
+    _, buf = cv2.imencode(".png", corrected)
+    return buf.tobytes()
+
+
 def filter_clothing_objects(objects: list[dict], image_height: int) -> list[dict]:
     return [obj for obj in objects if _keep_object(obj, image_height)]
 
@@ -422,6 +476,13 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         # === Stage 5: Save result ===
         raw_decode = _strip_data_uri(result_b64)
         result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
+
+        # === Stage 6: Color correction ===
+        try:
+            result_bytes = _color_transfer(result_bytes, image_bytes, combined_mask)
+            logger.info("Job %s: color correction applied", job.job_id)
+        except Exception as e:
+            logger.warning("Job %s: color correction failed (%s), using raw result", job.job_id, e)
 
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
