@@ -81,6 +81,7 @@ class CreateClothesRemovalRequest(BaseModel):
     box_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 detection threshold")
     text_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 text matching threshold")
     inpaint_strength: float = Field(default=1.0, ge=0.0, le=1.0, description="SE8 inpaint strength")
+    per_garment: bool = Field(default=False, description="Inpaint each garment separately (slower but better quality)")
     webhook_url: str | None = Field(default=None, description="Webhook URL for completion notification")
 
 

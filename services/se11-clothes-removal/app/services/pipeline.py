@@ -16,7 +16,9 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 
 logger = get_logger(__name__)
 
-BEST_CLOTHING_CLASSES = "top, blouse, camisole, shirt, spaghetti strap"
+BEST_CLOTHING_CLASSES = (
+    "spaghetti strap, camisole, top, blouse"
+)
 
 DEFAULT_CLOTHES_PROMPT = (
     "natural skin tone matching surrounding skin, seamless texture, "
@@ -117,6 +119,26 @@ def dilate_mask(mask_b64: str, kernel_size: int = 21, iterations: int = 2) -> st
     return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 
+def _erode_mask(mask_b64: str, kernel_size: int = 15, iterations: int = 1) -> str:
+    """Erode (shrink) a binary mask."""
+    import cv2
+    import numpy as np
+
+    raw = _strip_data_uri(mask_b64)
+    mask_bytes = base64.b64decode(_fix_b64_padding(raw))
+    nparr = np.frombuffer(mask_bytes, np.uint8)
+    mask = cv2.imdecode(nparr, cv2.IMREAD_GRAYSCALE)
+    if mask is None:
+        return mask_b64
+
+    mask = (mask > 127).astype(np.uint8) * 255
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    eroded = cv2.erode(mask, kernel, iterations=iterations)
+
+    _, buffer = cv2.imencode(".png", eroded)
+    return f"data:image/png;base64,{base64.b64encode(buffer).decode('utf-8')}"
+
+
 def _keep_object(obj: dict, image_height: int) -> bool:
     """Return True if the object should be kept (used for mask filtering).
 
@@ -146,8 +168,7 @@ def _keep_object(obj: dict, image_height: int) -> bool:
 def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -> bytes:
     """Match mean color of inpainted region to surrounding skin.
 
-    Computes mean BGR of the inpainted region and the surrounding unmasked
-    border, then shifts the inpainted pixels to match the surrounding tone.
+    Uses BGR mean shift from border region applied to masked region.
     """
     import cv2
     import numpy as np
@@ -166,13 +187,11 @@ def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -
     mask_bin = (mask > 127).astype(np.uint8)
     h, w = mask_bin.shape
 
-    # Get surrounding border (eroded mask subtracted from dilated mask)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
     dilated = cv2.dilate(mask_bin, kernel, iterations=1)
     eroded = cv2.erode(mask_bin, kernel, iterations=1)
     border = (dilated - eroded).astype(bool)
 
-    # Ensure mask is 3-channel for multiplication
     mask_3ch = mask_bin[:, :, None].astype(np.float32)
 
     inpainted_mean = result[mask_bin > 0].mean(axis=0) if (mask_bin > 0).any() else None
@@ -181,15 +200,12 @@ def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -
     if inpainted_mean is None or border_mean is None:
         return result_bytes
 
-    # Compute shift: push inpainted pixels toward surrounding color
     shift = border_mean - inpainted_mean
     shift_3ch = shift[np.newaxis, np.newaxis, :].astype(np.float32)
 
-    # Apply shift with mask weight (full shift inside, gradual at edges)
     corrected = result.astype(np.float32) + shift_3ch * mask_3ch * 0.6
     corrected = np.clip(corrected, 0, 255).astype(np.uint8)
 
-    # Preserve unmasked pixels exactly
     unmasked = (mask_bin == 0)[:, :, None]
     corrected = np.where(unmasked, orig, corrected)
 
@@ -386,13 +402,21 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         all_masks = segment_result.get("masks", [])
 
         # Filter objects AND their corresponding masks together
+        # Sort by confidence descending, keep max 3, minimum conf 0.10
+        sorted_pairs = [
+            (i, obj) for i, obj in enumerate(objects)
+            if _keep_object(obj, image_height) and obj.get("confidence", 0) >= 0.10
+        ]
+        sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
+        max_objects = min(3, len(sorted_pairs))
+
         filtered_objects = []
         filtered_masks = []
-        for i, obj in enumerate(objects):
-            if _keep_object(obj, image_height):
-                filtered_objects.append(obj)
-                if i < len(all_masks):
-                    filtered_masks.append(all_masks[i])
+        for idx in range(max_objects):
+            i, obj = sorted_pairs[idx]
+            filtered_objects.append(obj)
+            if i < len(all_masks):
+                filtered_masks.append(all_masks[i])
         logger.info(
             "Job %s: filtered %d → %d objects",
             job.job_id, len(objects), len(filtered_objects),
@@ -448,34 +472,93 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
         negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
         inpaint_respective_field = 0.85
+
+        # Dynamic denoise based on final mask coverage
+        raw_final = _strip_data_uri(combined_mask)
+        final_arr = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_final)), _np.uint8)
+        final_mask = _cv2.imdecode(final_arr, _cv2.IMREAD_GRAYSCALE)
+        final_pct = (final_mask > 127).sum() / final_mask.size * 100 if final_mask is not None else 0.0
         inpaint_strength = 0.70
 
+        # Dynamic erosion based on coverage
+        if final_pct > 30.0:
+            erode_or_dilate = -20
+        elif final_pct > 15.0:
+            erode_or_dilate = -15
+        elif final_pct > 5.0:
+            erode_or_dilate = -10
+        else:
+            erode_or_dilate = -5
+
+        # Cap coverage at 15% — larger masks produce poor inpainting
+        if final_pct > 15.0:
+            logger.info("Job %s: coverage %.1f%% exceeds cap, eroding mask", job.job_id, final_pct)
+            erode_or_dilate = min(erode_or_dilate, -30)
+            erode_kern = max(int((final_pct - 15.0) * 3), 15)
+            combined_mask = _erode_mask(combined_mask, kernel_size=erode_kern, iterations=2)
+            raw_final2 = _strip_data_uri(combined_mask)
+            final_arr2 = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_final2)), _np.uint8)
+            final_mask2 = _cv2.imdecode(final_arr2, _cv2.IMREAD_GRAYSCALE)
+            if final_mask2 is not None:
+                final_pct = (final_mask2 > 127).sum() / final_mask2.size * 100
+
+        logger.info("Job %s: final coverage=%.1f%%, denoise=%.2f, erode=%d", job.job_id, final_pct, inpaint_strength, erode_or_dilate)
+
         t1 = time.time()
-        inpaint_result = await se8.inpaint(
-            image_b64=image_b64,
-            mask_b64=combined_mask,
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            inpaint_strength=inpaint_strength,
-            inpaint_respective_field=inpaint_respective_field,
-        )
+
+        per_garment = getattr(job.request, "per_garment", False) and len(filtered_masks) > 1
+
+        if per_garment:
+            # Per-garment: inpaint each mask separately, merge results
+            logger.info("Job %s: per-garment mode (%d masks)", job.job_id, len(filtered_masks))
+            result_bytes_merge = image_bytes
+            for mi, single_mask in enumerate(filtered_masks):
+                logger.info("Job %s: inpainting garment %d/%d", job.job_id, mi + 1, len(filtered_masks))
+                single_mask_dilated = dilate_mask(single_mask, kernel_size=21, iterations=2)
+                single_b64 = _to_data_uri(base64.b64encode(result_bytes_merge).decode("utf-8"), mime="image/jpeg")
+                single_result = await se8.inpaint(
+                    image_b64=single_b64,
+                    mask_b64=single_mask_dilated,
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    inpaint_strength=inpaint_strength,
+                    inpaint_respective_field=inpaint_respective_field,
+                    inpaint_erode_or_dilate=erode_or_dilate,
+                )
+                if isinstance(single_result, list) and len(single_result) > 0:
+                    single_result = single_result[0]
+                single_b64_out = single_result.get("base64", "") if isinstance(single_result, dict) else ""
+                if single_b64_out:
+                    raw_decode = _strip_data_uri(single_b64_out)
+                    result_bytes_merge = base64.b64decode(_fix_b64_padding(raw_decode))
+            result_bytes = result_bytes_merge
+        else:
+            # Single-pass: combine all masks into one inpaint
+            inpaint_result = await se8.inpaint(
+                image_b64=image_b64,
+                mask_b64=combined_mask,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                inpaint_strength=inpaint_strength,
+                inpaint_respective_field=inpaint_respective_field,
+                inpaint_erode_or_dilate=erode_or_dilate,
+            )
+            if isinstance(inpaint_result, list) and len(inpaint_result) > 0:
+                inpaint_result = inpaint_result[0]
+
+            result_b64 = inpaint_result.get("base64", "") if isinstance(inpaint_result, dict) else ""
+            if not result_b64:
+                job.status = ClothesRemovalJobStatus.FAILED
+                job.error = "SE8 returned empty result"
+                job.update_stage("inpainting", "failed", error="Empty SE8 result")
+                store.save_job(job.job_id, job.model_dump(mode="json"))
+                return
+
+            raw_decode = _strip_data_uri(result_b64)
+            result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
+
         inpaint_time = time.time() - t1
-        logger.info("Job %s: SE8 inpainting completed in %.1fs", job.job_id, inpaint_time)
-
-        if isinstance(inpaint_result, list) and len(inpaint_result) > 0:
-            inpaint_result = inpaint_result[0]
-
-        result_b64 = inpaint_result.get("base64", "") if isinstance(inpaint_result, dict) else ""
-        if not result_b64:
-            job.status = ClothesRemovalJobStatus.FAILED
-            job.error = "SE8 returned empty result"
-            job.update_stage("inpainting", "failed", error="Empty SE8 result")
-            store.save_job(job.job_id, job.model_dump(mode="json"))
-            return
-
-        # === Stage 5: Save result ===
-        raw_decode = _strip_data_uri(result_b64)
-        result_bytes = base64.b64decode(_fix_b64_padding(raw_decode))
+        logger.info("Job %s: SE8 inpainting completed in %.1fs (per_garment=%s)", job.job_id, inpaint_time, per_garment)
 
         # === Stage 6: Color correction ===
         try:
@@ -502,6 +585,22 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             "Job %s: completed — %d objects detected, result saved to %s",
             job.job_id, job.objects_detected, result_path,
         )
+
+        # Webhook notification
+        webhook_url = getattr(job.request, "webhook_url", None)
+        if webhook_url:
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(timeout=10) as wh:
+                    await wh.post(webhook_url, json={
+                        "job_id": job.job_id,
+                        "status": "completed",
+                        "result_path": result_path,
+                        "objects_detected": job.objects_detected,
+                    })
+                logger.info("Job %s: webhook sent to %s", job.job_id, webhook_url)
+            except Exception as e:
+                logger.warning("Job %s: webhook failed (%s)", job.job_id, e)
 
     except Exception as e:
         logger.error("Job %s failed: %s", job.job_id, e, exc_info=True)

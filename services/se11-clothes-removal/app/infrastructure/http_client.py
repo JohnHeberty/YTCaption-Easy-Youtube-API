@@ -137,6 +137,7 @@ class SE8Client(ServiceClient):
         negative_prompt: str = "",
         inpaint_strength: float = 0.4,
         inpaint_respective_field: float = 0.85,
+        inpaint_erode_or_dilate: int = -10,
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
@@ -197,7 +198,7 @@ class SE8Client(ServiceClient):
                 "inpaint_strength": inpaint_strength,
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
-                "inpaint_erode_or_dilate": -10,
+                "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
             },
         }
 
