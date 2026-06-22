@@ -217,9 +217,10 @@ class SE8Client(ServiceClient):
             if isinstance(item, dict) and item.get("finish_reason") == "SUCCESS":
                 break
             if isinstance(item, list) and len(item) == 0:
-                logger.warning("SE8 returned empty list (attempt %d/%d), retrying...", attempt + 1, max_attempts)
+                wait = 5 * (attempt + 1)  # 5s, 10s, 15s — CUDA needs time to recover
+                logger.warning("SE8 returned empty list (attempt %d/%d), waiting %ds before retry...", attempt + 1, max_attempts, wait)
                 import asyncio
-                await asyncio.sleep(3)
+                await asyncio.sleep(wait)
                 continue
             if isinstance(item, dict):
                 break
