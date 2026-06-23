@@ -24,7 +24,8 @@
 - **Blur duplo:** GaussianBlur(31px) + GaussianBlur(15px) para bordas suaves
 - **Modelo:** mesmo do v15 (juggernautXL, NsfwPov 0.2)
 - **Vantagens vs v15:** bordas mais suaves, fundo intacto, pele preservada, seios mais definidos
-- **Descobertas:** collage > color_transfer; 7% > 10% > fixo 20px; blur duplo > SE8 refinement
+- **Lições:** 2-pass (0.50) regenera blobs — NÃO usar; HSV correction causa artefactos — NÃO usar
+- **Pendências:** melhorar bordas (visíveis) + tonalidade de pele (leve diferença)
 - **Pendências:** PLAN-2 (detecção adaptativa de cabeça com haarcascade)
 
 ### Modos antigos (DEPRECATED)
