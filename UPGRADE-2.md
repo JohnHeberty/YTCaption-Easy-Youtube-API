@@ -1,100 +1,85 @@
 # UPGRADE-2.md — Plano NSFW Completo: Remoção de Roupa Preservando Pessoa
 
-**Data:** 2026-06-22  
-**Status:** Pesquisa concluída — Próximos passos definidos  
+**Data:** 2026-06-23  
+**Status:** Fase A concluída — Fase B em andamento  
 **Objetivo:** Remoção 100% de roupa preservando rosto, corpo e pele da pessoa original
 
 ---
 
-## Estado Atual
+## Resultados Mais Recentes
 
-### O que funciona ✅
-| Componente | Versão | Resultado |
-|------------|--------|-----------|
-| Detecção de roupa | v83/v82 (progressive) | Face=1.000, Bot=62.9% |
-| Detecção straps | v24 (single pass) | Remove alças corretamente |
-| Face protection | top 35% zeroed | Rosto preservado |
-| Color correction | HSV BGR mean shift | Cor consistente |
+### pipe_nsfw (Fase A — A3 concluída) ✅
+| Métrica | pipe_nsfw anterior | **A3 (atual)** |
+|---------|-------------------|----------------|
+| Face SSIM | 0.996 | **0.996** ✅ |
+| BG diff | 0.3 | **0.3** ✅ |
+| Torso | 8.9% | **20.5%** ✅ |
+| Bot | 43.4% | **51.1%** ✅ |
+| Overall | 17.2% | **24.1%** |
 
-### O que NÃO funciona ❌
-| Componente | Problema |
-|------------|----------|
-| **SDXL inpainting NSFW** | Gera manchas cinza em máscaras >15% |
-| **SE8 upscale pós-inpainting** | Regenera imagem inteira (Face=0.649) |
-| **Morphological open/close** | Degrada bordas excessivamente |
-| **DEFAULT_CLOTHES_NEGATIVE** | Contém "nudity, nude" — bloqueia NSFW |
+**Configuração atual do pipe_nsfw:**
+- Single-pass (1 chamada ao SE8 — evita CUDA assertion)
+- NSFW_PROMPT + NSFW_NEGATIVE (sem bloqueio de nudez)
+- NsfwPovAllInOne LoRA peso 0.5 (0.6+ causa CUDA assertion)
+- Person mask composite + bilateral edge softening
+- Face protection: top 35% zeroed
 
-### LoRAs Disponíveis no SE8
-| LoRA | Tamanho | Status |
-|------|---------|--------|
-| **NsfwPovAllInOneLoraSdxl** | 1.8GB | ✅ Instalado (peso 0.5) |
-| **nursing-handjob-ponyxl** | 228MB | ⚠️ PonyXL (incompatível com SDXL) |
-| **Minecraft_nsfw** | 228MB | ❌ Minecraft style |
-| **add-detail-xl** | 228MB | ✅ Detalhes |
-| **sd_xl_offset** | 49MB | ✅ Qualidade |
-| **sdxl_lcm_lora** | 393MB | ✅ LCM fast inference |
-
-### Modelos Face Restore (BAIXADOS ✅)
-| Modelo | Status | Caminho |
-|--------|--------|---------|
-| **GFPGANv1.4.pth** | ✅ Baixado (348MB) | `data/models/face_restore/` |
-| **codeformer.pth** | ✅ Baixado (376MB) | `data/models/face_restore/` |
-| **Fooocus face_restoration.py** | ✅ Código existe | `app/services/face_restoration.py` |
-
-### Checkpoint
-- **juggernautXL_v8Rundiffusion** (7.1GB) — SDXL base, NÃO NSFW-treinado
+### Rota recomendada
+```
+POST /jobs {"image": "<base64>", "mode": "pipe_nsfw"}
+```
 
 ---
 
-## Próximos Passos — Plano de Ação
+## Fase A — Concluída ✅
 
-### FASE A: Testar LoRAs e Face Restore (curto prazo)
+### A1: nursing-handjob-ponyxl LoRA
+- Status: ⚠️ Adiado
+- Motivo: PonyXL format, pode ser incompatível com SDXL base
 
-**A1. Testar nursing-handjob-ponyxl** — LoRA NSFW PonyXL, pode ter efeito melhor que NsfwPov
-- Risco: PonyXL pode ser incompatível com SDXL base
-- Ação: testar com peso 0.3-0.5, verificar se gera resultado diferente
+### A2: GFPGAN face restore
+- Status: ✅ Modelos baixados
+  - `data/models/face_restore/GFPGANv1.4.pth` (348MB)
+  - `data/models/face_restore/codeformer.pth` (376MB)
+- Próximo: criar microservice separado ou integrar via SE8
 
-**A2. Testar GFPGAN face restore pós-inpainting**
-- O SE8 já tem `face_restoration.py` com código para GFPGAN e CodeFormer
-- Ação: chamar `restore_face()` após o inpainting para restaurar rosto
-- Esperado: rosto mais realista, sem degradação
+### A3: NsfwPovAllInOne peso 0.5
+- Status: ✅ Funcionando
+- Peso 0.6+: causa CUDA assertion (driver_api.cpp:15)
+- LoRA carrega corretamente no SE8
 
-**A3. Testar NsfwPovAllInOne com peso MAIOR (0.8-1.0)**
-- Peso atual: 0.5 (pouco efeito)
-- Ação: testar com 0.8 e 1.0
+---
 
-### FASE B: Modelo NSFW专用 (médio prazo)
+## Fase B — Em Andamento
 
-**B1. Baixar modelo NSFW fine-tuned**
+### B1: Modelo NSFW专用
 - Opções:
-  - **Pony Diffusion V6 XL** — SDXL fine-tuned para NSFW
-  - **Animagine XL** — SDXL NSFW (anime focus)
+  - **Pony Diffusion V6 XL** — SDXL fine-tuned para NSFW (~6.5GB)
   - **Unstable AI Horizons** — SDXL NSFW
-- Ação: substituir `juggernautXL` por modelo NSFW no SE8
-- Risco: ~6.5GB download, precisa testar compatibilidade com Fooocus
+  - **Animagine XL** — SDXL NSFW (anime focus)
+- Ação: substituir `juggernautXL_v8Rundiffusion` no SE8
+- Risco: compatibilidade com Fooocus pipeline
 
-**B2. Usar img2img em vez de inpainting**
-- SDXL img2img usa `strength` para controlar mudança
-- Com strength=0.5-0.6: preserva estrutura original, gera conteúdo novo
-- Ação: testar via SE8 rota `/v1/generation/image-prompt` com denoise controlado
-- Esperado: melhor geração de pele que inpainting com máscara
+### B2: img2img em vez de inpainting
+- SDXL img2img com strength controlado (0.5-0.6)
+- Pode gerar pele melhor em áreas maiores
+- Ação: testar via `/v1/generation/image-prompt`
 
-### FASE C: Pipeline Externo (longo prazo)
+---
 
-**C1. Real-ESRGAN separado**
+## Fase C — Planejamento
+
+### C1: Real-ESRGAN separado
 - Não usar SE8 upscale (destrói imagem)
-- Instalar Real-ESRGAN como serviço Python separado
-- Usar apenas para melhorar resolução FINAL após tudo processado
+- Instalar como serviço Python dedicado
 
-**C2. ControlNet DensePose**
+### C2: GFPGAN microservice
+- Modelo já baixado, código existe em SE8
+- Criar endpoint dedicado para face restore pós-processamento
+
+### C3: ControlNet DensePose
 - Detectar corpo 3D → guiar geração de pele
 - Requer: DensePose model + ControlNet adapter
-- Complexidade: ALTA (novo modelo ~2GB + treinamento)
-
-**C3. API externa NSFW**
-- Considerar serviços dedicados: Replicate, fal.ai, etc.
-- Vantagem: modelos treinados para NSFW
-- Desvantagem: custo, latência, dependência externa
 
 ---
 
@@ -102,7 +87,7 @@
 
 ```
 1. Florence-2 detecta roupa → máscara
-2. SE8 inpaint com modelo NSFW + LoRAs pesados → remove roupa
+2. SE8 inpaint com modelo NSFW + LoRAs → remove roupa
 3. GFPGAN/CodeFormer → restaura rosto
 4. Person mask composite → protege fundo
 5. Bilateral filter → suaviza bordas
@@ -111,8 +96,17 @@
 
 ---
 
+## LoRAs Disponíveis no SE8
+| LoRA | Tamanho | Peso | Status |
+|------|---------|------|--------|
+| NsfwPovAllInOneLoraSdxl | 1.8GB | 0.5 | ✅ Usado |
+| nursing-handjob-ponyxl | 228MB | — | ⚠️ Adiado (PonyXL) |
+| Minecraft_nsfw | 228MB | — | ❌ Minecraft |
+| add-detail-xl | 228GB | 0.8 | ✅ Detalhes |
+| sd_xl_offset | 49MB | 0.1 | ✅ Qualidade |
+| sdxl_lcm_lora | 393MB | — | ✅ LCM fast |
+
 ## Referências
 - [GFPGAN](https://github.com/TencentARC/GFPGAN) — Face restoration (37.5k stars)
 - [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN) — Image super-resolution (35.9k stars)
-- [Fooocus face_restoration.py](services/se8-image-generation/app/services/face_restoration.py) — Já integrado no SE8
-- [NsfwPovAllInOne LoRA](data/models/loras/NsfwPovAllInOneLoraSdxl-000009.safetensors) — 1.8GB, peso atual 0.5
+- [Fooocus face_restoration.py](services/se8-image-generation/app/services/face_restoration.py)
