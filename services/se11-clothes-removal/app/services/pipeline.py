@@ -2103,15 +2103,19 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
             # 6. Overlay on original (all layers colored)
             overlay = orig_img.copy()
-            colors = {
-                head_mask: (0, 0, 255),      # RED = head+face (preserved)
-                exposed_vis: (0, 255, 0),     # GREEN = exposed skin (reference)
-                inpaint_mask: (0, 255, 255),  # YELLOW = inpaint area
-            }
-            for msk, color in colors.items():
-                mask_bool = msk > 0
-                overlay[mask_bool] = (overlay[mask_bool].astype(_np.float32) * 0.4 + 
-                                     _np.array(color, dtype=_np.float32) * 0.6).astype(_np.uint8)
+            # RED = head (preserved)
+            h_overlay = overlay.copy()
+            h_overlay[head_mask > 0] = [0, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, h_overlay, 0.6, 0)
+            # GREEN = exposed skin (reference)
+            e_overlay = overlay.copy()
+            exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
+            e_overlay[exposed_vis > 0] = [0, 255, 0]
+            overlay = _cv2.addWeighted(overlay, 0.4, e_overlay, 0.6, 0)
+            # YELLOW = inpaint area
+            i_overlay = overlay.copy()
+            i_overlay[inpaint_mask > 0] = [0, 255, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, i_overlay, 0.6, 0)
             
             _cv2.putText(overlay, "RED=preserved GREEN=skin ref YELLOW=inpaint", 
                         (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
