@@ -2248,9 +2248,23 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             median_h, median_s, median_v = 100.0, 50.0, 200.0
 
-        clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
-        logger.info("Job %s: nsfw_test clothing exact = %.1f%%", job.job_id,
-                     (clothing_exact > 0).sum() / clothing_exact.size * 100)
+        # V3 LOGIC: clothes_on_person = ALL clothing (body + head zone)
+        # face_only = head MINUS clothing (just face, not straps)
+        if clothes_combined is not None:
+            clothes_on_person = _cv2.bitwise_and(person_binary, clothes_combined)
+        else:
+            clothes_on_person = _np.zeros_like(person_binary)
+
+        # Face protection: head zone MINUS clothing (only face skin, not straps)
+        face_only = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_on_person))
+
+        clothing_exact = clothes_on_person
+        straps_in_head = _cv2.bitwise_and(head_mask, clothes_on_person)
+        logger.info("Job %s: nsfw_test V3 — clothes=%.1f%% face=%.1f%% straps_in_head=%.1f%%",
+                     job.job_id,
+                     (clothing_exact > 0).sum() / clothing_exact.size * 100,
+                     (face_only > 0).sum() / face_only.size * 100,
+                     _cv2.countNonZero(straps_in_head) / straps_in_head.size * 100)
 
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -2304,8 +2318,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=75.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # Force head = original before compositing
-        inpainted_img[head_mask > 0] = orig_img[head_mask > 0]
+        # V3: Force face_only = original before compositing (NOT full head_mask)
+        inpainted_img[face_only > 0] = orig_img[face_only > 0]
 
         # ===================================================================
         # STAGE 1: Reinhard Color Transfer (LAB space) — fix skin tone
@@ -2314,8 +2328,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             src_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
             ref_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
 
-            # Person region (outside head) for source stats
-            src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
+            # Person region (outside face) for source stats
+            src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(face_only))
 
             for ch in range(3):
                 if (src_region > 0).any():
@@ -2335,7 +2349,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                     src_lab[:, :, ch] = (src_lab[:, :, ch] - src_mean) * (ref_std / src_std) + ref_mean
 
             color_corrected = _cv2.cvtColor(_np.clip(src_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-            color_corrected[head_mask > 0] = orig_img[head_mask > 0]
+            color_corrected[face_only > 0] = orig_img[face_only > 0]
             logger.info("Job %s: Reinhard LAB color transfer applied", job.job_id)
         except Exception as e:
             logger.warning("Job %s: Reinhard LAB failed (%s), using original", job.job_id, e)
@@ -2351,12 +2365,12 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         composited = (color_corrected.astype(_np.float32) * person_soft[:, :, None] +
                       orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
-        composited[head_mask > 0] = orig_img[head_mask > 0]
+        composited[face_only > 0] = orig_img[face_only > 0]
 
         logger.info("Job %s: GaussianBlur collage + Reinhard LAB applied", job.job_id)
 
-        # Head protection (guarantee)
-        composited[head_mask > 0] = orig_img[head_mask > 0]
+        # Face protection (guarantee)
+        composited[face_only > 0] = orig_img[face_only > 0]
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -2373,23 +2387,23 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
             _save_mask(0, "original", orig_img)
             _save_mask(1, "person", person_binary)
-            _save_mask(2, "head_protected", head_mask)
+            _save_mask(2, "face_only_protected", face_only)
             _save_mask(3, "body", body_mask)
             _save_mask(4, "exposed_skin", exposed_vis)
-            _save_mask(5, "clothing", clothing_exact)
+            _save_mask(5, "clothing_all", clothing_exact)
             _save_mask(6, "inpaint_mask", inpaint_mask)
             _save_mask(7, "result", composited)
 
             overlay = orig_img.copy()
-            h_ov = overlay.copy(); h_ov[head_mask > 0] = [0, 0, 255]
-            overlay = _cv2.addWeighted(overlay, 0.4, h_ov, 0.6, 0)
+            f_ov = overlay.copy(); f_ov[face_only > 0] = [0, 255, 0]
+            overlay = _cv2.addWeighted(overlay, 0.4, f_ov, 0.6, 0)
             e_ov = overlay.copy(); e_ov[exposed_vis > 0] = [0, 255, 0]
             overlay = _cv2.addWeighted(overlay, 0.4, e_ov, 0.6, 0)
             c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
             i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
-            _cv2.putText(overlay, "TEST nsfw_test PLAN-1 clothing+20px",
+            _cv2.putText(overlay, "V3: GREEN=face MAGENTA=clothes YELLOW=inpaint",
                          (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:

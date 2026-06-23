@@ -32,7 +32,8 @@
   - ✅ 1 pass (0.75) + GaussianBlur collage (31+15px) = melhor combinação
   - ✅ NsfwPov 0.2 (não 0.7+), CFG 4.0, sharpness 2.0 = defaults Fooocus são óptimos
 - **Pipeline final nsfw_test:** SE8 (0.75) → head force → Reinhard LAB → GaussianBlur collage → head force
-- **Pendências:** PLAN-2 (detecção adaptativa de cabeça com haarcascade)
+- **V3 mask logic (implementado, não testado):** clothing_all = person AND clothes (inclui alças), face_only = head MINUS clothes (só face)
+- **Pendências:** testar V3 mask logic + PLAN-2 (detecção adaptativa de cabeça)
 
 ### Modos antigos (DEPRECATED)
 - `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v15) com deprecation warning

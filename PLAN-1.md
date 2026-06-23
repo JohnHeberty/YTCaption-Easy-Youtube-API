@@ -66,6 +66,7 @@ composited = inpainted * person_soft + original * (1 - person_soft)
 2. **HSV color correction** — causa artefactos vermelhos mesmo com feathering, muito agressivo
 3. **cv2.seamlessClone MIXED_CLONE** — traz roupa de volta porque preserva gradientes do destino
 4. **2-pass (denoise 0.30-0.35)** — mesmo problema, regenera em vez de polir
+5. **head_mask 40% fixo** — protege alças no ombro que deveriam ser inpaintadas
 
 ### ✅ O que FUNCIONA
 1. **1 pass (0.75)** — gera NSFW com enough quality
@@ -74,6 +75,8 @@ composited = inpainted * person_soft + original * (1 - person_soft)
 4. **7% adaptive dilation** — clothing exact + dilatação proporcional
 5. **Prompt NSFW×5** — força geração explícita
 6. **NsfwPov 0.2** (não 0.7) — peso baixo funciona melhor
+7. **clothing_all = person AND clothes** — inclui alças no head zone
+8. **face_only = head MINUS clothes** — protege só a face real, não alças
 
 ### 🔬 Porquê cada falha
 - **2-pass 0.50:** O sigma schedule a 50% significa que o modelo começa com 50% noise — gera conteúdo novo em vez de refinar o existente
@@ -91,3 +94,31 @@ composited = inpainted * person_soft + original * (1 - person_soft)
 | CFG | 4.0 | Default Fooocus funciona melhor |
 | sharpness | 2.0 | Default Fooocus funciona melhor |
 | base model | juggernautXL | Melhor que lustify para NSFW |
+
+---
+
+## V3 Mask Logic (implementado, não testado)
+
+### Problema que resolve
+As alças da roupa ficam no ombro (zona head 40%) → excluídas do clothing_exact → ficam na imagem final.
+
+### Nova lógica
+```python
+# ANTES:
+clothing_exact = body AND NOT exposed_skin  # alças excluídas!
+head_force = head_mask (40%)                # protege alças!
+
+# V3:
+clothes_on_person = person AND clothes      # TODA roupa (body + head zone)
+face_only = head_mask AND NOT clothes       # só face (não alças!)
+inpaint = clothes_on_person                 # alças incluídas!
+head_force = face_only                      # protege só face
+```
+
+### Resultado esperado
+| | Actual | V3 |
+|---|---|---|
+| Clothing exact | 15.5% (body only) | **19.6% (all clothing)** |
+| Face protegida | 10.6% (full head) | **6.5% (face only)** |
+| Alças no ombro | ❌ Excluídas | ✅ **Incluídas no inpaint** |
+| Straps in head zone | 0% | **4.1%** |
