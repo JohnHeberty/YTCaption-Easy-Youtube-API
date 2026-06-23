@@ -399,6 +399,12 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await _run_pipe_nsfw_3layers_max(job, store)
         return
 
+    # NSFW TEST mode: PLAN-1 (clothing exact + 20px dilation) — NOT production
+    if mode == "nsfw_test":
+        logger.info("Job %s: using TEST NSFW pipeline (PLAN-1 clothing_exact + 20px)", job.job_id)
+        await _run_nsfw_test(job, store)
+        return
+
     # Pipe NSFW: multi-stage (progressive + upscale) — DEPRECATED
     if mode == "pipe_nsfw":
         logger.warning("Job %s: mode 'pipe_nsfw' DEPRECATED, use 'nsfw' instead", job.job_id)
@@ -2135,6 +2141,243 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
     except Exception as e:
         logger.error("Job %s pipe_3layers_max failed: %s", job.job_id, e, exc_info=True)
+        job.status = ClothesRemovalJobStatus.FAILED
+        job.error = str(e)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+    finally:
+        await se10.close()
+        await se8.close()
+
+
+async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
+    """TEST pipeline — PLAN-1: clothing exact + 20px dilation (NOT production).
+
+    Difference from v15: uses clothing_exact (not body_mask) for inpaint,
+    giving the model a focused area (roupa + 20px margem) instead of full torso.
+    """
+    import cv2 as _cv2
+    import numpy as _np
+
+    se10 = SE10Client()
+    se8 = SE8Client()
+
+    try:
+        image_bytes = _decode_image(job.request.image)
+        logger.info("Job %s: nsfw_test (PLAN-1) started", job.job_id)
+
+        orig_img = _cv2.imdecode(_np.frombuffer(image_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if orig_img is None:
+            raise ValueError("Failed to decode")
+        orig_h, orig_w = orig_img.shape[:2]
+
+        job.update_stage("detecting", "processing", progress=10.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        person_seg = await se10.segment(
+            image_bytes=image_bytes, filename=f"{job.job_id}_person.jpg",
+            classes="person, woman, man", box_threshold=0.20, text_threshold=0.15, mode="person",
+        )
+        if not person_seg.get("detected") or not person_seg.get("masks"):
+            job.status = ClothesRemovalJobStatus.COMPLETED
+            job.error = "No person detected"
+            job.progress = 100.0
+            store.save_job(job.job_id, job.model_dump(mode="json"))
+            return
+
+        best_idx = max(range(len(person_seg["objects"])), key=lambda i: person_seg["objects"][i].get("area_pct", 0))
+        raw_p = _strip_data_uri(person_seg["masks"][best_idx])
+        person_mask = _cv2.imdecode(
+            _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_p)), _np.uint8), _cv2.IMREAD_GRAYSCALE)
+        if person_mask is None:
+            raise ValueError("Bad person mask")
+        if person_mask.shape[:2] != (orig_h, orig_w):
+            person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
+        person_binary = (person_mask > 127).astype(_np.uint8) * 255
+
+        job.update_stage("detecting", "processing", progress=25.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        contours, _ = _cv2.findContours(person_binary, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            raise ValueError("No contours")
+        largest = max(contours, key=_cv2.contourArea)
+        px, py, pw, ph = _cv2.boundingRect(largest)
+
+        head_h = int(ph * 0.40)
+        head_mask = _np.zeros_like(person_binary)
+        head_mask[py:py + head_h, px:px + pw] = 255
+        head_mask = _cv2.bitwise_and(head_mask, person_binary)
+        head_mask = _cv2.dilate(head_mask, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15)), iterations=2)
+        head_mask = _cv2.bitwise_and(head_mask, person_binary)
+
+        body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
+
+        clothes_seg = await se10.segment(
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_clothes_ref.jpg",
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment",
+            box_threshold=0.06, text_threshold=0.04,
+            mode="clothes", detector="florence2",
+        )
+
+        clothes_combined = None
+        if clothes_seg.get("detected") and clothes_seg.get("masks"):
+            for mb in clothes_seg.get("masks", []):
+                raw_c = _strip_data_uri(mb)
+                c_bytes = base64.b64decode(_fix_b64_padding(raw_c))
+                cm = _cv2.imdecode(_np.frombuffer(c_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+                if cm is not None:
+                    if cm.shape[:2] != (orig_h, orig_w):
+                        cm = _cv2.resize(cm, (orig_w, orig_h))
+                    cb = (cm > 127).astype(_np.uint8) * 255
+                    clothes_combined = cb if clothes_combined is None else _cv2.bitwise_or(clothes_combined, cb)
+
+        if clothes_combined is not None:
+            exposed_skin = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(clothes_combined))
+        else:
+            exposed_skin = body_mask
+
+        orig_hsv = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV)
+        if (exposed_skin > 0).any():
+            skin_pixels = orig_hsv[exposed_skin > 0]
+            median_h = float(_np.median(skin_pixels[:, 0]))
+            median_s = float(_np.median(skin_pixels[:, 1]))
+            median_v = float(_np.median(skin_pixels[:, 2]))
+        else:
+            median_h, median_s, median_v = 100.0, 50.0, 200.0
+
+        clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
+        logger.info("Job %s: nsfw_test clothing exact = %.1f%%", job.job_id,
+                     (clothing_exact > 0).sum() / clothing_exact.size * 100)
+
+        job.update_stage("inpainting", "processing", progress=35.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (20, 20))
+        inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
+        inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
+
+        _, mask_buf = _cv2.imencode(".png", inpaint_mask)
+        mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
+
+        nsfw_loras = [
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.2},
+            {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
+            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
+            {"enabled": True, "model_name": "None", "weight": 1.0},
+            {"enabled": True, "model_name": "None", "weight": 1.0},
+        ]
+
+        image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
+
+        result1 = await se8.inpaint(
+            image_b64=image_b64, mask_b64=mask_b64,
+            prompt=DEFAULT_CLOTHES_PROMPT,
+            negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+            inpaint_strength=0.75, inpaint_respective_field=0.85,
+            inpaint_erode_or_dilate=-8, loras=nsfw_loras,
+            base_model="juggernautXL_v8Rundiffusion.safetensors",
+        )
+        if not result1 or not result1.get("base64"):
+            job.status = ClothesRemovalJobStatus.FAILED
+            job.error = "SE8 empty"
+            store.save_job(job.job_id, job.model_dump(mode="json"))
+            return
+        inpainted_bytes = base64.b64decode(result1["base64"])
+
+        inpainted_img = _cv2.imdecode(_np.frombuffer(inpainted_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if inpainted_img is not None and inpainted_img.shape[:2] != (orig_h, orig_w):
+            inpainted_img = _cv2.resize(inpainted_img, (orig_w, orig_h))
+
+        job.update_stage("inpainting", "processing", progress=75.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        composited = (inpainted_img.astype(_np.float32) * inpaint_soft[:, :, None] +
+                      orig_img.astype(_np.float32) * (1.0 - inpaint_soft[:, :, None]))
+        composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+        composited[head_mask > 0] = orig_img[head_mask > 0]
+
+        try:
+            comp_bytes = _cv2.imencode(".png", composited)[1].tobytes()
+            corrected = _color_transfer(comp_bytes, image_bytes, mask_b64, reference_mask=exposed_skin)
+            corrected_img = _cv2.imdecode(_np.frombuffer(corrected, _np.uint8), _cv2.IMREAD_COLOR)
+            if corrected_img is not None and corrected_img.shape[:2] == (orig_h, orig_w):
+                composited = corrected_img
+                composited[head_mask > 0] = orig_img[head_mask > 0]
+        except Exception:
+            pass
+
+        job.update_stage("inpainting", "processing", progress=85.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
+        kc = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 100)
+        em = _cv2.dilate(em, ko, iterations=1)
+        mn = _cv2.dilate((inpaint_soft > 0.1).astype(_np.uint8), ko, iterations=2)
+        er = (em > 0) & (mn > 0)
+        if er.any():
+            for c in range(3):
+                ch = composited[:, :, c].copy()
+                ch = _cv2.morphologyEx(ch, _cv2.MORPH_OPEN, ko)
+                ch = _cv2.morphologyEx(ch, _cv2.MORPH_CLOSE, kc)
+                composited[:, :, c][er] = ch[er]
+            composited[er] = _cv2.bilateralFilter(composited, 5, 50, 50)[er]
+
+        job.update_stage("inpainting", "processing", progress=95.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        _, fb = _cv2.imencode(".png", composited)
+        output_dir = os.path.join(settings.output_dir, job.job_id)
+        os.makedirs(output_dir, exist_ok=True)
+
+        try:
+            exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
+            def _save_mask(num: int, name: str, mask) -> None:
+                tag = f"{num:02d}_{name}"
+                _cv2.imwrite(os.path.join(output_dir, f"{tag}.png"), mask)
+
+            _save_mask(0, "original", orig_img)
+            _save_mask(1, "person", person_binary)
+            _save_mask(2, "head_protected", head_mask)
+            _save_mask(3, "body", body_mask)
+            _save_mask(4, "exposed_skin", exposed_vis)
+            _save_mask(5, "clothing", clothing_exact)
+            _save_mask(6, "inpaint_mask", inpaint_mask)
+            _save_mask(7, "result", composited)
+
+            overlay = orig_img.copy()
+            h_ov = overlay.copy(); h_ov[head_mask > 0] = [0, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, h_ov, 0.6, 0)
+            e_ov = overlay.copy(); e_ov[exposed_vis > 0] = [0, 255, 0]
+            overlay = _cv2.addWeighted(overlay, 0.4, e_ov, 0.6, 0)
+            c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
+            i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
+            _cv2.putText(overlay, "TEST nsfw_test PLAN-1 clothing+20px",
+                         (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
+        except Exception as e:
+            logger.warning("Job %s: debug failed (%s)", job.job_id, e)
+
+        result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
+        with open(result_path, "wb") as f:
+            f.write(fb.tobytes())
+
+        job.result_path = result_path
+        job.status = ClothesRemovalJobStatus.COMPLETED
+        job.progress = 100.0
+        job.objects_detected = 1
+        job.update_stage("inpainting", "completed", progress=100.0)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+        logger.info("Job %s: nsfw_test completed — %s", job.job_id, result_path)
+
+    except Exception as e:
+        logger.error("Job %s nsfw_test failed: %s", job.job_id, e, exc_info=True)
         job.status = ClothesRemovalJobStatus.FAILED
         job.error = str(e)
         job.updated_at = now_brazil()
