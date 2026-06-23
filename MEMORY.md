@@ -1,6 +1,14 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-22)
+- **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46)
+- **UPGRADE-2.md ATUALIZADO** — 60+ abordagens testadas (v24-v82)
+- **v82**: MELHOR QUALIDADE — clothes progressive + smooth blend, sem rastros, face 1.000
+- **v75**: MELHOR REMOÇÃO — person single pass, roupa trocada 100%
+- **CONCLUSÃO**: Person mode = desastres (toca pele). Clothes mode + progressive + smooth blend = correto
+- **Rota NSFW**: `POST /jobs {"mode": "progressive"}` → pipeline v82
+- **IP-Adapter**: FALHOU — CUDA assertion
+- **Investigação NSFW (v24-v82)**: 60+ abordagens testadas
 - **SE11 Quality Pipeline v2** — 6 improvements: auto erosion, coverage cap, max 3 objects, per-garment, webhook, HSV color transfer (reverted to BGR after testing)
 - **Strict filtering**: max 3 objects by confidence, min confidence 0.10, coverage cap at 15% with erosion
 - **Auto erosion**: erode_or_dilate computed from mask coverage (-5 to -30)

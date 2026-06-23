@@ -64,7 +64,7 @@ class CreateClothesRemovalRequest(BaseModel):
     image: str = Field(description="Image as base64 string or HTTP URL")
     mode: str = Field(
         default="clothes",
-        description="Detection mode: 'clothes' for clothing removal, 'person' for full person removal",
+        description="Detection mode: 'clothes' for single-pass, 'person' for person removal, 'progressive' for multi-pass",
     )
     classes: str | None = Field(
         default=None,
@@ -83,6 +83,10 @@ class CreateClothesRemovalRequest(BaseModel):
     inpaint_strength: float = Field(default=1.0, ge=0.0, le=1.0, description="SE8 inpaint strength")
     per_garment: bool = Field(default=False, description="Inpaint each garment separately (slower but better quality)")
     webhook_url: str | None = Field(default=None, description="Webhook URL for completion notification")
+    detector: str = Field(
+        default="groundingdino",
+        description="Detection model: 'groundingdino' (default) or 'florence2' for alternative detector",
+    )
 
 
 class CreateClothesRemovalResponse(BaseModel):

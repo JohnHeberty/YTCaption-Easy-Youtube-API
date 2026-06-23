@@ -24,6 +24,10 @@ DEFAULT_CLOTHES_PROMPT = (
     "natural skin tone matching surrounding skin, seamless texture, "
     "photorealistic, professional photography, soft lighting"
 )
+DEFAULT_PERSON_PROMPT = (
+    "natural skin texture matching surrounding skin tone, seamless blend, "
+    "preserve original body shape and features, realistic skin, soft lighting"
+)
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, text, watermark, "
     "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
@@ -166,9 +170,9 @@ def _keep_object(obj: dict, image_height: int) -> bool:
 
 
 def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -> bytes:
-    """Match mean color of inpainted region to surrounding skin.
+    """Match color of inpainted region to surrounding skin using HSV color space.
 
-    Uses BGR mean shift from border region applied to masked region.
+    Uses smooth alpha blending to avoid mask edge artifacts.
     """
     import cv2
     import numpy as np
@@ -185,31 +189,52 @@ def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -
         return result_bytes
 
     mask_bin = (mask > 127).astype(np.uint8)
-    h, w = mask_bin.shape
 
+    # Get border region for color reference
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
     dilated = cv2.dilate(mask_bin, kernel, iterations=1)
     eroded = cv2.erode(mask_bin, kernel, iterations=1)
     border = (dilated - eroded).astype(bool)
 
-    mask_3ch = mask_bin[:, :, None].astype(np.float32)
-
-    inpainted_mean = result[mask_bin > 0].mean(axis=0) if (mask_bin > 0).any() else None
-    border_mean = orig[border].mean(axis=0) if border.any() else None
-
-    if inpainted_mean is None or border_mean is None:
+    if not border.any() or not (mask_bin > 0).any():
         return result_bytes
 
-    shift = border_mean - inpainted_mean
-    shift_3ch = shift[np.newaxis, np.newaxis, :].astype(np.float32)
+    # Convert to HSV
+    orig_hsv = cv2.cvtColor(orig, cv2.COLOR_BGR2HSV).astype(np.float32)
+    result_hsv = cv2.cvtColor(result, cv2.COLOR_BGR2HSV).astype(np.float32)
 
-    corrected = result.astype(np.float32) + shift_3ch * mask_3ch * 0.6
-    corrected = np.clip(corrected, 0, 255).astype(np.uint8)
+    # Get median H and S from border (surrounding skin)
+    mean_h = np.median(orig_hsv[border, 0])
+    mean_s = np.median(orig_hsv[border, 1])
 
-    unmasked = (mask_bin == 0)[:, :, None]
-    corrected = np.where(unmasked, orig, corrected)
+    mask_bool = mask_bin > 0
+    if mask_bool.any():
+        result_h_median = np.median(result_hsv[mask_bool, 0])
+        h_shift = mean_h - result_h_median
+        if abs(h_shift) > 90:
+            h_shift -= 180 if h_shift > 0 else -180
+        result_hsv[mask_bool, 0] = np.mod(result_hsv[mask_bool, 0] + h_shift, 180)
 
-    _, buf = cv2.imencode(".png", corrected)
+        result_s_median = np.median(result_hsv[mask_bool, 1])
+        if result_s_median > 0:
+            s_ratio = mean_s / result_s_median
+            s_factor = 1.0 + (s_ratio - 1.0) * 0.3
+            result_hsv[mask_bool, 1] = np.clip(result_hsv[mask_bool, 1] * s_factor, 0, 255)
+
+    # Reconvert to BGR
+    corrected = cv2.cvtColor(result_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    # SMOOTH BLEND: use narrow Gaussian to feather edges only (avoid spreading)
+    alpha_mask = mask_bin.astype(np.float32)
+    alpha_mask = cv2.GaussianBlur(alpha_mask, (5, 5), 0)
+    alpha_3ch = alpha_mask[:, :, np.newaxis]
+
+    # Blend: corrected inside mask, original outside, narrow smooth transition
+    blended = (corrected.astype(np.float32) * alpha_3ch +
+               orig.astype(np.float32) * (1.0 - alpha_3ch))
+    blended = np.clip(blended, 0, 255).astype(np.uint8)
+
+    _, buf = cv2.imencode(".png", blended)
     return buf.tobytes()
 
 
@@ -273,8 +298,8 @@ async def _get_torso_mask(
     largest = max(contours, key=cv2.contourArea)
     px1, py1, pw, ph = cv2.boundingRect(largest)
 
-    # Subtract head: top 22% of person bounding box
-    head_h = int(ph * 0.22)
+    # Subtract head: top 35% of person bounding box (increased from 22% to better preserve face)
+    head_h = int(ph * 0.35)
     head_mask = np.zeros_like(binary)
     head_mask[py1:py1 + head_h, px1:px1 + pw] = 255
     torso = cv2.bitwise_and(binary, cv2.bitwise_not(head_mask))
@@ -356,6 +381,11 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
     mode = job.request.mode or "clothes"
     logger.info("Starting %s removal pipeline for job %s", mode, job.job_id)
 
+    # Progressive mode: run 4 sequential passes
+    if mode == "progressive":
+        await _run_progressive(job, store)
+        return
+
     se10 = SE10Client()
     se8 = SE8Client()
 
@@ -372,54 +402,92 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         job.update_stage("detecting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        effective_classes = job.request.classes or BEST_CLOTHING_CLASSES
+        # Use different classes based on mode
+        if mode == "person":
+            effective_classes = job.request.classes or "person, woman, man"
+        else:
+            effective_classes = job.request.classes or BEST_CLOTHING_CLASSES
 
         t0 = time.time()
-        segment_result = await se10.segment(
-            image_bytes=image_bytes,
-            filename=f"{job.job_id}.jpg",
-            classes=effective_classes,
-            box_threshold=job.request.box_threshold,
-            text_threshold=0.05,
-            mode="clothes",
-        )
-        seg_time = time.time() - t0
+        
+        # For person mode, use torso mask (head subtracted) to preserve face
+        if mode == "person":
+            logger.info("Job %s: using torso mask (head subtracted) for person mode", job.job_id)
+            
+            # Use _get_torso_mask which subtracts the head region
+            torso_mask = await _get_torso_mask(se10, image_bytes, f"{job.job_id}.jpg", image_height)
+            
+            if torso_mask:
+                filtered_masks = [torso_mask]
+                filtered_objects = [{"class_name": "person_torso", "area_pct": 0, "confidence": 0, "bbox": [0, 0, 0, 0]}]
+                logger.info("Job %s: using torso mask (head subtracted)", job.job_id)
+            else:
+                logger.warning("Job %s: torso detection failed, trying full person mask", job.job_id)
+                
+                # Fallback to full person mask
+                resp = await se10.segment(
+                    image_bytes=image_bytes,
+                    filename=f"{job.job_id}.jpg",
+                    classes="person, woman, man",
+                    box_threshold=0.20,
+                    text_threshold=0.15,
+                    mode="person",
+                )
+                
+                if resp.get("detected") and resp.get("masks"):
+                    objects = resp.get("objects", [])
+                    masks = resp.get("masks", [])
+                    
+                    best_idx = 0
+                    best_area = 0
+                    for i, obj in enumerate(objects):
+                        if obj.get("area_pct", 0) > best_area:
+                            best_area = obj["area_pct"]
+                            best_idx = i
+                    
+                    if best_idx < len(masks):
+                        filtered_masks = [masks[best_idx]]
+                        filtered_objects = [objects[best_idx]]
+                        logger.info("Job %s: fallback to full person mask (area=%.1f%%)", job.job_id, best_area)
+                    else:
+                        filtered_masks = []
+                        filtered_objects = []
+                else:
+                    filtered_masks = []
+                    filtered_objects = []
+                    logger.warning("Job %s: person detection failed", job.job_id)
+        else:
+            # Clothes mode: regular detection
+            segment_result = await se10.segment(
+                image_bytes=image_bytes,
+                filename=f"{job.job_id}.jpg",
+                classes=effective_classes,
+                box_threshold=job.request.box_threshold,
+                text_threshold=0.05,
+                mode=mode,
+                detector=job.request.detector,
+            )
+            objects = segment_result.get("objects", [])
+            all_masks = segment_result.get("masks", [])
+            
+            # Filter objects
+            sorted_pairs = [
+                (i, obj) for i, obj in enumerate(objects)
+                if _keep_object(obj, image_height) and obj.get("confidence", 0) >= 0.10
+            ]
+            sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
+            max_objects = min(3, len(sorted_pairs))
+            
+            filtered_objects = []
+            filtered_masks = []
+            for idx in range(max_objects):
+                i, obj = sorted_pairs[idx]
+                filtered_objects.append(obj)
+                if i < len(all_masks):
+                    filtered_masks.append(all_masks[i])
         logger.info(
-            "Job %s: SE10 detected %d objects in %.1fs",
-            job.job_id, segment_result.get("object_count", 0), seg_time,
-        )
-
-        if not segment_result.get("detected"):
-            job.status = ClothesRemovalJobStatus.COMPLETED
-            job.error = "No clothing detected in image"
-            job.progress = 100.0
-            job.update_stage("detecting", "completed", progress=100.0)
-            job.update_stage("inpainting", "completed", progress=100.0)
-            store.save_job(job.job_id, job.model_dump(mode="json"))
-            return
-
-        objects = segment_result.get("objects", [])
-        all_masks = segment_result.get("masks", [])
-
-        # Filter objects AND their corresponding masks together
-        # Sort by confidence descending, keep max 3, minimum conf 0.10
-        sorted_pairs = [
-            (i, obj) for i, obj in enumerate(objects)
-            if _keep_object(obj, image_height) and obj.get("confidence", 0) >= 0.10
-        ]
-        sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
-        max_objects = min(3, len(sorted_pairs))
-
-        filtered_objects = []
-        filtered_masks = []
-        for idx in range(max_objects):
-            i, obj = sorted_pairs[idx]
-            filtered_objects.append(obj)
-            if i < len(all_masks):
-                filtered_masks.append(all_masks[i])
-        logger.info(
-            "Job %s: filtered %d → %d objects",
-            job.job_id, len(objects), len(filtered_objects),
+            "Job %s: filtered to %d objects",
+            job.job_id, len(filtered_objects),
         )
 
         if not filtered_masks:
@@ -469,7 +537,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         # === Stage 4: SE8 — Inpainting ===
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        prompt = job.request.prompt or DEFAULT_CLOTHES_PROMPT
+        prompt = job.request.prompt or (DEFAULT_PERSON_PROMPT if mode == "person" else DEFAULT_CLOTHES_PROMPT)
         negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
         inpaint_respective_field = 0.85
 
@@ -478,20 +546,32 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         final_arr = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_final)), _np.uint8)
         final_mask = _cv2.imdecode(final_arr, _cv2.IMREAD_GRAYSCALE)
         final_pct = (final_mask > 127).sum() / final_mask.size * 100 if final_mask is not None else 0.0
-        inpaint_strength = 0.70
-
-        # Dynamic erosion based on coverage
-        if final_pct > 30.0:
-            erode_or_dilate = -20
-        elif final_pct > 15.0:
-            erode_or_dilate = -15
-        elif final_pct > 5.0:
-            erode_or_dilate = -10
+        
+        # Person mode: preserve original person, only remove clothing
+        if mode == "person":
+            # Lower denoise to preserve original features (face, body shape, skin)
+            inpaint_strength = 0.70  # Same as clothes mode - preserves original
+            # Minimal erosion for person mode — keep large masks
+            if final_pct > 50.0:
+                erode_or_dilate = -5
+            elif final_pct > 30.0:
+                erode_or_dilate = -8
+            else:
+                erode_or_dilate = -10
         else:
-            erode_or_dilate = -5
+            inpaint_strength = 0.70  # Default for clothes mode
+            # Dynamic erosion based on coverage
+            if final_pct > 30.0:
+                erode_or_dilate = -20
+            elif final_pct > 15.0:
+                erode_or_dilate = -15
+            elif final_pct > 5.0:
+                erode_or_dilate = -10
+            else:
+                erode_or_dilate = -5
 
-        # Cap coverage at 15% — larger masks produce poor inpainting
-        if final_pct > 15.0:
+        # Cap coverage at 15% ONLY for clothes mode — person mode keeps full mask
+        if mode != "person" and final_pct > 15.0:
             logger.info("Job %s: coverage %.1f%% exceeds cap, eroding mask", job.job_id, final_pct)
             erode_or_dilate = min(erode_or_dilate, -30)
             erode_kern = max(int((final_pct - 15.0) * 3), 15)
@@ -604,6 +684,162 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
 
     except Exception as e:
         logger.error("Job %s failed: %s", job.job_id, e, exc_info=True)
+        job.status = ClothesRemovalJobStatus.FAILED
+        job.error = str(e)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+    finally:
+        await se10.close()
+        await se8.close()
+
+
+# =============================================================================
+# Progressive mode: 4-pass clothing removal
+# =============================================================================
+
+PROGRESSIVE_PASSES = [
+    {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "florence2", "name": "straps", "se_mode": "clothes"},
+    {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "florence2", "name": "top", "se_mode": "clothes"},
+    {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "florence2", "name": "full", "se_mode": "clothes"},
+    {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.50, "detector": "florence2", "name": "cleanup", "se_mode": "clothes"},
+]
+
+PROGRESSIVE_PASSES_PERSON = [
+    {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "florence2", "name": "straps", "se_mode": "clothes"},
+    {"classes": "top, blouse, shirt, clothing", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "florence2", "name": "top", "se_mode": "clothes"},
+    {"classes": "dress, skirt, clothing, garment, fabric", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "florence2", "name": "full", "se_mode": "clothes"},
+    {"classes": "person, woman, man", "box_threshold": 0.15, "text_threshold": 0.10, "inpaint_strength": 0.50, "detector": "groundingdino", "name": "person-cleanup", "se_mode": "person"},
+]
+
+
+async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
+    """Run 4-pass progressive clothing removal."""
+    se10 = SE10Client()
+    se8 = SE8Client()
+
+    try:
+        image_bytes = _decode_image(job.request.image)
+        logger.info("Job %s: progressive mode — image decoded (%d bytes)", job.job_id, len(image_bytes))
+
+        current_bytes = image_bytes
+
+        # Select pass config based on job classes
+        job_classes = (job.request.classes or "").lower()
+        if "person" in job_classes or "woman" in job_classes:
+            passes = PROGRESSIVE_PASSES_PERSON
+        else:
+            passes = PROGRESSIVE_PASSES
+        total_passes = len(passes)
+
+        for pass_idx, pass_config in enumerate(passes):
+            progress = ((pass_idx + 1) / total_passes) * 90
+            job.update_stage("inpainting", "processing", progress=progress)
+            store.save_job(job.job_id, job.model_dump(mode="json"))
+
+            logger.info("Job %s: pass %d/%d — %s (classes=%s, denoise=%.2f, mode=%s)",
+                job.job_id, pass_idx + 1, total_passes, pass_config["name"],
+                pass_config["classes"], pass_config["inpaint_strength"], pass_config.get("se_mode", "clothes"))
+
+            # SE10 detection
+            t0 = time.time()
+            segment_result = await se10.segment(
+                image_bytes=current_bytes,
+                filename=f"{job.job_id}_pass{pass_idx}.jpg",
+                classes=pass_config["classes"],
+                box_threshold=pass_config["box_threshold"],
+                text_threshold=pass_config["text_threshold"],
+                mode=pass_config.get("se_mode", "clothes"),
+                detector=pass_config["detector"],
+            )
+            seg_time = time.time() - t0
+
+            objects = segment_result.get("objects", [])
+            all_masks = segment_result.get("masks", [])
+
+            if not segment_result.get("detected") or not all_masks:
+                logger.info("Job %s: pass %d — no detection, skipping", job.job_id, pass_idx + 1)
+                continue
+
+            # Filter objects — include all detections above min confidence
+            sorted_pairs = [
+                (i, obj) for i, obj in enumerate(objects)
+                if obj.get("confidence", 0) >= 0.05
+            ]
+            sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
+
+            filtered_masks = []
+            for i, obj in sorted_pairs[:5]:
+                if i < len(all_masks):
+                    filtered_masks.append(all_masks[i])
+
+            if not filtered_masks:
+                logger.info("Job %s: pass %d — no masks after filtering", job.job_id, pass_idx + 1)
+                continue
+
+            logger.info("Job %s: pass %d — %d masks, detection %.1fs",
+                job.job_id, pass_idx + 1, len(filtered_masks), seg_time)
+
+            # Combine and dilate masks — standard dilation
+            combined_mask = combine_masks(filtered_masks)
+            combined_mask = dilate_mask(combined_mask, kernel_size=21, iterations=2)
+
+            # Protect face region — skip inpainting if mask covers face (top 30%)
+            import cv2 as _cv2p
+            import numpy as _npp
+            raw_mask = _strip_data_uri(combined_mask)
+            mask_arr = _npp.frombuffer(base64.b64decode(_fix_b64_padding(raw_mask)), _npp.uint8)
+            mask_img = _cv2p.imdecode(mask_arr, _cv2p.IMREAD_GRAYSCALE)
+            if mask_img is not None:
+                h_img = mask_img.shape[0]
+                face_region = mask_img[:int(h_img * 0.30)]
+                face_coverage = (face_region > 127).sum() / max(face_region.size, 1) * 100
+                if face_coverage > 5.0:
+                    logger.warning("Job %s: pass %d — mask covers %.1f%% of face region, eroding top", job.job_id, pass_idx + 1, face_coverage)
+                    # Zero out face region from mask
+                    mask_img[:int(h_img * 0.30)] = 0
+                    _, buf = _cv2p.imencode(".png", mask_img)
+                    combined_mask = _to_data_uri(base64.b64encode(buf).decode("utf-8"), mime="image/png")
+
+            # SE8 inpainting
+            current_b64 = _to_data_uri(base64.b64encode(current_bytes).decode("utf-8"), mime="image/jpeg")
+
+            result = await se8.inpaint(
+                image_b64=current_b64,
+                mask_b64=combined_mask,
+                prompt=DEFAULT_PERSON_PROMPT,
+                negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+                inpaint_strength=pass_config["inpaint_strength"],
+                inpaint_respective_field=0.85,
+                inpaint_erode_or_dilate=-10,
+            )
+
+            if result and result.get("base64"):
+                result_bytes = base64.b64decode(result["base64"])
+                current_bytes = result_bytes
+                logger.info("Job %s: pass %d — inpainting completed", job.job_id, pass_idx + 1)
+
+        # Save final result
+        output_dir = os.path.join(settings.output_dir, job.job_id)
+        os.makedirs(output_dir, exist_ok=True)
+        result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
+
+        with open(result_path, "wb") as f:
+            f.write(current_bytes)
+
+        job.result_path = result_path
+        job.status = ClothesRemovalJobStatus.COMPLETED
+        job.progress = 100.0
+        job.objects_detected = total_passes
+        job.update_stage("inpainting", "completed", progress=100.0)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        logger.info("Job %s: progressive completed — %d passes, result saved to %s",
+            job.job_id, total_passes, result_path)
+
+    except Exception as e:
+        logger.error("Job %s progressive failed: %s", job.job_id, e, exc_info=True)
         job.status = ClothesRemovalJobStatus.FAILED
         job.error = str(e)
         job.updated_at = now_brazil()

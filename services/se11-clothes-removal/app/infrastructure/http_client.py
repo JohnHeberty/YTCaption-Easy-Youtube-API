@@ -83,11 +83,13 @@ class SE10Client(ServiceClient):
         box_threshold: float | None = None,
         text_threshold: float | None = None,
         mode: str = "clothes",
+        detector: str = "groundingdino",
     ) -> dict[str, Any]:
         """Send image to SE10 for segmentation.
 
         Args:
             mode: "clothes" for clothing detection, "person" for person detection.
+            detector: "groundingdino" (default) or "florence2" for alternative detector.
 
         Returns dict with keys: detected, objects, masks, mask_image, processing_time_ms
         """
@@ -101,6 +103,8 @@ class SE10Client(ServiceClient):
             form_data["text_threshold"] = str(text_threshold)
         if mode:
             form_data["mode"] = mode
+        if detector:
+            form_data["detector"] = detector
 
         response = await self._request_with_retry(
             "POST",
@@ -140,6 +144,7 @@ class SE8Client(ServiceClient):
         inpaint_erode_or_dilate: int = -10,
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
+        image_prompts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
@@ -201,6 +206,15 @@ class SE8Client(ServiceClient):
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
             },
         }
+
+        # Add IP-Adapter image prompts if provided
+        if image_prompts:
+            payload["image_prompts"] = image_prompts
+            logger.info("SE8: IP-Adapter enabled with %d reference images", len(image_prompts))
+        else:
+            payload["image_prompts"] = [
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.6, "cn_type": "ImagePrompt"},
+            ] * 4
 
         # Retry loop for empty SE8 results (CUDA assertion failures return [])
         max_attempts = 3
