@@ -944,10 +944,7 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        # Mild dilation to cover clothing edges
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (11, 11))
-        all_combined = _cv2.dilate(all_combined, kernel, iterations=1)
-
+        # NO dilation — keep mask exactly as detected to avoid touching background
         _, mask_buf = _cv2.imencode(".png", all_combined)
         nsfw_mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
@@ -967,7 +964,7 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
             mask_b64=nsfw_mask_b64,
             prompt=NSFW_PROMPT,
             negative_prompt=NSFW_NEGATIVE,
-            inpaint_strength=0.70,
+            inpaint_strength=0.65,
             inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8,
             loras=[
@@ -990,15 +987,44 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         result_bytes = base64.b64decode(result["base64"])
         logger.info("Job %s: NSFW — inpainting done in %.1fs", job.job_id, inpaint_time)
 
-        # Stage 3: Color correction (smooth blend at edges only)
+        # Stage 3: HARD COMPOSITE — original outside mask, inpainted inside mask ONLY
+        # This guarantees nothing outside the clothing mask is changed
         job.update_stage("inpainting", "processing", progress=80.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         try:
-            result_bytes = _color_transfer(result_bytes, image_bytes, nsfw_mask_b64)
-            logger.info("Job %s: NSFW — color correction applied", job.job_id)
+            orig_img = _cv2.imdecode(_np.frombuffer(image_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+            result_img = _cv2.imdecode(_np.frombuffer(result_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+
+            if orig_img is not None and result_img is not None:
+                # Resize result to match original if SE8 changed dimensions
+                if result_img.shape != orig_img.shape:
+                    result_img = _cv2.resize(result_img, (orig_img.shape[1], orig_img.shape[0]))
+                    logger.info("Job %s: NSFW — resized result to match original %s", job.job_id, str(orig_img.shape))
+
+                # Decode mask
+                raw_m = _strip_data_uri(nsfw_mask_b64)
+                mask_bytes_m = base64.b64decode(_fix_b64_padding(raw_m))
+                mask_arr = _cv2.imdecode(_np.frombuffer(mask_bytes_m, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+
+                if mask_arr is not None:
+                    if mask_arr.shape != orig_img.shape[:2]:
+                        mask_arr = _cv2.resize(mask_arr, (orig_img.shape[1], orig_img.shape[0]))
+
+                    # Feather edge: 5px Gaussian on mask boundary for smooth transition
+                    mask_f = mask_arr.astype(_np.float32) / 255.0
+                    mask_f = _cv2.GaussianBlur(mask_f, (5, 5), 0)
+                    mask_3ch = mask_f[:, :, _np.newaxis]
+
+                    # Composite: inpainted inside mask, original outside
+                    composited = (result_img.astype(_np.float32) * mask_3ch +
+                                  orig_img.astype(_np.float32) * (1.0 - mask_3ch))
+                    composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+                    _, buf = _cv2.imencode(".png", composited)
+                    result_bytes = buf.tobytes()
+                    logger.info("Job %s: NSFW — hard composite applied", job.job_id)
         except Exception as e:
-            logger.warning("Job %s: NSFW — color correction failed (%s)", job.job_id, e)
+            logger.warning("Job %s: NSFW — composite failed (%s)", job.job_id, e)
 
         # Save
         output_dir = os.path.join(settings.output_dir, job.job_id)
