@@ -1,16 +1,31 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-23)
-- **pipe_3layers_max v7**: CLOTHING EXACT MASK — Face=1.000, BG=0.0
-  - **Mudança crítica**: Inpaint mask agora usa ROUPA EXATA (body AND NOT exposed_skin) em vez de body dilatado
-  - Modelo sabe EXATAMENTE onde remover (~20% vs ~60% antes)
-  - NsfwPov 0.5→0.6 para mais textura de pele
-  - Prompt: "remove clothing, expose skin hue=X sat=Y"
-  - Debug: 8 masks sequenciais (00-07) numerados por etapa
-  - Documentação: `docs/TOP-MASK-CONFIG.md` atualizada
-  - **LUSTIFY SDXL NSFW** (6.9GB) + GFPGAN/CodeFormer modelos baixados
-  - **Refiner**: sem modelo disponível no SE8 (só juggernautXL + lustifyNSFW)
-- **pipe_nsfw_subtract v3**: Face=1.000, Bot=72.4%, Torso=34.2%, BG=0.0
+
+### 🟢 NSFW v15 — PRODUCTION READY
+- **Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
+- **Pipeline:** `_run_pipe_nsfw_3layers_max()` body mask + juggernautXL
+- **Máscara:** `body_mask` dilatado 16px (torso inteiro ~40%)
+- **Modelo:** juggernautXL_v8Rundiffusion + NsfwPov 0.2 + offset 0.1 + detail 0.8
+- **1 pass** denoise 0.75, field 0.85, sharpness 2.0, CFG 4.0, clip_skip 2
+- **Prompt:** "NSFW×5, bare skin, detailed breast anatomy, realistic nipples, hyperrealistic..."
+- **Negative:** clothes/fabric/bra/straps/underwear/top/blouse/shirt/dress/skirt/pattern/floral/textile
+- **Face:** 100% preservada (head mask top 40% + dilatação 15px)
+- **BG:** 100% preservado
+- **Color transfer:** activo (exposed_skin HSV reference)
+- **Edge blend:** morph open/close + bilateral filter
+- **Debug:** 8 masks sequenciais (00-07) + overlay
+- **Discovery:** Job `cr_f5a80bef266e` (20 Jun) já fazia NSFW realista com params simples — super-complicamos e piorámos; ao reverter + manter body mask = resultado
+
+### Modos antigos (DEPRECATED)
+- `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v15) com deprecation warning
+
+### Config SE11
+- `mode="nsfw"` = pipeline oficial
+- `mode="clothes"` = default (remoção padrão)
+- `mode="person"` = remoção por pessoa
+- Lustify NSFW (6.9GB) disponível mas NÃO usado (juggernautXL é melhor)
+- GFPGAN/CodeFormer disponíveis mas não integrados
 
 ## Sessão anterior (2026-06-22)
 - **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46)

@@ -28,41 +28,40 @@
 
 ---
 
-## Estado Final — pipe_3layers_max v7
+## Estado Final — v15 PRODUCTION READY ✅
 
-| Métrica | v5 (body) | v7 (clothing) | Meta | Status |
-|---------|-----------|---------------|------|--------|
-| Face SSIM | 1.000 | 1.000 | 1.000 | ✅ |
-| Face diff | 0.00 | 0.00 | 0.00 | ✅ |
-| BG diff | 0.00 | 0.00 | 0.00 | ✅ |
-| Inpaint area | ~60% body | ~20% clothing | Preciso | ✅ Melhorou |
-| Skin blend | Parcial | Matching arms | Realista | ✅ Melhorou |
+**Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
 
-**Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_3layers_max"}`
+| Métrica | v15 Resultado | Status |
+|---------|---------------|--------|
+| Face | 100% preservada | ✅ |
+| BG | 100% preservado | ✅ |
+| Pele | Hyperrealista, pores, textura | ✅ |
+| Seios | Correctos, proporcionais, nipples realistas | ✅ |
+| Transição | Suave (color_transfer + edge blend) | ✅ |
+| Roupa | Removida (negative forte contra roupa) | ✅ |
+| Tempo | ~60s (1 pass) | ✅ |
+| Debug | 8 masks sequenciais (00-07) | ✅ |
 
-### Mudanças v7 vs v5
-1. **Inpaint mask = clothing exact** — modelo sabe EXATAMENTE onde remover (20% vs 60%)
-2. **NsfwPov 0.5→0.6** — mais textura de pele realista
-3. **Prompt dinâmico** — "remove clothing, expose skin" em vez de "natural skin texture"
-4. **Debug sequencial** — masks numeradas 00-07 mostram pipeline passo-a-passo
+### Pipeline v15
+
+```
+SE10 Florence-2 → person_mask → body(40%) → exposed_skin → inpaint_mask(body, 16px)
+→ SE8 juggernautXL (1 pass, denoise 0.75, NsfwPov 0.2)
+→ color_transfer → head force → edge blend → debug masks
+```
+
+### Descoberta Final
+
+O job `cr_f5a80bef266e` (20 Jun) já gerava NSFW realista com params simples:
+- juggernautXL + NsfwPov 0.2 + 1 pass + CFG 4 + prompt simples
+
+Nós super-complicámos (lustify, 3 passes, CFG 7, pre-fill, etc.) e piorámos.
+Ao reverter + manter body_mask (melhor que a máscara antiga) = resultado igual ou melhor.
 
 ---
 
-## Pipeline Atual — pipe_3layers_max v7
-
-```
-1. SE10 detecta pessoa → person_mask (irregular)
-2. Body = pessoa - head(40% + dilatação 15px)
-3. Exposed skin = body AND NOT clothes → cor de pele
-4. Clothing exact = body AND NOT exposed_skin → ROUPA EXATA
-5. Inpaint mask = dilate(clothing_exact) → MÁSCARA PRECISA
-6. SE8 LUSTIFY NSFW 2-pass (0.75 + 0.45)
-   - Prompt: "remove clothing, expose skin hue=X sat=Y"
-   - LoRAs: NsfwPov 0.6 + offset 0.1 + detail 0.8
-7. Force head = original
-8. Color transfer com exposed_skin reference
-9. HSV + morfologia + bilateral
-```
+## Referências
 
 ---
 

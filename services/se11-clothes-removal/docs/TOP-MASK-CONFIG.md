@@ -1,7 +1,7 @@
 # TOP-MASK-CONFIG.md — Configuração de Máscaras pipe_3layers_max
 
 **Data:** 2026-06-23  
-**Versão:** v7 (clothing mask exata como inpaint)  
+**Versão:** v15 (body mask + juggernautXL — PRODUCTION READY)  
 **Objetivo:** Documentar TODA a configuração de máscaras do pipeline NSFW mais avançado
 
 ---
@@ -69,12 +69,12 @@ clothing_exact = body_mask AND NOT exposed_skin
 **Arquivo:** `05_clothing.png` (branco=roupa)  
 **Cores no overlay:** MAGENTA
 
-### 06: Inpaint Mask (ROUPA EXATA dilatada — onde o SE8 gera NSFW)
+### 06: Inpaint Mask (BODY MASK dilatado — onde o SE8 gera NSFW)
 ```
-inpaint_mask = dilate(clothing_exact, kernel=7px, 2 iter)
+inpaint_mask = dilate(body_mask, kernel=16px, 2 iter)
 → Área que o SE8 vai preencher com pele
-→ APENAS a roupa (não o corpo inteiro!)
-→ Modelo sabe exatamente onde remover
+→ TODO o torso (pessoa menos cabeça) — NÃO SÓ a roupa!
+→ Modelo tem espaço suficiente para gerar corpo completo
 ```
 **Arquivo:** `06_inpaint_mask.png` (branco=inpaint)  
 **Cores no overlay:** AMARELO
@@ -141,26 +141,33 @@ overlay[inpaint_mask] = amarelo (NSFW)
 |-----------|-------|------|
 | head cutoff | 40% da bbox | Inclui rosto+cabeça+cabelo |
 | head dilatação | kernel 15px, 2 iter | Pega bordas de cabelo |
-| **inpaint mask** | **clothing_exact dilatado** | **ROUPA EXATA (não body!)** |
-| inpaint dilatação | kernel 7px, 2 iter | Cobre bordas da roupa |
+| **inpaint mask** | **body_mask dilatado 16px** | **TODO o torso (~40%)** |
+| inpaint dilatação | kernel 16px, 2 iter | Cobre todo o torso + bordas |
 | feather blur | 5px Gaussian | Transição suave |
-| Pass 1 denoise | 0.75 | Remoção principal |
-| Pass 2 denoise | 0.45 | Refinamento |
-| **NSFW LoRA weight** | **0.6** | **era 0.5, subiu para mais textura** |
-| LUSTIFY model | lustifySDXLNSFW_v20-inpainting | 6.9GB |
-| HSV color transfer | exposed_skin median | Cor exata da pessoa |
+| denoise | 0.75 | 1 pass (simples funciona!) |
+| respective_field | 0.85 | Contexto amplo |
+| **NSFW LoRA weight** | **0.2** | **Baixo = melhor (0.7+ causa CUDA)** |
+| base model | juggernautXL_v8Rundiffusion | MELHOR que lustify para NSFW |
+| LoRAs | NsfwPov 0.2 + offset 0.1 + detail 0.8 | Proven params |
+| sharpness | 2.0 (default Fooocus) | 0.0 piora |
+| guidance_scale | 4.0 (default Fooocus) | 7.0 piora |
+| clip_skip | 2 (default SDXL) | 1 piora |
+| prompt | NSFW×5 + bare skin + hyperrealistic | Reforçado |
+| negative | clothes/fabric/bra/straps/top/blouse... | Forte contra roupa |
 
 ---
 
 ## Métricas
 
-| Métrica | v5 (body dilatado) | v7 (clothing exata) | Status |
-|---------|-------------------|---------------------|--------|
+| Métrica | v7 (clothing exact) | v15 (body mask) | Status |
+|---------|---------------------|-----------------|--------|
 | Face SSIM | 1.000 | 1.000 | ✅ Perfeita |
 | Face diff | 0.00 | 0.00 | ✅ Zero mudança |
 | BG diff | 0.00 | 0.00 | ✅ Fundo intacto |
-| Inpaint area | ~60% body | ~20% clothing | ✅ Mais preciso |
-| Skin blending | Parcial | Melhor (matching arms) | ✅ Melhorou |
+| Inpaint area | ~20% (só roupa) | ~40% (torso) | ✅ Espaço suficiente |
+| Seios | Errados (espaço pequeno) | Correctos e proporcionais | ✅ |
+| Pele | Blob esverdeado | Hyperrealista | ✅ |
+| Tempo | ~60s (1 pass) | ~60s (1 pass) | ✅ |
 
 ---
 

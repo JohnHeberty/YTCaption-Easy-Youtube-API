@@ -64,7 +64,7 @@ class CreateClothesRemovalRequest(BaseModel):
     image: str = Field(description="Image as base64 string or HTTP URL")
     mode: str = Field(
         default="clothes",
-        description="Detection mode: 'clothes', 'person', 'progressive', 'nsfw', 'pipe_nsfw', 'pipe_nsfw_subtract', 'pipe_3layers', 'pipe_3layers_max'",
+        description="Mode: 'clothes' (default removal), 'person' (torso removal), 'nsfw' (OFFICIAL NSFW pipeline v15 — body mask + juggernautXL + realistic skin)",
     )
     classes: str | None = Field(
         default=None,

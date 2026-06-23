@@ -1,108 +1,70 @@
-# PLAN.md — pipe_3layers_max v15: Body mask + Realismo Máximo
+# PLAN.md — NSFW Pipeline: CONCLUÍDO ✅
 
 **Data:** 2026-06-23  
-**Status:** v14 funcional — NSFW realista mas seios errados por falta de espaço  
-**Objetivo:** Corrigir seios + maximizar realismo
+**Status:** ✅ CONCLUÍDO — v15 em produção  
+**Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
 
 ---
 
-## Problema Actual (v14)
+## Estado Final — v15 (Production Ready)
 
-A máscara `clothing_exact = body AND NOT exposed_skin` exclui a pele visível do decote → sobra só as alças e o corpo da camisola → o modelo não tem espaço para gerar seios correctos.
-
-**Evidence:** debug masks mostram `05_clothing.png` com só alças+corpo camisola, sem zona do peito.
-
-**O job original `cr_f5a80bef266e`** usava `combine_masks()` que cobria área muito maior → gerou NSFW correcto.
-
----
-
-## Plano v15 — 4 Mudanças
-
-### 1. Body mask como inpaint mask (CRÍTICO)
-
-**ANTES:** `inpaint_mask = dilate(clothing_exact, 12px)` — só roupa (~20%)  
-**NOVO:** `inpaint_mask = dilate(body_mask, 16px)` — torso inteiro (~40%)
-
-```python
-# ANTES:
-clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
-inpaint_mask = _cv2.dilate(clothing_exact, kernel_12px, iterations=2)
-
-# NOVO:
-inpaint_mask = _cv2.dilate(body_mask, kernel_16px, iterations=2)
+### Pipeline
+```
+1. SE10 Florence-2 detecta pessoa → person_mask
+2. Body = pessoa - head(40% + dilatação 15px)
+3. Exposed skin = body AND NOT clothes → skin color reference
+4. Inpaint mask = dilate(body_mask, 16px, 2 iter) → torso inteiro
+5. SE8 Inpainting (1 pass):
+   - base_model: juggernautXL_v8Rundiffusion
+   - prompt: "NSFW×5, bare skin, detailed breast anatomy, hyperrealistic..."
+   - negative: clothes/fabric/bra/straps/underwear/top/blouse/shirt/dress...
+   - denoise: 0.75, field: 0.85, sharpness: 2.0, CFG: 4.0
+   - LoRAs: NsfwPov 0.2, offset 0.1, detail 0.8
+6. Color transfer com exposed_skin reference
+7. Force head = original
+8. Morphological edge blend + bilateral filter
+9. Debug: 8 masks sequenciais (00-07)
 ```
 
-O modelo ganha TODO o torso para gerar pele/corpo → seios correctos.
+### Parâmetros Produção
 
-### 2. Prompt mais realista
-
-```python
-DEFAULT_CLOTHES_PROMPT = (
-    "NSFW, NSFW, NSFW, NSFW, NSFW, "
-    "bare skin, smooth skin surface, realistic skin texture, "
-    "detailed breast anatomy, realistic nipples, natural skin pores, "
-    "seamless skin transition, consistent skin tone with surrounding body, "
-    "photorealistic, professional photography, studio lighting, "
-    "high resolution, sharp focus on skin detail, 8k uhd, "
-    "hyperrealistic, detailed skin rendering, natural body proportions"
-)
-```
-
-### 3. Negative mais forte contra roupa
-
-```python
-DEFAULT_CLOTHES_NEGATIVE = (
-    "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
-    "dress, skirt, pattern, floral, textile, garment, "
-    "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
-    "extra limbs, disfigured, poorly drawn face, mutated hands, "
-    "bad anatomy, deformed skin, wrinkled, scarred"
-)
-```
-
-Adicionado: `top, blouse, shirt, dress, skirt, pattern, floral, textile, garment` (deteção mais forte contra roupa).
-
-### 4. Dilatação 12px → 16px
-
-```python
-kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (16, 16))
-inpaint_mask = _cv2.dilate(body_mask, kernel, iterations=2)
-```
-
-Cobre mais bordas entre pele e roupa.
+| Parâmetro | Valor |
+|-----------|-------|
+| base_model | juggernautXL_v8Rundiffusion |
+| NsfwPov LoRA | 0.2 |
+| inpaint_strength | 0.75 |
+| inpaint_respective_field | 0.85 |
+| inpaint_erode_or_dilate | -8 |
+| sharpness | 2.0 |
+| guidance_scale | 4.0 |
+| clip_skip | 2 |
+| inpaint_engine | v2.6 |
+| steps | 30 (default) |
+| head cutoff | 40% bbox |
+| head dilation | kernel 15px, 2 iter |
+| inpaint kernel | 16px, 2 iter |
 
 ---
 
-## Parâmetros Mantidos do v14 (que já funcionavam)
+## Descobertas Críticas
 
-- base_model: **juggernautXL**
-- NsfwPov: **0.2**
-- 1 pass: **0.75**
-- sharpness: **2.0**
-- guidance_scale: **4.0**
-- clip_skip: **2**
-- Color transfer: **activado**
-- Clothing exact mask: **mantido para debug** (masks 05/06)
-
----
-
-## Resultado Esperado v15
-
-| Métrica | v14 actual | v15 esperado |
-|---------|-----------|-------------|
-| Área inpaint | ~20% (clothing exact) | **~40% (body mask)** |
-| Seios | Errados (espaço pequeno) | **Correctos (espaço suficiente)** |
-| Pele | Boa mas incompleta | **Hyperrealista** |
-| Roupa residual | Alças visíveis | **Removida (negative forte)** |
-| Face | 100% preservada | 100% preservada |
-| BG | 100% preservado | 100% preservado |
+1. **Simplicidade > Complexidade** — params simples (juggernautXL, 1 pass, CFG 4) superaram 3 passes + lustify + CFG 7
+2. **Job `cr_f5a80bef266e`** (20 Jun) já fazia NSFW realista — nós super-complicámos
+3. **body_mask > clothing_exact** — modelo precisa de espaço para gerar corpo, não só roupa
+4. **5x NSFW no prompt** — força o modelo a gerar conteúdo explícito
+5. **Negative sem "nipples/areola"** — remover estes termos do negative permite geração
+6. **color_transfer** — destruía cores quando activo em pipelines complexos, mas funciona no pipeline simples
+7. **fooocus_fill()** — cria blur da cor média; com body_mask dá cor de pele, com clothing_exact dava cor da roupa
 
 ---
 
-## Arquivos a Modificar
+## Arquivos de Referência
 
-| Arquivo | Linhas | Mudança |
-|---------|--------|---------|
-| `pipeline.py` | 24-27 | Prompt realista |
-| `pipeline.py` | 32-37 | Negative forte |
-| `pipeline.py` | 1984-1992 | body_mask + kernel 16px |
+| Arquivo | Caminho |
+|---------|---------|
+| Pipeline principal | `services/se11-clothes-removal/app/services/pipeline.py` |
+| HTTP Client | `services/se11-clothes-removal/app/infrastructure/http_client.py` |
+| Models | `services/se11-clothes-removal/app/core/models.py` |
+| Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
+| Plano anterior | `UPGRADE-1.md` (Phase 1+2) |
+| Plano honesto | `UPGRADE-2.md` |
