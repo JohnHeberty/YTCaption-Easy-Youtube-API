@@ -145,7 +145,7 @@ class SE8Client(ServiceClient):
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
         image_prompts: list[dict[str, Any]] | None = None,
-        base_model: str = "juggernautXL_v8Rundiffusion.safetensors",
+        base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors",
     ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
@@ -205,6 +205,8 @@ class SE8Client(ServiceClient):
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
+                "overwrite_step": 30,
+                "overwrite_switch": 1.0,
             },
         }
 
