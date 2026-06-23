@@ -900,9 +900,9 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         segment_result = await se10.segment(
             image_bytes=image_bytes,
             filename=f"{job.job_id}.jpg",
-            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment",
-            box_threshold=0.08,
-            text_threshold=0.05,
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress",
+            box_threshold=0.10,
+            text_threshold=0.08,
             mode="clothes",
             detector="florence2",
         )
@@ -919,12 +919,20 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         objects = segment_result.get("objects", [])
         masks = segment_result.get("masks", [])
 
-        logger.info("Job %s: NSFW — %d clothing items detected in %.1fs",
-            job.job_id, len(objects), seg_time)
+        # Filter: keep only objects with area > 0.5% (remove tiny false positives)
+        filtered_pairs = [(i, obj) for i, obj in enumerate(objects) if obj.get("area_pct", 0) > 0.5]
+        if not filtered_pairs:
+            filtered_pairs = [(i, obj) for i, obj in enumerate(objects)]
 
-        # Combine ALL clothing masks (no filtering — we want full coverage)
+        logger.info("Job %s: NSFW — %d/%d clothing items detected in %.1fs",
+            job.job_id, len(filtered_pairs), len(objects), seg_time)
+
+        # Combine filtered clothing masks
         all_combined = None
-        for mask_b64 in masks:
+        for i, obj in filtered_pairs:
+            if i >= len(masks):
+                continue
+            mask_b64 = masks[i]
             raw = _strip_data_uri(mask_b64)
             mask_bytes_raw = base64.b64decode(_fix_b64_padding(raw))
             m = _cv2.imdecode(_np.frombuffer(mask_bytes_raw, _np.uint8), _cv2.IMREAD_GRAYSCALE)
