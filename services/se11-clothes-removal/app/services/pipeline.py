@@ -1143,6 +1143,7 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                     inpaint_respective_field=0.85,
                     inpaint_erode_or_dilate=-10,
                     loras=nsfw_loras,
+                    base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
                 )
                 if result and result.get("base64"):
                     current_bytes = base64.b64decode(result["base64"])
