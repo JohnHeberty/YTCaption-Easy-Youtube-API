@@ -393,28 +393,33 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await _run_progressive(job, store)
         return
 
-    # NSFW mode: dedicated full clothing removal
+    # NSFW mode: OFFICIAL — routes to v15 pipeline (body mask + juggernautXL)
     if mode == "nsfw":
-        await _run_nsfw(job, store)
+        logger.info("Job %s: using OFFICIAL NSFW pipeline (v15 body_mask)", job.job_id)
+        await _run_pipe_nsfw_3layers_max(job, store)
         return
 
-    # Pipe NSFW: multi-stage (progressive + upscale)
+    # Pipe NSFW: multi-stage (progressive + upscale) — DEPRECATED
     if mode == "pipe_nsfw":
+        logger.warning("Job %s: mode 'pipe_nsfw' DEPRECATED, use 'nsfw' instead", job.job_id)
         await _run_pipe_nsfw(job, store)
         return
 
-    # Pipe NSFW subtract: person - face - background = clothing area
+    # Pipe NSFW subtract: person - face - background = clothing area — DEPRECATED
     if mode == "pipe_nsfw_subtract":
+        logger.warning("Job %s: mode 'pipe_nsfw_subtract' DEPRECATED, use 'nsfw' instead", job.job_id)
         await _run_pipe_nsfw_subtract(job, store)
         return
 
-    # Pipe NSFW 3-layers: face+head+bg preserved, body isolated, clothes detected
+    # Pipe NSFW 3-layers: face+head+bg preserved, body isolated, clothes detected — DEPRECATED
     if mode == "pipe_3layers":
+        logger.warning("Job %s: mode 'pipe_3layers' DEPRECATED, use 'nsfw' instead", job.job_id)
         await _run_pipe_nsfw_3layers(job, store)
         return
 
-    # Pipe NSFW 3layers_max: 3-layer detection + full body inpaint (max removal)
+    # Pipe NSFW 3layers_max: alias for 'nsfw' — DEPRECATED (use 'nsfw')
     if mode == "pipe_3layers_max":
+        logger.warning("Job %s: mode 'pipe_3layers_max' DEPRECATED, use 'nsfw' instead", job.job_id)
         await _run_pipe_nsfw_3layers_max(job, store)
         return
 
