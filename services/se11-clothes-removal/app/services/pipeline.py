@@ -2001,6 +2001,16 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
+        # v13: PRE-FILL mask region with SKIN COLOR before sending to SE8
+        # This prevents fooocus_fill() from blurring clothing colors into a green blob
+        skin_bgr = _cv2.cvtColor(
+            _np.array([[[int(median_h * 255 / 180), int(median_s * 255 / 255), int(median_v * 255 / 255)]]],
+                      dtype=_np.uint8), _cv2.COLOR_HSV2BGR)[0, 0]
+        prefill_img = orig_img.copy()
+        prefill_img[inpaint_mask > 0] = skin_bgr
+        _, prefill_buf = _cv2.imencode(".png", prefill_img)
+        prefill_b64 = _to_data_uri(base64.b64encode(prefill_buf).decode("utf-8"), mime="image/png")
+
         # v10: SEPARATE prompts — general (CLIP) vs inpaint (masked region)
         general_prompt = (
             "natural photo, soft lighting, professional photography, "
@@ -2013,9 +2023,9 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
             f"seamless transition, photorealistic, soft lighting"
         )
 
-        # Pass 1: 0.75 (main removal)
+        # Pass 1: 0.95 (main removal) — on pre-filled image
         result1 = await se8.inpaint(
-            image_b64=image_b64, mask_b64=mask_b64,
+            image_b64=prefill_b64, mask_b64=mask_b64,
             prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
             inpaint_additional_prompt=inpaint_prompt,
             inpaint_strength=0.95, inpaint_respective_field=0.85,
