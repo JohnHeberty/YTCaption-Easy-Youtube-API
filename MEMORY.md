@@ -1,10 +1,12 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-23)
-- **pipe_3layers_max v5**: MELHOR — Face=1.000, Bot=72.2%, Torso=32.5%, BG=0.0
+- **pipe_3layers_max v5**: PARCIAL — Face=1.000, Bot=72.2%, Torso=32.5%, BG=0.0
+  - **NÃO é 100% NSFW** — remoção parcial, modelo gera pele mas não remove toda roupa
   - 3-camadas: pessoa→head(40%+dilatação)→body→NSFW
   - **Skin color reference**: exposed_skin HSV mediana no prompt e color transfer
-  - Debug visualization salva automaticamente (vermelho=rosto, verde=pele, amarelo=inpaint)
+  - Debug: 6 máscaras salvas (person, head, body, exposed_skin, inpaint, overlay)
+  - Documentação completa: `docs/TOP-MASK-CONFIG.md`
   - Rota: `POST /jobs {"mode": "pipe_3layers_max"}`
 - **LUSTIFY SDXL NSFW** (6.9GB) + **GFPGAN/CodeFormer** modelos baixados
 - **pipe_nsfw_subtract v3**: Face=1.000, Bot=72.4%, Torso=34.2%, BG=0.0
