@@ -2084,35 +2084,20 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
         composited[head_mask > 0] = orig_img[head_mask > 0]
 
-        # HSV + morphological blend
-        try:
-            comp_bytes = _cv2.imencode(".png", composited)[1].tobytes()
-            corrected = _color_transfer(comp_bytes, image_bytes, mask_b64, reference_mask=exposed_skin)
-            corrected_img = _cv2.imdecode(_np.frombuffer(corrected, _np.uint8), _cv2.IMREAD_COLOR)
-            if corrected_img is not None and corrected_img.shape[:2] == (orig_h, orig_w):
-                composited = corrected_img
-                composited[head_mask > 0] = orig_img[head_mask > 0]
-        except Exception:
-            pass
+        # v12: SKIP color_transfer — it destroys NSFW skin colors
+        # The SE8 output already has correct skin tone from prompt + exposed_skin reference
 
         job.update_stage("inpainting", "processing", progress=85.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-        kc = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
-        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 20, 80)
-        em = _cv2.dilate(em, kc, iterations=2)
-        mn = _cv2.dilate((inpaint_soft > 0.05).astype(_np.uint8), kc, iterations=3)
+        # v12: Light edge blend only — no aggressive morphological ops
+        ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
+        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 80)
+        em = _cv2.dilate(em, ko, iterations=1)
+        mn = _cv2.dilate((inpaint_soft > 0.15).astype(_np.uint8), ko, iterations=1)
         er = (em > 0) & (mn > 0)
         if er.any():
-            blurred = _cv2.GaussianBlur(composited, (7, 7), 0)
-            for c in range(3):
-                ch = composited[:, :, c].copy()
-                ch = _cv2.morphologyEx(ch, _cv2.MORPH_OPEN, ko)
-                ch = _cv2.morphologyEx(ch, _cv2.MORPH_CLOSE, kc)
-                composited[:, :, c][er] = ch[er]
-            composited[er] = _cv2.bilateralFilter(composited, 9, 75, 75)[er]
-            composited[er] = _cv2.addWeighted(composited, 0.5, blurred, 0.5, 0)[er]
+            composited[er] = _cv2.bilateralFilter(composited, 5, 50, 50)[er]
 
         # SAVE
         job.update_stage("inpainting", "processing", progress=95.0)
