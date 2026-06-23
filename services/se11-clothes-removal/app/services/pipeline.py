@@ -872,7 +872,7 @@ NSFW_NEGATIVE = (
 )
 
 NSFW_PROMPT = (
-    "bare skin, exposed skin, natural realistic skin texture, "
+    "bare skin, no clothing, naked body, natural realistic skin texture, "
     "seamless transition with surrounding skin, photorealistic, "
     "soft lighting, professional photography"
 )
@@ -1128,11 +1128,18 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 result = await se8.inpaint(
                     image_b64=current_b64,
                     mask_b64=combined_mask,
-                    prompt=DEFAULT_PERSON_PROMPT,
-                    negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+                    prompt=NSFW_PROMPT,
+                    negative_prompt=NSFW_NEGATIVE,
                     inpaint_strength=0.70,
                     inpaint_respective_field=0.85,
                     inpaint_erode_or_dilate=-10,
+                    loras=[
+                        {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
+                        {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
+                        {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
+                        {"enabled": True, "model_name": "None", "weight": 1.0},
+                        {"enabled": True, "model_name": "None", "weight": 1.0},
+                    ],
                 )
                 if result and result.get("base64"):
                     current_bytes = base64.b64decode(result["base64"])
