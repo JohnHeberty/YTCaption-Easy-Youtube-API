@@ -1098,7 +1098,7 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         orig_h, orig_w = orig_img.shape[:2]
         current_bytes = image_bytes
 
-        # === Stage 1: 2-pass clothes detection + inpainting with NSFW ===
+        # === Stage 1: Single-pass clothes detection + inpainting with NSFW ===
         job.update_stage("inpainting", "processing", progress=5.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -1110,12 +1110,10 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             {"enabled": True, "model_name": "None", "weight": 1.0},
         ]
 
-        current_bytes = image_bytes
-
-        # Pass 1: Small items (straps, camisole) with Florence-2
+        # Single pass: detect all clothing classes with low threshold
         seg_result = await se10.segment(
-            image_bytes=current_bytes,
-            filename=f"{job.job_id}_pass1.jpg",
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_clothes.jpg",
             classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, fabric, textile",
             box_threshold=0.04,
             text_threshold=0.03,
@@ -1135,7 +1133,18 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 combined_mask = combine_masks(filtered_masks)
                 combined_mask = dilate_mask(combined_mask, kernel_size=11, iterations=1)
 
-                current_b64 = _to_data_uri(base64.b64encode(current_bytes).decode("utf-8"), mime="image/jpeg")
+                # CRITICAL: Zero face region from mask BEFORE sending to SE8
+                raw_cm = _strip_data_uri(combined_mask)
+                cm_bytes = base64.b64decode(_fix_b64_padding(raw_cm))
+                cm_arr = _cv2.imdecode(_np.frombuffer(cm_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+                if cm_arr is not None:
+                    face_cutoff = int(cm_arr.shape[0] * 0.35)
+                    cm_arr[:face_cutoff, :] = 0
+                    _, cm_buf = _cv2.imencode(".png", cm_arr)
+                    combined_mask = _to_data_uri(base64.b64encode(cm_buf).decode("utf-8"), mime="image/png")
+                    logger.info("Job %s: face region zeroed in SE8 mask", job.job_id)
+
+                current_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
                 result = await se8.inpaint(
                     image_b64=current_b64,
                     mask_b64=combined_mask,
@@ -1149,49 +1158,6 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 )
                 if result and result.get("base64"):
                     current_bytes = base64.b64decode(result["base64"])
-                    logger.info("Job %s: Pass 1 done — %d masks detected", job.job_id, len(filtered_masks))
-
-        # Pass 2: Re-detect on result to find remaining clothing
-        job.update_stage("inpainting", "processing", progress=40.0)
-        store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        seg_result2 = await se10.segment(
-            image_bytes=current_bytes,
-            filename=f"{job.job_id}_pass2.jpg",
-            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment",
-            box_threshold=0.06,
-            text_threshold=0.04,
-            mode="clothes",
-            detector="florence2",
-        )
-
-        objects2 = seg_result2.get("objects", [])
-        all_masks2 = seg_result2.get("masks", [])
-
-        if seg_result2.get("detected") and all_masks2:
-            sorted_pairs2 = [(i, obj) for i, obj in enumerate(objects2) if obj.get("confidence", 0) >= 0.05]
-            sorted_pairs2.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
-            filtered_masks2 = [all_masks2[i] for i, _ in sorted_pairs2[:10] if i < len(all_masks2)]
-
-            if filtered_masks2:
-                combined_mask2 = combine_masks(filtered_masks2)
-                combined_mask2 = dilate_mask(combined_mask2, kernel_size=11, iterations=1)
-
-                current_b64 = _to_data_uri(base64.b64encode(current_bytes).decode("utf-8"), mime="image/jpeg")
-                result2 = await se8.inpaint(
-                    image_b64=current_b64,
-                    mask_b64=combined_mask2,
-                    prompt=NSFW_PROMPT,
-                    negative_prompt=NSFW_NEGATIVE,
-                    inpaint_strength=0.55,
-                    inpaint_respective_field=0.85,
-                    inpaint_erode_or_dilate=-8,
-                    loras=nsfw_loras,
-                    base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
-                )
-                if result2 and result2.get("base64"):
-                    current_bytes = base64.b64decode(result2["base64"])
-                    logger.info("Job %s: Pass 2 done — %d masks detected", job.job_id, len(filtered_masks2))
 
         # Decode progressive result
         nsfw_img = _cv2.imdecode(_np.frombuffer(current_bytes, _np.uint8), _cv2.IMREAD_COLOR)
