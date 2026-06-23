@@ -391,6 +391,11 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await _run_nsfw(job, store)
         return
 
+    # Pipe NSFW: multi-stage (progressive + upscale)
+    if mode == "pipe_nsfw":
+        await _run_pipe_nsfw(job, store)
+        return
+
     se10 = SE10Client()
     se8 = SE8Client()
 
@@ -1054,6 +1059,220 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
 
     except Exception as e:
         logger.error("Job %s NSFW failed: %s", job.job_id, e, exc_info=True)
+        job.status = ClothesRemovalJobStatus.FAILED
+        job.error = str(e)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+    finally:
+        await se10.close()
+        await se8.close()
+
+
+# =============================================================================
+# Pipe NSFW: progressive → person mask composite → morphological blend → upscale
+# =============================================================================
+
+async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
+    """Multi-stage NSFW pipeline:
+    1. Progressive clothes removal (v83 best quality)
+    2. Detect person in ORIGINAL → person mask
+    3. Composite: paste NSFW result INSIDE person mask over original (background preserved)
+    4. Morphological opening/closing → smooth paste edges
+    5. SE8 upscale 2x → enhance details, remove artifacts
+    """
+    import cv2 as _cv2
+    import numpy as _np
+
+    se10 = SE10Client()
+    se8 = SE8Client()
+
+    try:
+        image_bytes = _decode_image(job.request.image)
+        logger.info("Job %s: pipe_nsfw started", job.job_id)
+
+        # Decode original
+        orig_img = _cv2.imdecode(_np.frombuffer(image_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if orig_img is None:
+            raise ValueError("Failed to decode original image")
+        orig_h, orig_w = orig_img.shape[:2]
+
+        # === Stage 1: Single-pass clothes detection + inpainting ===
+        job.update_stage("inpainting", "processing", progress=5.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        # Single pass with all clothing classes — avoid progressive degradation
+        seg_result = await se10.segment(
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_clothes.jpg",
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress",
+            box_threshold=0.08,
+            text_threshold=0.05,
+            mode="clothes",
+            detector="florence2",
+        )
+
+        if seg_result.get("detected") and seg_result.get("masks"):
+            objects = seg_result.get("objects", [])
+            all_masks = seg_result.get("masks", [])
+
+            sorted_pairs = [(i, obj) for i, obj in enumerate(objects) if obj.get("confidence", 0) >= 0.05]
+            sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
+            filtered_masks = [all_masks[i] for i, _ in sorted_pairs[:5] if i < len(all_masks)]
+
+            if filtered_masks:
+                combined_mask = combine_masks(filtered_masks)
+                combined_mask = dilate_mask(combined_mask, kernel_size=11, iterations=1)
+
+                current_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
+                result = await se8.inpaint(
+                    image_b64=current_b64,
+                    mask_b64=combined_mask,
+                    prompt=DEFAULT_PERSON_PROMPT,
+                    negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+                    inpaint_strength=0.65,
+                    inpaint_respective_field=0.85,
+                    inpaint_erode_or_dilate=-10,
+                )
+                if result and result.get("base64"):
+                    current_bytes = base64.b64decode(result["base64"])
+
+        # Decode progressive result
+        nsfw_img = _cv2.imdecode(_np.frombuffer(current_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if nsfw_img is None:
+            raise ValueError("Failed to decode progressive result")
+        if nsfw_img.shape[:2] != (orig_h, orig_w):
+            nsfw_img = _cv2.resize(nsfw_img, (orig_w, orig_h))
+
+        logger.info("Job %s: Stage 1 done — progressive clothes removal", job.job_id)
+
+        # === Stage 2: Detect person in ORIGINAL → person mask ===
+        job.update_stage("inpainting", "processing", progress=45.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        person_seg = await se10.segment(
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_person.jpg",
+            classes="person, woman, man",
+            box_threshold=0.20,
+            text_threshold=0.15,
+            mode="person",
+        )
+
+        if person_seg.get("detected") and person_seg.get("masks"):
+            # Take the largest person mask
+            p_objects = person_seg.get("objects", [])
+            p_masks = person_seg.get("masks", [])
+            best_idx = 0
+            best_area = 0
+            for i, obj in enumerate(p_objects):
+                if obj.get("area_pct", 0) > best_area:
+                    best_area = obj["area_pct"]
+                    best_idx = i
+
+            if best_idx < len(p_masks):
+                raw_p = _strip_data_uri(p_masks[best_idx])
+                p_mask_bytes = base64.b64decode(_fix_b64_padding(raw_p))
+                person_mask = _cv2.imdecode(_np.frombuffer(p_mask_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+
+                if person_mask is not None:
+                    if person_mask.shape[:2] != (orig_h, orig_w):
+                        person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
+
+                    person_binary = (person_mask > 127).astype(_np.uint8) * 255
+
+                    # CRITICAL: Zero top 35% of mask to protect face
+                    face_cutoff = int(orig_h * 0.35)
+                    person_binary[:face_cutoff, :] = 0
+
+                    logger.info("Job %s: Stage 2 — person mask detected (%.1f%% coverage, face protected)",
+                        job.job_id, (person_binary > 0).sum() / person_binary.size * 100)
+
+                    # === Stage 3: Composite NSFW inside person mask over original ===
+                    job.update_stage("inpainting", "processing", progress=60.0)
+                    store.save_job(job.job_id, job.model_dump(mode="json"))
+
+                    # Soft mask: feather edges for smooth blending
+                    soft_mask = person_binary.astype(_np.float32) / 255.0
+                    soft_mask = _cv2.GaussianBlur(soft_mask, (15, 15), 0)
+                    soft_3ch = soft_mask[:, :, _np.newaxis]
+
+                    # Composite: NSFW inside person, original outside
+                    composited = (nsfw_img.astype(_np.float32) * soft_3ch +
+                                  orig_img.astype(_np.float32) * (1.0 - soft_3ch))
+                    composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+
+                    logger.info("Job %s: Stage 3 — composite done", job.job_id)
+
+                    # === Stage 4: Gentle edge softening ===
+                    job.update_stage("inpainting", "processing", progress=70.0)
+                    store.save_job(job.job_id, job.model_dump(mode="json"))
+
+                    # Bilateral filter on mask edges for smooth transition
+                    edge_mask = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 100)
+                    edge_mask = _cv2.dilate(edge_mask, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
+                    if (edge_mask > 0).any():
+                        smoothed = _cv2.bilateralFilter(composited, 5, 50, 50)
+                        composited[edge_mask > 0] = smoothed[edge_mask > 0]
+
+                    logger.info("Job %s: Stage 4 — edge softening done", job.job_id)
+
+                    nsfw_img = composited
+                else:
+                    logger.warning("Job %s: person mask decode failed, using progressive result", job.job_id)
+            else:
+                logger.warning("Job %s: no person mask, using progressive result", job.job_id)
+        else:
+            logger.warning("Job %s: no person detected, using progressive result", job.job_id)
+
+        # === Stage 5: Upscale 2x ===
+        job.update_stage("inpainting", "processing", progress=80.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        logger.info("Job %s: Stage 5 — upscaling 2x...", job.job_id)
+        current_b64 = _to_data_uri(base64.b64encode(
+            _cv2.imencode(".png", nsfw_img)[1].tobytes()
+        ).decode("utf-8"), mime="image/png")
+
+        try:
+            upscale_result = await se8.upscale(image_b64=current_b64, scale=2.0)
+            if upscale_result and upscale_result.get("base64"):
+                upscaled_bytes = base64.b64decode(upscale_result["base64"])
+                upscaled_img = _cv2.imdecode(_np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+                if upscaled_img is not None:
+                    # Resize back to original and color-match
+                    adjusted = _cv2.resize(upscaled_img, (orig_w, orig_h))
+                    # Light color match
+                    orig_mean = orig_img.astype(_np.float32).mean(axis=(0, 1))
+                    upsc_mean = adjusted.astype(_np.float32).mean(axis=(0, 1))
+                    shift = orig_mean - upsc_mean
+                    adjusted = _np.clip(adjusted.astype(_np.float32) + shift, 0, 255).astype(_np.uint8)
+                    nsfw_img = adjusted
+                    logger.info("Job %s: Stage 5 — upscale done", job.job_id)
+        except Exception as e:
+            logger.warning("Job %s: upscale failed (%s)", job.job_id, e)
+
+        # === Save final ===
+        _, final_buf = _cv2.imencode(".png", nsfw_img)
+        final_bytes = final_buf.tobytes()
+
+        output_dir = os.path.join(settings.output_dir, job.job_id)
+        os.makedirs(output_dir, exist_ok=True)
+        result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
+        with open(result_path, "wb") as f:
+            f.write(final_bytes)
+
+        job.result_path = result_path
+        job.status = ClothesRemovalJobStatus.COMPLETED
+        job.progress = 100.0
+        job.objects_detected = len(PROGRESSIVE_PASSES)
+        job.update_stage("inpainting", "completed", progress=100.0)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+        logger.info("Job %s: pipe_nsfw completed — %s", job.job_id, result_path)
+
+    except Exception as e:
+        logger.error("Job %s pipe_nsfw failed: %s", job.job_id, e, exc_info=True)
         job.status = ClothesRemovalJobStatus.FAILED
         job.error = str(e)
         job.updated_at = now_brazil()

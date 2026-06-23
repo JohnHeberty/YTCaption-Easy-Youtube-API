@@ -271,6 +271,66 @@ class SE8Client(ServiceClient):
         response = await self._request_with_retry("GET", "/health")
         return response.json()
 
+    async def upscale(
+        self,
+        image_b64: str,
+        scale: float = 2.0,
+    ) -> dict[str, Any]:
+        """Upscale image via SE8."""
+        payload: dict[str, Any] = {
+            "prompt": "",
+            "negative_prompt": "",
+            "style_selections": [],
+            "performance_selection": "Speed",
+            "aspect_ratios_selection": "1152*896",
+            "image_number": 1,
+            "image_seed": -1,
+            "sharpness": 2.0,
+            "guidance_scale": 4.0,
+            "base_model_name": "juggernautXL_v8Rundiffusion.safetensors",
+            "loras": [
+                {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
+                {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+            ],
+            "input_image": image_b64,
+            "uov_method": "Upscale (2x)",
+            "upscale_value": scale,
+            "async_process": False,
+            "require_base64": False,
+            "current_tab": "uov",
+            "image_prompts": [],
+        }
+
+        response = await self._request_with_retry(
+            "POST", "/v1/generation/image-upscale-vary", json=payload,
+        )
+        result = response.json()
+        item = result
+        while isinstance(item, list) and len(item) > 0:
+            item = item[0]
+
+        if not isinstance(item, dict):
+            raise Exception(f"SE8 upscale returned: {type(item).__name__}")
+
+        url_val = item.get("url", "")
+        if url_val and not url_val.startswith("data:"):
+            try:
+                dl_resp = await self._request_with_retry("GET", url_val)
+                item["base64"] = base64.b64encode(dl_resp.content).decode("utf-8")
+            except Exception:
+                pass
+
+        if not item.get("base64") and item.get("url"):
+            url_val = item["url"]
+            data_idx = url_val.find("data:image")
+            if data_idx >= 0:
+                item["base64"] = url_val[data_idx:]
+
+        return item
+
     @staticmethod
     def _pick_sdxl_ratio(image_b64: str) -> str:
         """Pick closest SDXL aspect ratio from input image dimensions."""
