@@ -872,13 +872,10 @@ NSFW_PROMPT = (
 
 
 async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """Dedicated NSFW: person detection → torso mask (minus face) → high denoise inpaint.
+    """Dedicated NSFW: clothes detection → only clothing mask → replace with skin.
 
-    Key differences from progressive:
-    - Person detection for full body coverage
-    - High denoise (0.70) to actually generate new skin
-    - Face protection via mask zeroing
-    - Single pass for clean result
+    Key: detects CLOTHES (not person), so only clothing areas are inpainted.
+    Body parts outside the mask remain untouched.
     """
     import cv2 as _cv2
     import numpy as _np
@@ -892,7 +889,7 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
         image_height = img.size[1]
 
-        # Stage 1: Detect person
+        # Stage 1: Detect CLOTHING (not person!)
         job.status = ClothesRemovalJobStatus.DETECTING
         job.update_stage("detecting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -901,65 +898,61 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         segment_result = await se10.segment(
             image_bytes=image_bytes,
             filename=f"{job.job_id}.jpg",
-            classes="person, woman, man",
-            box_threshold=0.20,
-            text_threshold=0.15,
-            mode="person",
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment",
+            box_threshold=0.08,
+            text_threshold=0.05,
+            mode="clothes",
+            detector="florence2",
         )
         seg_time = time.time() - t0
 
         if not segment_result.get("detected") or not segment_result.get("masks"):
-            logger.warning("Job %s: NSFW — no person detected", job.job_id)
+            logger.warning("Job %s: NSFW — no clothing detected", job.job_id)
             job.status = ClothesRemovalJobStatus.COMPLETED
-            job.error = "No person detected in image"
+            job.error = "No clothing detected in image"
             job.progress = 100.0
-            job.update_stage("detecting", "completed", progress=100.0)
-            job.update_stage("inpainting", "completed", progress=100.0)
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
         objects = segment_result.get("objects", [])
         masks = segment_result.get("masks", [])
 
-        best_idx = 0
-        best_area = 0
-        for i, obj in enumerate(objects):
-            if obj.get("area_pct", 0) > best_area:
-                best_area = obj["area_pct"]
-                best_idx = i
+        logger.info("Job %s: NSFW — %d clothing items detected in %.1fs",
+            job.job_id, len(objects), seg_time)
 
-        logger.info("Job %s: NSFW — person detected (area=%.1f%%) in %.1fs",
-            job.job_id, best_area, seg_time)
+        # Combine ALL clothing masks (no filtering — we want full coverage)
+        all_combined = None
+        for mask_b64 in masks:
+            raw = _strip_data_uri(mask_b64)
+            mask_bytes_raw = base64.b64decode(_fix_b64_padding(raw))
+            m = _cv2.imdecode(_np.frombuffer(mask_bytes_raw, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+            if m is None:
+                continue
+            if all_combined is None:
+                all_combined = (m > 127).astype(_np.uint8) * 255
+            else:
+                if all_combined.shape != m.shape:
+                    m = _cv2.resize(m, (all_combined.shape[1], all_combined.shape[0]))
+                all_combined = _cv2.bitwise_or(all_combined, (m > 127).astype(_np.uint8) * 255)
 
-        # Decode person mask
-        mask_b64 = masks[best_idx]
-        raw = _strip_data_uri(mask_b64)
-        mask_bytes_raw = base64.b64decode(_fix_b64_padding(raw))
-        person_mask = _cv2.imdecode(_np.frombuffer(mask_bytes_raw, _np.uint8), _cv2.IMREAD_GRAYSCALE)
-
-        if person_mask is None:
-            logger.error("Job %s: NSFW — failed to decode mask", job.job_id)
+        if all_combined is None:
+            logger.error("Job %s: NSFW — failed to combine masks", job.job_id)
             job.status = ClothesRemovalJobStatus.FAILED
-            job.error = "Failed to decode mask"
+            job.error = "Failed to combine masks"
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        h, w = person_mask.shape
-        binary = (person_mask > 127).astype(_np.uint8) * 255
+        # Mild dilation to cover clothing edges
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (11, 11))
+        all_combined = _cv2.dilate(all_combined, kernel, iterations=1)
 
-        # Face protection: zero top 35% of IMAGE
-        face_cutoff = int(h * 0.35)
-        binary[:face_cutoff, :] = 0
-        logger.info("Job %s: NSFW — face protected (top %dpx zeroed)", job.job_id, face_cutoff)
-
-        # Mild dilation
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
-        binary = _cv2.dilate(binary, kernel, iterations=1)
-
-        _, mask_buf = _cv2.imencode(".png", binary)
+        _, mask_buf = _cv2.imencode(".png", all_combined)
         nsfw_mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
-        # Stage 2: Inpaint with high denoise
+        logger.info("Job %s: NSFW — combined mask ready (%.1f%% coverage)",
+            job.job_id, (all_combined > 0).sum() / all_combined.size * 100)
+
+        # Stage 2: Inpaint ONLY the clothing mask area
         job.update_stage("detecting", "completed", progress=100.0)
         job.update_stage("inpainting", "processing", progress=30.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -981,14 +974,14 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         if not result or not result.get("base64"):
             logger.error("Job %s: NSFW — SE8 failed", job.job_id)
             job.status = ClothesRemovalJobStatus.FAILED
-            job.error = "SE8 inpainting returned empty"
+            job.error = "SE8 returned empty"
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
         result_bytes = base64.b64decode(result["base64"])
         logger.info("Job %s: NSFW — inpainting done in %.1fs", job.job_id, inpaint_time)
 
-        # Stage 3: Color correction
+        # Stage 3: Color correction (smooth blend at edges only)
         job.update_stage("inpainting", "processing", progress=80.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -1009,7 +1002,7 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
         job.result_path = result_path
         job.status = ClothesRemovalJobStatus.COMPLETED
         job.progress = 100.0
-        job.objects_detected = 1
+        job.objects_detected = len(objects)
         job.update_stage("inpainting", "completed", progress=100.0)
         job.updated_at = now_brazil()
         store.save_job(job.job_id, job.model_dump(mode="json"))
