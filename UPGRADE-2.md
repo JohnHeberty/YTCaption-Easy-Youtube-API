@@ -8,21 +8,20 @@
 
 ## Estado Final — pipe_nsfw ✅
 
-| Métrica | pipe_nsfw (JuggernautXL) | **pipe_nsfw (LUSTIFY NSFW)** |
-|---------|--------------------------|------------------------------|
+| Métrica | 1-pass (antes) | **2-pass (atual)** |
+|---------|---------------|-------------------|
 | Face SSIM | 0.996 | **0.996** ✅ |
 | BG diff | 0.3 | **0.3** ✅ |
-| Torso | 20.5% | **20.2%** |
-| Bot | 51.1% | **50.6%** |
-| Modelo | juggernautXL_v8 (7.1GB) | **lustifySDXLNSFW_v20 (6.9GB)** |
-| Texture variance | — | 3404 (realista) |
-| Histogram corr | — | 0.813 |
+| Torso | 20.5% | **32.3%** ✅ |
+| Bot | 51.1% | **45.8%** |
+| Overall | 24.1% | **27.3%** |
+| Modelo | LUSTIFY NSFW | **LUSTIFY NSFW** |
 
 **Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_nsfw"}`
 
-**Pipeline:**
-1. Florence-2 detecta roupa → máscara
-2. SE8 inpaint: NSFW_PROMPT + NSFW_NEGATIVE + NsfwPov 0.5 + LUSTIFY (denoise 0.70)
+**Pipeline 2-pass:**
+1. Pass 1: Florence-2 wide classes + low threshold (0.04) → SE8 LUSTIFY NSFW denoise 0.70
+2. Pass 2: Re-detect remaining clothing → SE8 LUSTIFY NSFW denoise 0.55
 3. Person mask composite (protege rosto+fundo)
 4. Bilateral filter nas bordas
 
