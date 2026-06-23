@@ -2281,6 +2281,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
+        # Pass 1: single pass — proven params
         result1 = await se8.inpaint(
             image_b64=image_b64, mask_b64=mask_b64,
             prompt=DEFAULT_CLOTHES_PROMPT,
@@ -2304,25 +2305,18 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         # COLAGEM: recortar pessoa NSFW + colar na imagem original
-        # Fundo 100% preservado, pessoa NSFW recortada da geração
-        # Use person_binary + large blur for very smooth transition
         person_float = person_binary.astype(_np.float32) / 255.0
         person_soft = _cv2.GaussianBlur(person_float, (31, 31), 0)
         person_soft = _cv2.GaussianBlur(person_soft, (15, 15), 0)
 
-        # Force head = original no inpainted antes de colar
         inpainted_img[head_mask > 0] = orig_img[head_mask > 0]
 
-        # Colagem: NSFW pessoa no torso + original no fundo/cabeça
         composited = (inpainted_img.astype(_np.float32) * person_soft[:, :, None] +
                       orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
         composited[head_mask > 0] = orig_img[head_mask > 0]
 
         job.update_stage("inpainting", "processing", progress=90.0)
-        store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        job.update_stage("inpainting", "processing", progress=95.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         _, fb = _cv2.imencode(".png", composited)
