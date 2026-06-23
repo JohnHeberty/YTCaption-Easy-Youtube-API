@@ -1,10 +1,56 @@
 # UPGRADE-2.md — Plano NSFW Completo: Remoção de Roupa Preservando Pessoa
 
 **Data:** 2026-06-22  
-**Status:** Em investigação  
+**Status:** Investigação ativa  
 **Objetivo:** Remoção 100% de roupa preservando rosto, corpo e pele da pessoa original
 
 ---
+
+## Pipeline NSFW Proposta (pipe_nsfw)
+
+### Etapas da Pipeline
+```
+1. Clothes detection (Florence-2) → detectar SÓ a roupa
+2. Inpainting (denoise 0.65) → gerar pele na área da roupa
+3. Person detection (na ORIGINAL) → máscara da pessoa inteira
+4. Composite: colar resultado NSFW dentro da máscara de pessoa sobre original
+5. Bilateral filter nas bordas → suavizar transição da colagem
+6. (OPCIONAL) SE8 upscale 2x → melhorar qualidade
+```
+
+### Descobertas Importantes
+
+| Componente | Resultado | Nota |
+|------------|-----------|------|
+| Clothes detection | ✅ Funciona | Florence-2 detecta roupa corretamente |
+| Inpainting denoise=0.65 | ✅ Funciona | Gera pele nova na área mascarada |
+| Person mask composite | ⚠️ Parcial | Funciona mas precisa proteger rosto (top 35%) |
+| Bilateral filter | ✅ Suaviza | Remove artefatos de borda |
+| **SE8 upscale** | **❌ DESTRÓI** | **Regenera imagem inteira, face SSIM=0.649** |
+| Morphological open/close | ⚠️ Agressivo | Degrada bordas, preferir bilateral |
+
+### Pipeline Ideal (v83)
+
+```
+POST /jobs {"image": "<base64>", "mode": "progressive"}
+```
+- Face SSIM: 1.000 (perfeito)
+- Bot: 62.9% (remoção significativa)
+- BG: preservado
+- **PIPELINE RECOMENDADO: progressive mode**
+
+### Problemas Pendentes
+1. **Progressive não remove 100%** — denoise baixo preserva demais
+2. **NSFW mode (person detection)** — máscara cobre muito, degrada fundo/rosto
+3. **pipe_nsfw (composite)** — upscaler destrói tudo, sem upscale funciona melhor
+4. **Single-pass NSFW** — face 0.803-0.832, muito degradado
+
+### Próximos Passos
+1. ~~Remover upscaler do pipe_nsfw~~ (feito — destrói resultado)
+2. Testar pipe_nsfw SEM upscale (composite + bilateral apenas)
+3. Testar denoise 0.70 com composite (mais remoção)
+4. Investigar upscaler separado (aplicar ANTES do composite, não depois)
+5. Considerar modelo upscale diferente (Real-ESRGAN em vez de Fooocus)
 
 ## Contexto
 
