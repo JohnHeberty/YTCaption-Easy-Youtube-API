@@ -22,6 +22,7 @@ BEST_CLOTHING_CLASSES = (
 )
 
 DEFAULT_CLOTHES_PROMPT = (
+    "NSFW, NSFW, NSFW, NSFW, NSFW, "
     "bare skin, smooth skin surface, realistic skin texture, "
     "photorealistic, professional photography, consistent skin tone"
 )
