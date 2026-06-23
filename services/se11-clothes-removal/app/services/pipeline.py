@@ -1208,8 +1208,8 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
                     person_binary = (person_mask > 127).astype(_np.uint8) * 255
 
-                    # CRITICAL: Zero top 35% of mask to protect face
-                    face_cutoff = int(orig_h * 0.35)
+                    # CRITICAL: Zero top 40% of mask to protect face
+                    face_cutoff = int(orig_h * 0.40)
                     person_binary[:face_cutoff, :] = 0
 
                     logger.info("Job %s: Stage 2 — person mask detected (%.1f%% coverage, face protected)",
@@ -1376,11 +1376,11 @@ async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJ
 
         person_binary = (person_mask > 127).astype(_np.uint8) * 255
 
-        # === Stage 2: Subtract face (top 35%) → clothing mask ===
+        # === Stage 2: Subtract face (top 45%) → clothing mask ===
         job.update_stage("detecting", "processing", progress=25.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        face_cutoff = int(orig_h * 0.35)
+        face_cutoff = int(orig_h * 0.45)
         face_region = _np.zeros_like(person_binary)
         face_region[:face_cutoff, :] = 255
 
@@ -1397,13 +1397,13 @@ async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJ
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        # Mild dilation
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (11, 11))
+        # Mild dilation — small kernel to avoid face bleeding
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
         clothing_mask = _cv2.dilate(clothing_mask, kernel, iterations=1)
 
-        # Feather edge
+        # Feather edge — small blur to avoid face bleeding
         clothing_soft = clothing_mask.astype(_np.float32) / 255.0
-        clothing_soft = _cv2.GaussianBlur(clothing_soft, (11, 11), 0)
+        clothing_soft = _cv2.GaussianBlur(clothing_soft, (5, 5), 0)
 
         _, mask_buf = _cv2.imencode(".png", clothing_mask)
         nsfw_mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
@@ -1461,7 +1461,10 @@ async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJ
                       orig_img.astype(_np.float32) * (1.0 - soft_3ch))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
 
-        logger.info("Job %s: composite done", job.job_id)
+        # GUARANTEE: Force face region to exact original (no bleed from blur/dilation)
+        composited[:face_cutoff, :] = orig_img[:face_cutoff, :]
+
+        logger.info("Job %s: composite done (face region forced to original)", job.job_id)
 
         # === Stage 5: Morphological operations on mask edges ===
         job.update_stage("inpainting", "processing", progress=80.0)
