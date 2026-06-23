@@ -2255,8 +2255,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (20, 20))
+        # Adaptive dilation: 10% of clothing bbox shorter side
+        contours, _ = _cv2.findContours(clothing_exact, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            all_pts = _np.vstack(contours)
+            _, _, cw, ch = _cv2.boundingRect(all_pts)
+            dilation_px = max(3, int(min(cw, ch) * 0.10))
+        else:
+            dilation_px = 10
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
+        logger.info("Job %s: nsfw_test dilation = %dpx (10%% of clothing bbox)", job.job_id, dilation_px)
         inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
 
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
