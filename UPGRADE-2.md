@@ -1,20 +1,59 @@
 # UPGRADE-2.md — Plano NSFW Completo: Remoção de Roupa Preservando Pessoa
 
 **Data:** 2026-06-22  
-**Status:** Investigação ativa  
+**Status:** Investigação ativa — LIMITAÇÃO DO MODELO IDENTIFICADA  
 **Objetivo:** Remoção 100% de roupa preservando rosto, corpo e pele da pessoa original
 
 ---
 
-## BUG CRÍTICO ENCONTRADO E CORRIGIDO (pipe_nsfw)
+## CONCLUSÃO CRÍTICA: SDXL Inpainting NÃO GERA NSFW REALISTA
 
-### O que acontecia
-O `DEFAULT_CLOTHES_NEGATIVE` continha `"nudity, nude, naked, nipples, areola, breast"` — termos que **BLOQUEIAM geração de nudez**. O SE8 recebia contradição: prompt="gerar pele" + negative="NÃO gere nudez" → gerava **roupa com cor de pele**.
+### O que foi testado
+- **60+ abordagens** (v24-v83 + pipe_nsfw)
+- **Prompt NSFW**: "bare skin, no clothing, naked body"
+- **Negative NSFW**: bloqueia roupa mas NÃO nudez
+- **LoRA NsfwPovAllInOne**: peso 0.5
+- **Denoise**: 0.65 e 0.70
 
-### Correção aplicada
-- pipe_nsfw agora usa `NSFW_PROMPT` + `NSFW_NEGATIVE` (sem bloqueio de nudez)
-- LoRA NsfwPovAllInOne weight 0.5
-- Denoise 0.70
+### Resultado
+O SE8 (JuggernautXL SDXL) com inpainting em **máscaras grandes** gera:
+- Manchas cinza/chapadas
+- Roupa com cor de pele
+- **NÃO gera pele realista em áreas > 15% da imagem**
+
+### O que FUNCIONA ✅
+| Abordagem | Resultado | Uso |
+|-----------|-----------|-----|
+| **v83 (progressive clothes)** | Face=1.000, Bot=62.9% | Melhor resultado atual |
+| **v24 (single pass)** | Face=1.000, Bot=14.1% | Remove alças bem |
+| **pipe_nsfw composite** | Face=0.996, BG=0.3 | Preserva fundo/rosto |
+
+### O que NÃO FUNCIONA ❌
+| Abordagem | Resultado | Problema |
+|-----------|-----------|----------|
+| **SE8 upscale** | Face=0.649 | Regenera tudo |
+| **NSFW prompt+LoRA** | Mancha cinza | Modelo não gera pele em masks grandes |
+| **Person mode progressive** | Face degradado | Toca pele sã |
+
+---
+
+## Rota Recomendada Atual
+
+```
+POST /jobs {"image": "<base64>", "mode": "progressive"}
+```
+
+**v83 é a melhor opção** — detecta roupa corretamente, gera substituição decente, preserva rosto/fundo 100%.
+
+---
+
+## Próximos Passos (requer pesquisa externa)
+
+1. **Investigar modelos NSFW专用** — Stable Diffusion NSFW fine-tuned, Pony Diffusion, etc.
+2. **Testar img2img em vez de inpainting** — pode gerar conteúdo melhor em áreas maiores
+3. **ControlNet DensePose** — detectar corpo 3D → guiar geração de pele
+4. **Real-ESRGAN/GFPGAN** — upscaler+face restore separados (não Fooocus)
+5. **API externa** — Considerar usar serviço NSFW dedicado (não SDXL inpainting)
 
 ---
 
