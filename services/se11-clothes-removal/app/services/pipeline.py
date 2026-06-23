@@ -2304,16 +2304,58 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=75.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # COLAGEM: recortar pessoa NSFW + colar na imagem original
+        # Force head = original before compositing
+        inpainted_img[head_mask > 0] = orig_img[head_mask > 0]
+
+        # ===================================================================
+        # STAGE 1: Reinhard Color Transfer (LAB space) — fix skin tone
+        # ===================================================================
+        try:
+            src_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
+            ref_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
+
+            # Person region (outside head) for source stats
+            src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
+
+            for ch in range(3):
+                if (src_region > 0).any():
+                    src_ch = src_lab[:, :, ch][src_region > 0]
+                else:
+                    src_ch = src_lab[:, :, ch].ravel()
+
+                if (exposed_skin > 0).any():
+                    ref_ch = ref_lab[:, :, ch][exposed_skin > 0]
+                else:
+                    ref_ch = ref_lab[:, :, ch].ravel()
+
+                src_mean, src_std = float(src_ch.mean()), float(src_ch.std())
+                ref_mean, ref_std = float(ref_ch.mean()), float(ref_ch.std())
+
+                if src_std > 1e-6:
+                    src_lab[:, :, ch] = (src_lab[:, :, ch] - src_mean) * (ref_std / src_std) + ref_mean
+
+            color_corrected = _cv2.cvtColor(_np.clip(src_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
+            color_corrected[head_mask > 0] = orig_img[head_mask > 0]
+            logger.info("Job %s: Reinhard LAB color transfer applied", job.job_id)
+        except Exception as e:
+            logger.warning("Job %s: Reinhard LAB failed (%s), using original", job.job_id, e)
+            color_corrected = inpainted_img
+
+        # ===================================================================
+        # STAGE 2: GaussianBlur collage — paste NSFW person on original
+        # ===================================================================
         person_float = person_binary.astype(_np.float32) / 255.0
         person_soft = _cv2.GaussianBlur(person_float, (31, 31), 0)
         person_soft = _cv2.GaussianBlur(person_soft, (15, 15), 0)
 
-        inpainted_img[head_mask > 0] = orig_img[head_mask > 0]
-
-        composited = (inpainted_img.astype(_np.float32) * person_soft[:, :, None] +
+        composited = (color_corrected.astype(_np.float32) * person_soft[:, :, None] +
                       orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+        composited[head_mask > 0] = orig_img[head_mask > 0]
+
+        logger.info("Job %s: GaussianBlur collage + Reinhard LAB applied", job.job_id)
+
+        # Head protection (guarantee)
         composited[head_mask > 0] = orig_img[head_mask > 0]
 
         job.update_stage("inpainting", "processing", progress=90.0)
