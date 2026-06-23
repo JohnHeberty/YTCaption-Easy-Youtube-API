@@ -1984,7 +1984,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (12, 12))
         inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
         inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
 
@@ -1992,7 +1992,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
         nsfw_loras = [
-            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.6},
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.7},
             {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
             {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
             {"enabled": True, "model_name": "None", "weight": 1.0},
@@ -2047,7 +2047,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         # GPU cooldown between passes (prevents CUDA assertion)
         await asyncio.sleep(5)
 
-        # Pass 3: 0.30 (texture refinement)
+        # Pass 3: 0.35 (texture refinement)
         job.update_stage("inpainting", "processing", progress=65.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -2055,7 +2055,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         result3 = await se8.inpaint(
             image_b64=r2_b64, mask_b64=mask_b64,
             prompt=skin_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_strength=0.30, inpaint_respective_field=0.90,
+            inpaint_strength=0.35, inpaint_respective_field=0.90,
             inpaint_erode_or_dilate=-3, loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
         )
@@ -2091,19 +2091,21 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         job.update_stage("inpainting", "processing", progress=85.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-        kc = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 100)
-        em = _cv2.dilate(em, ko, iterations=1)
-        mn = _cv2.dilate((inpaint_soft > 0.1).astype(_np.uint8), ko, iterations=2)
+        ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+        kc = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
+        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 20, 80)
+        em = _cv2.dilate(em, kc, iterations=2)
+        mn = _cv2.dilate((inpaint_soft > 0.05).astype(_np.uint8), kc, iterations=3)
         er = (em > 0) & (mn > 0)
         if er.any():
+            blurred = _cv2.GaussianBlur(composited, (7, 7), 0)
             for c in range(3):
                 ch = composited[:, :, c].copy()
                 ch = _cv2.morphologyEx(ch, _cv2.MORPH_OPEN, ko)
                 ch = _cv2.morphologyEx(ch, _cv2.MORPH_CLOSE, kc)
                 composited[:, :, c][er] = ch[er]
-            composited[er] = _cv2.bilateralFilter(composited, 5, 50, 50)[er]
+            composited[er] = _cv2.bilateralFilter(composited, 9, 75, 75)[er]
+            composited[er] = _cv2.addWeighted(composited, 0.5, blurred, 0.5, 0)[er]
 
         # SAVE
         job.update_stage("inpainting", "processing", progress=95.0)
