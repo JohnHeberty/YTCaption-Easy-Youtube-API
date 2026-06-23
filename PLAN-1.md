@@ -59,56 +59,35 @@ composited = inpainted * person_soft + original * (1 - person_soft)
 
 ---
 
-## Próximos passos — Bordas + Tonalidade
+## Lições Aprendidas (NÃO repetir)
 
-### Problema actual
-1. **Bordas visíveis** — GaussianBlur(31+15px) cria transição suave mas ainda visível
-2. **Tonalidade diferente** — pele gerada vs pele original (braços, pescoço) tem cor/HSL diferente
+### ❌ O que NÃO funciona
+1. **2-pass (denoise 0.50)** — regenera conteúdo em vez de refinar, causa blobs cinza
+2. **HSV color correction** — causa artefactos vermelhos mesmo com feathering, muito agressivo
+3. **cv2.seamlessClone MIXED_CLONE** — traz roupa de volta porque preserva gradientes do destino
+4. **2-pass (denoise 0.30-0.35)** — mesmo problema, regenera em vez de polir
 
-### Lições aprendidas (NÃO repetir)
-- ❌ 2-pass (denoise 0.50) — regenera conteúdo, causa blobs
-- ❌ HSV color correction — causa artefactos vermelhos mesmo com feathering
-- ✅ 1 pass (0.75) + collage + blur duplo — melhor combinação actual
+### ✅ O que FUNCIONA
+1. **1 pass (0.75)** — gera NSFW com enough quality
+2. **GaussianBlur collage (31+15px)** — colagem suave, fundo preservado
+3. **Reinhard LAB color transfer** — matching de tonalidade em Luminance+Chroma (melhor que HSV)
+4. **7% adaptive dilation** — clothing exact + dilatação proporcional
+5. **Prompt NSFW×5** — força geração explícita
+6. **NsfwPov 0.2** (não 0.7) — peso baixo funciona melhor
 
-### Soluções propostas
+### 🔬 Porquê cada falha
+- **2-pass 0.50:** O sigma schedule a 50% significa que o modelo começa com 50% noise — gera conteúdo novo em vez de refinar o existente
+- **HSV correction:** Apenas ajusta Hue e Saturation, ignora Luminance — causa desequilíbrio de brilho
+- **seamlessClone:** resolve gradientes (bordas) mas adapta a cor do source ao destination — como destination tem roupa, os gradientes da roupa são preservados
+- **HSV feathered:** O delta acumula ao longo de toda a máscara, causando oversaturation nas bordas
 
-#### A. `cv2.seamlessClone` (Poisson blending) — resolve BORDAS
-- Poisson equation garante continuidade de gradiente na máscara
-- Usa `MIXED_CLONE` — preserva textura interior + adapta cor nas bordas
-- Resolution matemática: zero costura visível
-- **Cuidado:** falha se máscara toca borda da imagem → fallback Laplacian
-
-#### B. Reinhard Color Transfer (LAB) — resolve TONALIDADE
-- Em vez de HSV (só H/S), usa LAB (Luminância + Chroma + cor)
-- Match de média + desvio padrão por canal
-- Resolve brightness mismatch que HSV ignora
-- Aplica ANTES do seamlessClone para melhorar resultado
-
-#### C. Distance Transform Feathering — bordas MAIS precisas
-- Em vez de GaussianBlur (transição uniforme), usa distância do boundary
-- Feather de 20px EXACTO (não probabilístico)
-- Erosão de 5px impede background de vazar para dentro da pessoa
-
-### Pipeline proposto v3
-```
-1. SE8 Pass 1 (0.75) — gera NSFW
-2. Force head = original
-3. Reinhard color transfer (LAB) — matching pele NSFW → pele original
-4. cv2.seamlessClone MIXED_CLONE — colar pessoa com Poisson blending
-5. Force head = original (garantia dupla)
-6. Debug masks 00-07
-```
-
-### Comparação
-
-| Aspecto | Actual (v2) | Proposto (v3) |
-|---------|------------|---------------|
-| Bordas | GaussianBlur visível | **seamlessClone invisível** ✅ |
-| Tonalidade | Diferente (HSV ignora L) | **Matching exacto (LAB)** ✅ |
-| Complexidade | 1 blur | seamlessClone + Reinhard |
-| Risco | Nenhum | seamlessClone falha se mask toca borda |
-
-### Referências técnicas
-- Perez et al. (SIGGRAPH 2003) — Poisson Image Editing
-- Reinhard et al. (SIGGRAPH 2001) — Color Transfer between Images
-- OpenCV 4.13.0: `cv2.seamlessClone`, `cv2.cvtColor(BGR2LAB)` — tudo built-in
+### 📏 Parâmetros óptimos descobertos
+| Parâmetro | Valor óptimo | Porquê |
+|-----------|-------------|--------|
+| denoise | 0.75 | Balance entre criatividade e preservação |
+| dilatação | 7% da bbox | Adapta a qualquer resolução |
+| GaussianBlur | 31px + 15px | Duplo blur = transição suave |
+| NsfwPov weight | 0.2 | 0.7+ causa CUDA assertion |
+| CFG | 4.0 | Default Fooocus funciona melhor |
+| sharpness | 2.0 | Default Fooocus funciona melhor |
+| base model | juggernautXL | Melhor que lustify para NSFW |
