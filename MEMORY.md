@@ -3,10 +3,11 @@
 ## Última sessão (2026-06-23)
 - **pipe_3layers_max**: MELHOR COMBINAÇÃO — Face=1.000, Bot=72.1%, Torso=23.3%, BG=0.0
   - 3-camadas: pessoa→head(50%)→body isolado
-  - INPAINT corpo INTEIRO (não só roupa) = remoção máxima
+  - INPAINT corpo INTEIRO com NSFW LUSTIFY (2-pass)
   - Rosto+cabeça+cabelo+fundo = NUNCA tocado
-  - 2-pass NSFW LUSTIFY + HSV + morfologia
   - Rota: `POST /jobs {"mode": "pipe_3layers_max"}`
+- **pipe_nsfw_subtract v3**: Face=1.000, Bot=72.4%, Torso=34.2%
+- **pipe_3layers**: Face=1.000, Bot=51.3%, Torso=8.0%
 - **pipe_nsfw_subtract v3**: Face=1.000, Bot=72.4%, Torso=34.2%, BG=0.0
   - Rota: `POST /jobs {"mode": "pipe_nsfw_subtract"}`
 - **LUSTIFY SDXL NSFW Inpainting** (6.9GB) — modelo NSFW专用

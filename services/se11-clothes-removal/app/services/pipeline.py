@@ -1912,7 +1912,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         px, py, pw, ph = _cv2.boundingRect(largest)
 
         head_mask = _np.zeros_like(person_binary)
-        head_mask[py:py + int(ph * 0.50), px:px + pw] = 255
+        head_mask[py:py + int(ph * 0.30), px:px + pw] = 255
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
         logger.info("Job %s: body = %.1f%%", job.job_id, (body_mask > 0).sum() / body_mask.size * 100)
 
