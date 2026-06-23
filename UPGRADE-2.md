@@ -6,24 +6,25 @@
 
 ---
 
-## Estado Final — pipe_nsfw ✅
+## Estado Final — pipe_nsfw_subtract ✅ MELHOR RESULTADO
 
-| Métrica | 1-pass (antes) | **2-pass (atual)** |
-|---------|---------------|-------------------|
-| Face SSIM | 0.996 | **0.996** ✅ |
-| BG diff | 0.3 | **0.3** ✅ |
-| Torso | 20.5% | **32.3%** ✅ |
-| Bot | 51.1% | **45.8%** |
-| Overall | 24.1% | **27.3%** |
-| Modelo | LUSTIFY NSFW | **LUSTIFY NSFW** |
+| Métrica | pipe_nsfw (antes) | **pipe_nsfw_subtract** |
+|---------|-------------------|----------------------|
+| Face SSIM | 0.996 | **1.000** ✅ |
+| Face diff | 0.2 | **0.0** ✅ |
+| BG diff | 0.3 | **0.0** ✅ |
+| Torso | 30.2% | **43.6%** ✅ |
+| Bot | 44.8% | **71.6%** ✅ |
+| Overall | 26.1% | **39.0%** |
 
-**Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_nsfw"}`
+**Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_nsfw_subtract"}`
 
-**Pipeline 2-pass:**
-1. Pass 1: Florence-2 wide classes + low threshold (0.04) → SE8 LUSTIFY NSFW denoise 0.70
-2. Pass 2: Re-detect remaining clothing → SE8 LUSTIFY NSFW denoise 0.55
-3. Person mask composite (protege rosto+fundo)
-4. Bilateral filter nas bordas
+**Pipeline por subtração:**
+1. Detectar PESSOA (SE10 person mode) → máscara de pessoa inteira
+2. Subtrair ROSTO (top 35%) → máscara de roupa = pessoa - rosto
+3. SE8 LUSTIFY NSFW inpaint APENAS na máscara de roupa
+4. Composite: NSFW no resultado, original em tudo mais
+5. Morfologia (abertura+fechamento) + bilateral filter nas bordas
 
 ---
 
