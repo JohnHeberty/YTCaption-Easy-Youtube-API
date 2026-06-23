@@ -140,12 +140,14 @@ class ClothesSegmentor:
         max_area_pct: float | None = None,
         max_objects: int | None = None,
         mode: str = "clothes",
+        detector: str = "groundingdino",
     ) -> dict[str, Any]:
         """Run full segmentation pipeline on image bytes.
 
         Args:
             mode: "clothes" for clothing detection, "person" for person detection.
                   When "person", defaults to PERSON_CLASSES and relaxes area filter to 80%.
+            detector: "groundingdino" (default) or "florence2" for alternative detector.
 
         Returns:
             dict with keys: detected, objects, mask_image, masks, processing_time_ms
@@ -167,13 +169,23 @@ class ClothesSegmentor:
         height, width, _ = original_image.shape
         image_area = height * width
 
-        # 1. GroundingDINO detection
-        detections = self._gd_model.predict_with_classes(
-            image=original_image,
-            classes=classes,
-            box_threshold=box_threshold,
-            text_threshold=text_threshold,
-        )
+        # 1. Detection (GroundingDINO or Florence-2)
+        if detector == "florence2":
+            from app.services.florence_detector import FlorenceDetector
+            florence = FlorenceDetector(device=str(self._device))
+            detections = florence.predict_with_classes(
+                image=original_image,
+                classes=classes,
+                box_threshold=box_threshold,
+                text_threshold=text_threshold,
+            )
+        else:
+            detections = self._gd_model.predict_with_classes(
+                image=original_image,
+                classes=classes,
+                box_threshold=box_threshold,
+                text_threshold=text_threshold,
+            )
 
         # 2. Area filtering
         area_filtered = detections[(detections.area / image_area) < max_area_pct]

@@ -546,6 +546,14 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
             list(latent.shape), list(latent_mask.shape),
         )
 
+        # CUDA memory cleanup: release temporary tensors without breaking pipeline
+        del fill_tensor, mask_tensor, blended
+        try:
+            import torch.cuda
+            torch.cuda.ipc_collect()
+        except Exception:
+            pass
+
         # Patch UNet with InpaintHead CNN
         inpaint_head_path = None
         try:
