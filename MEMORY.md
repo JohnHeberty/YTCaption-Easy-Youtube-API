@@ -4,10 +4,9 @@
 - **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46)
 - **UPGRADE-2.md ATUALIZADO** — 60+ abordagens testadas (v24-v82)
 - **v6**: NSFW clothes-only + hard composite, Face=1.000, BG=0.0, Torso=2.2%, Bot=40%
-- **pipe_nsfw**: Composite + upscale — upscaler DESTRÓI resultado (Face=0.649, Overall=100%)
-- **DESCOBERTA**: SE8 upscaler regenera imagem inteira — NÃO usar após inpainting
-- **v83**: Progressive clothes — campeão de qualidade (Face=1.000, Bot=62.9%)
-- **Rota NSFW atual**: `POST /jobs {"mode": "progressive"}` ← melhor opção
+- **LIMITAÇÃO CRÍTICA**: SDXL inpainting NÃO gera pele realista em máscaras >15% — gera manchas cinza/chapadas
+- **NSFW prompt+LoRA** não funciona — JuggernautXL não foi treinado para NSFW em inpainting
+- **Melhor rota**: `mode=progressive` (v83) — Face=1.000, Bot=62.9%, BG=0.3
 - **IP-Adapter**: FALHOU — CUDA assertion
 - **Investigação NSFW (v24-v82)**: 60+ abordagens testadas
 - **SE11 Quality Pipeline v2** — 6 improvements: auto erosion, coverage cap, max 3 objects, per-garment, webhook, HSV color transfer (reverted to BGR after testing)
