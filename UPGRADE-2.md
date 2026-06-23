@@ -6,6 +6,18 @@
 
 ---
 
+## BUG CRÍTICO ENCONTRADO E CORRIGIDO (pipe_nsfw)
+
+### O que acontecia
+O `DEFAULT_CLOTHES_NEGATIVE` continha `"nudity, nude, naked, nipples, areola, breast"` — termos que **BLOQUEIAM geração de nudez**. O SE8 recebia contradição: prompt="gerar pele" + negative="NÃO gere nudez" → gerava **roupa com cor de pele**.
+
+### Correção aplicada
+- pipe_nsfw agora usa `NSFW_PROMPT` + `NSFW_NEGATIVE` (sem bloqueio de nudez)
+- LoRA NsfwPovAllInOne weight 0.5
+- Denoise 0.70
+
+---
+
 ## Pipeline NSFW Proposta (pipe_nsfw)
 
 ### Etapas da Pipeline
@@ -27,6 +39,7 @@
 | Person mask composite | ⚠️ Parcial | Funciona mas precisa proteger rosto (top 35%) |
 | Bilateral filter | ✅ Suaviza | Remove artefatos de borda |
 | **SE8 upscale** | **❌ DESTRÓI** | **Regenera imagem inteira, face SSIM=0.649** |
+| **Prompt bug (FIXED)** | **❌ Gerava roupa** | **DEFAULT_CLOTHES_NEGATIVE bloqueava nudez** |
 | Morphological open/close | ⚠️ Agressivo | Degrada bordas, preferir bilateral |
 
 ### Pipeline Ideal (v83)
