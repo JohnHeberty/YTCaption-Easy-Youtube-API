@@ -27,18 +27,19 @@ DEFAULT_CLOTHES_PROMPT = (
     "detailed breast anatomy, realistic nipples, natural skin pores, "
     "seamless skin transition, consistent skin tone with surrounding body, "
     "photorealistic, professional photography, studio lighting, "
-    "high resolution, sharp focus on skin detail, 8k uhd"
+    "high resolution, sharp focus on skin detail, 8k uhd, "
+    "hyperrealistic, detailed skin rendering, natural body proportions"
 )
 DEFAULT_PERSON_PROMPT = (
     "natural skin texture matching surrounding skin tone, seamless blend, "
     "preserve original body shape and features, realistic skin, soft lighting"
 )
 DEFAULT_CLOTHES_NEGATIVE = (
-    "clothes, fabric, bra, straps, underwear, text, watermark, "
-    "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
-    "color mismatch, visible seams, collage, "
-    "bad anatomy, deformed skin, wrinkled, scarred, "
-    "extra limbs, disfigured, poorly drawn face, mutated hands"
+    "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
+    "dress, skirt, pattern, floral, textile, garment, "
+    "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
+    "extra limbs, disfigured, poorly drawn face, mutated hands, "
+    "bad anatomy, deformed skin, wrinkled, scarred"
 )
 
 
@@ -1978,9 +1979,8 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
             logger.info("Job %s: no exposed skin, using default", job.job_id)
 
         # ====================================================================
-        # INPAINT: clothing mask EXACTA (body AND NOT exposed_skin = roupa)
+        # INPAINT: body_mask (torso inteiro para NSFW)
         # ====================================================================
-        # Clothing mask = exact location of clothing (much more precise than body)
         clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
         clothing_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
         logger.info("Job %s: clothing exact = %.1f%% (body was %.1f%%)", job.job_id, clothing_pct, body_pct)
@@ -1988,8 +1988,9 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (12, 12))
-        inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
+        # v15: use body_mask (not clothing_exact) for wider inpaint area
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (16, 16))
+        inpaint_mask = _cv2.dilate(body_mask, kernel, iterations=2)
         inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
 
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
