@@ -1,8 +1,8 @@
 # UPGRADE-2.md — Investigação NSFW: Remoção de Roupa
 
 **Data:** 2026-06-23  
-**Status:** Investigação ativa — pipe_3layers_max funcional, mas NÃO é 100% NSFW  
-**Objetivo:** Remoção 100% de roupa preservando pessoa — AINDA NÃO ALCANÇADO
+**Status:** v15 em produção + nsfw_test superior em teste  
+**Objetivo:** NSFW realista preservando pessoa — PARCIALMENTE ALCANÇADO
 
 ---
 
@@ -58,6 +58,34 @@ O job `cr_f5a80bef266e` (20 Jun) já gerava NSFW realista com params simples:
 
 Nós super-complicámos (lustify, 3 passes, CFG 7, pre-fill, etc.) e piorámos.
 Ao reverter + manter body_mask (melhor que a máscara antiga) = resultado igual ou melhor.
+
+---
+
+## 🟡 nsfw_test — Superior ao v15 (em teste)
+
+**Rota:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
+
+| Métrica | v15 (produção) | nsfw_test | Status |
+|---------|----------------|-----------|--------|
+| Fundo | Manchado pelo SE8 | **100% preservado** (collage) | ✅ Melhor |
+| Bordas | Color_transfer artifacts | **Suave** (blur duplo 31+15px) | ✅ Melhor |
+| Seios | Correctos | **Mais definidos** | ✅ Melhor |
+| Pele ombros | Regenerada | **Preservada** (original) | ✅ Melhor |
+
+### Pipeline nsfw_test
+
+```
+SE10 Florence-2 → person_mask → body(40%) → exposed_skin → clothing_exact (~15%)
+→ dilate 7% adaptive → SE8 (1 pass, juggernautXL)
+→ collage: paste NSFW person on original (blur duplo 31+15px)
+→ force head = original → debug masks
+```
+
+### Descobertas-chave do nsfw_test
+1. **Collage > color_transfer** — colar pessoa NSFW na imagem original preserva fundo perfeitamente
+2. **7% adaptive > 20px fixo** — adapta a qualquer resolução
+3. **Blur duplo > SE8 edge refinement** — 31px+15px é mais suave que refinamento SE8
+4. **Clothing exact > body mask** — foca o modelo na zona correcta, preserva pele existente
 
 ---
 
