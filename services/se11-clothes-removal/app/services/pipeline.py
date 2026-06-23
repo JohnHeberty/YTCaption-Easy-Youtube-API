@@ -1130,7 +1130,7 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                     mask_b64=combined_mask,
                     prompt=DEFAULT_PERSON_PROMPT,
                     negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
-                    inpaint_strength=0.65,
+                    inpaint_strength=0.70,
                     inpaint_respective_field=0.85,
                     inpaint_erode_or_dilate=-10,
                 )
@@ -1225,32 +1225,9 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             logger.warning("Job %s: no person detected, using progressive result", job.job_id)
 
-        # === Stage 5: Upscale 2x ===
-        job.update_stage("inpainting", "processing", progress=80.0)
+        # === Save final (NO upscaler — it destroys results) ===
+        job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        logger.info("Job %s: Stage 5 — upscaling 2x...", job.job_id)
-        current_b64 = _to_data_uri(base64.b64encode(
-            _cv2.imencode(".png", nsfw_img)[1].tobytes()
-        ).decode("utf-8"), mime="image/png")
-
-        try:
-            upscale_result = await se8.upscale(image_b64=current_b64, scale=2.0)
-            if upscale_result and upscale_result.get("base64"):
-                upscaled_bytes = base64.b64decode(upscale_result["base64"])
-                upscaled_img = _cv2.imdecode(_np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
-                if upscaled_img is not None:
-                    # Resize back to original and color-match
-                    adjusted = _cv2.resize(upscaled_img, (orig_w, orig_h))
-                    # Light color match
-                    orig_mean = orig_img.astype(_np.float32).mean(axis=(0, 1))
-                    upsc_mean = adjusted.astype(_np.float32).mean(axis=(0, 1))
-                    shift = orig_mean - upsc_mean
-                    adjusted = _np.clip(adjusted.astype(_np.float32) + shift, 0, 255).astype(_np.uint8)
-                    nsfw_img = adjusted
-                    logger.info("Job %s: Stage 5 — upscale done", job.job_id)
-        except Exception as e:
-            logger.warning("Job %s: upscale failed (%s)", job.job_id, e)
 
         # === Save final ===
         _, final_buf = _cv2.imencode(".png", nsfw_img)
