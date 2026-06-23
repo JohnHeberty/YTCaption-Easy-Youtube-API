@@ -1901,7 +1901,8 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
             person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
         person_binary = (person_mask > 127).astype(_np.uint8) * 255
 
-        # CAMADA 2: Body = person - head(50%)
+        # CAMADA 2: Body = person - head
+        # Head: top 40% of person mask bbox (includes hair via mask shape)
         job.update_stage("detecting", "processing", progress=25.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -1911,10 +1912,18 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         largest = max(contours, key=_cv2.contourArea)
         px, py, pw, ph = _cv2.boundingRect(largest)
 
+        head_h = int(ph * 0.40)
+        # Head mask: follow the person mask silhouette (not just bbox rectangle)
+        # This captures hair that extends beyond the head bbox
         head_mask = _np.zeros_like(person_binary)
-        head_mask[py:py + int(ph * 0.35), px:px + pw] = 255
+        head_mask[py:py + head_h, px:px + pw] = 255
+        head_mask = _cv2.bitwise_and(head_mask, person_binary)  # clip to person shape
+        # Add padding around head for hair edge detection
+        head_mask = _cv2.dilate(head_mask, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15)), iterations=2)
+        head_mask = _cv2.bitwise_and(head_mask, person_binary)  # keep only within person
+
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
-        logger.info("Job %s: body = %.1f%%", job.job_id, (body_mask > 0).sum() / body_mask.size * 100)
+        logger.info("Job %s: body = %.1f%% (head = top %.0f%% of bbox)", job.job_id, (body_mask > 0).sum() / body_mask.size * 100, 40.0)
 
         # INPAINT: corpo inteiro
         job.update_stage("inpainting", "processing", progress=35.0)
