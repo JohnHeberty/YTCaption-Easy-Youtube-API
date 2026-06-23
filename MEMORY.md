@@ -1,9 +1,12 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-23)
-- **pipe_nsfw_subtract**: MELHOR RESULTADO — Face=1.000, Bot=71.6%, Torso=43.6%, BG=0.0
-  - Pessoa - rosto = máscara de roupa precisa
-  - SE8 LUSTIFY NSFW + morfologia = resultado realista
+- **pipe_3layers**: NOVO MELHOR — Face=1.000, Bot=51.3%, BG=0.0, Torso=8.0%
+  - 3-camadas: rosto+cabeça PRESERVADO, corpo isolado, roupa detectada DENTRO do corpo
+  - Florence-2 clothes AND body_mask → máscara precisa
+  - SE8 LUSTIFY NSFW 2-pass + HSV + morfologia
+  - Rota: `POST /jobs {"mode": "pipe_3layers"}`
+- **pipe_nsfw_subtract v3**: Face=1.000, Bot=72.4%, Torso=34.2%, BG=0.0
   - Rota: `POST /jobs {"mode": "pipe_nsfw_subtract"}`
 - **LUSTIFY SDXL NSFW Inpainting** (6.9GB) — modelo NSFW专用
 - **GFPGAN + CodeFormer** — modelos face restore baixados
