@@ -169,10 +169,11 @@ def _keep_object(obj: dict, image_height: int) -> bool:
     return True
 
 
-def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -> bytes:
-    """Match color of inpainted region to surrounding skin using HSV color space.
+def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str, reference_mask=None) -> bytes:
+    """Match color of inpainted region to exposed skin using HSV color space.
 
-    Uses smooth alpha blending to avoid mask edge artifacts.
+    Uses smooth alpha blending. If reference_mask is provided, uses exposed skin
+    pixels as color reference instead of border region.
     """
     import cv2
     import numpy as np
@@ -190,22 +191,25 @@ def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -
 
     mask_bin = (mask > 127).astype(np.uint8)
 
-    # Get border region for color reference
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
-    dilated = cv2.dilate(mask_bin, kernel, iterations=1)
-    eroded = cv2.erode(mask_bin, kernel, iterations=1)
-    border = (dilated - eroded).astype(bool)
-
-    if not border.any() or not (mask_bin > 0).any():
-        return result_bytes
-
-    # Convert to HSV
+    # Get reference pixels for color matching
     orig_hsv = cv2.cvtColor(orig, cv2.COLOR_BGR2HSV).astype(np.float32)
     result_hsv = cv2.cvtColor(result, cv2.COLOR_BGR2HSV).astype(np.float32)
 
-    # Get median H and S from border (surrounding skin)
-    mean_h = np.median(orig_hsv[border, 0])
-    mean_s = np.median(orig_hsv[border, 1])
+    if reference_mask is not None and (reference_mask > 0).any():
+        # Use exposed skin as reference (most accurate)
+        ref_pixels = orig_hsv[reference_mask > 0]
+        mean_h = np.median(ref_pixels[:, 0])
+        mean_s = np.median(ref_pixels[:, 1])
+    else:
+        # Fallback: border region
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31))
+        dilated = cv2.dilate(mask_bin, kernel, iterations=1)
+        eroded = cv2.erode(mask_bin, kernel, iterations=1)
+        border = (dilated - eroded).astype(bool)
+        if not border.any():
+            return result_bytes
+        mean_h = np.median(orig_hsv[border, 0])
+        mean_s = np.median(orig_hsv[border, 1])
 
     mask_bool = mask_bin > 0
     if mask_bool.any():
@@ -221,15 +225,12 @@ def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_b64: str) -
             s_factor = 1.0 + (s_ratio - 1.0) * 0.3
             result_hsv[mask_bool, 1] = np.clip(result_hsv[mask_bool, 1] * s_factor, 0, 255)
 
-    # Reconvert to BGR
     corrected = cv2.cvtColor(result_hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # SMOOTH BLEND: use narrow Gaussian to feather edges only (avoid spreading)
     alpha_mask = mask_bin.astype(np.float32)
     alpha_mask = cv2.GaussianBlur(alpha_mask, (5, 5), 0)
     alpha_3ch = alpha_mask[:, :, np.newaxis]
 
-    # Blend: corrected inside mask, original outside, narrow smooth transition
     blended = (corrected.astype(np.float32) * alpha_3ch +
                orig.astype(np.float32) * (1.0 - alpha_3ch))
     blended = np.clip(blended, 0, 255).astype(np.uint8)
@@ -1923,9 +1924,57 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         head_mask = _cv2.bitwise_and(head_mask, person_binary)  # keep only within person
 
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
-        logger.info("Job %s: body = %.1f%% (head = top %.0f%% of bbox)", job.job_id, (body_mask > 0).sum() / body_mask.size * 100, 40.0)
+        body_pct = (body_mask > 0).sum() / body_mask.size * 100
+        logger.info("Job %s: body = %.1f%% (head = top %.0f%% of bbox)", job.job_id, body_pct, 40.0)
 
+        # ====================================================================
+        # SKIN COLOR REFERENCE: detect exposed skin for color matching
+        # ====================================================================
+        # Detect clothing to find exposed skin (body NOT covered by clothes)
+        clothes_seg = await se10.segment(
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_clothes_ref.jpg",
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment",
+            box_threshold=0.06, text_threshold=0.04,
+            mode="clothes", detector="florence2",
+        )
+
+        clothes_combined = None
+        if clothes_seg.get("detected") and clothes_seg.get("masks"):
+            for mb in clothes_seg.get("masks", []):
+                raw_c = _strip_data_uri(mb)
+                c_bytes = base64.b64decode(_fix_b64_padding(raw_c))
+                cm = _cv2.imdecode(_np.frombuffer(c_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+                if cm is not None:
+                    if cm.shape[:2] != (orig_h, orig_w):
+                        cm = _cv2.resize(cm, (orig_w, orig_h))
+                    cb = (cm > 127).astype(_np.uint8) * 255
+                    clothes_combined = cb if clothes_combined is None else _cv2.bitwise_or(clothes_combined, cb)
+
+        # Exposed skin = body AND NOT clothes (where skin is visible)
+        if clothes_combined is not None:
+            exposed_skin = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(clothes_combined))
+        else:
+            exposed_skin = body_mask  # If no clothes detected, all body is exposed
+
+        exposed_pct = (exposed_skin > 0).sum() / exposed_skin.size * 100
+        logger.info("Job %s: exposed skin = %.1f%%", job.job_id, exposed_pct)
+
+        # Extract median HSV from exposed skin
+        orig_hsv = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV)
+        if (exposed_skin > 0).any():
+            skin_pixels = orig_hsv[exposed_skin > 0]
+            median_h = float(_np.median(skin_pixels[:, 0]))
+            median_s = float(_np.median(skin_pixels[:, 1]))
+            median_v = float(_np.median(skin_pixels[:, 2]))
+            logger.info("Job %s: skin reference — H=%.0f S=%.0f V=%.0f", job.job_id, median_h, median_s, median_v)
+        else:
+            median_h, median_s, median_v = 100.0, 50.0, 200.0  # fallback
+            logger.info("Job %s: no exposed skin, using default", job.job_id)
+
+        # ====================================================================
         # INPAINT: corpo inteiro
+        # ====================================================================
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -1946,10 +1995,17 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
+        # Dynamic prompt with extracted skin color
+        skin_prompt = (
+            f"natural skin texture with hue={median_h:.0f} saturation={median_s:.0f} "
+            f"matching the person's exposed skin on arms and body, "
+            f"seamless blend, realistic skin, photorealistic, soft lighting"
+        )
+
         # Pass 1: 0.75
         result1 = await se8.inpaint(
             image_b64=image_b64, mask_b64=mask_b64,
-            prompt=NSFW_SUBTRACT_PROMPT, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            prompt=skin_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
             inpaint_strength=0.75, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8, loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
@@ -1968,7 +2024,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         r1_b64 = _to_data_uri(base64.b64encode(r1_bytes).decode("utf-8"), mime="image/png")
         result2 = await se8.inpaint(
             image_b64=r1_b64, mask_b64=mask_b64,
-            prompt=NSFW_SUBTRACT_PROMPT, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            prompt=skin_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
             inpaint_strength=0.45, inpaint_respective_field=0.90,
             inpaint_erode_or_dilate=-5, loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
@@ -1994,7 +2050,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         # HSV + morphological blend
         try:
             comp_bytes = _cv2.imencode(".png", composited)[1].tobytes()
-            corrected = _color_transfer(comp_bytes, image_bytes, mask_b64)
+            corrected = _color_transfer(comp_bytes, image_bytes, mask_b64, reference_mask=exposed_skin)
             corrected_img = _cv2.imdecode(_np.frombuffer(corrected, _np.uint8), _cv2.IMREAD_COLOR)
             if corrected_img is not None and corrected_img.shape[:2] == (orig_h, orig_w):
                 composited = corrected_img
