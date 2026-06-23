@@ -2260,12 +2260,12 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         if contours:
             all_pts = _np.vstack(contours)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.10))
+            dilation_px = max(3, int(min(cw, ch) * 0.07))
         else:
             dilation_px = 10
         kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
-        logger.info("Job %s: nsfw_test dilation = %dpx (10%% of clothing bbox)", job.job_id, dilation_px)
+        logger.info("Job %s: nsfw_test dilation = %dpx (7%% of clothing bbox)", job.job_id, dilation_px)
         inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
 
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
@@ -2303,37 +2303,24 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=75.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        composited = (inpainted_img.astype(_np.float32) * inpaint_soft[:, :, None] +
-                      orig_img.astype(_np.float32) * (1.0 - inpaint_soft[:, :, None]))
+        # COLAGEM: recortar pessoa NSFW + colar na imagem original
+        # Fundo 100% preservado, pessoa NSFW recortada da geração
+        # Use person_binary + large blur for very smooth transition
+        person_float = person_binary.astype(_np.float32) / 255.0
+        person_soft = _cv2.GaussianBlur(person_float, (31, 31), 0)
+        person_soft = _cv2.GaussianBlur(person_soft, (15, 15), 0)
+
+        # Force head = original no inpainted antes de colar
+        inpainted_img[head_mask > 0] = orig_img[head_mask > 0]
+
+        # Colagem: NSFW pessoa no torso + original no fundo/cabeça
+        composited = (inpainted_img.astype(_np.float32) * person_soft[:, :, None] +
+                      orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
         composited[head_mask > 0] = orig_img[head_mask > 0]
 
-        try:
-            comp_bytes = _cv2.imencode(".png", composited)[1].tobytes()
-            corrected = _color_transfer(comp_bytes, image_bytes, mask_b64, reference_mask=exposed_skin)
-            corrected_img = _cv2.imdecode(_np.frombuffer(corrected, _np.uint8), _cv2.IMREAD_COLOR)
-            if corrected_img is not None and corrected_img.shape[:2] == (orig_h, orig_w):
-                composited = corrected_img
-                composited[head_mask > 0] = orig_img[head_mask > 0]
-        except Exception:
-            pass
-
-        job.update_stage("inpainting", "processing", progress=85.0)
+        job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-        kc = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 100)
-        em = _cv2.dilate(em, ko, iterations=1)
-        mn = _cv2.dilate((inpaint_soft > 0.1).astype(_np.uint8), ko, iterations=2)
-        er = (em > 0) & (mn > 0)
-        if er.any():
-            for c in range(3):
-                ch = composited[:, :, c].copy()
-                ch = _cv2.morphologyEx(ch, _cv2.MORPH_OPEN, ko)
-                ch = _cv2.morphologyEx(ch, _cv2.MORPH_CLOSE, kc)
-                composited[:, :, c][er] = ch[er]
-            composited[er] = _cv2.bilateralFilter(composited, 5, 50, 50)[er]
 
         job.update_stage("inpainting", "processing", progress=95.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
