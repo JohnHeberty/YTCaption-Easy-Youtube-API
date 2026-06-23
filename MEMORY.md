@@ -15,13 +15,24 @@
 - **Color transfer:** activo (exposed_skin HSV reference)
 - **Edge blend:** morph open/close + bilateral filter
 - **Debug:** 8 masks sequenciais (00-07) + overlay
-- **Discovery:** Job `cr_f5a80bef266e` (20 Jun) já fazia NSFW realista com params simples — super-complicamos e piorámos; ao reverter + manter body mask = resultado
+
+### 🟡 NSFW TEST — Superior ao v15 (não em produção)
+- **Rota teste:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
+- **Pipeline:** `_run_nsfw_test()` — clothing exact + 7% adaptive dilation + collage
+- **Máscara:** `clothing_exact` dilatado 7% da bbox (~25-30%)
+- **Colagem:** pessoa NSFW recortada + colada na imagem original → fundo 100% preservado
+- **Blur duplo:** GaussianBlur(31px) + GaussianBlur(15px) para bordas suaves
+- **Modelo:** mesmo do v15 (juggernautXL, NsfwPov 0.2)
+- **Vantagens vs v15:** bordas mais suaves, fundo intacto, pele preservada, seios mais definidos
+- **Descobertas:** collage > color_transfer; 7% > 10% > fixo 20px; blur duplo > SE8 refinement
+- **Pendências:** PLAN-2 (detecção adaptativa de cabeça com haarcascade)
 
 ### Modos antigos (DEPRECATED)
 - `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v15) com deprecation warning
 
 ### Config SE11
-- `mode="nsfw"` = pipeline oficial
+- `mode="nsfw"` = pipeline oficial (produção)
+- `mode="nsfw_test"` = pipeline teste (superior, não em produção)
 - `mode="clothes"` = default (remoção padrão)
 - `mode="person"` = remoção por pessoa
 - Lustify NSFW (6.9GB) disponível mas NÃO usado (juggernautXL é melhor)

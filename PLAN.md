@@ -1,8 +1,10 @@
 # PLAN.md — NSFW Pipeline: CONCLUÍDO ✅
 
 **Data:** 2026-06-23  
-**Status:** ✅ CONCLUÍDO — v15 em produção  
-**Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
+**Status:** ✅ v15 em produção + 🟡 nsfw_test superior em teste  
+**Rotas:**
+- Produção: `POST /jobs {"mode": "nsfw"}` → v15 body_mask
+- Teste: `POST /jobs {"mode": "nsfw_test"}` → clothing exact + collage + 7% adaptive
 
 ---
 
@@ -67,4 +69,6 @@
 | Models | `services/se11-clothes-removal/app/core/models.py` |
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
 | Plano anterior | `UPGRADE-1.md` (Phase 1+2) |
-| Plano honesto | `UPGRADE-2.md` |
+| Avaliação honesta | `UPGRADE-2.md` (v15 + nsfw_test) |
+| Plano nsfw_test | `PLAN-1.md` (clothing + collage) |
+| Plano head detect | `PLAN-2.md` (haarcascade adaptativo) |

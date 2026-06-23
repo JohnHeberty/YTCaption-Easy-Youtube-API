@@ -1,7 +1,7 @@
 # TOP-MASK-CONFIG.md — Configuração de Máscaras pipe_3layers_max
 
 **Data:** 2026-06-23  
-**Versão:** v15 (body mask + juggernautXL — PRODUCTION READY)  
+**Versão:** v15 produção + nsfw_test (superior, em teste)  
 **Objetivo:** Documentar TODA a configuração de máscaras do pipeline NSFW mais avançado
 
 ---
