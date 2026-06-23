@@ -59,8 +59,56 @@ composited = inpainted * person_soft + original * (1 - person_soft)
 
 ---
 
-## Próximos passos
+## Próximos passos — Bordas + Tonalidade
 
-- **PLAN-2:** Detecção adaptativa de cabeça (substituir 40% fixo por haarcascade)
-- **Promoção para produção:** quando PLAN-2 estiver pronto, unificar nsfw_test → nsfw
-- **Testing com mais imagens:** diferentes poses, roupas, resoluções
+### Problema actual
+1. **Bordas visíveis** — GaussianBlur(31+15px) cria transição suave mas ainda visível
+2. **Tonalidade diferente** — pele gerada vs pele original (braços, pescoço) tem cor/HSL diferente
+
+### Lições aprendidas (NÃO repetir)
+- ❌ 2-pass (denoise 0.50) — regenera conteúdo, causa blobs
+- ❌ HSV color correction — causa artefactos vermelhos mesmo com feathering
+- ✅ 1 pass (0.75) + collage + blur duplo — melhor combinação actual
+
+### Soluções propostas
+
+#### A. `cv2.seamlessClone` (Poisson blending) — resolve BORDAS
+- Poisson equation garante continuidade de gradiente na máscara
+- Usa `MIXED_CLONE` — preserva textura interior + adapta cor nas bordas
+- Resolution matemática: zero costura visível
+- **Cuidado:** falha se máscara toca borda da imagem → fallback Laplacian
+
+#### B. Reinhard Color Transfer (LAB) — resolve TONALIDADE
+- Em vez de HSV (só H/S), usa LAB (Luminância + Chroma + cor)
+- Match de média + desvio padrão por canal
+- Resolve brightness mismatch que HSV ignora
+- Aplica ANTES do seamlessClone para melhorar resultado
+
+#### C. Distance Transform Feathering — bordas MAIS precisas
+- Em vez de GaussianBlur (transição uniforme), usa distância do boundary
+- Feather de 20px EXACTO (não probabilístico)
+- Erosão de 5px impede background de vazar para dentro da pessoa
+
+### Pipeline proposto v3
+```
+1. SE8 Pass 1 (0.75) — gera NSFW
+2. Force head = original
+3. Reinhard color transfer (LAB) — matching pele NSFW → pele original
+4. cv2.seamlessClone MIXED_CLONE — colar pessoa com Poisson blending
+5. Force head = original (garantia dupla)
+6. Debug masks 00-07
+```
+
+### Comparação
+
+| Aspecto | Actual (v2) | Proposto (v3) |
+|---------|------------|---------------|
+| Bordas | GaussianBlur visível | **seamlessClone invisível** ✅ |
+| Tonalidade | Diferente (HSV ignora L) | **Matching exacto (LAB)** ✅ |
+| Complexidade | 1 blur | seamlessClone + Reinhard |
+| Risco | Nenhum | seamlessClone falha se mask toca borda |
+
+### Referências técnicas
+- Perez et al. (SIGGRAPH 2003) — Poisson Image Editing
+- Reinhard et al. (SIGGRAPH 2001) — Color Transfer between Images
+- OpenCV 4.13.0: `cv2.seamlessClone`, `cv2.cvtColor(BGR2LAB)` — tudo built-in
