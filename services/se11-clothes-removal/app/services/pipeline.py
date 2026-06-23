@@ -2083,26 +2083,41 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
 
-        # Save debug masks (all layers visible)
+        # Save debug masks — each mask as separate PNG for clarity
         try:
-            labels = orig_img.copy()
-            overlay = labels.copy()
-            overlay[person_binary > 0] = [255, 128, 0]  # Blue = person
-            overlay[head_mask > 0] = [0, 0, 255]  # Red = head+face
-            if exposed_skin is not None:
-                overlay[(exposed_skin > 0) & (head_mask == 0)] = [0, 255, 0]  # Green = exposed skin
-            overlay[inpaint_mask > 0] = [0, 255, 255]  # Yellow = inpaint area
+            # 1. Person mask (SE10 detection)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_person.png"), person_binary)
 
-            debug_img = _cv2.addWeighted(labels, 0.5, overlay, 0.5, 0)
+            # 2. Head mask (what's protected)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_head.png"), head_mask)
 
-            _cv2.putText(debug_img, "RED=head+face", (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-            _cv2.putText(debug_img, "GREEN=exposed skin", (10, 55), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            _cv2.putText(debug_img, "YELLOW=inpaint (NSFW)", (10, 80), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-            _cv2.putText(debug_img, "BLUE=person mask", (10, 105), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 128, 0), 2)
+            # 3. Body mask (person minus head)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_body.png"), body_mask)
 
-            debug_path = os.path.join(output_dir, f"{job.job_id}_debug.png")
-            _cv2.imwrite(debug_path, debug_img)
-            logger.info("Job %s: debug saved", job.job_id)
+            # 4. Exposed skin (where skin color reference comes from)
+            exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_exposed_skin.png"), exposed_vis)
+
+            # 5. Inpaint mask (what gets NSFW'd)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_inpaint.png"), inpaint_mask)
+
+            # 6. Overlay on original (all layers colored)
+            overlay = orig_img.copy()
+            colors = {
+                head_mask: (0, 0, 255),      # RED = head+face (preserved)
+                exposed_vis: (0, 255, 0),     # GREEN = exposed skin (reference)
+                inpaint_mask: (0, 255, 255),  # YELLOW = inpaint area
+            }
+            for msk, color in colors.items():
+                mask_bool = msk > 0
+                overlay[mask_bool] = (overlay[mask_bool].astype(_np.float32) * 0.4 + 
+                                     _np.array(color, dtype=_np.float32) * 0.6).astype(_np.uint8)
+            
+            _cv2.putText(overlay, "RED=preserved GREEN=skin ref YELLOW=inpaint", 
+                        (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
+
+            logger.info("Job %s: 6 debug masks saved", job.job_id)
         except Exception as e:
             logger.warning("Job %s: debug failed (%s)", job.job_id, e)
 
