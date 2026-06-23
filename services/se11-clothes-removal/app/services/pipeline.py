@@ -1408,7 +1408,7 @@ async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJ
         _, mask_buf = _cv2.imencode(".png", clothing_mask)
         nsfw_mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
-        # === Stage 3: SE8 NSFW inpaint on clothing ONLY ===
+        # === Stage 3: SE8 NSFW 2-pass inpainting on clothing ONLY ===
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -1422,29 +1422,59 @@ async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJ
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
+        # Pass 1: High denoise (0.75) — main removal
         t1 = time.time()
         result = await se8.inpaint(
             image_b64=image_b64,
             mask_b64=nsfw_mask_b64,
             prompt=NSFW_SUBTRACT_PROMPT,
             negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_strength=0.70,
+            inpaint_strength=0.75,
             inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8,
             loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
         )
-        inpaint_time = time.time() - t1
+        t1_time = time.time() - t1
 
         if not result or not result.get("base64"):
-            logger.error("Job %s: SE8 failed", job.job_id)
+            logger.error("Job %s: SE8 pass 1 failed", job.job_id)
             job.status = ClothesRemovalJobStatus.FAILED
             job.error = "SE8 empty"
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        result_bytes = base64.b64decode(result["base64"])
-        logger.info("Job %s: inpainting done in %.1fs", job.job_id, inpaint_time)
+        result1_bytes = base64.b64decode(result["base64"])
+        logger.info("Job %s: pass 1 done in %.1fs", job.job_id, t1_time)
+
+        # Pass 2: Low denoise (0.45) — refine remaining on same mask
+        job.update_stage("inpainting", "processing", progress=50.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        result1_b64 = _to_data_uri(base64.b64encode(result1_bytes).decode("utf-8"), mime="image/png")
+
+        t2 = time.time()
+        result2 = await se8.inpaint(
+            image_b64=result1_b64,
+            mask_b64=nsfw_mask_b64,
+            prompt=NSFW_SUBTRACT_PROMPT,
+            negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            inpaint_strength=0.45,
+            inpaint_respective_field=0.90,
+            inpaint_erode_or_dilate=-5,
+            loras=nsfw_loras,
+            base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+        )
+        t2_time = time.time() - t2
+
+        result_bytes = result1_bytes  # Default to pass 1
+        if result2 and result2.get("base64"):
+            result_bytes = base64.b64decode(result2["base64"])
+            logger.info("Job %s: pass 2 done in %.1fs", job.job_id, t2_time)
+        else:
+            logger.warning("Job %s: pass 2 failed, using pass 1", job.job_id)
+
+        logger.info("Job %s: inpainting done (2 passes, total %.1fs)", job.job_id, t1_time + t2_time)
 
         result_img = _cv2.imdecode(_np.frombuffer(result_bytes, _np.uint8), _cv2.IMREAD_COLOR)
         if result_img is None:
@@ -1466,7 +1496,24 @@ async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJ
 
         logger.info("Job %s: composite done (face region forced to original)", job.job_id)
 
-        # === Stage 5: Morphological operations on mask edges ===
+        # === Stage 5: HSV Color Transfer — match inpainted area to surrounding skin ===
+        job.update_stage("inpainting", "processing", progress=72.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        try:
+            composited = _color_transfer(
+                _cv2.imencode(".png", composited)[1].tobytes(),
+                image_bytes,
+                nsfw_mask_b64,
+            )
+            composited = _cv2.imdecode(_np.frombuffer(composited, _np.uint8), _cv2.IMREAD_COLOR)
+            if composited is not None:
+                composited[:face_cutoff, :] = orig_img[:face_cutoff, :]  # Re-ensure face
+                logger.info("Job %s: HSV color transfer done", job.job_id)
+        except Exception as e:
+            logger.warning("Job %s: color transfer failed (%s)", job.job_id, e)
+
+        # === Stage 6: Morphological operations on mask edges ===
         job.update_stage("inpainting", "processing", progress=80.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
