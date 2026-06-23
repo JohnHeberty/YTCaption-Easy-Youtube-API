@@ -22,8 +22,8 @@ BEST_CLOTHING_CLASSES = (
 )
 
 DEFAULT_CLOTHES_PROMPT = (
-    "natural skin tone matching surrounding skin, seamless texture, "
-    "photorealistic, professional photography, soft lighting"
+    "bare skin, smooth skin surface, realistic skin texture, "
+    "photorealistic, professional photography, consistent skin tone"
 )
 DEFAULT_PERSON_PROMPT = (
     "natural skin texture matching surrounding skin tone, seamless blend, "
@@ -1992,7 +1992,7 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
         nsfw_loras = [
-            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.7},
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.2},
             {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
             {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
             {"enabled": True, "model_name": "None", "weight": 1.0},
@@ -2001,85 +2001,24 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # v13: PRE-FILL mask region with SKIN COLOR before sending to SE8
-        # This prevents fooocus_fill() from blurring clothing colors into a green blob
-        skin_bgr = _cv2.cvtColor(
-            _np.array([[[int(median_h * 255 / 180), int(median_s * 255 / 255), int(median_v * 255 / 255)]]],
-                      dtype=_np.uint8), _cv2.COLOR_HSV2BGR)[0, 0]
-        prefill_img = orig_img.copy()
-        prefill_img[inpaint_mask > 0] = skin_bgr
-        _, prefill_buf = _cv2.imencode(".png", prefill_img)
-        prefill_b64 = _to_data_uri(base64.b64encode(prefill_buf).decode("utf-8"), mime="image/png")
+        # v14: MERGE — original simple params + new exact mask
+        # Reverted from job cr_f5a80bef266e that generated real NSFW
 
-        # v10: SEPARATE prompts — general (CLIP) vs inpaint (masked region)
-        general_prompt = (
-            "natural photo, soft lighting, professional photography, "
-            "realistic skin texture, seamless blend"
-        )
-        inpaint_prompt = (
-            f"bare skin, no clothing, naked body, natural realistic skin texture "
-            f"with hue={median_h:.0f} saturation={median_s:.0f}, "
-            f"matching the person's exposed skin on arms and body, "
-            f"seamless transition, photorealistic, soft lighting"
-        )
-
-        # Pass 1: 0.95 (main removal) — on pre-filled image
+        # Pass 1: single pass with proven params
         result1 = await se8.inpaint(
-            image_b64=prefill_b64, mask_b64=mask_b64,
-            prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_additional_prompt=inpaint_prompt,
-            inpaint_strength=0.95, inpaint_respective_field=0.85,
+            image_b64=image_b64, mask_b64=mask_b64,
+            prompt=DEFAULT_CLOTHES_PROMPT,
+            negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+            inpaint_strength=0.75, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8, loras=nsfw_loras,
-            base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+            base_model="juggernautXL_v8Rundiffusion.safetensors",
         )
         if not result1 or not result1.get("base64"):
             job.status = ClothesRemovalJobStatus.FAILED
             job.error = "SE8 empty"
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
-        r1_bytes = base64.b64decode(result1["base64"])
-
-        # GPU cooldown between passes (prevents CUDA assertion)
-        await asyncio.sleep(5)
-
-        # Pass 2: 0.70 (refinement)
-        job.update_stage("inpainting", "processing", progress=50.0)
-        store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        r1_b64 = _to_data_uri(base64.b64encode(r1_bytes).decode("utf-8"), mime="image/png")
-        result2 = await se8.inpaint(
-            image_b64=r1_b64, mask_b64=mask_b64,
-            prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_additional_prompt=inpaint_prompt,
-            inpaint_strength=0.70, inpaint_respective_field=0.85,
-            inpaint_erode_or_dilate=-5, loras=nsfw_loras,
-            base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
-        )
-
-        r2_bytes = r1_bytes
-        if result2 and result2.get("base64"):
-            r2_bytes = base64.b64decode(result2["base64"])
-
-        # GPU cooldown between passes (prevents CUDA assertion)
-        await asyncio.sleep(5)
-
-        # Pass 3: 0.50 (texture refinement)
-        job.update_stage("inpainting", "processing", progress=65.0)
-        store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        r2_b64 = _to_data_uri(base64.b64encode(r2_bytes).decode("utf-8"), mime="image/png")
-        result3 = await se8.inpaint(
-            image_b64=r2_b64, mask_b64=mask_b64,
-            prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_additional_prompt=inpaint_prompt,
-            inpaint_strength=0.50, inpaint_respective_field=0.85,
-            inpaint_erode_or_dilate=-3, loras=nsfw_loras,
-            base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
-        )
-
-        inpainted_bytes = r2_bytes
-        if result3 and result3.get("base64"):
-            inpainted_bytes = base64.b64decode(result3["base64"])
+        inpainted_bytes = base64.b64decode(result1["base64"])
 
         inpainted_img = _cv2.imdecode(_np.frombuffer(inpainted_bytes, _np.uint8), _cv2.IMREAD_COLOR)
         if inpainted_img is not None and inpainted_img.shape[:2] != (orig_h, orig_w):
@@ -2094,19 +2033,33 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
         composited[head_mask > 0] = orig_img[head_mask > 0]
 
-        # v12: SKIP color_transfer — it destroys NSFW skin colors
-        # The SE8 output already has correct skin tone from prompt + exposed_skin reference
+        # Color transfer with exposed_skin reference
+        try:
+            comp_bytes = _cv2.imencode(".png", composited)[1].tobytes()
+            corrected = _color_transfer(comp_bytes, image_bytes, mask_b64, reference_mask=exposed_skin)
+            corrected_img = _cv2.imdecode(_np.frombuffer(corrected, _np.uint8), _cv2.IMREAD_COLOR)
+            if corrected_img is not None and corrected_img.shape[:2] == (orig_h, orig_w):
+                composited = corrected_img
+                composited[head_mask > 0] = orig_img[head_mask > 0]
+        except Exception:
+            pass
 
         job.update_stage("inpainting", "processing", progress=85.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # v12: Light edge blend only — no aggressive morphological ops
+        # Edge blend — original params
         ko = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 80)
+        kc = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+        em = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 100)
         em = _cv2.dilate(em, ko, iterations=1)
-        mn = _cv2.dilate((inpaint_soft > 0.15).astype(_np.uint8), ko, iterations=1)
+        mn = _cv2.dilate((inpaint_soft > 0.1).astype(_np.uint8), ko, iterations=2)
         er = (em > 0) & (mn > 0)
         if er.any():
+            for c in range(3):
+                ch = composited[:, :, c].copy()
+                ch = _cv2.morphologyEx(ch, _cv2.MORPH_OPEN, ko)
+                ch = _cv2.morphologyEx(ch, _cv2.MORPH_CLOSE, kc)
+                composited[:, :, c][er] = ch[er]
             composited[er] = _cv2.bilateralFilter(composited, 5, 50, 50)[er]
 
         # SAVE
