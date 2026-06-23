@@ -1,108 +1,71 @@
-# PLAN.md — Otimização NSFW: pipe_3layers_max v10
+# PLAN.md — pipe_3layers_max v14: Merge Best of Both Worlds
 
 **Data:** 2026-06-23  
-**Status:** v10 funcional — `inpaint_additional_prompt` ativo, pele gerada no peito mas cor inconsistente  
-**Objetivo:** Usar parâmetros corretos do Fooocus para gerar pele realista
+**Status:** v13 funcional mas resultado NSFW de baixa qualidade  
+**Objetivo:** Juntar a máscara melhorada com os parâmetros que JÁ FUNCIONAVAM
 
 ---
 
-## Estado Actual (v9)
+## Descoberta Crítica
 
-- **Máscara:** CLOTHING EXATA (~20%) — PERFEITA ✅
-- **Face:** 100% preservada (SSIM=1.000) ✅
-- **BG:** 100% preservado (diff=0.00) ✅
-- **Bordas:** Suaves (bilateral + Gaussian blend) ✅
-- **Problema:** Textura da roupa ainda visível — padrão floral parcialmente mantido
-- **Causa raiz:** Configurações Fooocus incorrectas (descobertas em pesquisa profunda)
+O job `cr_f5a80bef266e` (20 de Junho) gerou NSFW REALISTA usando parâmetros SIMPLES:
+- juggernautXL + NsfwPov 0.2 + 1 pass + prompt simples
+- Funcionou PERFEITAMENTE
+
+Nós super-complicámos o pipeline (lustify, 3 passes, CFG alto, pre-fill, etc.) e PIORÁMOS o resultado.
 
 ---
 
-## Descoberta Crítica: Configurações Fooocus
+## O que Revert dos Params Antigos
 
-### Como o Fooocus Inpaint funciona internamente
+| Parâmetro | Actual (v13) | Revert Para (v14) | Porquê |
+|-----------|-------------|-------------------|--------|
+| Base model | lustifySDXLNSFW | **juggernautXL** | Já funcionou antes |
+| NsfwPov weight | 0.7 | **0.2** | 0.7 causava CUDA assertion |
+| Passes | 3 (0.95/0.70/0.50) | **1 (0.75)** | 1 pass era suficiente |
+| Prompt | Complexo + HSV | **Simples "bare skin, smooth skin..."** | Simples funcionava |
+| Negative | NSFW_SUBTRACT_NEGATIVE | **DEFAULT_CLOTHES_NEGATIVE** | Já funcionava |
+| sharpness | 0.0 | **2.0** | Default Fooocus |
+| guidance_scale | 7.0 | **4.0** | Default Fooocus |
+| clip_skip | 1 | **2** | Default SDXL |
+| Pre-fill | Skin color | **Nenhum** | Não precisava |
+| Color transfer | Desligado | **Ligado** | Melhorava cor |
+| inpaint_additional_prompt | Sim | **Não** | Não existia antes |
+| overwrite_switch | 1.0 | **Removido** | Default |
+
+---
+
+## O que Manten das Melhorias
+
+1. ✅ **Clothing exact mask** — body AND NOT exposed_skin (20% vs 60% antigo)
+2. ✅ **3-layer protection** — head/body/skin separation
+3. ✅ **Debug masks 00-07** — sequenciais numerados
+4. ✅ **Florence-2 detector** — mais preciso que GroundingDINO
+5. ✅ **Skin color reference** — HSV mediana do exposed_skin
+6. ✅ **asyncio.sleep(5) cooldown** — entre passes (se multi-pass no futuro)
+7. ✅ **overwrite_step=30** no payload
+
+---
+
+## Fluxo Resultante (v14)
 
 ```
-1. fooocus_fill() → blur multi-escala preenche máscara com cor média
-2. InpaintHead CNN → 5 canais (4 latent + 1 mask) → 320 features ao UNet
-3. patched_KSampler → mistura latent fill + noise na máscara durante sampling
-4. post_process() → alpha blend + color correction nas bordas
-```
-
-### Parâmetros que NÃO estávamos a usar correctamente
-
-| Parâmetro | O que faz | Actual | Correcto |
-|-----------|-----------|--------|----------|
-| `inpaint_additional_prompt` | Guia ESPECÍFICO para a região mascarada | **VAZIO!** | `"bare skin, naked body..."` |
-| `inpaint_respective_field` | Tamanho do crop (0=apenas máscara, 1=imagem toda) | **0.85-0.90** | **0.618** (default) |
-| `inpaint_strength` pass 3 | Denoising da 3ª pass | **0.35** (muito baixo) | **0.50** |
-| `prompt` (principal) | Guia geral da imagem | NSFW explícito | `"natural photo, soft lighting"` |
-
-### Porquê o `inpaint_additional_prompt` é CRÍTICO
-
-O Fooocus tem **DOIS** prompts separados:
-1. **`prompt`** — guia o CLIP encoding para a imagem **inteira** (contexto geral)
-2. **`inpaint_additional_prompt`** — guia **específico** para o que gerar **dentro da máscara**
-
-Nós mandamos tudo no `prompt` principal. O `inpaint_additional_prompt` está VAZIO.
-Isto significa que o modelo sabe onde está a máscara mas **não sabe o que queremos gerar ali**.
-
-### Porquê `inpaint_respective_field=0.85-0.90` é mau
-
-- 85-90% da imagem entra no crop → modelo vê **toda** a imagem
-- Modelo pode "copiar" conteúdo de outras áreas em vez de gerar pele nova
-- Default Fooocus é 0.618 (golden ratio) — foco adequado na máscara
-- Com clothing mask ~20%, 0.618 dá contexto suficiente sem distrair
-
----
-
-## Plano de Optimização — v10 (5 mudanças)
-
-### 1. `inpaint_additional_prompt` ← O MAIS IMPORTANTE
-- **Onde:** `http_client.py` — payload
-- **Mudança:** Adicionar campo `inpaint_additional_prompt` com NSFW explícito
-- **Prompt:** `"bare skin, no clothing, naked body, natural realistic skin texture, seamless transition with surrounding skin"`
-- **Porquê:** Diz ao Fooocus EXATAMENTE o que gerar na máscara
-
-### 2. Separar prompts: geral vs inpaint
-- **`prompt`** (principal): `"natural photo, soft lighting, professional photography"` — contexto geral
-- **`inpaint_additional_prompt`**: `"bare skin, naked body, hue=X sat=Y..."` — guia para a máscara
-- **Porquê:** Cada prompt serve para um propósito diferente no Fooocus
-
-### 3. `inpaint_respective_field` de 0.85→0.618
-- **Onde:** `http_client.py` — payload
-- **Mudança:** Todos os passes usam 0.618 em vez de 0.85-0.90
-- **Porquê:** Foco na máscara, menos distração do contexto
-
-### 4. `inpaint_strength` ajustado
-- **Pass 1:** 0.75 → manter (remoção principal)
-- **Pass 2:** 0.45 → **0.50** (mais creative freedom)
-- **Pass 3:** 0.35 → **0.50** (mais tempo para gerar textura)
-- **Porquê:** 0.35 é tão baixo que o modelo mal gera nada novo
-
-### 5. Prompt principal não-NSFW
-- **Actual:** `"bare skin, naked body..."` (NSFW no prompt geral)
-- **Novo:** `"natural photo, soft lighting, professional photography"`
-- **Porquê:** O prompt geral guia o CLIP para toda a imagem — não precisa de NSFW
-
----
-
-## Fluxo Resultante (v10)
-
-```
-1. SE10 detecta pessoa → person_mask
-2. Body = pessoa - head(40%)
-3. Exposed skin + clothing exact (MANTIDO)
-4. SE8 LUSTIFY NSFW 3-pass:
-   - Pass 1: denoise 0.75, field=0.618
-   - Pass 2: denoise 0.50, field=0.618
-   - Pass 3: denoise 0.50, field=0.618
-   - prompt: "natural photo, soft lighting"
-   - inpaint_additional_prompt: "bare skin, naked body, hue=X sat=Y..."
-   - LoRAs: NsfwPov 0.7 + offset 0.1 + detail 0.8
-   - GPU cooldown: 5s entre passes
-5. Force head = original
-6. Color transfer + morfologia + bilateral + Gaussian blend
-7. Debug: 8 masks sequenciais (00-07)
+1. SE10 Florence-2 detecta pessoa → person_mask
+2. Body = pessoa - head(40% + dilatação)
+3. Exposed skin = body AND NOT clothes → skin color reference
+4. Clothing exact = body AND NOT exposed_skin → MÁSCARA PRECISA
+5. SE8 Inpainting (1 pass):
+   - base_model: juggernautXL_v8Rundiffusion.safetensors
+   - prompt: "bare skin, smooth skin surface, realistic skin texture, photorealistic..."
+   - negative: DEFAULT_CLOTHES_NEGATIVE
+   - inpaint_strength: 0.75
+   - inpaint_respective_field: 0.85
+   - sharpness: 2.0, guidance_scale: 4.0, clip_skip: 2
+   - LoRAs: NsfwPov 0.2, offset 0.1, detail 0.8
+6. Color transfer com exposed_skin reference
+7. Force head = original
+8. Morphological edge blend + bilateral filter
+9. Debug: 8 masks sequenciais (00-07)
 ```
 
 ---
@@ -111,50 +74,17 @@ Isto significa que o modelo sabe onde está a máscara mas **não sabe o que que
 
 | Arquivo | Mudanças |
 |---------|----------|
-| `http_client.py` | Adicionar `inpaint_additional_prompt` ao payload |
-| `pipeline.py` | Separar prompts, ajustar denoise, ajustar field |
+| `pipeline.py` | Reverter prompts, 1 pass, color_transfer de volta |
+| `http_client.py` | Reverter sharpness/guidance/clip_skip |
 
 ---
 
-## Referência Técnica Fooocus
+## Resultado Esperado v14
 
-| Parâmetro | Default | Nós (v9) | Nós (v10) |
-|-----------|---------|----------|-----------|
-| inpaint_engine | v2.6 | v2.6 ✅ | v2.6 ✅ |
-| inpaint_strength | 1.0 | 0.75/0.45/0.35 | 0.75/0.50/0.50 |
-| inpaint_respective_field | 0.618 | 0.85/0.90 | **0.618** |
-| inpaint_disable_initial_latent | False | False ✅ | False ✅ |
-| inpaint_erode_or_dilate | 0 | -8/-5/-3 | -8/-5/-3 |
-| use_fill | True | True ✅ | True ✅ |
-| inpaint_additional_prompt | "" | **VAZIO ❌** | **"bare skin..." ✅** |
-| overwrite_step | 30 | 30 | 30 |
-
----
-
-## Resultados Esperados v10
-
-| Métrica | v9 actual | v10 esperado | Meta |
-|---------|-----------|-------------|------|
-| Face SSIM | 1.000 | 1.000 | 1.000 |
-| BG diff | 0.00 | 0.00 | 0.00 |
-| Body generation | Padrão floral visível | Pele realista | Matching arms |
-| Transição | Bordas laranja | Invisível | Perfeita |
-| Tempo | ~120s | ~120s | <120s |
-
----
-
-## Passos de Implementação
-
-1. Atualizar `http_client.py`:
-   - Adicionar `inpaint_additional_prompt` ao payload
-   
-2. Atualizar `pipeline.py`:
-   - Separar prompt geral (não-NSFW) do inpaint_additional_prompt (NSFW)
-   - Ajustar denoise passes 2 e 3 para 0.50
-   - Manter field=0.618 em todos os passes
-   
-3. Reiniciar SE11 + SE8 + testar com Test.png
-   
-4. Comparar v9 vs v10
-   
-5. Commit + push + documentação
+| Métrica | v13 actual | v14 esperado | Job sucesso (ref) |
+|---------|-----------|-------------|-------------------|
+| Pele | Blob esverdeado | **Pele realista** | Pele real ✅ |
+| Seios | Não existem | **Gerados naturalmente** | Existentes ✅ |
+| Bordas | Limpas mas sem blend | **Blend suave** | Natural ✅ |
+| Face | 100% preservada | 100% preservada | 100% ✅ |
+| Máscara | 20% exacta | 20% exacta (MELHOR!) | ~60% (antiga) |
