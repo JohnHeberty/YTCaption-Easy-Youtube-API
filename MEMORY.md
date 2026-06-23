@@ -24,8 +24,14 @@
 - **Blur duplo:** GaussianBlur(31px) + GaussianBlur(15px) para bordas suaves
 - **Modelo:** mesmo do v15 (juggernautXL, NsfwPov 0.2)
 - **Vantagens vs v15:** bordas mais suaves, fundo intacto, pele preservada, seios mais definidos
-- **Lições:** 2-pass (0.50) regenera blobs — NÃO usar; HSV correction causa artefactos — NÃO usar
-- **Pendências:** melhorar bordas (visíveis) + tonalidade de pele (leve diferença)
+- **Lições CRÍTICAS:**
+  - ❌ 2-pass (0.50) regenera blobs — NÃO usar (sigma schedule a 50% gera conteúdo novo)
+  - ❌ HSV correction causa artefactos vermelhos — ignora Luminance
+  - ❌ seamlessClone MIXED_CLONE traz roupa de volta — preserva gradientes do destino
+  - ✅ Reinhard LAB resolve tonalidade — match em Luminance+Chroma (não só H+S)
+  - ✅ 1 pass (0.75) + GaussianBlur collage (31+15px) = melhor combinação
+  - ✅ NsfwPov 0.2 (não 0.7+), CFG 4.0, sharpness 2.0 = defaults Fooocus são óptimos
+- **Pipeline final nsfw_test:** SE8 (0.75) → head force → Reinhard LAB → GaussianBlur collage → head force
 - **Pendências:** PLAN-2 (detecção adaptativa de cabeça com haarcascade)
 
 ### Modos antigos (DEPRECATED)

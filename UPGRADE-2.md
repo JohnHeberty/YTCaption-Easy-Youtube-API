@@ -84,8 +84,17 @@ SE10 Florence-2 → person_mask → body(40%) → exposed_skin → clothing_exac
 ### Descobertas-chave do nsfw_test
 1. **Collage > color_transfer** — colar pessoa NSFW na imagem original preserva fundo perfeitamente
 2. **7% adaptive > 20px fixo** — adapta a qualquer resolução
-3. **Blur duplo > SE8 edge refinement** — 31px+15px é mais suave que refinamento SE8
+3. **Reinhard LAB > HSV** — match de Luminance+Chroma resolve tonalidade (HSV só H+S)
 4. **Clothing exact > body mask** — foca o modelo na zona correcta, preserva pele existente
+5. **GaussianBlur (31+15px)** — melhor borda que qualquer técnica complexa testada
+6. **seamlessClone NÃO funciona** — traz roupa de volta (preserva gradientes do destino)
+7. **2-pass (0.50) NÃO funciona** — regenera conteúdo, causa blobs
+8. **HSV correction NÃO funciona** — artefactos vermelhos mesmo com feathering
+
+### Pipeline nsfw_test final
+```
+SE8 Pass 1 (0.75) → head force → Reinhard LAB color transfer → GaussianBlur collage (31+15px) → head force
+```
 
 ---
 
