@@ -145,6 +145,7 @@ class SE8Client(ServiceClient):
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
         image_prompts: list[dict[str, Any]] | None = None,
+        base_model: str = "juggernautXL_v8Rundiffusion.safetensors",
     ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
@@ -191,7 +192,7 @@ class SE8Client(ServiceClient):
             "image_seed": -1,
             "sharpness": 2.0,
             "guidance_scale": 4.0,
-            "base_model_name": "juggernautXL_v8Rundiffusion.safetensors",
+            "base_model_name": base_model,
             "loras": loras,
             "input_image": image_b64,
             "input_mask": mask_b64,
