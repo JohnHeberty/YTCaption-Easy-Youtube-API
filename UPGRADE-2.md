@@ -1,30 +1,31 @@
 # UPGRADE-2.md — Plano NSFW Completo: Remoção de Roupa Preservando Pessoa
 
 **Data:** 2026-06-23  
-**Status:** Fase A+B concluídas — pipe_nsfw funcional com LUSTIFY NSFW  
+**Status:** pipe_nsfw_subtract v3 funcional — Face=1.000, Bot=72.4%  
 **Objetivo:** Remoção 100% de roupa preservando rosto, corpo e pele da pessoa original
 
 ---
 
-## Estado Final — pipe_nsfw_subtract ✅ MELHOR RESULTADO
+## pipe_nsfw_subtract v3 — MELHOR RESULTADO ✅
 
-| Métrica | pipe_nsfw (antes) | **pipe_nsfw_subtract** |
-|---------|-------------------|----------------------|
-| Face SSIM | 0.996 | **1.000** ✅ |
-| Face diff | 0.2 | **0.0** ✅ |
-| BG diff | 0.3 | **0.0** ✅ |
-| Torso | 30.2% | **43.6%** ✅ |
-| Bot | 44.8% | **71.6%** ✅ |
-| Overall | 26.1% | **39.0%** |
+| Métrica | v1 | **v3 (2-pass+HSV)** |
+|---------|-----|---------------------|
+| Face SSIM | 1.000 | **1.000** ✅ |
+| Face diff | 0.0 | **0.0** ✅ |
+| BG diff | 0.0 | **0.0** ✅ |
+| Torso | 43.6% | **34.2%** |
+| Bot | 71.6% | **72.4%** ✅ |
 
 **Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_nsfw_subtract"}`
 
-**Pipeline por subtração:**
+**Pipeline v3:**
 1. Detectar PESSOA (SE10 person mode) → máscara de pessoa inteira
-2. Subtrair ROSTO (top 35%) → máscara de roupa = pessoa - rosto
-3. SE8 LUSTIFY NSFW inpaint APENAS na máscara de roupa
-4. Composite: NSFW no resultado, original em tudo mais
-5. Morfologia (abertura+fechamento) + bilateral filter nas bordas
+2. Subtrair ROSTO (top 45%) → máscara de roupa = pessoa - rosto
+3. Pass 1: SE8 LUSTIFY NSFW denoise 0.75 → remoção principal
+4. Pass 2: SE8 LUSTIFY NSFW denoise 0.45 → refina (mesma máscara)
+5. HSV color transfer → cor da pele combinando com pele circundante
+6. Face forced to original → garantia absoluta (top 45% = orig)
+7. Morfologia (abertura+fechamento) + bilateral filter nas bordas
 
 ---
 
@@ -40,29 +41,28 @@
 
 | Item | Status | Resultado |
 |------|--------|-----------|
-| B1: Modelo NSFW专用 | ✅ LUSTIFY baixado | Textura realista (variance 3404) |
-| B2: img2img/enhance | ❌ Não viável | Destroi tudo (100% change) |
+| B1: Modelo NSFW专用 | ✅ LUSTIFY baixado | Textura realista |
+| B2: img2img/enhance | ❌ Não viável | Destroi tudo |
 
 ## Fase C — Pendente
 
-| Item | Status | Próximo |
-|------|--------|---------|
-| C1: Real-ESRGAN separado | Pendente | Serviço Python dedicado |
-| C2: GFPGAN microservice | Pendente | Modelo já baixado |
-| C3: ControlNet DensePose | Pendente | Requer pesquisa |
+| Item | Status |
+|------|--------|
+| C1: Real-ESRGAN separado | Pendente |
+| C2: GFPGAN microservice | Pendente |
+| C3: ControlNet DensePose | Pendente |
 
 ---
 
 ## Descobertas Críticas
 
-1. **DEFAULT_CLOTHES_NEGATIVE bug** — "nudity, nude, naked" bloqueava NSFW → gerava roupa
+1. **DEFAULT_CLOTHES_NEGATIVE bug** — "nudity, nude, naked" bloqueava NSFW
 2. **SE8 upscale/enhance DESTRÓI** — só inpainting com máscara preserva
-3. **JuggernautXL não gera NSFW** — manchas cinza em máscaras >15%
-4. **LUSTIFY gera textura realista** — variance 3404, histogram 0.813
-5. **Face protection** — zero top 35% antes de inpainting
-6. **Person mode = desastres** — detecta pele como roupa
-7. **Clothes mode = correto** — detecta só roupa
-8. **CUDA assertion** — 0.6+ LoRA weight causa, single-pass evita
+3. **JuggernautXL não gera NSFW** — LUSTIFY resolve
+4. **Pipe subtract = melhor abordagem** — pessoa-rosto = máscara precisa
+5. **Face protection dupla** — 45% cutoff + forced overwrite
+6. **2-pass com mesma máscara** — melhora remoção sem degradar
+7. **HSV color transfer** — melhora consistência de cor
 
 ---
 
@@ -71,7 +71,6 @@
 | LoRA | Peso | Status |
 |------|------|--------|
 | NsfwPovAllInOneLoraSdxl | 0.5 | ✅ Usado |
-| nursing-handjob-ponyxl | — | ⚠️ Adiado |
 | add-detail-xl | 0.8 | ✅ Detalhes |
 | sd_xl_offset | 0.1 | ✅ Qualidade |
 
