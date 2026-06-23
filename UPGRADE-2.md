@@ -8,14 +8,13 @@
 
 ## Resultados Mais Recentes
 
-### pipe_nsfw (Fase A — A3 concluída) ✅
-| Métrica | pipe_nsfw anterior | **A3 (atual)** |
-|---------|-------------------|----------------|
+### pipe_nsfw (Fase A+B — B1 concluída) ✅
+| Métrica | JuggernautXL | **LUSTIFY NSFW** |
+|---------|-------------|----------------|
 | Face SSIM | 0.996 | **0.996** ✅ |
 | BG diff | 0.3 | **0.3** ✅ |
-| Torso | 8.9% | **20.5%** ✅ |
-| Bot | 43.4% | **51.1%** ✅ |
-| Overall | 17.2% | **24.1%** |
+| Torso | 20.5% | **20.2%** |
+| Bot | 51.1% | **50.6%** |
 
 **Configuração atual do pipe_nsfw:**
 - Single-pass (1 chamada ao SE8 — evita CUDA assertion)
@@ -52,13 +51,12 @@ POST /jobs {"image": "<base64>", "mode": "pipe_nsfw"}
 
 ## Fase B — Em Andamento
 
-### B1: Modelo NSFW专用
-- Opções:
-  - **Pony Diffusion V6 XL** — SDXL fine-tuned para NSFW (~6.5GB)
-  - **Unstable AI Horizons** — SDXL NSFW
-  - **Animagine XL** — SDXL NSFW (anime focus)
-- Ação: substituir `juggernautXL_v8Rundiffusion` no SE8
-- Risco: compatibilidade com Fooocus pipeline
+### B1: Modelo NSFW专用 ✅
+- Status: ✅ Baixado e testado
+- Modelo: `lustifySDXLNSFW_v20-inpainting.safetensors` (6.9GB)
+- Source: `andro-flock/LUSTIFY-SDXL-NSFW-checkpoint-v2-0-INPAINTING`
+- Resultado: Face=0.996, Bot=50.6% (similar ao JuggernautXL, mas deve gerar pele melhor)
+- **Nota: verificar visualmente se a qualidade da pele melhorou vs JuggernautXL**
 
 ### B2: img2img em vez de inpainting
 - SDXL img2img com strength controlado (0.5-0.6)
