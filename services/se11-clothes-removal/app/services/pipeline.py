@@ -1096,12 +1096,12 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         if orig_img is None:
             raise ValueError("Failed to decode original image")
         orig_h, orig_w = orig_img.shape[:2]
+        current_bytes = image_bytes
 
-        # === Stage 1: Progressive clothes removal with NSFW prompts ===
+        # === Stage 1: Single-pass clothes detection + inpainting with NSFW ===
         job.update_stage("inpainting", "processing", progress=5.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        current_bytes = image_bytes
         nsfw_loras = [
             {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
             {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
@@ -1110,50 +1110,42 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             {"enabled": True, "model_name": "None", "weight": 1.0},
         ]
 
-        for pass_idx, pass_config in enumerate(PROGRESSIVE_PASSES):
-            progress = 5 + ((pass_idx + 1) / len(PROGRESSIVE_PASSES)) * 35
-            job.update_stage("inpainting", "processing", progress=progress)
-            store.save_job(job.job_id, job.model_dump(mode="json"))
+        # Single pass: detect all clothing classes at once
+        seg_result = await se10.segment(
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_clothes.jpg",
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear",
+            box_threshold=0.06,
+            text_threshold=0.04,
+            mode="clothes",
+            detector="florence2",
+        )
 
-            segment_result = await se10.segment(
-                image_bytes=current_bytes,
-                filename=f"{job.job_id}_p{pass_idx}.jpg",
-                classes=pass_config["classes"],
-                box_threshold=pass_config["box_threshold"],
-                text_threshold=pass_config["text_threshold"],
-                mode="clothes",
-                detector=pass_config["detector"],
-            )
+        objects = seg_result.get("objects", [])
+        all_masks = seg_result.get("masks", [])
 
-            objects = segment_result.get("objects", [])
-            all_masks = segment_result.get("masks", [])
-
-            if not segment_result.get("detected") or not all_masks:
-                continue
-
+        if seg_result.get("detected") and all_masks:
             sorted_pairs = [(i, obj) for i, obj in enumerate(objects) if obj.get("confidence", 0) >= 0.05]
             sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
-            filtered_masks = [all_masks[i] for i, _ in sorted_pairs[:5] if i < len(all_masks)]
+            filtered_masks = [all_masks[i] for i, _ in sorted_pairs[:10] if i < len(all_masks)]
 
-            if not filtered_masks:
-                continue
+            if filtered_masks:
+                combined_mask = combine_masks(filtered_masks)
+                combined_mask = dilate_mask(combined_mask, kernel_size=11, iterations=1)
 
-            combined_mask = combine_masks(filtered_masks)
-            combined_mask = dilate_mask(combined_mask, kernel_size=11, iterations=1)
-
-            current_b64 = _to_data_uri(base64.b64encode(current_bytes).decode("utf-8"), mime="image/jpeg")
-            result = await se8.inpaint(
-                image_b64=current_b64,
-                mask_b64=combined_mask,
-                prompt=NSFW_PROMPT,
-                negative_prompt=NSFW_NEGATIVE,
-                inpaint_strength=pass_config["inpaint_strength"],
-                inpaint_respective_field=0.85,
-                inpaint_erode_or_dilate=-10,
-                loras=nsfw_loras,
-            )
-            if result and result.get("base64"):
-                current_bytes = base64.b64decode(result["base64"])
+                current_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
+                result = await se8.inpaint(
+                    image_b64=current_b64,
+                    mask_b64=combined_mask,
+                    prompt=NSFW_PROMPT,
+                    negative_prompt=NSFW_NEGATIVE,
+                    inpaint_strength=0.70,
+                    inpaint_respective_field=0.85,
+                    inpaint_erode_or_dilate=-10,
+                    loras=nsfw_loras,
+                )
+                if result and result.get("base64"):
+                    current_bytes = base64.b64decode(result["base64"])
 
         # Decode progressive result
         nsfw_img = _cv2.imdecode(_np.frombuffer(current_bytes, _np.uint8), _cv2.IMREAD_COLOR)
@@ -1246,6 +1238,9 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # === Save final (NO upscaler — it destroys results) ===
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        # === Stage 5: Face restore (skip for now — GFPGAN needs separate service) ===
+        logger.info("Job %s: Stage 5 — face restore skipped (pending GFPGAN integration)", job.job_id)
 
         # === Save final ===
         _, final_buf = _cv2.imencode(".png", nsfw_img)
