@@ -860,14 +860,16 @@ async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore
 # =============================================================================
 
 NSFW_NEGATIVE = (
-    "clothes, fabric, bra, straps, underwear, text, watermark, "
-    "deformed, blurry, bad anatomy, bad proportions, extra limbs, "
-    "disfigured, poorly drawn face, mutated hands, extra fingers"
+    "clothes, clothing, fabric, bra, straps, underwear, top, blouse, shirt, "
+    "dress, skirt, pants, shorts, swimsuit, bikini, lingerie, textile, garment, "
+    "text, watermark, deformed, blurry, bad anatomy, bad proportions, "
+    "extra limbs, disfigured, poorly drawn face, mutated hands, extra fingers"
 )
 
 NSFW_PROMPT = (
-    "natural skin tone matching surrounding skin, seamless texture, "
-    "photorealistic, professional photography, soft lighting"
+    "bare skin, exposed skin, natural realistic skin texture, "
+    "seamless transition with surrounding skin, photorealistic, "
+    "soft lighting, professional photography"
 )
 
 
@@ -968,6 +970,13 @@ async def _run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> No
             inpaint_strength=0.70,
             inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8,
+            loras=[
+                {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
+                {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
+                {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+                {"enabled": True, "model_name": "None", "weight": 1.0},
+            ],
         )
         inpaint_time = time.time() - t1
 
