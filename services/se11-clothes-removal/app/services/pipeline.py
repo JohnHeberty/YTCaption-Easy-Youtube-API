@@ -396,6 +396,11 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await _run_pipe_nsfw(job, store)
         return
 
+    # Pipe NSFW subtract: person - face - background = clothing area
+    if mode == "pipe_nsfw_subtract":
+        await _run_pipe_nsfw_subtract(job, store)
+        return
+
     se10 = SE10Client()
     se8 = SE8Client()
 
@@ -1275,6 +1280,238 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
     except Exception as e:
         logger.error("Job %s pipe_nsfw failed: %s", job.job_id, e, exc_info=True)
+        job.status = ClothesRemovalJobStatus.FAILED
+        job.error = str(e)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+    finally:
+        await se10.close()
+        await se8.close()
+
+
+# =============================================================================
+# Pipe NSFW Subtract: person - face - background = clothing mask only
+# =============================================================================
+
+NSFW_SUBTRACT_PROMPT = (
+    "natural skin texture matching surrounding skin tone, realistic bare skin, "
+    "seamless blend, photorealistic, soft lighting"
+)
+
+NSFW_SUBTRACT_NEGATIVE = (
+    "clothes, clothing, fabric, bra, straps, underwear, top, blouse, shirt, "
+    "dress, skirt, pants, swimsuit, lingerie, textile, garment, "
+    "text, watermark, deformed, blurry, bad anatomy"
+)
+
+
+async def _run_pipe_nsfw_subtract(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
+    """Pipeline NSFW por subtração: pessoa - rosto = área de roupa.
+
+    1. Detectar PESSOA inteira → máscara de pessoa
+    2. Subtrair ROSTO (top 35%) → máscara de roupa = pessoa - rosto
+    3. SE8 NSFW inpaint APENAS na máscara de roupa
+    4. Composite: NSFW no resultado, original em tudo mais
+    5. Morfologia abertura/fechamento + bilateral nas bordas
+    """
+    import cv2 as _cv2
+    import numpy as _np
+
+    se10 = SE10Client()
+    se8 = SE8Client()
+
+    try:
+        image_bytes = _decode_image(job.request.image)
+        logger.info("Job %s: pipe_nsfw_subtract started", job.job_id)
+
+        orig_img = _cv2.imdecode(_np.frombuffer(image_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if orig_img is None:
+            raise ValueError("Failed to decode original image")
+        orig_h, orig_w = orig_img.shape[:2]
+
+        # === Stage 1: Detect person → full body mask ===
+        job.update_stage("detecting", "processing", progress=10.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        t0 = time.time()
+        person_seg = await se10.segment(
+            image_bytes=image_bytes,
+            filename=f"{job.job_id}_person.jpg",
+            classes="person, woman, man",
+            box_threshold=0.20,
+            text_threshold=0.15,
+            mode="person",
+        )
+        seg_time = time.time() - t0
+
+        if not person_seg.get("detected") or not person_seg.get("masks"):
+            logger.warning("Job %s: no person detected", job.job_id)
+            job.status = ClothesRemovalJobStatus.COMPLETED
+            job.error = "No person detected"
+            job.progress = 100.0
+            store.save_job(job.job_id, job.model_dump(mode="json"))
+            return
+
+        p_objects = person_seg.get("objects", [])
+        p_masks = person_seg.get("masks", [])
+
+        best_idx = 0
+        best_area = 0
+        for i, obj in enumerate(p_objects):
+            if obj.get("area_pct", 0) > best_area:
+                best_area = obj["area_pct"]
+                best_idx = i
+
+        logger.info("Job %s: person detected (area=%.1f%%) in %.1fs", job.job_id, best_area, seg_time)
+
+        raw_p = _strip_data_uri(p_masks[best_idx])
+        p_mask_bytes = base64.b64decode(_fix_b64_padding(raw_p))
+        person_mask = _cv2.imdecode(_np.frombuffer(p_mask_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+
+        if person_mask is None:
+            raise ValueError("Failed to decode person mask")
+        if person_mask.shape[:2] != (orig_h, orig_w):
+            person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
+
+        person_binary = (person_mask > 127).astype(_np.uint8) * 255
+
+        # === Stage 2: Subtract face (top 35%) → clothing mask ===
+        job.update_stage("detecting", "processing", progress=25.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        face_cutoff = int(orig_h * 0.35)
+        face_region = _np.zeros_like(person_binary)
+        face_region[:face_cutoff, :] = 255
+
+        clothing_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(face_region))
+
+        clothing_pct = (clothing_mask > 0).sum() / clothing_mask.size * 100
+        logger.info("Job %s: clothing mask = %.1f%% (person - face)", job.job_id, clothing_pct)
+
+        if clothing_pct < 1.0:
+            logger.warning("Job %s: clothing mask too small (%.1f%%)", job.job_id, clothing_pct)
+            job.status = ClothesRemovalJobStatus.COMPLETED
+            job.error = "No clothing area"
+            job.progress = 100.0
+            store.save_job(job.job_id, job.model_dump(mode="json"))
+            return
+
+        # Mild dilation
+        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (11, 11))
+        clothing_mask = _cv2.dilate(clothing_mask, kernel, iterations=1)
+
+        # Feather edge
+        clothing_soft = clothing_mask.astype(_np.float32) / 255.0
+        clothing_soft = _cv2.GaussianBlur(clothing_soft, (11, 11), 0)
+
+        _, mask_buf = _cv2.imencode(".png", clothing_mask)
+        nsfw_mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
+
+        # === Stage 3: SE8 NSFW inpaint on clothing ONLY ===
+        job.update_stage("inpainting", "processing", progress=35.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        nsfw_loras = [
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
+            {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
+            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
+            {"enabled": True, "model_name": "None", "weight": 1.0},
+            {"enabled": True, "model_name": "None", "weight": 1.0},
+        ]
+
+        image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
+
+        t1 = time.time()
+        result = await se8.inpaint(
+            image_b64=image_b64,
+            mask_b64=nsfw_mask_b64,
+            prompt=NSFW_SUBTRACT_PROMPT,
+            negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            inpaint_strength=0.70,
+            inpaint_respective_field=0.85,
+            inpaint_erode_or_dilate=-8,
+            loras=nsfw_loras,
+            base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+        )
+        inpaint_time = time.time() - t1
+
+        if not result or not result.get("base64"):
+            logger.error("Job %s: SE8 failed", job.job_id)
+            job.status = ClothesRemovalJobStatus.FAILED
+            job.error = "SE8 empty"
+            store.save_job(job.job_id, job.model_dump(mode="json"))
+            return
+
+        result_bytes = base64.b64decode(result["base64"])
+        logger.info("Job %s: inpainting done in %.1fs", job.job_id, inpaint_time)
+
+        result_img = _cv2.imdecode(_np.frombuffer(result_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if result_img is None:
+            raise ValueError("Failed to decode result")
+        if result_img.shape[:2] != (orig_h, orig_w):
+            result_img = _cv2.resize(result_img, (orig_w, orig_h))
+
+        # === Stage 4: Composite — NSFW in clothing mask, original elsewhere ===
+        job.update_stage("inpainting", "processing", progress=65.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        soft_3ch = clothing_soft[:, :, _np.newaxis]
+        composited = (result_img.astype(_np.float32) * soft_3ch +
+                      orig_img.astype(_np.float32) * (1.0 - soft_3ch))
+        composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+
+        logger.info("Job %s: composite done", job.job_id)
+
+        # === Stage 5: Morphological operations on mask edges ===
+        job.update_stage("inpainting", "processing", progress=80.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        kernel_open = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
+        kernel_close = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+
+        # Edge detection near clothing mask boundary
+        edge_mask = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 100)
+        edge_mask = _cv2.dilate(edge_mask, kernel_open, iterations=1)
+
+        mask_near = _cv2.dilate((clothing_soft > 0.1).astype(_np.uint8), kernel_open, iterations=2)
+        edge_region = (edge_mask > 0) & (mask_near > 0)
+
+        if edge_region.any():
+            for c in range(3):
+                channel = composited[:, :, c].copy()
+                channel = _cv2.morphologyEx(channel, _cv2.MORPH_OPEN, kernel_open)
+                channel = _cv2.morphologyEx(channel, _cv2.MORPH_CLOSE, kernel_close)
+                composited[:, :, c][edge_region] = channel[edge_region]
+
+            smoothed = _cv2.bilateralFilter(composited, 5, 50, 50)
+            composited[edge_region] = smoothed[edge_region]
+            logger.info("Job %s: morphological blend done", job.job_id)
+
+        # === Stage 6: Save ===
+        job.update_stage("inpainting", "processing", progress=95.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        _, final_buf = _cv2.imencode(".png", composited)
+        final_bytes = final_buf.tobytes()
+
+        output_dir = os.path.join(settings.output_dir, job.job_id)
+        os.makedirs(output_dir, exist_ok=True)
+        result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
+        with open(result_path, "wb") as f:
+            f.write(final_bytes)
+
+        job.result_path = result_path
+        job.status = ClothesRemovalJobStatus.COMPLETED
+        job.progress = 100.0
+        job.objects_detected = 1
+        job.update_stage("inpainting", "completed", progress=100.0)
+        job.updated_at = now_brazil()
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+        logger.info("Job %s: pipe_nsfw_subtract completed — %s", job.job_id, result_path)
+
+    except Exception as e:
+        logger.error("Job %s pipe_nsfw_subtract failed: %s", job.job_id, e, exc_info=True)
         job.status = ClothesRemovalJobStatus.FAILED
         job.error = str(e)
         job.updated_at = now_brazil()
