@@ -1,90 +1,108 @@
-# PLAN.md — pipe_3layers_max v14: Merge Best of Both Worlds
+# PLAN.md — pipe_3layers_max v15: Body mask + Realismo Máximo
 
 **Data:** 2026-06-23  
-**Status:** v13 funcional mas resultado NSFW de baixa qualidade  
-**Objetivo:** Juntar a máscara melhorada com os parâmetros que JÁ FUNCIONAVAM
+**Status:** v14 funcional — NSFW realista mas seios errados por falta de espaço  
+**Objetivo:** Corrigir seios + maximizar realismo
 
 ---
 
-## Descoberta Crítica
+## Problema Actual (v14)
 
-O job `cr_f5a80bef266e` (20 de Junho) gerou NSFW REALISTA usando parâmetros SIMPLES:
-- juggernautXL + NsfwPov 0.2 + 1 pass + prompt simples
-- Funcionou PERFEITAMENTE
+A máscara `clothing_exact = body AND NOT exposed_skin` exclui a pele visível do decote → sobra só as alças e o corpo da camisola → o modelo não tem espaço para gerar seios correctos.
 
-Nós super-complicámos o pipeline (lustify, 3 passes, CFG alto, pre-fill, etc.) e PIORÁMOS o resultado.
+**Evidence:** debug masks mostram `05_clothing.png` com só alças+corpo camisola, sem zona do peito.
 
----
-
-## O que Revert dos Params Antigos
-
-| Parâmetro | Actual (v13) | Revert Para (v14) | Porquê |
-|-----------|-------------|-------------------|--------|
-| Base model | lustifySDXLNSFW | **juggernautXL** | Já funcionou antes |
-| NsfwPov weight | 0.7 | **0.2** | 0.7 causava CUDA assertion |
-| Passes | 3 (0.95/0.70/0.50) | **1 (0.75)** | 1 pass era suficiente |
-| Prompt | Complexo + HSV | **Simples "bare skin, smooth skin..."** | Simples funcionava |
-| Negative | NSFW_SUBTRACT_NEGATIVE | **DEFAULT_CLOTHES_NEGATIVE** | Já funcionava |
-| sharpness | 0.0 | **2.0** | Default Fooocus |
-| guidance_scale | 7.0 | **4.0** | Default Fooocus |
-| clip_skip | 1 | **2** | Default SDXL |
-| Pre-fill | Skin color | **Nenhum** | Não precisava |
-| Color transfer | Desligado | **Ligado** | Melhorava cor |
-| inpaint_additional_prompt | Sim | **Não** | Não existia antes |
-| overwrite_switch | 1.0 | **Removido** | Default |
+**O job original `cr_f5a80bef266e`** usava `combine_masks()` que cobria área muito maior → gerou NSFW correcto.
 
 ---
 
-## O que Manten das Melhorias
+## Plano v15 — 4 Mudanças
 
-1. ✅ **Clothing exact mask** — body AND NOT exposed_skin (20% vs 60% antigo)
-2. ✅ **3-layer protection** — head/body/skin separation
-3. ✅ **Debug masks 00-07** — sequenciais numerados
-4. ✅ **Florence-2 detector** — mais preciso que GroundingDINO
-5. ✅ **Skin color reference** — HSV mediana do exposed_skin
-6. ✅ **asyncio.sleep(5) cooldown** — entre passes (se multi-pass no futuro)
-7. ✅ **overwrite_step=30** no payload
+### 1. Body mask como inpaint mask (CRÍTICO)
 
----
+**ANTES:** `inpaint_mask = dilate(clothing_exact, 12px)` — só roupa (~20%)  
+**NOVO:** `inpaint_mask = dilate(body_mask, 16px)` — torso inteiro (~40%)
 
-## Fluxo Resultante (v14)
+```python
+# ANTES:
+clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
+inpaint_mask = _cv2.dilate(clothing_exact, kernel_12px, iterations=2)
 
+# NOVO:
+inpaint_mask = _cv2.dilate(body_mask, kernel_16px, iterations=2)
 ```
-1. SE10 Florence-2 detecta pessoa → person_mask
-2. Body = pessoa - head(40% + dilatação)
-3. Exposed skin = body AND NOT clothes → skin color reference
-4. Clothing exact = body AND NOT exposed_skin → MÁSCARA PRECISA
-5. SE8 Inpainting (1 pass):
-   - base_model: juggernautXL_v8Rundiffusion.safetensors
-   - prompt: "bare skin, smooth skin surface, realistic skin texture, photorealistic..."
-   - negative: DEFAULT_CLOTHES_NEGATIVE
-   - inpaint_strength: 0.75
-   - inpaint_respective_field: 0.85
-   - sharpness: 2.0, guidance_scale: 4.0, clip_skip: 2
-   - LoRAs: NsfwPov 0.2, offset 0.1, detail 0.8
-6. Color transfer com exposed_skin reference
-7. Force head = original
-8. Morphological edge blend + bilateral filter
-9. Debug: 8 masks sequenciais (00-07)
+
+O modelo ganha TODO o torso para gerar pele/corpo → seios correctos.
+
+### 2. Prompt mais realista
+
+```python
+DEFAULT_CLOTHES_PROMPT = (
+    "NSFW, NSFW, NSFW, NSFW, NSFW, "
+    "bare skin, smooth skin surface, realistic skin texture, "
+    "detailed breast anatomy, realistic nipples, natural skin pores, "
+    "seamless skin transition, consistent skin tone with surrounding body, "
+    "photorealistic, professional photography, studio lighting, "
+    "high resolution, sharp focus on skin detail, 8k uhd, "
+    "hyperrealistic, detailed skin rendering, natural body proportions"
+)
 ```
+
+### 3. Negative mais forte contra roupa
+
+```python
+DEFAULT_CLOTHES_NEGATIVE = (
+    "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
+    "dress, skirt, pattern, floral, textile, garment, "
+    "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
+    "extra limbs, disfigured, poorly drawn face, mutated hands, "
+    "bad anatomy, deformed skin, wrinkled, scarred"
+)
+```
+
+Adicionado: `top, blouse, shirt, dress, skirt, pattern, floral, textile, garment` (deteção mais forte contra roupa).
+
+### 4. Dilatação 12px → 16px
+
+```python
+kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (16, 16))
+inpaint_mask = _cv2.dilate(body_mask, kernel, iterations=2)
+```
+
+Cobre mais bordas entre pele e roupa.
+
+---
+
+## Parâmetros Mantidos do v14 (que já funcionavam)
+
+- base_model: **juggernautXL**
+- NsfwPov: **0.2**
+- 1 pass: **0.75**
+- sharpness: **2.0**
+- guidance_scale: **4.0**
+- clip_skip: **2**
+- Color transfer: **activado**
+- Clothing exact mask: **mantido para debug** (masks 05/06)
+
+---
+
+## Resultado Esperado v15
+
+| Métrica | v14 actual | v15 esperado |
+|---------|-----------|-------------|
+| Área inpaint | ~20% (clothing exact) | **~40% (body mask)** |
+| Seios | Errados (espaço pequeno) | **Correctos (espaço suficiente)** |
+| Pele | Boa mas incompleta | **Hyperrealista** |
+| Roupa residual | Alças visíveis | **Removida (negative forte)** |
+| Face | 100% preservada | 100% preservada |
+| BG | 100% preservado | 100% preservado |
 
 ---
 
 ## Arquivos a Modificar
 
-| Arquivo | Mudanças |
-|---------|----------|
-| `pipeline.py` | Reverter prompts, 1 pass, color_transfer de volta |
-| `http_client.py` | Reverter sharpness/guidance/clip_skip |
-
----
-
-## Resultado Esperado v14
-
-| Métrica | v13 actual | v14 esperado | Job sucesso (ref) |
-|---------|-----------|-------------|-------------------|
-| Pele | Blob esverdeado | **Pele realista** | Pele real ✅ |
-| Seios | Não existem | **Gerados naturalmente** | Existentes ✅ |
-| Bordas | Limpas mas sem blend | **Blend suave** | Natural ✅ |
-| Face | 100% preservada | 100% preservada | 100% ✅ |
-| Máscara | 20% exacta | 20% exacta (MELHOR!) | ~60% (antiga) |
+| Arquivo | Linhas | Mudança |
+|---------|--------|---------|
+| `pipeline.py` | 24-27 | Prompt realista |
+| `pipeline.py` | 32-37 | Negative forte |
+| `pipeline.py` | 1984-1992 | body_mask + kernel 16px |
