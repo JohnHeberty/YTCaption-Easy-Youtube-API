@@ -53,7 +53,17 @@ exposed_skin = body_mask AND NOT clothes_mask
 **Arquivo:** `{job_id}_mask_exposed_skin.png` (branco=pele exposta)  
 **Cores no overlay:** VERDE
 
-### Máscara 5: Inpaint Mask (Área de INPAINT — onde o SE8 gera NSFW)
+### Máscara 5: Clothing Mask (INVERSO — ROUPA EXATA)
+```
+clothing_mask = body_mask AND NOT exposed_skin
+→ É o INVERSO da exposed_skin dentro do corpo
+→ Representa EXATAMENTE onde tem roupa na pessoa
+→ Usada para visualizar a seleção de roupa
+```
+**Arquivo:** `{job_id}_mask_clothing.png` (branco=roupa)  
+**Cores no overlay:** MAGENTA (novo)
+
+### Máscara 6: Inpaint Mask (Área de INPAINT — onde o SE8 gera NSFW)
 ```
 inpaint_mask = dilate(body_mask, kernel=7px, 1 iter)
 → Área que o SE8 vai preencher com pele
