@@ -2098,10 +2098,14 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
             exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_exposed_skin.png"), exposed_vis)
 
-            # 5. Inpaint mask (what gets NSFW'd)
+            # 5. INVERSE: clothing mask = body AND NOT exposed_skin = ROUPA EXATA
+            clothing_mask_inv = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_vis))
+            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_clothing.png"), clothing_mask_inv)
+
+            # 6. Inpaint mask (what gets NSFW'd)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_inpaint.png"), inpaint_mask)
 
-            # 6. Overlay on original (all layers colored)
+            # 7. Overlay on original (all layers colored)
             overlay = orig_img.copy()
             # RED = head (preserved)
             h_overlay = overlay.copy()
@@ -2109,9 +2113,12 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
             overlay = _cv2.addWeighted(overlay, 0.4, h_overlay, 0.6, 0)
             # GREEN = exposed skin (reference)
             e_overlay = overlay.copy()
-            exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
             e_overlay[exposed_vis > 0] = [0, 255, 0]
             overlay = _cv2.addWeighted(overlay, 0.4, e_overlay, 0.6, 0)
+            # MAGENTA = clothing (exact)
+            c_overlay = overlay.copy()
+            c_overlay[clothing_mask_inv > 0] = [255, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, c_overlay, 0.6, 0)
             # YELLOW = inpaint area
             i_overlay = overlay.copy()
             i_overlay[inpaint_mask > 0] = [0, 255, 255]
