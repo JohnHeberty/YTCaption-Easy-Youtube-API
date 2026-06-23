@@ -1110,13 +1110,13 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             {"enabled": True, "model_name": "None", "weight": 1.0},
         ]
 
-        # Single pass: detect all clothing classes at once
+        # Single pass: detect all clothing classes with low threshold
         seg_result = await se10.segment(
             image_bytes=image_bytes,
             filename=f"{job.job_id}_clothes.jpg",
-            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear",
-            box_threshold=0.06,
-            text_threshold=0.04,
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, fabric, textile",
+            box_threshold=0.04,
+            text_threshold=0.03,
             mode="clothes",
             detector="florence2",
         )
@@ -1125,9 +1125,9 @@ async def _run_pipe_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         all_masks = seg_result.get("masks", [])
 
         if seg_result.get("detected") and all_masks:
-            sorted_pairs = [(i, obj) for i, obj in enumerate(objects) if obj.get("confidence", 0) >= 0.05]
+            sorted_pairs = [(i, obj) for i, obj in enumerate(objects) if obj.get("confidence", 0) >= 0.03]
             sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
-            filtered_masks = [all_masks[i] for i, _ in sorted_pairs[:10] if i < len(all_masks)]
+            filtered_masks = [all_masks[i] for i, _ in sorted_pairs[:15] if i < len(all_masks)]
 
             if filtered_masks:
                 combined_mask = combine_masks(filtered_masks)
