@@ -24,7 +24,10 @@ BEST_CLOTHING_CLASSES = (
 DEFAULT_CLOTHES_PROMPT = (
     "NSFW, NSFW, NSFW, NSFW, NSFW, "
     "bare skin, smooth skin surface, realistic skin texture, "
-    "photorealistic, professional photography, consistent skin tone"
+    "detailed breast anatomy, realistic nipples, natural skin pores, "
+    "seamless skin transition, consistent skin tone with surrounding body, "
+    "photorealistic, professional photography, studio lighting, "
+    "high resolution, sharp focus on skin detail, 8k uhd"
 )
 DEFAULT_PERSON_PROMPT = (
     "natural skin texture matching surrounding skin tone, seamless blend, "
@@ -33,9 +36,9 @@ DEFAULT_PERSON_PROMPT = (
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, text, watermark, "
     "deformed, blurry, cartoon, anime, painting, CGI, 3d render, "
-    "nipples, areola, breast, nudity, nude, naked, "
     "color mismatch, visible seams, collage, "
-    "bad anatomy, deformed skin, wrinkled, scarred"
+    "bad anatomy, deformed skin, wrinkled, scarred, "
+    "extra limbs, disfigured, poorly drawn face, mutated hands"
 )
 
 
