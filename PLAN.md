@@ -1,169 +1,112 @@
 # PLAN.md — Pipeline NSFW 3-Camadas: Roupas → Pele Preservando Pessoa
 
 **Data:** 2026-06-23  
-**Status:** Planejamento — Pronto para implementar  
-**Objetivo:** Remoção 100% de roupa com preservação ABSOLUTA de rosto, cabeça, cabelo e fundo
+**Status:** pipe_3layers_max funcional — Investigação de skin color reference  
+**Objetivo:** Remoção 100% de roupa com preservação ABSOLUTA de rosto, cabeça, cabelo e fundo + pele realista
 
 ---
 
-## Problema Atual
+## Estado Atual — pipe_3layers_max v4
 
-O `pipe_nsfw_subtract` atual (Face=1.000, Bot=72.4%) funciona bem mas:
-- Não detecta roupa separadamente — usa pessoa-rosto como máscara
-- O SE8 pode alucinar em áreas que não são roupa (pescoço, queixo)
-- Não separa fundo do corpo — pode editar onde não deve
+| Métrica | Resultado |
+|---------|-----------|
+| Face SSIM | **1.000** ✅ |
+| Face diff | **0.00** ✅ |
+| BG diff | **0.00** ✅ |
+| Torso | 32.4% |
+| Bot | 72.1% |
+| Head cutoff | 40% (com dilatação para cabelo) |
 
-## Solução: Pipeline 3-Camadas
+**Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_3layers_max"}`
 
-### Diagrama
+### Pipeline atual
+```
+1. SE10 detecta pessoa → person_mask
+2. Body = pessoa - head(40%) com dilatação para cabelo
+3. SE8 LUSTIFY NSFW 2-pass no corpo inteiro
+4. Force head+cabeça = original
+5. HSV color transfer + morfologia + bilateral
+```
 
+---
+
+## Próximo: Skin Color Reference (Pele como Referência)
+
+### Problema
+O modelo NSFW gera pele genérica — pode ter tom diferente da pessoa original porque não sabe qual cor de pele gerar. O prompt "natural skin" é genérico demais.
+
+### Solução: Usar pele exposta como referência
+
+#### Diagrama
 ```
 IMAGEM ORIGINAL
     │
-    ▼
-┌───────────────────────────────────┐
-│  CAMADA 1: PRESERVADA            │
-│  (NUNCA tocada pelo SE8)         │
-│  • Rosto + cabeça + cabelo       │
-│  • Fundo/background              │
-│  • Braços, mãos, pernas (pele)  │
-└───────────────────────────────────┘
+    ├── person_mask (pessoa inteira)
+    ├── head_mask (rosto + cabeça + cabelo)
+    ├── body_mask = person - head (corpo)
+    ├── clothes_mask (Florence-2 detecta roupa)
     │
-    ▼
-┌───────────────────────────────────┐
-│  CAMADA 2: CORPO ISOLADO         │
-│  Pessoa - rosto - fundo = corpo  │
-│  Máscara binária do corpo        │
-└───────────────────────────────────┘
+    ├── exposed_skin = body_mask AND NOT clothes_mask
+    │   → braços, pernas, pescoço = PELE EXPOSTA
     │
-    ▼
-┌───────────────────────────────────┐
-│  CAMADA 3: DETECÇÃO + INPAINT    │
-│  1. Florence-2 detecta ROUPA     │
-│     dentro do corpo isolado      │
-│  2. Máscara = roupa AND corpo    │
-│  3. SE8 LUSTIFY NSFW inpaint    │
-│  4. Gera pele SÓ onde tem roupa  │
-└───────────────────────────────────┘
-    │
-    ▼
-COMPOSIÇÃO FINAL:
-  Camada 1 (original: rosto+cabeça+fundo)
-  + Camada 3 (corpo com pele onde tinha roupa)
-  = Imagem final NSFW
+    └── effective_mask = clothes_mask AND body_mask
+        → onde vai发生 INPAINTING
 ```
 
-### Etapas Detalhadas
+#### O que a pele exposta diz ao modelo
+- **Tom exato** da pele (HSV mediana da pele exposta)
+- **Textura** da pele (poros, brilho, sombreamento)
+- **Iluminação** (onde a luz bate na pele)
+- **Transição** entre pele existente e área mascarada
 
-#### Etapa 1: Detectar pessoa
-```
-SE10 person mode → person_mask (máscara de corpo inteiro)
-```
-- Input: imagem original
-- Output: máscara binária (0/255) da pessoa
+#### Implementação
 
-#### Etapa 2: Detectar rosto + cabeça
-```
-face_mask = person_mask[top 50% da bbox da pessoa]
-```
-- Cortar top 50% da bounding box da pessoa (incluir cabelo e cabeça)
-- Output: máscara do rosto+cabeça
-
-#### Etapa 3: Calcular corpo isolado
-```
-body_mask = person_mask AND NOT face_mask
-```
-- O que SOBRA = corpo (torso, pescoço, braços, ombros)
-- Output: máscara binária do corpo
-
-#### Etapa 4: Detectar roupa dentro do corpo
-```
-SE10 clothes mode → clothes_mask
-effective_mask = clothes_mask AND body_mask
-```
-- Florence-2 detecta roupa na imagem inteira
-- Interseção com body_mask = SÓ roupa dentro do corpo
-- Output: máscara EXATA da roupa
-
-#### Etapa 5: Inpainting NSFW
-```
-SE8 LUSTIFY NSFW inpaint com effective_mask
-denoise_pass1 = 0.75 (remoção principal)
-denoise_pass2 = 0.45 (refinamento)
-```
-- LoRA: NsfwPovAllInOne 0.5
-- Prompt: "natural skin texture matching surrounding skin"
-- Output: imagem com pele onde tinha roupa
-
-#### Etapa 6: Composição final
-```
-result = original
-result[effective_mask] = inpainted[effective_mask]
-```
-- Máscara dura (sem Gaussian blur) no rosto+cabeça+fundo
-- Gaussian blur (5px) apenas nas bordas da effective_mask
-- Forçar face region = exatamente original
-- Output: imagem final
-
-#### Etapa 7: Pós-processamento
-```
-1. HSV color transfer → cor da pele consistente
-2. Morfologia abertura → remove artefatos pequenos
-3. Morfologia fechamento → preenche buracos na máscara
-4. Bilateral filter nas bordas → suaviza transição
+**Etapa extra: Extrair cor da pele exposta**
+```python
+exposed_skin = bitwise_and(body_mask, not clothes_mask)
+skin_pixels = original_hsv[exposed_skin > 0]
+median_h = np.median(skin_pixels[:, 0])
+median_s = np.median(sin_pixels[:, 1])
+median_v = np.median(skin_pixels[:, 2])
 ```
 
----
+**Usar no prompt do SE8**
+```python
+prompt = f"natural skin tone hue={median_h:.0f} saturation={median_s:.0f}, " \
+         f"matching the skin on the person's arms and body, seamless blend"
+```
 
-## Diferenças vs pipe_nsfw_subtract atual
+**Usar no color transfer pós-inpainting**
+```python
+# Em vez de border do mask, usar exposed_skin como referência
+_color_transfer_with_reference(result, original, exposed_skin_mask)
+```
 
-| Aspecto | pipe_nsfw_subtract (atual) | **Pipe 3-Camadas (novo)** |
-|---------|--------------------------|--------------------------|
-| Máscara de roupa | pessoa - rosto | **(roupa AND corpo) = roupa EXATA** |
-| Detecção de roupa | NÃO usa Florence-2 | **USA Florence-2 dentro do corpo** |
-| Rosto tocado pelo SE8 | ❌ Pode acontecer | **✅ NUNCA (camada 1 isolada)** |
-| Fundo tocado | ❌ Pode acontecer | **✅ NUNCA (camada 1 isolada)** |
-| Precisão da máscara | Média | **ALTA (roupa + corpo intersecção)** |
-| Alucinação do modelo | Possível | **Mínima (corpo isolado)** |
+### Mudanças no pipeline
 
----
+| Etapa | Atual | **Novo** |
+|-------|-------|---------|
+| Detectar pele exposta | ❌ Não faz | **✅ exposed_skin = body AND NOT clothes** |
+| Extrair cor da pele | ❌ Não faz | **✅ median HSV de exposed_skin** |
+| Prompt do SE8 | Genérico ("natural skin") | **Específico ("hue=X, sat=Y")** |
+| Color transfer | Border do mask | **Referência de exposed_skin** |
 
-## Métricas Esperadas
-
-| Métrica | Atual (v3) | **Meta 3-Camadas** |
-|---------|-----------|-------------------|
-| Face SSIM | 1.000 | **1.000** |
-| Face diff | 0.0 | **0.0** |
-| BG diff | 0.0 | **0.0** |
-| Torso | 34.2% | **> 40%** |
-| Bot | 72.4% | **> 75%** |
-| Neck/chin artifacts | ⚠️ Possível | **0.0 (isolado)** |
-
----
-
-## Arquivos a modificar
+### Arquivos a modificar
 
 | Arquivo | Mudança |
 |---------|---------|
-| `pipeline.py` | Nova função `_run_pipe_nsfw_3layers()` |
-| `models.py` | Adicionar `mode="pipe_3layers"` |
-| `http_client.py` | Sem mudança (SE10+SE8 já suportam) |
+| `pipeline.py` | Nova etapa: extrair exposed_skin + cor → prompt + color_transfer |
 
----
+### Ordem de implementação
 
-## Ordem de implementação
-
-1. Criar `_run_pipe_nsfw_3layers()` no pipeline.py
-2. Registrar mode `pipe_3layers` no models.py
-3. Testar com Test.png
-4. Comparar com pipe_nsfw_subtract v3
-5. Ajustar parâmetros (thresholds, denoise, face cutoff)
+1. Adicionar extração de exposed_skin no pipeline
+2. Calcular mediana HSV da pele exposta
+3. Incluir no prompt do SE8
+4. Usar exposed_skin como referência para color_transfer
+5. Testar e comparar com pipe_3layers_max v4
 6. Commit + push
 
----
-
-## Risco
-
-- **BAIXO** — usa componentes existentes (SE10, SE8, Florence-2)
-- **MÉDIO** — pode detectar roupa fora do corpo (filtrar com body_mask resolve)
-- **MÉDIO** — 3 chamadas ao SE10 (person + clothes + possibly face) — pode bater CUDA assertion
+### Risco
+- **BAIXO** — é adição de cor ao prompt (não muda lógica)
+- **BAIXO** — color transfer mais preciso (referência real vs border genérica)
+- **MÉDIO** — se exposed_skin é pequeno (pessoa sem pele exposta), referência fraca
