@@ -2082,6 +2082,30 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         _, fb = _cv2.imencode(".png", composited)
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
+
+        # Save debug masks (all layers visible)
+        try:
+            labels = orig_img.copy()
+            overlay = labels.copy()
+            overlay[person_binary > 0] = [255, 128, 0]  # Blue = person
+            overlay[head_mask > 0] = [0, 0, 255]  # Red = head+face
+            if exposed_skin is not None:
+                overlay[(exposed_skin > 0) & (head_mask == 0)] = [0, 255, 0]  # Green = exposed skin
+            overlay[inpaint_mask > 0] = [0, 255, 255]  # Yellow = inpaint area
+
+            debug_img = _cv2.addWeighted(labels, 0.5, overlay, 0.5, 0)
+
+            _cv2.putText(debug_img, "RED=head+face", (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            _cv2.putText(debug_img, "GREEN=exposed skin", (10, 55), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            _cv2.putText(debug_img, "YELLOW=inpaint (NSFW)", (10, 80), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+            _cv2.putText(debug_img, "BLUE=person mask", (10, 105), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 128, 0), 2)
+
+            debug_path = os.path.join(output_dir, f"{job.job_id}_debug.png")
+            _cv2.imwrite(debug_path, debug_img)
+            logger.info("Job %s: debug saved", job.job_id)
+        except Exception as e:
+            logger.warning("Job %s: debug failed (%s)", job.job_id, e)
+
         result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
         with open(result_path, "wb") as f:
             f.write(fb.tobytes())
