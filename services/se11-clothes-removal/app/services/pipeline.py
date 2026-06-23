@@ -2001,18 +2001,23 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # Dynamic prompt — explicit NSFW body generation
-        skin_prompt = (
+        # v10: SEPARATE prompts — general (CLIP) vs inpaint (masked region)
+        general_prompt = (
+            "natural photo, soft lighting, professional photography, "
+            "realistic skin texture, seamless blend"
+        )
+        inpaint_prompt = (
             f"bare skin, no clothing, naked body, natural realistic skin texture "
             f"with hue={median_h:.0f} saturation={median_s:.0f}, "
             f"matching the person's exposed skin on arms and body, "
-            f"seamless transition, photorealistic, soft lighting, professional photography"
+            f"seamless transition, photorealistic, soft lighting"
         )
 
         # Pass 1: 0.75 (main removal)
         result1 = await se8.inpaint(
             image_b64=image_b64, mask_b64=mask_b64,
-            prompt=skin_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            inpaint_additional_prompt=inpaint_prompt,
             inpaint_strength=0.75, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8, loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
@@ -2027,15 +2032,16 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         # GPU cooldown between passes (prevents CUDA assertion)
         await asyncio.sleep(5)
 
-        # Pass 2: 0.45 (refinement)
+        # Pass 2: 0.50 (refinement)
         job.update_stage("inpainting", "processing", progress=50.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         r1_b64 = _to_data_uri(base64.b64encode(r1_bytes).decode("utf-8"), mime="image/png")
         result2 = await se8.inpaint(
             image_b64=r1_b64, mask_b64=mask_b64,
-            prompt=skin_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_strength=0.45, inpaint_respective_field=0.90,
+            prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            inpaint_additional_prompt=inpaint_prompt,
+            inpaint_strength=0.50, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-5, loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
         )
@@ -2047,15 +2053,16 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         # GPU cooldown between passes (prevents CUDA assertion)
         await asyncio.sleep(5)
 
-        # Pass 3: 0.35 (texture refinement)
+        # Pass 3: 0.50 (texture refinement)
         job.update_stage("inpainting", "processing", progress=65.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         r2_b64 = _to_data_uri(base64.b64encode(r2_bytes).decode("utf-8"), mime="image/png")
         result3 = await se8.inpaint(
             image_b64=r2_b64, mask_b64=mask_b64,
-            prompt=skin_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
-            inpaint_strength=0.35, inpaint_respective_field=0.90,
+            prompt=general_prompt, negative_prompt=NSFW_SUBTRACT_NEGATIVE,
+            inpaint_additional_prompt=inpaint_prompt,
+            inpaint_strength=0.50, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-3, loras=nsfw_loras,
             base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
         )
