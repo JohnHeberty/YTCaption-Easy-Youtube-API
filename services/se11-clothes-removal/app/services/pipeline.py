@@ -1973,20 +1973,25 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
             logger.info("Job %s: no exposed skin, using default", job.job_id)
 
         # ====================================================================
-        # INPAINT: corpo inteiro
+        # INPAINT: clothing mask EXACTA (body AND NOT exposed_skin = roupa)
         # ====================================================================
+        # Clothing mask = exact location of clothing (much more precise than body)
+        clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
+        clothing_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
+        logger.info("Job %s: clothing exact = %.1f%% (body was %.1f%%)", job.job_id, clothing_pct, body_pct)
+
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
         kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
-        inpaint_mask = _cv2.dilate(body_mask, kernel, iterations=1)
+        inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
         inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
 
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
         nsfw_loras = [
-            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.6},
             {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
             {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
             {"enabled": True, "model_name": "None", "weight": 1.0},
@@ -1995,11 +2000,12 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # Dynamic prompt with extracted skin color
+        # Dynamic prompt with extracted skin color — focused on CLOTHING REMOVAL
         skin_prompt = (
-            f"natural skin texture with hue={median_h:.0f} saturation={median_s:.0f} "
+            f"remove clothing, expose natural skin with hue={median_h:.0f} saturation={median_s:.0f} "
             f"matching the person's exposed skin on arms and body, "
-            f"seamless blend, realistic skin, photorealistic, soft lighting"
+            f"seamless blend, realistic skin, photorealistic, soft lighting, "
+            f"bare skin, natural body"
         )
 
         # Pass 1: 0.75
@@ -2083,52 +2089,43 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
 
-        # Save debug masks — each mask as separate PNG for clarity
+        # Save debug masks — numbered in pipeline sequence (0→final)
         try:
-            # 1. Person mask (SE10 detection)
-            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_person.png"), person_binary)
-
-            # 2. Head mask (what's protected)
-            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_head.png"), head_mask)
-
-            # 3. Body mask (person minus head)
-            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_body.png"), body_mask)
-
-            # 4. Exposed skin (where skin color reference comes from)
             exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
-            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_exposed_skin.png"), exposed_vis)
 
-            # 5. INVERSE: clothing mask = body AND NOT exposed_skin = ROUPA EXATA
-            clothing_mask_inv = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_vis))
-            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_clothing.png"), clothing_mask_inv)
+            def _save_mask(num: int, name: str, mask) -> None:
+                tag = f"{num:02d}_{name}"
+                if mask.ndim == 2:
+                    _cv2.imwrite(os.path.join(output_dir, f"{tag}.png"), mask)
+                else:
+                    _cv2.imwrite(os.path.join(output_dir, f"{tag}.png"), mask)
 
-            # 6. Inpaint mask (what gets NSFW'd)
-            _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_inpaint.png"), inpaint_mask)
+            # Step-by-step pipeline sequence
+            _save_mask(0, "original", orig_img)                # 00: entrada
+            _save_mask(1, "person", person_binary)              # 01: detecção SE10
+            _save_mask(2, "head_protected", head_mask)          # 02: cabeça (protegida)
+            _save_mask(3, "body", body_mask)                    # 03: corpo = pessoa - cabeça
+            _save_mask(4, "exposed_skin", exposed_vis)          # 04: pele exposta (ref cor)
+            _save_mask(5, "clothing", clothing_exact)           # 05: ROUPA EXATA (inverso pele)
+            _save_mask(6, "inpaint_mask", inpaint_mask)         # 06: dilatado → NSFW
+            _save_mask(7, "result", composited)                 # 07: resultado final
 
-            # 7. Overlay on original (all layers colored)
+            # Overlay com cores e números
             overlay = orig_img.copy()
-            # RED = head (preserved)
-            h_overlay = overlay.copy()
-            h_overlay[head_mask > 0] = [0, 0, 255]
-            overlay = _cv2.addWeighted(overlay, 0.4, h_overlay, 0.6, 0)
-            # GREEN = exposed skin (reference)
-            e_overlay = overlay.copy()
-            e_overlay[exposed_vis > 0] = [0, 255, 0]
-            overlay = _cv2.addWeighted(overlay, 0.4, e_overlay, 0.6, 0)
-            # MAGENTA = clothing (exact)
-            c_overlay = overlay.copy()
-            c_overlay[clothing_mask_inv > 0] = [255, 0, 255]
-            overlay = _cv2.addWeighted(overlay, 0.4, c_overlay, 0.6, 0)
-            # YELLOW = inpaint area
-            i_overlay = overlay.copy()
-            i_overlay[inpaint_mask > 0] = [0, 255, 255]
-            overlay = _cv2.addWeighted(overlay, 0.4, i_overlay, 0.6, 0)
-            
-            _cv2.putText(overlay, "RED=preserved GREEN=skin ref YELLOW=inpaint", 
-                        (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            h_ov = overlay.copy(); h_ov[head_mask > 0] = [0, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, h_ov, 0.6, 0)
+            e_ov = overlay.copy(); e_ov[exposed_vis > 0] = [0, 255, 0]
+            overlay = _cv2.addWeighted(overlay, 0.4, e_ov, 0.6, 0)
+            c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
+            i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
+
+            _cv2.putText(overlay, "1=HEAD 4=SKIN 5=CLOTH 6=INPAINT",
+                         (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
 
-            logger.info("Job %s: 6 debug masks saved", job.job_id)
+            logger.info("Job %s: 8 sequential masks saved (00-07)", job.job_id)
         except Exception as e:
             logger.warning("Job %s: debug failed (%s)", job.job_id, e)
 

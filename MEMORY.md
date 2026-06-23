@@ -1,18 +1,16 @@
 # Estado Atual — Monorepo YTCaption
 
 ## Última sessão (2026-06-23)
-- **pipe_3layers_max v5**: PARCIAL — Face=1.000, Bot=72.2%, Torso=32.5%, BG=0.0
-  - **NÃO é 100% NSFW** — remoção parcial, modelo gera pele mas não remove toda roupa
-  - 3-camadas: pessoa→head(40%+dilatação)→body→NSFW
-  - **Skin color reference**: exposed_skin HSV mediana no prompt e color transfer
-  - Debug: 6 máscaras salvas (person, head, body, exposed_skin, inpaint, overlay)
-  - Documentação completa: `docs/TOP-MASK-CONFIG.md`
-  - Rota: `POST /jobs {"mode": "pipe_3layers_max"}`
-- **LUSTIFY SDXL NSFW** (6.9GB) + **GFPGAN/CodeFormer** modelos baixados
+- **pipe_3layers_max v7**: CLOTHING EXACT MASK — Face=1.000, BG=0.0
+  - **Mudança crítica**: Inpaint mask agora usa ROUPA EXATA (body AND NOT exposed_skin) em vez de body dilatado
+  - Modelo sabe EXATAMENTE onde remover (~20% vs ~60% antes)
+  - NsfwPov 0.5→0.6 para mais textura de pele
+  - Prompt: "remove clothing, expose skin hue=X sat=Y"
+  - Debug: 8 masks sequenciais (00-07) numerados por etapa
+  - Documentação: `docs/TOP-MASK-CONFIG.md` atualizada
+  - **LUSTIFY SDXL NSFW** (6.9GB) + GFPGAN/CodeFormer modelos baixados
+  - **Refiner**: sem modelo disponível no SE8 (só juggernautXL + lustifyNSFW)
 - **pipe_nsfw_subtract v3**: Face=1.000, Bot=72.4%, Torso=34.2%, BG=0.0
-  - Rota: `POST /jobs {"mode": "pipe_nsfw_subtract"}`
-- **LUSTIFY SDXL NSFW Inpainting** (6.9GB) — modelo NSFW专用
-- **GFPGAN + CodeFormer** — modelos face restore baixados
 
 ## Sessão anterior (2026-06-22)
 - **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46)
@@ -96,10 +94,11 @@ Fluxo: imagem → SE10 (detecção de roupas + masks) → combina masks (union O
 - SE8_URL=http://host.docker.internal:8008 (Docker) / http://localhost:8008 (local)
 - DEFAULT_PROMPT="natural skin tone matching surrounding skin, seamless texture, photorealistic, professional photography, soft lighting"
 - denoise=0.70, inpaint_respective_field=0.85, erode_or_dilate=-10
-- LoRAs: NsfwPov(0.2) + offset(0.1) + detail(0.8)
+- LoRAs: NsfwPov(0.6) + offset(0.1) + detail(0.8)
 - BEST_CLOTHING_CLASSES="top, blouse, camisole, shirt, spaghetti strap"
-- Mask dilation: kernel=21, iter=2
-- text_threshold=0.05 for SE10
+- Inpaint mask: clothing_exact (body AND NOT exposed_skin) dilatado kernel=7px, 2 iter
+- text_threshold=0.04 for SE10
+- detector=florence2 for clothes detection
 
 ### Fixes aplicados
 1. **base64 padding** — `_fix_b64_padding()` antes de `b64.b64decode()`

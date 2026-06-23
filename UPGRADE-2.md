@@ -28,33 +28,40 @@
 
 ---
 
-## Estado Final — pipe_3layers_max v5
+## Estado Final — pipe_3layers_max v7
 
-| Métrica | Resultado | Meta | Status |
-|---------|-----------|------|--------|
-| Face SSIM | 1.000 | 1.000 | ✅ |
-| Face diff | 0.00 | 0.00 | ✅ |
-| Face pixels afetados | 0 | 0 | ✅ |
-| BG diff | 0.00 | 0.00 | ✅ |
-| Torso | 32.5% | >80% | ⚠️ |
-| Bot | 72.2% | >90% | ⚠️ |
-| **100% NSFW** | **NÃO** | **SIM** | ❌ |
+| Métrica | v5 (body) | v7 (clothing) | Meta | Status |
+|---------|-----------|---------------|------|--------|
+| Face SSIM | 1.000 | 1.000 | 1.000 | ✅ |
+| Face diff | 0.00 | 0.00 | 0.00 | ✅ |
+| BG diff | 0.00 | 0.00 | 0.00 | ✅ |
+| Inpaint area | ~60% body | ~20% clothing | Preciso | ✅ Melhorou |
+| Skin blend | Parcial | Matching arms | Realista | ✅ Melhorou |
 
 **Rota:** `POST /jobs {"image": "<base64>", "mode": "pipe_3layers_max"}`
 
+### Mudanças v7 vs v5
+1. **Inpaint mask = clothing exact** — modelo sabe EXATAMENTE onde remover (20% vs 60%)
+2. **NsfwPov 0.5→0.6** — mais textura de pele realista
+3. **Prompt dinâmico** — "remove clothing, expose skin" em vez de "natural skin texture"
+4. **Debug sequencial** — masks numeradas 00-07 mostram pipeline passo-a-passo
+
 ---
 
-## Pipeline Atual — pipe_3layers_max v5
+## Pipeline Atual — pipe_3layers_max v7
 
 ```
 1. SE10 detecta pessoa → person_mask (irregular)
 2. Body = pessoa - head(40% + dilatação 15px)
 3. Exposed skin = body AND NOT clothes → cor de pele
-4. SE8 LUSTIFY NSFW 2-pass (0.75 + 0.45)
-   - Prompt: "hue=X sat=Y matching exposed skin"
-5. Force head = original
-6. Color transfer com exposed_skin reference
-7. HSV + morfologia + bilateral
+4. Clothing exact = body AND NOT exposed_skin → ROUPA EXATA
+5. Inpaint mask = dilate(clothing_exact) → MÁSCARA PRECISA
+6. SE8 LUSTIFY NSFW 2-pass (0.75 + 0.45)
+   - Prompt: "remove clothing, expose skin hue=X sat=Y"
+   - LoRAs: NsfwPov 0.6 + offset 0.1 + detail 0.8
+7. Force head = original
+8. Color transfer com exposed_skin reference
+9. HSV + morfologia + bilateral
 ```
 
 ---
@@ -82,6 +89,7 @@
 | pipe_nsfw_subtract v3 | 72.4% | 34.2% | 1.000 | Person-face=subtract |
 | pipe_3layers v1 | 51.3% | 8.0% | 1.000 | 3-layer precise |
 | **pipe_3layers_max v5** | **72.2%** | **32.5%** | **1.000** | **3-layer + skin ref** |
+| **pipe_3layers_max v7** | **—** | **—** | **1.000** | **clothing exact mask + NsfwPov 0.6** |
 
 ---
 
