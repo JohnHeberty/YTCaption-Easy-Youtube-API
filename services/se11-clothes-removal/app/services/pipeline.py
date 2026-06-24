@@ -2152,10 +2152,11 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
 
 async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """TEST pipeline — clothing_exact + 7% adaptive dilation + Reinhard LAB + collage.
+    """TEST pipeline — clothing_exact + 7% expansion + head_mask + Reinhard LAB + collage.
 
-    Proven approach: clothing from body zone, 7% adaptive dilation,
-    Reinhard LAB color transfer, GaussianBlur collage (31+15px).
+    clothing_exact = body AND NOT exposed_skin.
+    7% adaptive dilation expands clothing to catch strap edges.
+    head_mask (40%) protects face — NOT face_only.
     """
     import cv2 as _cv2
     import numpy as _np
