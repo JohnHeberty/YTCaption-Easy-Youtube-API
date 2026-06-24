@@ -2152,10 +2152,10 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
 
 async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """TEST pipeline — PLAN-1: clothing exact + 20px dilation (NOT production).
+    """TEST pipeline — V3 mask logic: clothing_all + face_only + Reinhard LAB + collage.
 
-    Difference from v15: uses clothing_exact (not body_mask) for inpaint,
-    giving the model a focused area (roupa + 20px margem) instead of full torso.
+    V3: clothes_on_person = person AND clothes (ALL clothing including head zone).
+    face_only = head MINUS clothing (protects face, not straps).
     """
     import cv2 as _cv2
     import numpy as _np
@@ -2239,15 +2239,6 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             exposed_skin = body_mask
 
-        orig_hsv = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV)
-        if (exposed_skin > 0).any():
-            skin_pixels = orig_hsv[exposed_skin > 0]
-            median_h = float(_np.median(skin_pixels[:, 0]))
-            median_s = float(_np.median(skin_pixels[:, 1]))
-            median_v = float(_np.median(skin_pixels[:, 2]))
-        else:
-            median_h, median_s, median_v = 100.0, 50.0, 200.0
-
         # V3 LOGIC:
         # - clothes_on_person: ALL clothing (body + head zone straps)
         # - face_only: head MINUS clothing (protects face, not straps)
@@ -2275,8 +2266,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             dilation_px = 10
         kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
-        logger.info("Job %s: nsfw_test dilation = %dpx (7%% of clothing bbox)", job.job_id, dilation_px)
-        inpaint_soft = _cv2.GaussianBlur(inpaint_mask.astype(_np.float32) / 255.0, (5, 5), 0)
+        logger.info("Job %s: dilation = %dpx (7%%)", job.job_id, dilation_px)
 
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
@@ -2349,11 +2339,6 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         composited[face_only > 0] = orig_img[face_only > 0]
         logger.info("Job %s: collage + LAB applied", job.job_id)
 
-        logger.info("Job %s: GaussianBlur collage + Reinhard LAB applied", job.job_id)
-
-        # Face protection (guarantee)
-        composited[face_only > 0] = orig_img[face_only > 0]
-
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -2362,7 +2347,6 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         os.makedirs(output_dir, exist_ok=True)
 
         try:
-            exposed_vis = exposed_skin if exposed_skin is not None else _np.zeros_like(person_binary)
             def _save_mask(num: int, name: str, mask) -> None:
                 tag = f"{num:02d}_{name}"
                 _cv2.imwrite(os.path.join(output_dir, f"{tag}.png"), mask)
@@ -2371,7 +2355,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             _save_mask(1, "person", person_binary)
             _save_mask(2, "face_only_protected", face_only)
             _save_mask(3, "body", body_mask)
-            _save_mask(4, "exposed_skin", exposed_vis)
+            _save_mask(4, "exposed_skin", exposed_skin)
             _save_mask(5, "clothing_all", clothing_exact)
             _save_mask(6, "inpaint_mask", inpaint_mask)
             _save_mask(7, "result", composited)
@@ -2379,7 +2363,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             overlay = orig_img.copy()
             f_ov = overlay.copy(); f_ov[face_only > 0] = [0, 255, 0]  # GREEN = face (protected)
             overlay = _cv2.addWeighted(overlay, 0.4, f_ov, 0.6, 0)
-            e_ov = overlay.copy(); e_ov[exposed_vis > 0] = [255, 255, 0]  # CYAN = exposed skin
+            e_ov = overlay.copy(); e_ov[exposed_skin > 0] = [255, 255, 0]  # CYAN = exposed skin
             overlay = _cv2.addWeighted(overlay, 0.4, e_ov, 0.6, 0)
             c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]  # MAGENTA = clothing
             overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
