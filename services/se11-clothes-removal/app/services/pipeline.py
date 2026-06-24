@@ -2248,28 +2248,24 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             median_h, median_s, median_v = 100.0, 50.0, 200.0
 
-        # V3 LOGIC: clothes_on_person = ALL clothing (body + head zone)
-        # face_only = head MINUS clothing (just face, not straps)
-        if clothes_combined is not None:
-            clothes_on_person = _cv2.bitwise_and(person_binary, clothes_combined)
-        else:
-            clothes_on_person = _np.zeros_like(person_binary)
-
-        # Face protection: head zone MINUS clothing (only face skin, not straps)
+        # V3 LOGIC:
+        # - clothes_on_person: ALL clothing (body + head zone straps)
+        # - face_only: head MINUS clothing (protects face, not straps)
+        clothes_on_person = _cv2.bitwise_and(person_binary, clothes_combined) if clothes_combined is not None else _np.zeros_like(person_binary)
         face_only = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_on_person))
-
-        clothing_exact = clothes_on_person
         straps_in_head = _cv2.bitwise_and(head_mask, clothes_on_person)
-        logger.info("Job %s: nsfw_test V3 — clothes=%.1f%% face=%.1f%% straps_in_head=%.1f%%",
-                     job.job_id,
-                     (clothing_exact > 0).sum() / clothing_exact.size * 100,
-                     (face_only > 0).sum() / face_only.size * 100,
-                     _cv2.countNonZero(straps_in_head) / straps_in_head.size * 100)
+        clothing_exact = clothes_on_person
+
+        clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
+        face_pct = (face_only > 0).sum() / face_only.size * 100
+        straps_pct = _cv2.countNonZero(straps_in_head) / straps_in_head.size * 100
+        logger.info("Job %s: V3 — clothes=%.1f%% face=%.1f%% straps_in_head=%.1f%%",
+                     job.job_id, clothes_pct, face_pct, straps_pct)
 
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # Adaptive dilation: 10% of clothing bbox shorter side
+        # Adaptive dilation: 7% of clothing bbox shorter side
         contours, _ = _cv2.findContours(clothing_exact, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours:
             all_pts = _np.vstack(contours)
@@ -2318,54 +2314,40 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=75.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # V3: Force face_only = original before compositing (NOT full head_mask)
+        # V3: Force face_only = original before compositing
         inpainted_img[face_only > 0] = orig_img[face_only > 0]
 
-        # ===================================================================
-        # STAGE 1: Reinhard Color Transfer (LAB space) — fix skin tone
-        # ===================================================================
+        # STAGE 1: Reinhard Color Transfer (LAB space)
         try:
             src_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
             ref_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-
-            # Person region (outside face) for source stats
             src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(face_only))
 
             for ch in range(3):
-                if (src_region > 0).any():
-                    src_ch = src_lab[:, :, ch][src_region > 0]
-                else:
-                    src_ch = src_lab[:, :, ch].ravel()
-
-                if (exposed_skin > 0).any():
-                    ref_ch = ref_lab[:, :, ch][exposed_skin > 0]
-                else:
-                    ref_ch = ref_lab[:, :, ch].ravel()
-
-                src_mean, src_std = float(src_ch.mean()), float(src_ch.std())
-                ref_mean, ref_std = float(ref_ch.mean()), float(ref_ch.std())
-
-                if src_std > 1e-6:
-                    src_lab[:, :, ch] = (src_lab[:, :, ch] - src_mean) * (ref_std / src_std) + ref_mean
+                src_pixels = src_lab[:, :, ch][src_region > 0] if (src_region > 0).any() else src_lab[:, :, ch].ravel()
+                ref_pixels = ref_lab[:, :, ch][exposed_skin > 0] if (exposed_skin > 0).any() else ref_lab[:, :, ch].ravel()
+                src_m, src_s = float(src_pixels.mean()), float(src_pixels.std())
+                ref_m, ref_s = float(ref_pixels.mean()), float(ref_pixels.std())
+                if src_s > 1e-6:
+                    src_lab[:, :, ch] = (src_lab[:, :, ch] - src_m) * (ref_s / src_s) + ref_m
 
             color_corrected = _cv2.cvtColor(_np.clip(src_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
             color_corrected[face_only > 0] = orig_img[face_only > 0]
-            logger.info("Job %s: Reinhard LAB color transfer applied", job.job_id)
+            logger.info("Job %s: Reinhard LAB applied", job.job_id)
         except Exception as e:
-            logger.warning("Job %s: Reinhard LAB failed (%s), using original", job.job_id, e)
+            logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
             color_corrected = inpainted_img
 
-        # ===================================================================
-        # STAGE 2: GaussianBlur collage — paste NSFW person on original
-        # ===================================================================
-        person_float = person_binary.astype(_np.float32) / 255.0
-        person_soft = _cv2.GaussianBlur(person_float, (31, 31), 0)
+        # STAGE 2: GaussianBlur collage (paste NSFW person on original)
+        person_soft = _cv2.GaussianBlur(person_binary.astype(_np.float32) / 255.0, (31, 31), 0)
         person_soft = _cv2.GaussianBlur(person_soft, (15, 15), 0)
-
         composited = (color_corrected.astype(_np.float32) * person_soft[:, :, None] +
                       orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+
+        # Face protection (single guarantee point)
         composited[face_only > 0] = orig_img[face_only > 0]
+        logger.info("Job %s: collage + LAB applied", job.job_id)
 
         logger.info("Job %s: GaussianBlur collage + Reinhard LAB applied", job.job_id)
 
@@ -2395,15 +2377,15 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             _save_mask(7, "result", composited)
 
             overlay = orig_img.copy()
-            f_ov = overlay.copy(); f_ov[face_only > 0] = [0, 255, 0]
+            f_ov = overlay.copy(); f_ov[face_only > 0] = [0, 255, 0]  # GREEN = face (protected)
             overlay = _cv2.addWeighted(overlay, 0.4, f_ov, 0.6, 0)
-            e_ov = overlay.copy(); e_ov[exposed_vis > 0] = [0, 255, 0]
+            e_ov = overlay.copy(); e_ov[exposed_vis > 0] = [255, 255, 0]  # CYAN = exposed skin
             overlay = _cv2.addWeighted(overlay, 0.4, e_ov, 0.6, 0)
-            c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]
+            c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]  # MAGENTA = clothing
             overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
-            i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]
+            i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]  # YELLOW = inpaint
             overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
-            _cv2.putText(overlay, "V3: GREEN=face MAGENTA=clothes YELLOW=inpaint",
+            _cv2.putText(overlay, "V3: GREEN=face CYAN=skin MAGENTA=clothes YELLOW=inpaint",
                          (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:
