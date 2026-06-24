@@ -2361,15 +2361,14 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
             color_corrected = inpainted_img
 
-        # STAGE 2: GaussianBlur collage
-        person_soft = _cv2.GaussianBlur(person_binary.astype(_np.float32) / 255.0, (31, 31), 0)
-        person_soft = _cv2.GaussianBlur(person_soft, (15, 15), 0)
-        composited = (color_corrected.astype(_np.float32) * person_soft[:, :, None] +
-                      orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
-        composited = _np.clip(composited, 0, 255).astype(_np.uint8)
-
-        # NO head force on final composite — GaussianBlur collage handles blending naturally
-        logger.info("Job %s: collage + LAB applied", job.job_id)
+        # STAGE 2: Paste NSFW result ONLY where body_mask is (hard mask, no blur)
+        # Smooth mask was ONLY for SE8 input — compositing uses binary body mask
+        composited = orig_img.copy()
+        body_bin = (body_mask > 127).astype(_np.uint8) * 255
+        composited[body_bin > 0] = color_corrected[body_bin > 0]
+        # Force head_adjusted = original (guarantee)
+        composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
+        logger.info("Job %s: collage applied (body_mask hard)", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
