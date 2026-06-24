@@ -97,28 +97,29 @@ composited = inpainted * person_soft + original * (1 - person_soft)
 
 ---
 
-## V3 Mask Logic (implementado, não testado)
+## V4 Mask Logic (implementado, NÃO testado) — Pendência principal
 
-### Problema que resolve
-As alças da roupa ficam no ombro (zona head 40%) → excluídas do clothing_exact → ficam na imagem final.
+### O que resolve
+Alças ficam no ombro (head zone 40%) → excluídas do mask → ficam na imagem final.
 
-### Nova lógica
+### Nova lógica V4 — expand FIRST, subtract AFTER
 ```python
-# ANTES:
-clothing_exact = body AND NOT exposed_skin  # alças excluídas!
-head_force = head_mask (40%)                # protege alças!
+# ANTES (V3):
+clothes_on_person = person AND clothes      # roupa sem dilatação
+face_only = head AND NOT clothes            # subtrai roupa da cabeça
+inpaint = clothes_on_person
 
-# V3:
-clothes_on_person = person AND clothes      # TODA roupa (body + head zone)
-face_only = head_mask AND NOT clothes       # só face (não alças!)
-inpaint = clothes_on_person                 # alças incluídas!
-head_force = face_only                      # protege só face
+# AGORA (V4):
+clothes_raw = Florence-2 detection          # detecção normal
+clothes_expanded = dilate(7%)               # EXPANDIR PRIMEIRO
+face_only = head AND NOT clothes_expanded   # subtrair DEPOIS
+inpaint = clothes_expanded                  # inclui alças!
 ```
 
-### Resultado esperado
-| | Actual | V3 |
-|---|---|---|
-| Clothing exact | 15.5% (body only) | **19.6% (all clothing)** |
-| Face protegida | 10.6% (full head) | **6.5% (face only)** |
-| Alças no ombro | ❌ Excluídas | ✅ **Incluídas no inpaint** |
-| Straps in head zone | 0% | **4.1%** |
+### Porquê V4 > V3
+- V3 usa clothes_raw sem dilatação → alças finas podem ficar fora
+- V4 dilata ANTES → bordas das alças são capturadas pela expansão
+- A expansão entra na head zone naturalmente
+
+### Pendência
+- **TESTAR V4** com mode="nsfw_test" — usar Test.png

@@ -1,10 +1,10 @@
-# PLAN.md — NSFW Pipeline: CONCLUÍDO ✅
+# PLAN.md — NSFW Pipeline
 
 **Data:** 2026-06-23  
-**Status:** ✅ v15 em produção + 🟡 nsfw_test superior em teste  
+**Status:** ✅ v15 em produção + 🟡 nsfw_test V4 implementado (não testado)  
 **Rotas:**
 - Produção: `POST /jobs {"mode": "nsfw"}` → v15 body_mask
-- Teste: `POST /jobs {"mode": "nsfw_test"}` → clothing exact + collage + 7% adaptive
+- Teste: `POST /jobs {"mode": "nsfw_test"}` → V4 expand-first + collage
 
 ---
 

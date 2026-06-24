@@ -18,22 +18,28 @@
 
 ### 🟡 NSFW TEST — Superior ao v15 (não em produção)
 - **Rota teste:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
-- **Pipeline:** `_run_nsfw_test()` — clothing exact + 7% adaptive dilation + collage
-- **Máscara:** `clothing_exact` dilatado 7% da bbox (~25-30%)
-- **Colagem:** pessoa NSFW recortada + colada na imagem original → fundo 100% preservado
+- **Pipeline:** `_run_nsfw_test()` — V4 mask + Reinhard LAB + GaussianBlur collage
+- **V4 mask logic (implementado, NÃO testado):**
+  1. Detect clothing (Florence-2) → `clothes_raw`
+  2. Dilate 7% adaptive → `clothes_expanded` (captura alças)
+  3. Expanded entra na head zone — NÃO remove!
+  4. `face_only = head AND NOT expanded` (protege só face, não alças)
+  5. `inpaint = expanded clothing` (TODA roupa incluindo alças)
+- **Colagem:** pessoa NSFW colada na imagem original → fundo 100% preservado
 - **Blur duplo:** GaussianBlur(31px) + GaussianBlur(15px) para bordas suaves
-- **Modelo:** mesmo do v15 (juggernautXL, NsfwPov 0.2)
-- **Vantagens vs v15:** bordas mais suaves, fundo intacto, pele preservada, seios mais definidos
+- **Reinhard LAB:** matching tonalidade em Luminance+Chroma (resolve pele mismatch)
+- **Modelo:** juggernautXL_v8Rundiffusion, NsfwPov 0.2, CFG 4.0, sharpness 2.0
 - **Lições CRÍTICAS:**
-  - ❌ 2-pass (0.50) regenera blobs — NÃO usar (sigma schedule a 50% gera conteúdo novo)
+  - ❌ 2-pass (0.50) regenera blobs — sigma schedule gera conteúdo novo
   - ❌ HSV correction causa artefactos vermelhos — ignora Luminance
-  - ❌ seamlessClone MIXED_CLONE traz roupa de volta — preserva gradientes do destino
-  - ✅ Reinhard LAB resolve tonalidade — match em Luminance+Chroma (não só H+S)
-  - ✅ 1 pass (0.75) + GaussianBlur collage (31+15px) = melhor combinação
-  - ✅ NsfwPov 0.2 (não 0.7+), CFG 4.0, sharpness 2.0 = defaults Fooocus são óptimos
-- **Pipeline final nsfw_test:** SE8 (0.75) → head force → Reinhard LAB → GaussianBlur collage → head force
-- **V3 mask logic (implementado, não testado):** clothing_all = person AND clothes (inclui alças), face_only = head MINUS clothes (só face)
-- **Pendências:** testar V3 mask logic + PLAN-2 (detecção adaptativa de cabeça)
+  - ❌ seamlessClone MIXED_CLONE traz roupa — preserva gradientes do destino
+  - ❌ Backprojection confunde pele/roupa (mesma cor rosa)
+  - ✅ Reinhard LAB resolve tonalidade
+  - ✅ 1 pass + GaussianBlur collage = melhor combinação
+  - ✅ Dilatar ANTES de subtrair head = alças incluídas na máscara
+- **Pendências:**
+  - TESTAR V4 mask logic com mode="nsfw_test"
+  - PLAN-2: detecção adaptativa de cabeça (haarcascade, substituir 40% fixo)
 
 ### Modos antigos (DEPRECATED)
 - `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v15) com deprecation warning
