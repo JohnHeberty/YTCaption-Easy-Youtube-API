@@ -2243,16 +2243,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # Clothing = body AND NOT exposed_skin
         clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
 
-        # Adaptive dilation: 7% — catches strap edges
+        # Adaptive dilation: 15% — must reach straps deep in head zone
         contours_c, _ = _cv2.findContours(clothing_exact, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.07))
+            dilation_px = max(5, int(min(cw, ch) * 0.15))
         else:
-            dilation_px = 10
+            dilation_px = 20
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         clothes_expanded = _cv2.dilate(clothing_exact, expand_kernel, iterations=2)
+        clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)  # stay within person
 
         # V5: expanded clothing that enters head zone → subtract FROM head
         # This gives clothing priority: head protection excludes strap areas
