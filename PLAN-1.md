@@ -1,125 +1,45 @@
-# PLAN-1.md — nsfw_test: Clothing Exact + Collage + Adaptive Dilation
+# PLAN-1.md — nsfw_test Pipeline Actual
 
-**Data:** 2026-06-23
-**Status:** ✅ TESTE CONCLUÍDO — RESULTADO SUPERIOR AO v15 (não em produção)
-
----
-
-## Resultado Final do Teste
-
-| Métrica | v15 (produção) | nsfw_test (teste) | Vencedor |
-|---------|----------------|-------------------|----------|
-| Área inpaint | ~40% (body mask) | ~25-30% (clothing 7%) | ✅ nsfw_test |
-| Seios | Correctos mas com artefactos | Mais definidos, naturais | ✅ nsfw_test |
-| Pele ombros/braços | Regenerada (inconsistências) | Preservada (original) | ✅ nsfw_test |
-| Fundo | Manchado pelo SE8 | 100% preservado (collage) | ✅ nsfw_test |
-| Bordas | Color_transfer artifacts | Suave (blur duplo 31+15px) | ✅ nsfw_test |
-| Mamilos | Ligeiramente errados | Correctos | ✅ nsfw_test |
-| Rostos | Mancha escura (40% fixo) | Mancha escura (mantida) | Empate |
-| Tempo | ~60s (1 pass) | ~90s (1 pass + collage) | v15 mais rápido |
+**Data:** 2026-06-24
+**Status:** 🟡 Em teste — funcionando, pendente optimizar dilatação
 
 ---
 
-## O que o nsfw_test faz de diferente
+## Pipeline actual
 
-### 1. Clothing exact + 7% adaptive dilation
-```python
-# Em vez de body_mask (40%):
-clothing_exact = body AND NOT exposed_skin  # só roupa (~15%)
-dilation_px = int(min(cw, ch) * 0.07)       # 7% da bbox da roupa
-inpaint_mask = dilate(clothing_exact, kernel(dilation_px))
-# Resultado: ~25-30% da imagem
+```
+1. SE10 Florence-2 detecta pessoa → person_mask
+2. Head zone (top 40%) → head_mask
+3. Body = person - head → body_mask
+4. Clothing = body AND NOT exposed_skin → clothing_exact
+5. FloodFill fecha buracos da roupa → clothing_closed
+6. Dilate 3% → clothes_expanded
+7. GaussianBlur 15px → inpaint_mask (suavizado)
+8. head_adjusted = head AND NOT inpaint_bin
+9. SE8 juggernautXL 1 pass (0.75, NsfwPov 0.2)
+10. Reinhard LAB color transfer
+11. GaussianBlur collage (31+15px) → resultado
 ```
 
-### 2. Collage composition
-```python
-# Em vez de inpaint_soft blend + color_transfer:
-person_soft = GaussianBlur(person_binary, 31px)  # blur grande
-person_soft = GaussianBlur(person_soft, 15px)     # blur duplo
-composited = inpainted * person_soft + original * (1 - person_soft)
-# Resultado: fundo 100% original, pessoa NSFW com bordas suaves
-```
+## O que funciona
+- Máscara da roupa fechada (floodFill)
+- Bordas suaves (GaussianBlur 15px)
+- Head_adjusted usa a mesma máscara que vai ao SE8
+- Sem force de cabeça no resultado final
+- Face limpa, corpo realista, fundo preservado
 
-### 3. Sem color_transfer, sem edge morphological blend
-- Color_transfer degradava as cores da pele gerada
-- Edge blend criava artefactos cinza/azul
-- Collage com blur duplo resolve tudo
+## O que precisa de optimizar
+- **Dilatação 3% é pouco** — head_adjusted quase igual a head_mask
+- **Alças** ainda parcialmente visíveis
+- **3% não chega à head zone** — subtração mínima (0.2%)
 
----
-
-## Evolução dos testes nsfw_test
-
-| Iteração | Mudança | Resultado |
-|----------|---------|-----------|
-| v1 (clothing 20px fixo) | dilate(clothing, 20px) | Seios correctos mas bordas duras |
-| v2 (10% adaptive) | 10% da bbox | Dilation 31px — bom mas muito |
-| v3 (7% adaptive) | 7% da bbox | Sweet spot — 22px dilation |
-| v4 (+ collage) | paste NSFW on original | Fundo 100% preservado ✅ |
-| v5 (+ blur duplo) | 31px + 15px Gaussian | Bordas suaves perfeitas ✅ |
-
----
-
-## Lições Aprendidas (NÃO repetir)
-
-### ❌ O que NÃO funciona
-1. **2-pass (denoise 0.50)** — regenera conteúdo em vez de refinar, causa blobs cinza
-2. **HSV color correction** — causa artefactos vermelhos mesmo com feathering, muito agressivo
-3. **cv2.seamlessClone MIXED_CLONE** — traz roupa de volta porque preserva gradientes do destino
-4. **2-pass (denoise 0.30-0.35)** — mesmo problema, regenera em vez de polir
-5. **head_mask 40% fixo** — protege alças no ombro que deveriam ser inpaintadas
-
-### ✅ O que FUNCIONA
-1. **1 pass (0.75)** — gera NSFW com enough quality
-2. **GaussianBlur collage (31+15px)** — colagem suave, fundo preservado
-3. **Reinhard LAB color transfer** — matching de tonalidade em Luminance+Chroma (melhor que HSV)
-4. **7% adaptive dilation** — clothing exact + dilatação proporcional
-5. **Prompt NSFW×5** — força geração explícita
-6. **NsfwPov 0.2** (não 0.7) — peso baixo funciona melhor
-7. **clothing_all = person AND clothes** — inclui alças no head zone
-8. **face_only = head MINUS clothes** — protege só a face real, não alças
-
-### 🔬 Porquê cada falha
-- **2-pass 0.50:** O sigma schedule a 50% significa que o modelo começa com 50% noise — gera conteúdo novo em vez de refinar o existente
-- **HSV correction:** Apenas ajusta Hue e Saturation, ignora Luminance — causa desequilíbrio de brilho
-- **seamlessClone:** resolve gradientes (bordas) mas adapta a cor do source ao destination — como destination tem roupa, os gradientes da roupa são preservados
-- **HSV feathered:** O delta acumula ao longo de toda a máscara, causando oversaturation nas bordas
-
-### 📏 Parâmetros óptimos descobertos
-| Parâmetro | Valor óptimo | Porquê |
-|-----------|-------------|--------|
-| denoise | 0.75 | Balance entre criatividade e preservação |
-| dilatação | 7% da bbox | Adapta a qualquer resolução |
-| GaussianBlur | 31px + 15px | Duplo blur = transição suave |
-| NsfwPov weight | 0.2 | 0.7+ causa CUDA assertion |
-| CFG | 4.0 | Default Fooocus funciona melhor |
-| sharpness | 2.0 | Default Fooocus funciona melhor |
-| base model | juggernautXL | Melhor que lustify para NSFW |
-
----
-
-## V4 Mask Logic (implementado, NÃO testado) — Pendência principal
-
-### O que resolve
-Alças ficam no ombro (head zone 40%) → excluídas do mask → ficam na imagem final.
-
-### Nova lógica V4 — expand FIRST, subtract AFTER
-```python
-# ANTES (V3):
-clothes_on_person = person AND clothes      # roupa sem dilatação
-face_only = head AND NOT clothes            # subtrai roupa da cabeça
-inpaint = clothes_on_person
-
-# AGORA (V4):
-clothes_raw = Florence-2 detection          # detecção normal
-clothes_expanded = dilate(7%)               # EXPANDIR PRIMEIRO
-face_only = head AND NOT clothes_expanded   # subtrair DEPOIS
-inpaint = clothes_expanded                  # inclui alças!
-```
-
-### Porquê V4 > V3
-- V3 usa clothes_raw sem dilatação → alças finas podem ficar fora
-- V4 dilata ANTES → bordas das alças são capturadas pela expansão
-- A expansão entra na head zone naturalmente
-
-### Pendência
-- **TESTAR V4** com mode="nsfw_test" — usar Test.png
+## Lições documentadas
+- ❌ Smooth antes de SE8 OK, mas head_adjusted precisa de binário
+- ❌ head_force no resultado final = máscara antiga visível
+- ❌ face_only (V3) = bordas feias na face
+- ❌ seamlessClone MIXED_CLONE = traz roupa de volta
+- ❌ HSV correction = artefactos vermelhos
+- ❌ 2-pass 0.50 = blobs (regenera conteúdo)
+- ✅ Smooth + head_adjusted + sem force final
+- ✅ Reinhard LAB > HSV para matching de cor
+- ✅ GaussianBlur collage > color_transfer

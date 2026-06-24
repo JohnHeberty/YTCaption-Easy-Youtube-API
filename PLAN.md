@@ -1,10 +1,17 @@
 # PLAN.md — NSFW Pipeline
 
-**Data:** 2026-06-23  
-**Status:** ✅ v15 em produção + 🟡 nsfw_test V4 implementado (não testado)  
+**Data:** 2026-06-24  
+**Status:** ✅ v15 em produção + 🟡 nsfw_test em teste  
 **Rotas:**
 - Produção: `POST /jobs {"mode": "nsfw"}` → v15 body_mask
-- Teste: `POST /jobs {"mode": "nsfw_test"}` → V4 expand-first + collage
+- Teste: `POST /jobs {"mode": "nsfw_test"}` → smooth mask + head_adjusted + collage
+
+---
+
+## Pendências nsfw_test
+1. Optimizar dilatação (3% → testar 5-10%)
+2. PLAN-2: haarcascade head detection
+3. GFPGAN face restore
 
 ---
 

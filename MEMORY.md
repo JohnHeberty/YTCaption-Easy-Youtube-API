@@ -16,30 +16,26 @@
 - **Edge blend:** morph open/close + bilateral filter
 - **Debug:** 8 masks sequenciais (00-07) + overlay
 
-### 🟡 NSFW TEST — Superior ao v15 (não em produção)
+### 🟡 NSFW TEST — Em teste
 - **Rota teste:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
-- **Pipeline:** `_run_nsfw_test()` — V4 mask + Reinhard LAB + GaussianBlur collage
-- **V4 mask logic (implementado, NÃO testado):**
-  1. Detect clothing (Florence-2) → `clothes_raw`
-  2. Dilate 7% adaptive → `clothes_expanded` (captura alças)
-  3. Expanded entra na head zone — NÃO remove!
-  4. `face_only = head AND NOT expanded` (protege só face, não alças)
-  5. `inpaint = expanded clothing` (TODA roupa incluindo alças)
-- **Colagem:** pessoa NSFW colada na imagem original → fundo 100% preservado
-- **Blur duplo:** GaussianBlur(31px) + GaussianBlur(15px) para bordas suaves
-- **Reinhard LAB:** matching tonalidade em Luminance+Chroma (resolve pele mismatch)
-- **Modelo:** juggernautXL_v8Rundiffusion, NsfwPov 0.2, CFG 4.0, sharpness 2.0
-- **Lições CRÍTICAS:**
-  - ❌ 2-pass (0.50) regenera blobs — sigma schedule gera conteúdo novo
-  - ❌ HSV correction causa artefactos vermelhos — ignora Luminance
-  - ❌ seamlessClone MIXED_CLONE traz roupa — preserva gradientes do destino
-  - ❌ Backprojection confunde pele/roupa (mesma cor rosa)
-  - ✅ Reinhard LAB resolve tonalidade
-  - ✅ 1 pass + GaussianBlur collage = melhor combinação
-  - ✅ Dilatar ANTES de subtrair head = alças incluídas na máscara
+- **Pipeline:** `_run_nsfw_test()` — actualizado em 2026-06-24
+- **Máscara:**
+  1. clothing_closed = body AND NOT exposed_skin → floodFill fecha buracos
+  2. clothes_expanded = dilate 3% (bordas da roupa)
+  3. inpaint_mask = GaussianBlur(15px) clothes_expanded → suavizado → SE8
+  4. head_adjusted = head AND NOT inpaint_bin (máscara suavizada subtrai da cabeça)
+  5. Sem force de cabeça no resultado final
+- **Colagem:** GaussianBlur(31px) + GaussianBlur(15px) → fundo 100% preservado
+- **Reinhard LAB:** matching tonalidade (Luminance+Chroma)
+- **Modelo:** juggernautXL, NsfwPov 0.2, CFG 4.0, sharpness 2.0
+- **Lições:**
+  - ❌ Smooth na máscara para head subtração → OK, mas 3% é pouco
+  - ❌ head_force no resultado final → máscara antiga visível
+  - ❌ face_only (V3) → bordas feias na face
+  - ✅ Smooth + head_adjusted + sem force final = melhor resultado
 - **Pendências:**
-  - TESTAR V4 mask logic com mode="nsfw_test"
-  - PLAN-2: detecção adaptativa de cabeça (haarcascade, substituir 40% fixo)
+  - Ajustar dilatação (3% é pouco, head_adjusted quase = head_mask)
+  - PLAN-2: detecção adaptativa de cabeça (haarcascade)
 
 ### Modos antigos (DEPRECATED)
 - `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v15) com deprecation warning
