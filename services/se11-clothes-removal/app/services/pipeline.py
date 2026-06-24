@@ -2152,10 +2152,14 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
 
 async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """TEST pipeline — V3 mask logic: clothing_all + face_only + Reinhard LAB + collage.
+    """TEST pipeline — V4: expand clothing FIRST, then subtract from head.
 
-    V3: clothes_on_person = person AND clothes (ALL clothing including head zone).
-    face_only = head MINUS clothing (protects face, not straps).
+    1. Detect clothing (Florence-2)
+    2. Dilate 7% → expanded clothing (catches strap edges)
+    3. Expanded clothing enters head zone — DON'T remove it
+    4. face_only = head AND NOT expanded clothing (protects face, not straps)
+    5. Inpaint = expanded clothing (includes straps in head zone)
+    6. Reinhard LAB color transfer + GaussianBlur collage
     """
     import cv2 as _cv2
     import numpy as _np
@@ -2239,34 +2243,44 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             exposed_skin = body_mask
 
-        # V3 LOGIC:
-        # - clothes_on_person: ALL clothing (body + head zone straps)
-        # - face_only: head MINUS clothing (protects face, not straps)
-        clothes_on_person = _cv2.bitwise_and(person_binary, clothes_combined) if clothes_combined is not None else _np.zeros_like(person_binary)
-        face_only = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_on_person))
-        straps_in_head = _cv2.bitwise_and(head_mask, clothes_on_person)
-        clothing_exact = clothes_on_person
+        # V4 LOGIC — expand FIRST, then subtract from head:
+        # 1. clothes_raw = Florence-2 detection
+        # 2. clothes_expanded = dilate(clothes_raw, 7%) — catches strap edges
+        # 3. clothes_expanded enters head zone → DON'T remove it
+        # 4. face_only = head AND NOT clothes_expanded (só a face real)
+        # 5. inpaint = clothes_expanded AND person (toda roupa incluindo alças)
+        clothes_raw = clothes_combined if clothes_combined is not None else _np.zeros_like(person_binary)
+        clothes_on_person = _cv2.bitwise_and(person_binary, clothes_raw)
 
-        clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
-        face_pct = (face_only > 0).sum() / face_only.size * 100
-        straps_pct = _cv2.countNonZero(straps_in_head) / straps_in_head.size * 100
-        logger.info("Job %s: V3 — clothes=%.1f%% face=%.1f%% straps_in_head=%.1f%%",
-                     job.job_id, clothes_pct, face_pct, straps_pct)
-
-        job.update_stage("inpainting", "processing", progress=35.0)
-        store.save_job(job.job_id, job.model_dump(mode="json"))
-
-        # Adaptive dilation: 7% of clothing bbox shorter side
-        contours, _ = _cv2.findContours(clothing_exact, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-        if contours:
-            all_pts = _np.vstack(contours)
+        # Expand clothing BEFORE face subtraction — straps enter head zone
+        contours_c, _ = _cv2.findContours(clothes_on_person, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        if contours_c:
+            all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
             dilation_px = max(3, int(min(cw, ch) * 0.07))
         else:
             dilation_px = 10
-        kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-        inpaint_mask = _cv2.dilate(clothing_exact, kernel, iterations=2)
-        logger.info("Job %s: dilation = %dpx (7%%)", job.job_id, dilation_px)
+        expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
+        clothes_expanded = _cv2.dilate(clothes_on_person, expand_kernel, iterations=2)
+        clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)  # stay within person
+
+        # face_only = head MINUS expanded clothing (straps excluded from protection)
+        face_only = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_expanded))
+
+        # inpaint = expanded clothing (includes straps in head zone)
+        clothing_exact = clothes_expanded
+
+        straps_in_head = _cv2.bitwise_and(head_mask, clothes_expanded)
+        clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
+        face_pct = (face_only > 0).sum() / face_only.size * 100
+        straps_pct = _cv2.countNonZero(straps_in_head) / straps_in_head.size * 100
+        logger.info("Job %s: V4 — clothes=%.1f%% face=%.1f%% straps_in_head=%.1f%% dil=%dpx",
+                     job.job_id, clothes_pct, face_pct, straps_pct, dilation_px)
+
+        job.update_stage("inpainting", "processing", progress=35.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
+        inpaint_mask = clothing_exact
 
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
@@ -2304,7 +2318,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=75.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # V3: Force face_only = original before compositing
+        # V3/V4: Force face_only = original before compositing
         inpainted_img[face_only > 0] = orig_img[face_only > 0]
 
         # STAGE 1: Reinhard Color Transfer (LAB space)
@@ -2369,7 +2383,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
             i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]  # YELLOW = inpaint
             overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
-            _cv2.putText(overlay, "V3: GREEN=face CYAN=skin MAGENTA=clothes YELLOW=inpaint",
+            _cv2.putText(overlay, "V4: GREEN=face CYAN=skin MAGENTA=clothes YELLOW=inpaint",
                          (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:
