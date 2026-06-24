@@ -2264,22 +2264,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         body_smooth = _cv2.GaussianBlur(body_float, (15, 15), 0)
         inpaint_mask = (body_smooth * 255).astype(_np.uint8)
 
-        # head_adjusted: subtract body from head, then close ALL holes
-        inpaint_bin = (inpaint_mask > 127).astype(_np.uint8) * 255
-        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(inpaint_bin))
-        # Close any holes in head_adjusted (must be 100% solid)
-        ha_closed = _cv2.morphologyEx(head_adjusted, _cv2.MORPH_CLOSE,
-                                       _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (9, 9)), iterations=5)
-        # FloodFill to guarantee interior holes are filled
-        ha_flood = ha_closed.copy()
-        ha_flood_mask = _np.zeros((ha_closed.shape[0] + 2, ha_closed.shape[1] + 2), _np.uint8)
-        ha_cts, _ = _cv2.findContours(ha_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-        if ha_cts:
-            ha_M = _cv2.moments(max(ha_cts, key=_cv2.contourArea))
-            if ha_M["m00"] > 0:
-                ha_cx, ha_cy = int(ha_M["m10"] / ha_M["m00"]), int(ha_M["m01"] / ha_M["m00"])
-                _cv2.floodFill(ha_flood, ha_flood_mask, (ha_cx, ha_cy), 255)
-                head_adjusted = _cv2.bitwise_or(ha_closed, ha_flood)
+        # head_adjusted: use BINARY body_mask for subtraction (not smooth)
+        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(body_closed))
 
         clothes_pct = (body_closed > 0).sum() / body_closed.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
@@ -2361,14 +2347,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
             color_corrected = inpainted_img
 
-        # STAGE 2: Paste NSFW result ONLY where body_mask is (hard mask, no blur)
-        # Smooth mask was ONLY for SE8 input — compositing uses binary body mask
+        # STAGE 2: Paste NSFW — binary body mask + tiny feather at edges
         composited = orig_img.copy()
         body_bin = (body_mask > 127).astype(_np.uint8) * 255
-        composited[body_bin > 0] = color_corrected[body_bin > 0]
-        # Force head_adjusted = original (guarantee)
+        # Tiny feather (3px) only at body edges — smooth transition to background
+        body_feather = _cv2.GaussianBlur(body_bin.astype(_np.float32) / 255.0, (3, 3), 0)
+        composited = (color_corrected.astype(_np.float32) * body_feather[:, :, None] +
+                      orig_img.astype(_np.float32) * (1.0 - body_feather[:, :, None]))
+        composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+        # Force head_adjusted = original
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
-        logger.info("Job %s: collage applied (body_mask hard)", job.job_id)
+        logger.info("Job %s: collage applied (body_mask + feather)", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
