@@ -2243,16 +2243,35 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # Clothing = body AND NOT exposed_skin
         clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
 
-        # Adaptive dilation: 15% — must reach straps deep in head zone
-        contours_c, _ = _cv2.findContours(clothing_exact, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        # Step 1: CLOSE all holes in clothing — aggressive multi-pass
+        # Pass 1: medium kernel fills small gaps
+        ck1 = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
+        clothing_closed = _cv2.morphologyEx(clothing_exact, _cv2.MORPH_CLOSE, ck1, iterations=4)
+        # Pass 2: large kernel fills remaining gaps
+        ck2 = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (25, 25))
+        clothing_closed = _cv2.morphologyEx(clothing_closed, _cv2.MORPH_CLOSE, ck2, iterations=3)
+        # Pass 3: fill from inside using floodFill
+        flood = clothing_closed.copy()
+        flood_mask = _np.zeros((flood.shape[0] + 2, flood.shape[1] + 2), _np.uint8)
+        # Find center of clothing mass
+        cts_f, _ = _cv2.findContours(clothing_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        if cts_f:
+            M = _cv2.moments(max(cts_f, key=_cv2.contourArea))
+            if M["m00"] > 0:
+                cx, cy = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
+                _cv2.floodFill(flood, flood_mask, (cx, cy), 255)
+                clothing_closed = _cv2.bitwise_or(clothing_closed, flood)
+
+        # Step 2: Adaptive dilation — only on clothing edges (7%, not 15%)
+        contours_c, _ = _cv2.findContours(clothing_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(5, int(min(cw, ch) * 0.15))
+            dilation_px = max(3, int(min(cw, ch) * 0.07))
         else:
-            dilation_px = 20
+            dilation_px = 10
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-        clothes_expanded = _cv2.dilate(clothing_exact, expand_kernel, iterations=2)
+        clothes_expanded = _cv2.dilate(clothing_closed, expand_kernel, iterations=2)
         clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)  # stay within person
 
         # V5: expanded clothing that enters head zone → subtract FROM head
