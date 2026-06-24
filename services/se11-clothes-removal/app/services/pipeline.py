@@ -2262,14 +2262,14 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 _cv2.floodFill(flood, flood_mask, (cx, cy), 255)
                 clothing_closed = _cv2.bitwise_or(clothing_closed, flood)
 
-        # Step 2: Adaptive dilation — only on clothing edges (7%, not 15%)
+        # Adaptive dilation: 3% — subtle edge expansion
         contours_c, _ = _cv2.findContours(clothing_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.07))
+            dilation_px = max(3, int(min(cw, ch) * 0.03))
         else:
-            dilation_px = 10
+            dilation_px = 5
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         clothes_expanded = _cv2.dilate(clothing_closed, expand_kernel, iterations=2)
         # DON'T restrict to person — let it extend into background for model context
@@ -2279,9 +2279,10 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         clothes_smooth = _cv2.GaussianBlur(clothes_float, (15, 15), 0)
         clothes_smooth_u8 = (clothes_smooth * 255).astype(_np.uint8)
 
-        # V5: expanded clothing that enters head zone → subtract FROM head
-        # This gives clothing priority: head protection excludes strap areas
-        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_expanded))
+        # head_adjusted: use wider smooth for head subtraction (extends further into head zone)
+        clothes_wide = _cv2.GaussianBlur(clothes_float, (31, 31), 0)
+        clothes_wide_u8 = _np.where(clothes_wide > 0.3, 255, 0).astype(_np.uint8)
+        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_wide_u8))
 
         inpaint_mask = clothes_smooth_u8
 
@@ -2405,7 +2406,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                          (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:
-            logger.warning("Job %s: debug failed (%s)", job.job_id, e)
+            import traceback
+            logger.warning("Job %s: debug failed (%s)\n%s", job.job_id, e, traceback.format_exc())
 
         result_path = os.path.join(output_dir, f"{job.job_id}_result.png")
         with open(result_path, "wb") as f:
