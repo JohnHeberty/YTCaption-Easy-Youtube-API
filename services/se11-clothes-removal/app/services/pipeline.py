@@ -2252,10 +2252,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             dilation_px = 10
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-        inpaint_mask = _cv2.dilate(clothing_exact, expand_kernel, iterations=2)
+        clothes_expanded = _cv2.dilate(clothing_exact, expand_kernel, iterations=2)
+
+        # Subtraction: clothing that enters head zone is subtracted FROM the head
+        # (so head protection excludes expanded clothing areas)
+        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_expanded))
+
+        inpaint_mask = clothes_expanded
 
         clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
-        logger.info("Job %s: nsfw_test clothes=%.1f%% dil=%dpx", job.job_id, clothes_pct, dilation_px)
+        expanded_pct = (clothes_expanded > 0).sum() / clothes_expanded.size * 100
+        logger.info("Job %s: nsfw_test clothes=%.1f%% expanded=%.1f%% dil=%dpx", job.job_id, clothes_pct, expanded_pct, dilation_px)
 
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -2296,14 +2303,14 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         job.update_stage("inpainting", "processing", progress=75.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # Force head = original before compositing
-        inpainted_img[head_mask > 0] = orig_img[head_mask > 0]
+        # head_adjusted = head MINUS expanded clothing (straps excluded from protection)
+        inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
         # STAGE 1: Reinhard Color Transfer (LAB space)
         try:
             src_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
             ref_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-            src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
+            src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_adjusted))
 
             for ch in range(3):
                 src_pixels = src_lab[:, :, ch][src_region > 0] if (src_region > 0).any() else src_lab[:, :, ch].ravel()
@@ -2314,21 +2321,19 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                     src_lab[:, :, ch] = (src_lab[:, :, ch] - src_m) * (ref_s / src_s) + ref_m
 
             color_corrected = _cv2.cvtColor(_np.clip(src_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-            color_corrected[head_mask > 0] = orig_img[head_mask > 0]
+            color_corrected[head_adjusted > 0] = orig_img[head_adjusted > 0]
             logger.info("Job %s: Reinhard LAB applied", job.job_id)
         except Exception as e:
             logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
             color_corrected = inpainted_img
 
-        # STAGE 2: GaussianBlur collage (paste NSFW person on original)
+        # STAGE 2: GaussianBlur collage
         person_soft = _cv2.GaussianBlur(person_binary.astype(_np.float32) / 255.0, (31, 31), 0)
         person_soft = _cv2.GaussianBlur(person_soft, (15, 15), 0)
         composited = (color_corrected.astype(_np.float32) * person_soft[:, :, None] +
                       orig_img.astype(_np.float32) * (1.0 - person_soft[:, :, None]))
         composited = _np.clip(composited, 0, 255).astype(_np.uint8)
-
-        # Head protection (single guarantee point)
-        composited[head_mask > 0] = orig_img[head_mask > 0]
+        composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
         logger.info("Job %s: collage + LAB applied", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
@@ -2345,24 +2350,31 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
             _save_mask(0, "original", orig_img)
             _save_mask(1, "person", person_binary)
-            _save_mask(2, "head_protected", head_mask)
-            _save_mask(3, "body", body_mask)
-            _save_mask(4, "exposed_skin", exposed_skin)
-            _save_mask(5, "clothing", clothing_exact)
-            _save_mask(6, "inpaint_mask", inpaint_mask)
-            _save_mask(7, "result", composited)
+            _save_mask(2, "head_original", head_mask)
+            _save_mask(3, "head_adjusted", head_adjusted)
+            _save_mask(4, "body", body_mask)
+            _save_mask(5, "clothing_exact", clothing_exact)
+            _save_mask(6, "clothing_expanded", clothes_expanded)
+            _save_mask(7, "inpaint_mask", inpaint_mask)
+            _save_mask(8, "result", composited)
 
             overlay = orig_img.copy()
-            h_ov = overlay.copy(); h_ov[head_mask > 0] = [0, 0, 255]  # RED = head (protected)
+            h_ov = overlay.copy(); h_ov[head_adjusted > 0] = [0, 0, 255]  # RED = head adjusted
             overlay = _cv2.addWeighted(overlay, 0.4, h_ov, 0.6, 0)
             e_ov = overlay.copy(); e_ov[exposed_skin > 0] = [255, 255, 0]  # CYAN = exposed skin
             overlay = _cv2.addWeighted(overlay, 0.4, e_ov, 0.6, 0)
-            c_ov = overlay.copy(); c_ov[clothing_exact > 0] = [255, 0, 255]  # MAGENTA = clothing
+            c_ov = overlay.copy(); c_ov[clothes_expanded > 0] = [255, 0, 255]  # MAGENTA = expanded clothing
             overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
             i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]  # YELLOW = inpaint
             overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
-            _cv2.putText(overlay, "RED=head CYAN=skin MAGENTA=clothes YELLOW=inpaint",
-                         (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+            # Show head_diff in white — area subtracted from head
+            head_diff = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(head_adjusted))
+            d_ov = overlay.copy(); d_ov[head_diff > 0] = [255, 255, 255]  # WHITE = subtracted from head
+            overlay = _cv2.addWeighted(overlay, 0.6, d_ov, 0.4, 0)
+
+            _cv2.putText(overlay, "RED=head CYAN=skin MAGENTA=clothes YELLOW=inpaint WHITE=subtracted",
+                         (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:
             logger.warning("Job %s: debug failed (%s)", job.job_id, e)
