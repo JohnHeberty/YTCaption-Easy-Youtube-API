@@ -2262,14 +2262,25 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 _cv2.floodFill(flood, flood_mask, (cx, cy), 255)
                 clothing_closed = _cv2.bitwise_or(clothing_closed, flood)
 
-        # Adaptive dilation: 3% — subtle edge expansion
+        # Close holes in head mask (no gaps in person's head)
+        head_flood = head_mask.copy()
+        hf_mask = _np.zeros((head_flood.shape[0] + 2, head_flood.shape[1] + 2), _np.uint8)
+        hcts, _ = _cv2.findContours(head_mask, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        if hcts:
+            hM = _cv2.moments(max(hcts, key=_cv2.contourArea))
+            if hM["m00"] > 0:
+                hcx, hcy = int(hM["m10"] / hM["m00"]), int(hM["m01"] / hM["m00"])
+                _cv2.floodFill(head_flood, hf_mask, (hcx, hcy), 255)
+                head_mask = _cv2.bitwise_or(head_mask, head_flood)
+
+        # Adaptive dilation: 5% — edge expansion
         contours_c, _ = _cv2.findContours(clothing_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.03))
+            dilation_px = max(3, int(min(cw, ch) * 0.05))
         else:
-            dilation_px = 5
+            dilation_px = 8
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         clothes_expanded = _cv2.dilate(clothing_closed, expand_kernel, iterations=2)
 
