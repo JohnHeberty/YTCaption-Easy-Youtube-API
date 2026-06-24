@@ -2272,13 +2272,18 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             dilation_px = 10
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         clothes_expanded = _cv2.dilate(clothing_closed, expand_kernel, iterations=2)
-        clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)  # stay within person
+        # DON'T restrict to person — let it extend into background for model context
+
+        # Smooth mask edges (prevent jagged borders that confuse diffusion model)
+        clothes_float = clothes_expanded.astype(_np.float32) / 255.0
+        clothes_smooth = _cv2.GaussianBlur(clothes_float, (15, 15), 0)
+        clothes_smooth_u8 = (clothes_smooth * 255).astype(_np.uint8)
 
         # V5: expanded clothing that enters head zone → subtract FROM head
         # This gives clothing priority: head protection excludes strap areas
         head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_expanded))
 
-        inpaint_mask = clothes_expanded
+        inpaint_mask = clothes_smooth_u8
 
         clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
@@ -2377,10 +2382,11 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             _save_mask(2, "head_original", head_mask)
             _save_mask(3, "head_adjusted", head_adjusted)
             _save_mask(4, "body", body_mask)
-            _save_mask(5, "clothing_exact", clothing_exact)
+            _save_mask(5, "clothing_exact_closed", clothing_closed)
             _save_mask(6, "clothing_expanded", clothes_expanded)
-            _save_mask(7, "inpaint_mask", inpaint_mask)
-            _save_mask(8, "result", composited)
+            _save_mask(7, "clothing_smooth", clothes_smooth_u8)
+            _save_mask(8, "inpaint_mask", inpaint_mask)
+            _save_mask(9, "result", composited)
 
             overlay = orig_img.copy()
             h_ov = overlay.copy(); h_ov[head_adjusted > 0] = [0, 0, 255]  # RED = head adjusted
