@@ -2152,11 +2152,10 @@ async def _run_pipe_nsfw_3layers_max(job: ClothesRemovalJob, store: ClothesRemov
 
 
 async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """TEST pipeline — clothing_exact + 7% expansion + head_mask + Reinhard LAB + collage.
+    """TEST pipeline — body_mask as inpaint + Reinhard LAB + GaussianBlur collage.
 
-    clothing_exact = body AND NOT exposed_skin.
-    7% adaptive dilation expands clothing to catch strap edges.
-    head_mask (40%) protects face — NOT face_only.
+    Uses body_mask (person minus head) instead of clothing mask for larger inpaint area.
+    Higher quality prompt + NsfwPov 0.3 + add-detail-xl 1.0 + inpaint_strength 0.80.
     """
     import cv2 as _cv2
     import numpy as _np
@@ -2240,27 +2239,9 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         else:
             exposed_skin = body_mask
 
-        # Clothing = body AND NOT exposed_skin
-        clothing_exact = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(exposed_skin))
-
-        # Step 1: CLOSE all holes in clothing — aggressive multi-pass
-        # Pass 1: medium kernel fills small gaps
-        ck1 = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
-        clothing_closed = _cv2.morphologyEx(clothing_exact, _cv2.MORPH_CLOSE, ck1, iterations=4)
-        # Pass 2: large kernel fills remaining gaps
-        ck2 = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (25, 25))
-        clothing_closed = _cv2.morphologyEx(clothing_closed, _cv2.MORPH_CLOSE, ck2, iterations=3)
-        # Pass 3: fill from inside using floodFill
-        flood = clothing_closed.copy()
-        flood_mask = _np.zeros((flood.shape[0] + 2, flood.shape[1] + 2), _np.uint8)
-        # Find center of clothing mass
-        cts_f, _ = _cv2.findContours(clothing_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-        if cts_f:
-            M = _cv2.moments(max(cts_f, key=_cv2.contourArea))
-            if M["m00"] > 0:
-                cx, cy = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
-                _cv2.floodFill(flood, flood_mask, (cx, cy), 255)
-                clothing_closed = _cv2.bitwise_or(clothing_closed, flood)
+        # Use body_mask as base — larger area = better NSFW generation
+        # body_mask = person - head (torso, arms, skin)
+        body_closed = body_mask.copy()
 
         # Close holes in head mask (no gaps in person's head)
         head_flood = head_mask.copy()
@@ -2273,31 +2254,20 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 _cv2.floodFill(head_flood, hf_mask, (hcx, hcy), 255)
                 head_mask = _cv2.bitwise_or(head_mask, head_flood)
 
-        # Adaptive dilation: 5% — edge expansion
-        contours_c, _ = _cv2.findContours(clothing_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-        if contours_c:
-            all_pts = _np.vstack(contours_c)
-            _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.05))
-        else:
-            dilation_px = 8
-        expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-        clothes_expanded = _cv2.dilate(clothing_closed, expand_kernel, iterations=2)
-
         # Smooth mask edges before sending to SE8
-        clothes_float = clothes_expanded.astype(_np.float32) / 255.0
-        clothes_smooth = _cv2.GaussianBlur(clothes_float, (15, 15), 0)
-        inpaint_mask = (clothes_smooth * 255).astype(_np.uint8)
+        body_float = body_closed.astype(_np.float32) / 255.0
+        body_smooth = _cv2.GaussianBlur(body_float, (15, 15), 0)
+        inpaint_mask = (body_smooth * 255).astype(_np.uint8)
 
-        # head_adjusted: subtract SMOOTHED clothing from head (same mask that goes to SE8)
+        # head_adjusted: subtract body from head (body has priority)
         inpaint_bin = (inpaint_mask > 127).astype(_np.uint8) * 255
         head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(inpaint_bin))
 
-        clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
+        clothes_pct = (body_closed > 0).sum() / body_closed.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
         head_adj_pct = _cv2.countNonZero(head_adjusted) / head_adjusted.size * 100
-        logger.info("Job %s: clothes=%.1f%% dil=%dpx head_orig=%.1f%% head_adj=%.1f%%",
-                     job.job_id, clothes_pct, dilation_px, head_orig_pct, head_adj_pct)
+        logger.info("Job %s: nsfw_test body=%.1f%% head_orig=%.1f%% head_adj=%.1f%%",
+                     job.job_id, clothes_pct, head_orig_pct, head_adj_pct)
 
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -2306,21 +2276,32 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
         nsfw_loras = [
-            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.2},
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.3},
             {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
+            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 1.0},
             {"enabled": True, "model_name": "None", "weight": 1.0},
             {"enabled": True, "model_name": "None", "weight": 1.0},
         ]
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # Pass 1: single pass — proven params
+        # High quality NSFW prompt — maximum detail
+        nsfw_prompt = (
+            "NSFW, NSFW, NSFW, NSFW, NSFW, "
+            "bare skin, no clothing, naked body, "
+            "detailed breast anatomy, realistic nipples, areola details, "
+            "natural skin pores, skin texture, skin imperfections, "
+            "realistic body proportions, natural pose, "
+            "seamless skin transition, consistent skin tone, "
+            "photorealistic, professional photography, studio lighting, "
+            "8k uhd, sharp focus, hyperrealistic, raw photo"
+        )
+
         result1 = await se8.inpaint(
             image_b64=image_b64, mask_b64=mask_b64,
-            prompt=DEFAULT_CLOTHES_PROMPT,
+            prompt=nsfw_prompt,
             negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
-            inpaint_strength=0.75, inpaint_respective_field=0.85,
+            inpaint_strength=0.80, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-8, loras=nsfw_loras,
             base_model="juggernautXL_v8Rundiffusion.safetensors",
         )
@@ -2387,26 +2368,23 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             _save_mask(0, "original", orig_img)
             _save_mask(1, "person", person_binary)
             _save_mask(2, "head_updated", head_adjusted)
-            _save_mask(3, "body", body_mask)
-            _save_mask(4, "clothing_closed", clothing_closed)
-            _save_mask(5, "clothing_expanded", clothes_expanded)
-            _save_mask(6, "inpaint_mask", inpaint_mask)
-            _save_mask(7, "result", composited)
+            _save_mask(3, "body_mask", body_mask)
+            _save_mask(4, "inpaint_mask", inpaint_mask)
+            _save_mask(5, "result", composited)
 
             overlay = orig_img.copy()
-            h_ov = overlay.copy(); h_ov[head_adjusted > 0] = [0, 0, 255]  # RED = head adjusted
+            h_ov = overlay.copy(); h_ov[head_adjusted > 0] = [0, 0, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, h_ov, 0.6, 0)
-            c_ov = overlay.copy(); c_ov[clothes_expanded > 0] = [255, 0, 255]  # MAGENTA = expanded clothes
-            overlay = _cv2.addWeighted(overlay, 0.4, c_ov, 0.6, 0)
-            i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]  # YELLOW = inpaint
+            b_ov = overlay.copy(); b_ov[inpaint_bin > 0] = [255, 0, 255]
+            overlay = _cv2.addWeighted(overlay, 0.4, b_ov, 0.6, 0)
+            i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
 
-            # Show difference between head_original and head_adjusted in WHITE
             head_diff = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(head_adjusted))
-            d_ov = overlay.copy(); d_ov[head_diff > 0] = [255, 255, 255]  # WHITE = subtracted from head
+            d_ov = overlay.copy(); d_ov[head_diff > 0] = [255, 255, 255]
             overlay = _cv2.addWeighted(overlay, 0.6, d_ov, 0.4, 0)
 
-            _cv2.putText(overlay, "RED=head_adjusted MAGENTA=clothes YELLOW=inpaint WHITE=subtracted",
+            _cv2.putText(overlay, "RED=head MAGENTA=body YELLOW=inpaint",
                          (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:
