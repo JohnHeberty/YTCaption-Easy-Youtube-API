@@ -2273,13 +2273,14 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         clothes_expanded = _cv2.dilate(clothing_closed, expand_kernel, iterations=2)
 
-        # head_adjusted: subtract expanded clothing from head (update ONLY the head)
-        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_expanded))
-
         # Smooth mask edges before sending to SE8
         clothes_float = clothes_expanded.astype(_np.float32) / 255.0
         clothes_smooth = _cv2.GaussianBlur(clothes_float, (15, 15), 0)
         inpaint_mask = (clothes_smooth * 255).astype(_np.uint8)
+
+        # head_adjusted: subtract SMOOTHED clothing from head (same mask that goes to SE8)
+        inpaint_bin = (inpaint_mask > 127).astype(_np.uint8) * 255
+        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(inpaint_bin))
 
         clothes_pct = (clothing_exact > 0).sum() / clothing_exact.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
