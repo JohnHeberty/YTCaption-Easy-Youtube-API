@@ -2243,16 +2243,21 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # body_mask = person - head (torso, arms, skin)
         body_closed = body_mask.copy()
 
-        # Close holes in head mask (no gaps in person's head)
-        head_flood = head_mask.copy()
-        hf_mask = _np.zeros((head_flood.shape[0] + 2, head_flood.shape[1] + 2), _np.uint8)
-        hcts, _ = _cv2.findContours(head_mask, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        # Close holes in head mask — 100% solid, no gaps
+        head_closed = head_mask.copy()
+        # Morphological close fills small gaps
+        hk = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
+        head_closed = _cv2.morphologyEx(head_mask, _cv2.MORPH_CLOSE, hk, iterations=3)
+        # FloodFill from center to close interior holes
+        hf_mask = _np.zeros((head_closed.shape[0] + 2, head_closed.shape[1] + 2), _np.uint8)
+        hcts, _ = _cv2.findContours(head_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if hcts:
             hM = _cv2.moments(max(hcts, key=_cv2.contourArea))
             if hM["m00"] > 0:
                 hcx, hcy = int(hM["m10"] / hM["m00"]), int(hM["m01"] / hM["m00"])
-                _cv2.floodFill(head_flood, hf_mask, (hcx, hcy), 255)
-                head_mask = _cv2.bitwise_or(head_mask, head_flood)
+                hfill = head_closed.copy()
+                _cv2.floodFill(hfill, hf_mask, (hcx, hcy), 255)
+                head_mask = _cv2.bitwise_or(head_closed, hfill)
 
         # Smooth mask edges before sending to SE8
         body_float = body_closed.astype(_np.float32) / 255.0
