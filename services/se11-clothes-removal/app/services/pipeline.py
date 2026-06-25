@@ -2253,6 +2253,9 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             dilation_px = 5
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         body_expanded = _cv2.dilate(body_closed, expand_kernel, iterations=2)
+        # Morphological opening to smooth jagged edges on the mask
+        open_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
+        body_expanded = _cv2.morphologyEx(body_expanded, _cv2.MORPH_OPEN, open_kernel)
 
         # Close holes in head mask — 100% solid, no gaps
         head_closed = head_mask.copy()
@@ -2360,8 +2363,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         composited = orig_img.copy()
         body_bin = body_expanded > 0
         composited[body_bin] = color_corrected[body_bin]
+        # Force head_adjusted = original
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
-        logger.info("Job %s: collage applied", job.job_id)
+
+        # STAGE 3: Bilateral filter on edges only — smooth jagged borders
+        edge_mask = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 80)
+        edge_mask = _cv2.dilate(edge_mask, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
+        edge_mask = _cv2.bitwise_and(edge_mask, (_cv2.dilate(body_bin.astype(_np.uint8) * 255, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5)), iterations=1) > 0).astype(_np.uint8) * 255)
+        if _cv2.countNonZero(edge_mask) > 0:
+            smoothed = _cv2.bilateralFilter(composited, 5, 50, 50)
+            composited[edge_mask > 0] = smoothed[edge_mask > 0]
+        logger.info("Job %s: collage + edge smooth applied", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
