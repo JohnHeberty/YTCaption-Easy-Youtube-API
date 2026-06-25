@@ -2243,14 +2243,14 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # body_mask = person - head (torso, arms, skin)
         body_closed = body_mask.copy()
 
-        # 3% adaptive dilation — expand mask edges for better coverage
+        # 2% adaptive dilation — expand mask edges for coverage
         contours_c, _ = _cv2.findContours(body_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.03))
+            dilation_px = max(3, int(min(cw, ch) * 0.02))
         else:
-            dilation_px = 5
+            dilation_px = 4
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         body_expanded = _cv2.dilate(body_closed, expand_kernel, iterations=2)
         # Morphological opening to smooth jagged edges on the mask
