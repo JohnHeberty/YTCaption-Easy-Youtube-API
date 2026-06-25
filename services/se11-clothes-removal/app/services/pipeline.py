@@ -2248,7 +2248,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.02))
+            dilation_px = max(2, int(min(cw, ch) * 0.01))
         else:
             dilation_px = 4
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
@@ -2321,7 +2321,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             prompt=nsfw_prompt,
             negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
             inpaint_strength=0.80, inpaint_respective_field=0.85,
-            inpaint_erode_or_dilate=0, loras=nsfw_loras,
+            inpaint_erode_or_dilate=-1, loras=nsfw_loras,
             base_model="juggernautXL_v8Rundiffusion.safetensors",
         )
         if not result1 or not result1.get("base64"):
