@@ -2347,17 +2347,12 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
             color_corrected = inpainted_img
 
-        # STAGE 2: Paste NSFW — binary body mask + tiny feather at edges
+        # STAGE 2: Paste NSFW result directly — binary body mask, no extra border
         composited = orig_img.copy()
-        body_bin = (body_mask > 127).astype(_np.uint8) * 255
-        # Tiny feather (3px) only at body edges — smooth transition to background
-        body_feather = _cv2.GaussianBlur(body_bin.astype(_np.float32) / 255.0, (3, 3), 0)
-        composited = (color_corrected.astype(_np.float32) * body_feather[:, :, None] +
-                      orig_img.astype(_np.float32) * (1.0 - body_feather[:, :, None]))
-        composited = _np.clip(composited, 0, 255).astype(_np.uint8)
-        # Force head_adjusted = original
+        body_bin = body_mask > 0
+        composited[body_bin] = color_corrected[body_bin]
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
-        logger.info("Job %s: collage applied (body_mask + feather)", job.job_id)
+        logger.info("Job %s: collage applied", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
