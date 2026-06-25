@@ -2243,6 +2243,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # body_mask = person - head (torso, arms, skin)
         body_closed = body_mask.copy()
 
+        # 3% adaptive dilation — expand mask edges for better coverage
+        contours_c, _ = _cv2.findContours(body_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+        if contours_c:
+            all_pts = _np.vstack(contours_c)
+            _, _, cw, ch = _cv2.boundingRect(all_pts)
+            dilation_px = max(3, int(min(cw, ch) * 0.03))
+        else:
+            dilation_px = 5
+        expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
+        body_expanded = _cv2.dilate(body_closed, expand_kernel, iterations=2)
+
         # Close holes in head mask — 100% solid, no gaps
         head_closed = head_mask.copy()
         # Morphological close fills small gaps
@@ -2259,10 +2270,10 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 _cv2.floodFill(hfill, hf_mask, (hcx, hcy), 255)
                 head_mask = _cv2.bitwise_or(head_closed, hfill)
 
-        # TEMP: disabled GaussianBlur — using binary mask directly
-        inpaint_mask = body_closed
+        # TEMP: disabled GaussianBlur — using binary expanded mask directly
+        inpaint_mask = body_expanded
 
-        # head_adjusted: use BINARY body_mask for subtraction (not smooth)
+        # head_adjusted: use original body_closed (NOT expanded) for subtraction
         head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(body_closed))
 
         clothes_pct = (body_closed > 0).sum() / body_closed.size * 100
@@ -2345,9 +2356,9 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
             color_corrected = inpainted_img
 
-        # STAGE 2: Paste NSFW result directly — binary body mask, no extra border
+        # STAGE 2: Paste NSFW result — binary expanded mask
         composited = orig_img.copy()
-        body_bin = body_mask > 0
+        body_bin = body_expanded > 0
         composited[body_bin] = color_corrected[body_bin]
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
         logger.info("Job %s: collage applied", job.job_id)
