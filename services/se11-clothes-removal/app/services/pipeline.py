@@ -851,7 +851,7 @@ async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore
                 image_b64=current_b64,
                 mask_b64=combined_mask,
                 prompt=DEFAULT_PERSON_PROMPT,
-                negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+            negative_prompt=nsfw_negative,
                 inpaint_strength=pass_config["inpaint_strength"],
                 inpaint_respective_field=0.85,
                 inpaint_erode_or_dilate=-10,
@@ -2304,17 +2304,25 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # High quality NSFW prompt — maximum detail + skin tone matching
+        # High quality NSFW prompt — merged best practices
         nsfw_prompt = (
-            "NSFW, NSFW, NSFW, NSFW, NSFW, "
-            "bare skin, no clothing, naked body, "
-            f"skin tone matching the person's arms and face, consistent skin color throughout, "
+            "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
             "detailed breast anatomy, realistic nipples, areola details, "
             "natural skin pores, skin texture, skin imperfections, "
-            "realistic body proportions, natural pose, "
+            "realistic body proportions, same body position, unchanged pose from original, "
+            "skin tone matching the person's arms and face, consistent skin color throughout, "
             "seamless skin transition, matching skin tone with surrounding body, "
-            "photorealistic, professional photography, studio lighting, "
-            "8k uhd, sharp focus, hyperrealistic, raw photo"
+            "photorealistic, professional studio photography, soft lighting, "
+            "sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd"
+        )
+
+        nsfw_negative = (
+            "(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, "
+            "wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, "
+            "mutated hands and fingers, extra fingers, missing fingers, "
+            "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
+            "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
+            "cartoon, anime, sketch, changing pose, moved body, different position, rotated torso"
         )
 
         result1 = await se8.inpaint(
