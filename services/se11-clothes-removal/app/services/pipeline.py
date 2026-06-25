@@ -2259,10 +2259,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
                 _cv2.floodFill(hfill, hf_mask, (hcx, hcy), 255)
                 head_mask = _cv2.bitwise_or(head_closed, hfill)
 
-        # Smooth mask edges before sending to SE8
-        body_float = body_closed.astype(_np.float32) / 255.0
-        body_smooth = _cv2.GaussianBlur(body_float, (15, 15), 0)
-        inpaint_mask = (body_smooth * 255).astype(_np.uint8)
+        # TEMP: disabled GaussianBlur — using binary mask directly
+        inpaint_mask = body_closed
 
         # head_adjusted: use BINARY body_mask for subtraction (not smooth)
         head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(body_closed))
