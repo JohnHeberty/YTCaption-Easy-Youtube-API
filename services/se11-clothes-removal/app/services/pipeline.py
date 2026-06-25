@@ -2304,14 +2304,15 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # High quality NSFW prompt — maximum detail
+        # High quality NSFW prompt — maximum detail + skin tone matching
         nsfw_prompt = (
             "NSFW, NSFW, NSFW, NSFW, NSFW, "
             "bare skin, no clothing, naked body, "
+            f"skin tone matching the person's arms and face, consistent skin color throughout, "
             "detailed breast anatomy, realistic nipples, areola details, "
             "natural skin pores, skin texture, skin imperfections, "
             "realistic body proportions, natural pose, "
-            "seamless skin transition, consistent skin tone, "
+            "seamless skin transition, matching skin tone with surrounding body, "
             "photorealistic, professional photography, studio lighting, "
             "8k uhd, sharp focus, hyperrealistic, raw photo"
         )
@@ -2368,15 +2369,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         composited[body_bin] = color_corrected[body_bin]
         # Force head_adjusted = original
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
-
-        # STAGE 3: Bilateral filter on edges only — smooth jagged borders
-        edge_mask = _cv2.Canny(_cv2.cvtColor(composited, _cv2.COLOR_BGR2GRAY), 30, 80)
-        edge_mask = _cv2.dilate(edge_mask, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3)), iterations=1)
-        edge_mask = _cv2.bitwise_and(edge_mask, (_cv2.dilate(body_bin.astype(_np.uint8) * 255, _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5)), iterations=1) > 0).astype(_np.uint8) * 255)
-        if _cv2.countNonZero(edge_mask) > 0:
-            smoothed = _cv2.bilateralFilter(composited, 5, 50, 50)
-            composited[edge_mask > 0] = smoothed[edge_mask > 0]
-        logger.info("Job %s: collage + edge smooth applied", job.job_id)
+        logger.info("Job %s: collage applied", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
