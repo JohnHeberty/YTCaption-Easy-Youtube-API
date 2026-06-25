@@ -2400,7 +2400,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             overlay = orig_img.copy()
             h_ov = overlay.copy(); h_ov[head_adjusted > 0] = [0, 0, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, h_ov, 0.6, 0)
-            b_ov = overlay.copy(); b_ov[inpaint_bin > 0] = [255, 0, 255]
+            b_ov = overlay.copy(); b_ov[body_bin] = [255, 0, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, b_ov, 0.6, 0)
             i_ov = overlay.copy(); i_ov[inpaint_mask > 0] = [0, 255, 255]
             overlay = _cv2.addWeighted(overlay, 0.4, i_ov, 0.6, 0)
@@ -2409,7 +2409,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             d_ov = overlay.copy(); d_ov[head_diff > 0] = [255, 255, 255]
             overlay = _cv2.addWeighted(overlay, 0.6, d_ov, 0.4, 0)
 
-            _cv2.putText(overlay, "RED=head MAGENTA=body YELLOW=inpaint",
+            _cv2.putText(overlay, "RED=head MAGENTA=expanded YELLOW=inpaint",
                          (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_mask_overlay.png"), overlay)
         except Exception as e:
