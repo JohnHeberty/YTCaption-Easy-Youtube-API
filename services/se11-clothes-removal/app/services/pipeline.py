@@ -2304,7 +2304,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             prompt=nsfw_prompt,
             negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
             inpaint_strength=0.80, inpaint_respective_field=0.85,
-            inpaint_erode_or_dilate=-8, loras=nsfw_loras,
+            inpaint_erode_or_dilate=0, loras=nsfw_loras,
             base_model="juggernautXL_v8Rundiffusion.safetensors",
         )
         if not result1 or not result1.get("base64"):
