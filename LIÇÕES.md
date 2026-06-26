@@ -164,5 +164,5 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 | HTTP Client | `services/se11-clothes-removal/app/infrastructure/http_client.py` |
 | Models | `services/se11-clothes-removal/app/core/models.py` |
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
-| Plano production | `PLAN.md` |
+| Plano production | `docs/archived/PLAN.md` |
 | Plano head detect | `PLAN-2.md` |
