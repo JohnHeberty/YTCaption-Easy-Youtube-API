@@ -1,7 +1,9 @@
 # PLAN-1.md — nsfw_test Pipeline (v17 BEST)
 
 **Data:** 2026-06-26
-**Status:** ✅ MELHOR RESULTADO ALCANÇADO
+**Status:** ✅ MELHOR RESULTADO ALCANÇADO → PRODUÇÃO
+
+> **Lições aprendidas:** Ver `LIÇÕES.md`
 
 ---
 
@@ -10,7 +12,7 @@
 ```
 1. SE10 Florence-2 detecta pessoa → person_binary
 2. body_mask = person - head (top 40% + dilatação 15px)
-3. body_closed = body_mask (copia)
+3. body_closed = body_mask (cópia)
 4. Dilation 3.5% adaptativa → body_expanded
 5. morphOpen 3px (suaviza cantos)
 6. GaussianBlur 3px + threshold > 127 (SE8 vê binário)
@@ -41,16 +43,3 @@
 **Positive:** `NSFW×5, solo, bare skin, same body position, unchanged pose, skin tone matching arms/face, 8k uhd`
 
 **Negative:** `(deformed:1.3), extra limbs, airbrushed, plastic skin, (changed pose:1.5), clothes, fabric, bra, straps`
-
-## Lições
-
-| O que NÃO funciona | O que FUNCIONA |
-|---------------------|----------------|
-| 5% dilation | 3.5% dilation |
-| Máscara suave para SE8 | Binário para SE8 + suave no output |
-| Reinhard LAB | Sem LAB (pele correcta) |
-| strength 0.55/0.80 | strength 0.65 |
-| 2-pass | 1 pass |
-| GaussianBlur 15px | GaussianBlur 7px no output |
-| face_only (V3) | head_adjusted (binário) |
-| bilateral filter | Sem bilateral |
