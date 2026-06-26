@@ -2248,7 +2248,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         if contours_c:
             all_pts = _np.vstack(contours_c)
             _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(2, int(min(cw, ch) * 0.01))
+            dilation_px = max(3, int(min(cw, ch) * 0.03))
         else:
             dilation_px = 4
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
@@ -2341,7 +2341,7 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             prompt=nsfw_prompt,
             negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
             inpaint_strength=0.65, inpaint_respective_field=0.85,
-            inpaint_erode_or_dilate=-1, loras=nsfw_loras,
+            inpaint_erode_or_dilate=-2, loras=nsfw_loras,
             base_model="juggernautXL_v8Rundiffusion.safetensors",
         )
         if not result1 or not result1.get("base64"):
@@ -2371,7 +2371,15 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         composited[body_bin] = color_corrected[body_bin]
         # Force head_adjusted = original
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
-        logger.info("Job %s: collage applied", job.job_id)
+
+        # STAGE 3: Smooth blend on FINAL image — apply GaussianBlur to composited edges
+        body_float = inpaint_mask.astype(_np.float32) / 255.0
+        body_smooth = _cv2.GaussianBlur(body_float, (7, 7), 0)
+        composited = (composited.astype(_np.float32) * body_smooth[:, :, None] +
+                      orig_img.astype(_np.float32) * (1.0 - body_smooth[:, :, None]))
+        composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+        composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
+        logger.info("Job %s: collage + smooth blend applied", job.job_id)
 
         job.update_stage("inpainting", "processing", progress=90.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
