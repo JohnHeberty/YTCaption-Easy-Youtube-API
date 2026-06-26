@@ -1,71 +1,57 @@
-# INVESTIGATE.md — Bordas Serrilhadas no Resultado Final
+# INVESTIGATE.md — Lições e Estado Actual
 
 **Data:** 2026-06-24
-**Status:** Novo erro — bordas serrilhadas na composição
-**Resolução anterior:** erode_or_dilate=0 + 3% expansion ✅ (já resolvido)
+**Pipeline:** `_run_nsfw_test()`
 
 ---
 
-## Problema Actual
+## Lições Aprendidas
 
-A máscara binária do person_mask (threshold > 127) gera bordas serrilhadas no resultado final. Mesmo com dilatação 3%, o contorno segue os pixels ásperos da detecção.
+### ❌ O que NÃO funciona
+1. **5% dilation** — máscara demasiado grande → SE8 gera blobs cinza
+2. **erode_or_dilate=-2** — demasiado agressivo nas áreas finas
+3. **Máscara suave (0-255) para SE8** — SE8 espera binário (0 ou 255), suave confunde o modelo
+4. **Reinhard LAB** — escurece a pele (canal L deslocado)
+5. **inpaint_strength=0.55** — pouco criatividade → blobs
+6. **inpaint_strength=0.80** — muita criatividade → muda pose
+7. **GaussianBlur 15px na máscara** — expandia demais, comia área do rosto
 
-**O que está correcto:**
-- ✅ erode_or_dilate=0 (SE8 gera até ao limite exacto)
-- ✅ body_expanded 3% (expansão correcta)
-- ✅ head 100% sólido
-- ✅ Sem bordas cinza (problema resolvido)
+### ✅ O que FUNCIONA (config actual)
+1. **1% dilation** — cobertura suficiente, máscara apertada
+2. **erode_or_dilate=-1** — mínimo de erosão, bordas limpas
+3. **Máscara binária para SE8** — binário puro funciona
+4. **Sem Reinhard LAB** — pele com tom correcto do SE8
+5. **inpaint_strength=0.65** — pose preservada + boa qualidade
+6. **morphOpen 3px + GaussianBlur 3px + morphClose 5px + vertical 1x7** — bordas suaves + sem gaps
+7. **Prompts optimizados** — pose reforçada (positive + negative com weights)
 
-**O que falta:**
-- ❌ Bordas serrilhadas na transição body→fundo
-
----
-
-## Opções de Correcção
-
-### Opção A: Suavização PÓS-compositing (RECOMENDADA)
-Após colar o resultado NSFW, detectar as bordas do body_expanded e aplicar bilateral filter APENAS nesses pixels.
-
-```
-Composição → Canny edge no body_expanded → dilate 3px → bilateral filter → resultado final
-```
-- Não toca na máscara nem no SE8 — affecta só o output
-- ~5ms de custo
-- Implementação: `_cv2.bilateralFilter(composited, 5, 50, 50)[edge_mask]`
-
-### Opção B: GaussianBlur MÍNIMO na máscara (3px)
-Re-introduzir GaussianBlur com kernel mínimo (3px) na máscara antes de enviar ao SE8.
-
-```
-body_expanded → GaussianBlur(3px) → SE8
-```
-- SE8 vê bordas suaves → gera transições mais naturais
-- Risco: efeito pode ser mínimo com kernel tão pequeno
-
-### Opção C: Morphological Opening na máscara
-Abrir a máscara (erode + dilate com ellipse 3px) para suavizar cantos serrilhados.
-
-```
-morphOpen(body_expanded, ellipse 3px) → SE8
-```
-- Remove pixels isolados e suaviza cantos
-- Risco: encolhe ligeiramente a máscara
-
-### Opção D: Distance Transform
-Calcular distância de cada pixel à borda → criar gradient alpha na transição.
-
-```
-distanceTransform(body_expanded) → normalizar → blend
-```
-- Transição matemática perfeita
-- Complexidade média
+### Parâmetros óptimos
+| Parâmetro | Valor |
+|-----------|-------|
+| Dilation | 1% |
+| erode_or_dilate | -1 |
+| strength | 0.65 |
+| field | 0.85 |
+| morphOpen | 3px |
+| GaussianBlur | 3px |
+| morphClose | 5px ellipse + vertical 1x7 |
+| Reinhard LAB | DESLIGADO |
+| Bilateral filter | DESLIGADO |
+| NsfwPov | 0.3 |
+| add-detail-xl | 1.0 |
 
 ---
 
-## Recomendação
+## Estado Actual do Pipeline
 
-**Opção A + Opção C combinadas:**
-1. Morphological opening na máscara (suaviza cantos antes do SE8)
-2. Após composição, bilateral filter nas bordas (suaviza transição final)
+```
+body_mask → dilate 1% → morphOpen 3px → GaussianBlur 3px → threshold
+→ morphClose 5px → morphClose vertical 1x7 → inpaint_mask (binary)
+→ SE8 (erode=-1, strength=0.65, field=0.85)
+→ head_adjusted force → compositing direct paste
+```
 
-Só toca no output final — não altera máscara do SE8 nem modelo de geração.
+## GPU Memory
+- Quando SE8 falha 3x com CUDA assertion → `nvidia-smi` verificar memória
+- `docker exec image-engine pkill -f python` limpa GPU
+- RTX 3090: 24GB VRAM, padrão 97% cheio após uso
