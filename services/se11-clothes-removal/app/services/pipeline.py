@@ -2309,7 +2309,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
             "detailed breast anatomy, realistic nipples, areola details, "
             "natural skin pores, skin texture, skin imperfections, "
-            "realistic body proportions, same body position, unchanged pose from original, "
+            "realistic body proportions, maintaining exact same body posture, "
+            "keeping original body position, not moving, not rotating, same stance, identical pose, "
             "skin tone matching the person's arms and face, consistent skin color throughout, "
             "seamless skin transition, matching skin tone with surrounding body, "
             "photorealistic, professional studio photography, soft lighting, "
@@ -2322,14 +2323,17 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
             "mutated hands and fingers, extra fingers, missing fingers, "
             "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
             "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
-            "cartoon, anime, sketch, changing pose, moved body, different position, rotated torso"
+            "cartoon, anime, sketch, "
+            "(changed pose, moved body, different position, rotated torso:1.5), "
+            "(shifted weight, leaning, tilting, bending, twisting:1.4), "
+            "(new angle, different posture:1.3)"
         )
 
         result1 = await se8.inpaint(
             image_b64=image_b64, mask_b64=mask_b64,
             prompt=nsfw_prompt,
             negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
-            inpaint_strength=0.70, inpaint_respective_field=0.85,
+            inpaint_strength=0.65, inpaint_respective_field=0.85,
             inpaint_erode_or_dilate=-1, loras=nsfw_loras,
             base_model="juggernautXL_v8Rundiffusion.safetensors",
         )
