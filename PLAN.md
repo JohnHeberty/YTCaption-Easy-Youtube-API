@@ -70,5 +70,5 @@
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
 | Plano anterior | `UPGRADE-1.md` (Phase 1+2) |
 | Avaliação honesta | `UPGRADE-2.md` (v17 production) |
-| Plano nsfw_test | `PLAN-1.md` (v17 best result) |
+| Plano nsfw_test | `docs/archived/PLAN-1.md` (v17 best result — ARCHIVED) |
 | Plano head detect | `PLAN-2.md` (haarcascade adaptativo) |
