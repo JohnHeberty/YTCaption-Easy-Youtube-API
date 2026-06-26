@@ -75,7 +75,7 @@
 
 | Arquivo | Caminho |
 |---------|---------|
-| Pipeline NSFW | `PLAN.md` |
+| Pipeline NSFW | `docs/archived/PLAN.md` |
 | Spec haarcascade | `docs/archived/PLAN-2.md` |
 | Spec SE9 animação | `SE9-UP.md` |
 | Lições aprendidas | `LIÇÕES.md` |
