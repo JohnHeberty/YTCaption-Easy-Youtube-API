@@ -393,15 +393,15 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await _run_progressive(job, store)
         return
 
-    # NSFW mode: OFFICIAL — routes to v15 pipeline (body mask + juggernautXL)
+    # NSFW mode: OFFICIAL — routes to v17 pipeline (BEST RESULT — body_mask + binary + smooth blend)
     if mode == "nsfw":
-        logger.info("Job %s: using OFFICIAL NSFW pipeline (v15 body_mask)", job.job_id)
-        await _run_pipe_nsfw_3layers_max(job, store)
+        logger.info("Job %s: using OFFICIAL NSFW pipeline (v17 body_mask + smooth blend)", job.job_id)
+        await _run_nsfw_test(job, store)
         return
 
-    # NSFW TEST mode: PLAN-1 (clothing exact + 20px dilation) — NOT production
+    # NSFW TEST mode: same as nsfw (kept as alias)
     if mode == "nsfw_test":
-        logger.info("Job %s: using TEST NSFW pipeline (PLAN-1 clothing_exact + 20px)", job.job_id)
+        logger.info("Job %s: using NSFW_TEST pipeline (alias for nsfw v17)", job.job_id)
         await _run_nsfw_test(job, store)
         return
 

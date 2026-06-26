@@ -1,38 +1,35 @@
 # PLAN.md — NSFW Pipeline
 
-**Data:** 2026-06-24  
-**Status:** ✅ v15 em produção + 🟡 nsfw_test em teste  
+**Data:** 2026-06-26  
+**Status:** ✅ v17 em produção (BEST RESULT)  
 **Rotas:**
-- Produção: `POST /jobs {"mode": "nsfw"}` → v15 body_mask
-- Teste: `POST /jobs {"mode": "nsfw_test"}` → smooth mask + head_adjusted + collage
+- Produção: `POST /jobs {"mode": "nsfw"}` → v17 body_mask + binary + smooth blend
+- Teste: `POST /jobs {"mode": "nsfw_test"}` → alias para v17
 
 ---
 
-## Pendências nsfw_test
-1. Optimizar dilatação (3% → testar 5-10%)
-2. PLAN-2: haarcascade head detection
-3. GFPGAN face restore
+## Pendências
+1. PLAN-2: haarcascade head detection (detecção adaptativa)
+2. GFPGAN face restore
+3. Testar dilatação 5-10% (atual: 3.5%)
 
 ---
 
-## Estado Final — v15 (Production Ready)
+## Estado Final — v17 (PRODUCTION READY — BEST RESULT)
 
 ### Pipeline
 ```
-1. SE10 Florence-2 detecta pessoa → person_mask
-2. Body = pessoa - head(40% + dilatação 15px)
-3. Exposed skin = body AND NOT clothes → skin color reference
-4. Inpaint mask = dilate(body_mask, 16px, 2 iter) → torso inteiro
-5. SE8 Inpainting (1 pass):
-   - base_model: juggernautXL_v8Rundiffusion
-   - prompt: "NSFW×5, bare skin, detailed breast anatomy, hyperrealistic..."
-   - negative: clothes/fabric/bra/straps/underwear/top/blouse/shirt/dress...
-   - denoise: 0.75, field: 0.85, sharpness: 2.0, CFG: 4.0
-   - LoRAs: NsfwPov 0.2, offset 0.1, detail 0.8
-6. Color transfer com exposed_skin reference
-7. Force head = original
-8. Morphological edge blend + bilateral filter
-9. Debug: 8 masks sequenciais (00-07)
+1. SE10 Florence-2 detecta pessoa → person_binary
+2. body_mask = person - head (top 40% + dilatação 15px)
+3. body_closed = body_mask (cópia)
+4. Dilation 3.5% adaptativa → body_expanded
+5. morphOpen 3px (suaviza cantos)
+6. GaussianBlur 3px + threshold > 127 (SE8 vê binário)
+7. morphClose 5px ellipse + vertical 1x7 (fecha gaps)
+8. inpaint_mask → SE8
+9. SE8: juggernautXL, erode=-3, strength=0.65, field=0.85
+10. Paste binário → GaussianBlur 7px blend no resultado FINAL
+11. head_adjusted force → resultado final
 ```
 
 ### Parâmetros Produção
@@ -40,30 +37,34 @@
 | Parâmetro | Valor |
 |-----------|-------|
 | base_model | juggernautXL_v8Rundiffusion |
-| NsfwPov LoRA | 0.2 |
-| inpaint_strength | 0.75 |
+| NsfwPov LoRA | 0.3 |
+| add-detail-xl LoRA | 1.0 |
+| inpaint_strength | 0.65 |
 | inpaint_respective_field | 0.85 |
-| inpaint_erode_or_dilate | -8 |
+| inpaint_erode_or_dilate | -3 |
 | sharpness | 2.0 |
 | guidance_scale | 4.0 |
 | clip_skip | 2 |
 | inpaint_engine | v2.6 |
 | steps | 30 (default) |
-| head cutoff | 40% bbox |
-| head dilation | kernel 15px, 2 iter |
-| inpaint kernel | 16px, 2 iter |
+| head cutoff | 40% bbox + dilation 15px |
+| dilation adaptativa | 3.5% |
+| morphOpen | 3px |
+| GaussianBlur (mask) | 3px |
+| morphClose | 5px + vertical 1x7 |
+| Smooth blend (output) | GaussianBlur 7px |
 
 ---
 
 ## Descobertas Críticas
 
 1. **Simplicidade > Complexidade** — params simples (juggernautXL, 1 pass, CFG 4) superaram 3 passes + lustify + CFG 7
-2. **Job `cr_f5a80bef266e`** (20 Jun) já fazia NSFW realista — nós super-complicámos
-3. **body_mask > clothing_exact** — modelo precisa de espaço para gerar corpo, não só roupa
-4. **5x NSFW no prompt** — força o modelo a gerar conteúdo explícito
-5. **Negative sem "nipples/areola"** — remover estes termos do negative permite geração
-6. **color_transfer** — destruía cores quando activo em pipelines complexos, mas funciona no pipeline simples
-7. **fooocus_fill()** — cria blur da cor média; com body_mask dá cor de pele, com clothing_exact dava cor da roupa
+2. **body_mask > clothing_exact** — modelo precisa de espaço para gerar corpo, não só roupa
+3. **5x NSFW no prompt** — força o modelo a gerar conteúdo explícito
+4. **Negative sem "nipples/areola"** — remover estes termos do negative permite geração
+5. **Binary mask para SE8** — SE8 espera binário (0 ou 255), não suave
+6. **Smooth blend no output** — GaussianBlur 7px no resultado final, não na máscara de entrada
+7. **3.5% dilation + erode=-3** — sweet spot: cobertura sem comer fundo
 
 ---
 
@@ -76,6 +77,6 @@
 | Models | `services/se11-clothes-removal/app/core/models.py` |
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
 | Plano anterior | `UPGRADE-1.md` (Phase 1+2) |
-| Avaliação honesta | `UPGRADE-2.md` (v15 + nsfw_test) |
-| Plano nsfw_test | `PLAN-1.md` (clothing + collage) |
+| Avaliação honesta | `UPGRADE-2.md` (v17 production) |
+| Plano nsfw_test | `PLAN-1.md` (v17 best result) |
 | Plano head detect | `PLAN-2.md` (haarcascade adaptativo) |
