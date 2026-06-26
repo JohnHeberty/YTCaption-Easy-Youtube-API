@@ -2354,26 +2354,9 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # Force head_adjusted = original (not head_mask — expanded clothing excluded)
         inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
-        # STAGE 1: Reinhard Color Transfer (LAB space)
-        try:
-            src_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-            ref_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-            src_region = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_adjusted))
-
-            for ch in range(3):
-                src_pixels = src_lab[:, :, ch][src_region > 0] if (src_region > 0).any() else src_lab[:, :, ch].ravel()
-                ref_pixels = ref_lab[:, :, ch][exposed_skin > 0] if (exposed_skin > 0).any() else ref_lab[:, :, ch].ravel()
-                src_m, src_s = float(src_pixels.mean()), float(src_pixels.std())
-                ref_m, ref_s = float(ref_pixels.mean()), float(ref_pixels.std())
-                if src_s > 1e-6:
-                    src_lab[:, :, ch] = (src_lab[:, :, ch] - src_m) * (ref_s / src_s) + ref_m
-
-            color_corrected = _cv2.cvtColor(_np.clip(src_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-            color_corrected[head_adjusted > 0] = orig_img[head_adjusted > 0]
-            logger.info("Job %s: Reinhard LAB applied", job.job_id)
-        except Exception as e:
-            logger.warning("Job %s: Reinhard LAB failed (%s), using inpainted", job.job_id, e)
-            color_corrected = inpainted_img
+        # STAGE 1: Skip Reinhard LAB — SE8 generates skin with correct tone
+        color_corrected = inpainted_img
+        logger.info("Job %s: Reinhard LAB skipped (SE8 skin tone used)", job.job_id)
 
         # STAGE 2: Paste NSFW result — binary expanded mask
         composited = orig_img.copy()
