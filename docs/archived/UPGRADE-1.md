@@ -36,20 +36,7 @@
 
 ### Achado Crítico: Limite da Detecção
 
-**Problema fundamental:** A detecção (GroundingDINO/Florence-2) só encontra a roupa VISÍVEL (~18% da imagem). Para remoção completa, seria necessário detectar a área INTEIRA da roupa, não apenas a parte visível.
-
-**Soluções possíveis (pendentes):**
-1. **ControlNet** — Usar contornos do corpo para guiar inpainting
-2. **img2img com referência** — Usar imagem original como guia
-3. **Máscara progressiva** — Múltiplas passadas com máscaras cada vez maiores
-4. **Modelo especializado** — Treinar modelo para detectar área completa da roupa
-
-**Testes realizados (todos FRACASSARAM):**
-1. **Force-include strap detections** → máscara expande para face (Top=24-27%)
-2. **Edge detection (Canny) na zona de straps** → adiciona 14.6% coverage → erosão mata tudo
-3. **Selective erosion (bottom-only)** → máscara ainda cobre face
-
-**Conclusão:** Detecção de alças finas via GroundingDINO + edge detection não é viável sem afetar o rosto. Solução: usar **person mode** para remoção de alças (já funciona — v20/v22).
+> **Lições sobre detecção, HSV, CUDA:** Ver `LIÇÕES.md` (Secções 2, 3, 6, 7)
 
 ### Veredicto QA
 
@@ -79,11 +66,7 @@
 
 ### 1.1 HSV Color Transfer v2 ✅ CONCLUÍDO
 
-**Problema:** A versão BGR funciona (delta=[26,11,10]) mas é simples (mean shift global). A versão HSV testou e FRACASSOU (causou 45% changed) por causa de `smooth_mask` com Gaussian blur 51x51 que vazou para fora da máscara.
-
-**Causa raiz do fracasso HSV:** O `cv2.GaussianBlur(mask, (51,51), 0)` cria uma máscara suave que se estende muito além da região mascarada. Com kernels grandes, 60%+ da imagem fica afetada.
-
-**Solução implementada:** Usar HSV SEM smooth_mask — aplicar correção apenas em pixels dentro da máscara binária, com transição suave apenas nas bordas (erosão morfológica).
+> **Lição sobre HSV color transfer failure:** Ver `LIÇÕES.md` Secção 7
 
 **Arquivo:** `services/se11-clothes-removal/app/services/pipeline.py` — função `_color_transfer()` (linhas 168-213)
 
@@ -127,14 +110,7 @@ def _color_transfer(result_bytes, original_bytes, mask_b64):
 
 ### 1.2 SE8 CUDA Fix — Tensor Cleanup ✅ CONCLUÍDO
 
-**Problema:** `torch.cuda.empty_cache()` no SE8 worker.py quebra o pipeline de inpainting (caiu de 5% changed para 45% changed). O `empty_cache` descarta tensores que o InpaintWorker precisa.
-
-**Causa raiz:** O `_soft_empty_cache()` em `model_manager.py:562` é chamado em toda carga de modelo. O `empty_cache` no início do `process_generate` quebra o estado do VAE e InpaintHead.
-
-**Solução implementada:** Em vez de `empty_cache()`:
-1. Remover o `empty_cache` e `synchronize` que adicionei no `worker.py` (já revertido)
-2. Adicionar `del` de tensores temporários após uso em `_apply_inpaint()`
-3. Usar `torch.cuda.ipc_collect()` em vez de `empty_cache()` (não descarta tensores ativos)
+> **Lição sobre empty_cache vs ipc_collect:** Ver `LIÇÕES.md` Secção 6
 
 **Arquivo:** `services/se8-image-generation/app/services/worker.py`
 
@@ -150,10 +126,7 @@ except Exception:
     pass
 ```
 
-**Resultado:** Pipeline funciona sem empty list errors  
-**Imagem de teste:** `Test_result_v24.png`  
-**Critério:** 10/10 requests success, nenhum empty list ✅ ATENDIDO  
-**Risco:** BAIXO — `ipc_collect()` é mais seguro que `empty_cache()`
+**Resultado:** Pipeline funciona sem empty list errors
 
 ---
 

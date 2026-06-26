@@ -8,23 +8,7 @@
 
 ## ⚠️ AVALIAÇÃO HONESTA
 
-### O que FUNCIONA
-- Preservação de rosto: **100%** (Face SSIM=1.000, 0 pixels afetados)
-- Preservação de fundo: **100%** (BG diff=0.00)
-- Detecção de máscaras: **Precisa** (SE10 reais, não retângulos)
-- Pele realista: **Sim** (skin color reference + LUSTIFY NSFW)
-
-### O que NÃO FUNCIONA
-- **Remoção 100% NSFW: NÃO ALCANÇADO** — resultado atual é ~32% torso, ~72% bot
-- O modelo SDXL gera pele mas **não consegue remover toda a roupa** em uma passagem
-- Mesmo com 2-pass (0.75 + 0.45), a remoção é parcial
-- Progressão: single-pass 14% → progressive 50% → 3layers_max 72% — mas nunca 100%
-
-### Por que não é 100%
-1. **Limitação do modelo SDXL** — JuggernautXL/LUSTIFY não foram treinados para remover 100% roupa
-2. **Denoise controlado** — se aumentar denoise, degrada face/corpo
-3. **Máscara baseada em detecção** — SE10 detecta apenas partes visíveis da roupa
-4. **Inpainting gera texto** — modelo tenta gerar pele mas mantém textura similar à roupa
+> **Lições aprendidas (o que funciona, o que não funciona, limitações):** Ver `LIÇÕES.md` (Secções 2, 3, 4, 5)
 
 ---
 
@@ -53,11 +37,7 @@ SE10 Florence-2 → person_mask → body(40%) → exposed_skin → inpaint_mask(
 
 ### Descoberta Final
 
-O job `cr_f5a80bef266e` (20 Jun) já gerava NSFW realista com params simples:
-- juggernautXL + NsfwPov 0.2 + 1 pass + CFG 4 + prompt simples
-
-Nós super-complicámos (lustify, 3 passes, CFG 7, pre-fill, etc.) e piorámos.
-Ao reverter + manter body_mask (melhor que a máscara antiga) = resultado igual ou melhor.
+> **Lição sobre simplicidade vs complexidade:** Ver `LIÇÕES.md` Secção 4
 
 ---
 
@@ -82,14 +62,8 @@ SE10 Florence-2 → person_mask → body(40%) → exposed_skin → clothing_exac
 ```
 
 ### Descobertas-chave do nsfw_test
-1. **Collage > color_transfer** — colar pessoa NSFW na imagem original preserva fundo perfeitamente
-2. **7% adaptive > 20px fixo** — adapta a qualquer resolução
-3. **Reinhard LAB > HSV** — match de Luminance+Chroma resolve tonalidade (HSV só H+S)
-4. **Clothing exact > body mask** — foca o modelo na zona correcta, preserva pele existente
-5. **GaussianBlur (31+15px)** — melhor borda que qualquer técnica complexa testada
-6. **seamlessClone NÃO funciona** — traz roupa de volta (preserva gradientes do destino)
-7. **2-pass (0.50) NÃO funciona** — regenera conteúdo, causa blobs
-8. **HSV correction NÃO funciona** — artefactos vermelhos mesmo com feathering
+
+> **Lições sobre collage, seamlessClone, HSV, 2-pass:** Ver `LIÇÕES.md` Secções 2, 3, 7
 
 ### Pipeline nsfw_test final
 ```
@@ -104,13 +78,7 @@ SE8 Pass 1 (0.75) → head force → Reinhard LAB color transfer → GaussianBlu
 
 ## O que precisa para 100% NSFW
 
-| Abordagem | Por que resolve | Complexidade |
-|-----------|----------------|-------------|
-| **Modelo NSFW专用 treinado** | Modelo treinado para remover roupa | ALTA |
-| **Multi-pass agressivo** | 5-10 passes com denoise crescente | MÉDIA |
-| **ControlNet + DensePose** | Guia o inpainting com pose 3D | MUITO ALTA |
-| **API externa NSFW** | Modelos dedicados (Replicate, fal.ai) | MÉDIA |
-| **Fine-tune do modelo** | Treinar LUSTIFT para NSFW completo | MUITO ALTA |
+> **Avaliação de abordagens:** Ver `LIÇÕES.md` Secção 5
 
 ---
 

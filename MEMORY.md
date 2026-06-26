@@ -19,15 +19,7 @@
 - **head_adjusted:** 100% sólido (close + floodFill)
 - **Compositing:** paste binário → GaussianBlur 7px blend → head force
 - **GPU:** RTX 3090 24GB — quando CUDA assertion, `pkill -f python` no SE8
-- **Lições CRÍTICAS:**
-  - ❌ 5% dilation → blobs (máscara grande demais)
-  - ❌ Máscara suave (0-255) para SE8 → SE8 espera binário
-  - ❌ Reinhard LAB → escurece pele (canal L)
-  - ❌ strength 0.55 → blobs | strength 0.80 → muda pose
-  - ❌ 2-pass → regenera conteúdo
-  - ✅ 3.5% + erode=-3 + strength=0.65 = SWEET SPOT
-  - ✅ Smooth blend NO resultado final (não no SE8)
-  - ✅ Prompts com weights no negative (1.3, 1.5)
+> **Lições aprendidas:** Ver `LIÇÕES.md`
 - **Pendências:** PLAN-2 (haarcascade head detection), GFPGAN face restore
 
 ### Modos antigos (DEPRECATED)
@@ -35,8 +27,8 @@
 - `nsfw_test` → alias para `nsfw` (mesmo pipeline v17)
 
 ### Config SE11
-- `mode="nsfw"` = pipeline oficial (produção)
-- `mode="nsfw_test"` = pipeline teste (superior, não em produção)
+- `mode="nsfw"` = pipeline oficial (produção, v17 BEST RESULT)
+- `mode="nsfw_test"` = alias para `nsfw` (mesmo pipeline v17)
 - `mode="clothes"` = default (remoção padrão)
 - `mode="person"` = remoção por pessoa
 - Lustify NSFW (6.9GB) disponível mas NÃO usado (juggernautXL é melhor)
@@ -46,10 +38,7 @@
 - **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46)
 - **UPGRADE-2.md ATUALIZADO** — 60+ abordagens testadas (v24-v82)
 - **v6**: NSFW clothes-only + hard composite, Face=1.000, BG=0.0, Torso=2.2%, Bot=40%
-- **LIMITAÇÃO CRÍTICA**: SDXL inpainting NÃO gera pele realista em máscaras >15% — gera manchas cinza/chapadas
-- **NSFW prompt+LoRA** não funciona — JuggernautXL não foi treinado para NSFW em inpainting
 - **Melhor rota**: `mode=progressive` (v83) — Face=1.000, Bot=62.9%, BG=0.3
-- **IP-Adapter**: FALHOU — CUDA assertion
 - **Investigação NSFW (v24-v82)**: 60+ abordagens testadas
 - **SE11 Quality Pipeline v2** — 6 improvements: auto erosion, coverage cap, max 3 objects, per-garment, webhook, HSV color transfer (reverted to BGR after testing)
 - **Strict filtering**: max 3 objects by confidence, min confidence 0.10, coverage cap at 15% with erosion

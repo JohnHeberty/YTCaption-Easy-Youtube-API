@@ -56,15 +56,7 @@
 
 ---
 
-## Descobertas Críticas
-
-1. **Simplicidade > Complexidade** — params simples (juggernautXL, 1 pass, CFG 4) superaram 3 passes + lustify + CFG 7
-2. **body_mask > clothing_exact** — modelo precisa de espaço para gerar corpo, não só roupa
-3. **5x NSFW no prompt** — força o modelo a gerar conteúdo explícito
-4. **Negative sem "nipples/areola"** — remover estes termos do negative permite geração
-5. **Binary mask para SE8** — SE8 espera binário (0 ou 255), não suave
-6. **Smooth blend no output** — GaussianBlur 7px no resultado final, não na máscara de entrada
-7. **3.5% dilation + erode=-3** — sweet spot: cobertura sem comer fundo
+> **Lições aprendidas / Descobertas Críticas:** Ver `LIÇÕES.md`
 
 ---
 

@@ -198,9 +198,13 @@ Rodar sempre no **subprojeto correto**. Nunca dizer "testado" sem teste real.
 
 `/root/YTCaption-Easy-Youtube-API/MEMORY.md` é a **fonte de verdade entre sessões**.
 
+`/root/YTCaption-Easy-Youtube-API/LIÇÕES.md` é o **arquivo consolidado de lições aprendidas** — todas as lições do projeto em um só lugar.
+
 Usar para salvar: estado atual, progresso factual, decisões de arquitetura, arquivos alterados, bloqueios, próximos passos, bugs conhecidos, comandos validados.
 
 Não salvar: logs temporários, outputs longos, tentativas descartadas, discussões conversacionais, código completo.
+
+Lições aprendidas: SEMPRE em `LIÇÕES.md`, nunca espalhadas em outros arquivos .md.
 
 ## 10. Resposta Final Obrigatória
 
