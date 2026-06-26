@@ -1,9 +1,37 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-06-23)
+## Última sessão (2026-06-26)
 
 ### 🟢 NSFW v15 — PRODUCTION READY
 - **Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
+
+### 🟡 NSFW TEST — MELHOR RESULTADO (v17, 2026-06-26)
+- **Rota teste:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
+- **Pipeline:** `_run_nsfw_test()`
+- **Config óptima (PROVEN):**
+  - body_mask como inpaint (não clothing mask)
+  - 3.5% dilation adaptativa
+  - erode_or_dilate=-3
+  - morphOpen 3px + GaussianBlur 3px + morphClose 5px + vertical 1x7
+  - strength=0.65, field=0.85
+  - NsfwPov 0.3, add-detail-xl 1.0
+  - Sem Reinhard LAB (pele correcta do SE8)
+  - Smooth blend GaussianBlur 7px no resultado FINAL
+- **Prompt positive:** NSFW×5, solo, same body position, unchanged pose, skin tone matching
+- **Prompt negative:** (deformed:1.3), extra limbs, airbrushed, plastic skin, changing pose:1.5
+- **head_adjusted:** 100% sólido (close + floodFill)
+- **Compositing:** paste binário → GaussianBlur 7px blend → head force
+- **Lições CRÍTICAS:**
+  - ❌ 5% dilation → blobs (máscara grande demais)
+  - ❌ Máscara suave (0-255) para SE8 → SE8 espera binário
+  - ❌ Reinhard LAB → escurece pele (canal L)
+  - ❌ strength 0.55 → blobs | strength 0.80 → muda pose
+  - ❌ 2-pass → regenera conteúdo
+  - ✅ 3.5% + erode=-3 + strength=0.65 = SWEET SPOT
+  - ✅ Smooth blend NO resultado final (não no SE8)
+  - ✅ Prompts com weights no negative (1.3, 1.5)
+- **GPU:** RTX 3090 24GB — quando CUDA assertion, `pkill -f python` no SE8
+- **Pendências:** PLAN-2 (haarcascade head detection)
 - **Pipeline:** `_run_pipe_nsfw_3layers_max()` body mask + juggernautXL
 - **Máscara:** `body_mask` dilatado 16px (torso inteiro ~40%)
 - **Modelo:** juggernautXL_v8Rundiffusion + NsfwPov 0.2 + offset 0.1 + detail 0.8
