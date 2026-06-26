@@ -2257,14 +2257,15 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         open_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
         body_expanded = _cv2.morphologyEx(body_expanded, _cv2.MORPH_OPEN, open_kernel)
         # GaussianBlur (3px) for smooth mask edges — SE8 sees softer boundary
-        body_expanded = _cv2.GaussianBlur(body_expanded.astype(_np.float32), (3, 3), 0)
+        # Binary mask for SE8 — model expects 0 or 255
         body_expanded = (body_expanded > 127).astype(_np.uint8) * 255
-        # Close gaps between hand and waist
+        inpaint_mask = body_expanded  # binary → SE8
+
+        # Close gaps
         close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-        body_expanded = _cv2.morphologyEx(body_expanded, _cv2.MORPH_CLOSE, close_k, iterations=2)
-        # Vertical close — bridges thin horizontal gaps (hand-waist)
+        inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k, iterations=2)
         v_close_k = _cv2.getStructuringElement(_cv2.MORPH_RECT, (1, 7))
-        body_expanded = _cv2.morphologyEx(body_expanded, _cv2.MORPH_CLOSE, v_close_k)
+        inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, v_close_k)
 
         # Close holes in head mask — 100% solid, no gaps
         head_closed = head_mask.copy()
@@ -2285,8 +2286,8 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # TEMP: disabled GaussianBlur — using binary expanded mask directly
         inpaint_mask = body_expanded
 
-        # head_adjusted: use original body_closed (NOT expanded) for subtraction
-        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(body_closed))
+        # head_adjusted: subtract binary mask from head
+        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(inpaint_mask))
 
         clothes_pct = (body_closed > 0).sum() / body_closed.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
@@ -2364,9 +2365,9 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         color_corrected = inpainted_img
         logger.info("Job %s: Reinhard LAB skipped (SE8 skin tone used)", job.job_id)
 
-        # STAGE 2: Paste NSFW result — binary expanded mask
+        # STAGE 2: Paste NSFW result — binary inpaint_mask
         composited = orig_img.copy()
-        body_bin = body_expanded > 0
+        body_bin = inpaint_mask > 0
         composited[body_bin] = color_corrected[body_bin]
         # Force head_adjusted = original
         composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
