@@ -151,7 +151,6 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 | Color inRange (HSV) | ⚠️ | Risco de false positives (fundo igual à roupa) |
 | Connected components | ❌ | Não encontra straps (spatially connected ao topo) |
 | Per-garment mode | ⚠️ | N× mais lento, errou alças |
-| SAHI high-res tiling | pendente | Não testado |
 | FooocusExpansion GPT-2 | N/A | Carregado mas nunca chamado (use_expansion=False) |
 | Safety checker (black_out_nsfw) | N/A | Código existe mas nunca é chamado |
 

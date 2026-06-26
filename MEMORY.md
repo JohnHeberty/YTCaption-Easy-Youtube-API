@@ -20,7 +20,7 @@
 - **Compositing:** paste binário → GaussianBlur 7px blend → head force
 - **GPU:** RTX 3090 24GB — quando CUDA assertion, `pkill -f python` no SE8
 > **Lições aprendidas:** Ver `LIÇÕES.md`
-- **Pendências:** PLAN-2 (haarcascade head detection), GFPGAN face restore
+> **Pendências:** Ver `PENDENCIAS.md`
 
 ### Modos antigos (DEPRECATED)
 - `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v17) com deprecation warning
@@ -278,15 +278,4 @@ Files (44): `app/__init__.py`, `app/main.py`, `args_manager.py`, `app/api/__init
 
 All 44 py_compile OK, no logic changes.
 
-## Próximos Passos
-1. ✅ SE8 Inpainting full pipeline — VAE+InpaintHead+patched sampler, Docker rebuild persisted
-2. ✅ SE11 Params fix — aspect ratio, styles, advanced_params
-3. ✅ E2E validated — full SE11→SE10→SE8 pipeline, compose-persisted images
-4. ✅ Pydantic v2 migration completa — 348/348 arquivos, zero warnings
-5. ✅ SE8 Docker rebuild — all inpainting fixes persisted (2026-06-20)
-6. ✅ SE11 Person removal mode — SE10 mode=person + SE11 pipeline adaptado, E2E validated
-7. ✅ SE11 Mask filtering fix — objects + masks paired, hybrid fallback
-8. ✅ SE11 Denoise tuning — 0.70 sweet spot, negative prompt strengthened
-9. SE8 CUDA assertion mitigation — investigate GPU driver version or add graceful restart
-10. Color matching improvement — test inpaint_disable_initial_latent or color correction post-processing
-11. Integração SE11 ao SE1 ou APIs externas
+> **Próximos passos / Pendências:** Ver `PENDENCIAS.md`
