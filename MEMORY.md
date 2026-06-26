@@ -2,12 +2,9 @@
 
 ## Última sessão (2026-06-26)
 
-### 🟢 NSFW v15 — PRODUCTION READY
+### 🟢 NSFW v17 — PRODUCTION READY (BEST RESULT)
 - **Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
-
-### 🟡 NSFW TEST — MELHOR RESULTADO (v17, 2026-06-26)
-- **Rota teste:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
-- **Pipeline:** `_run_nsfw_test()`
+- **Pipeline:** `_run_nsfw_test()` (v17 — body_mask + binary mask + smooth blend)
 - **Config óptima (PROVEN):**
   - body_mask como inpaint (não clothing mask)
   - 3.5% dilation adaptativa
@@ -21,6 +18,7 @@
 - **Prompt negative:** (deformed:1.3), extra limbs, airbrushed, plastic skin, changing pose:1.5
 - **head_adjusted:** 100% sólido (close + floodFill)
 - **Compositing:** paste binário → GaussianBlur 7px blend → head force
+- **GPU:** RTX 3090 24GB — quando CUDA assertion, `pkill -f python` no SE8
 - **Lições CRÍTICAS:**
   - ❌ 5% dilation → blobs (máscara grande demais)
   - ❌ Máscara suave (0-255) para SE8 → SE8 espera binário
@@ -30,43 +28,11 @@
   - ✅ 3.5% + erode=-3 + strength=0.65 = SWEET SPOT
   - ✅ Smooth blend NO resultado final (não no SE8)
   - ✅ Prompts com weights no negative (1.3, 1.5)
-- **GPU:** RTX 3090 24GB — quando CUDA assertion, `pkill -f python` no SE8
-- **Pendências:** PLAN-2 (haarcascade head detection)
-- **Pipeline:** `_run_pipe_nsfw_3layers_max()` body mask + juggernautXL
-- **Máscara:** `body_mask` dilatado 16px (torso inteiro ~40%)
-- **Modelo:** juggernautXL_v8Rundiffusion + NsfwPov 0.2 + offset 0.1 + detail 0.8
-- **1 pass** denoise 0.75, field 0.85, sharpness 2.0, CFG 4.0, clip_skip 2
-- **Prompt:** "NSFW×5, bare skin, detailed breast anatomy, realistic nipples, hyperrealistic..."
-- **Negative:** clothes/fabric/bra/straps/underwear/top/blouse/shirt/dress/skirt/pattern/floral/textile
-- **Face:** 100% preservada (head mask top 40% + dilatação 15px)
-- **BG:** 100% preservado
-- **Color transfer:** activo (exposed_skin HSV reference)
-- **Edge blend:** morph open/close + bilateral filter
-- **Debug:** 8 masks sequenciais (00-07) + overlay
-
-### 🟡 NSFW TEST — Em teste
-- **Rota teste:** `POST /jobs {"image": "<base64>", "mode": "nsfw_test"}`
-- **Pipeline:** `_run_nsfw_test()` — actualizado em 2026-06-24
-- **Máscara:**
-  1. clothing_closed = body AND NOT exposed_skin → floodFill fecha buracos
-  2. clothes_expanded = dilate 3% (bordas da roupa)
-  3. inpaint_mask = GaussianBlur(15px) clothes_expanded → suavizado → SE8
-  4. head_adjusted = head AND NOT inpaint_bin (máscara suavizada subtrai da cabeça)
-  5. Sem force de cabeça no resultado final
-- **Colagem:** GaussianBlur(31px) + GaussianBlur(15px) → fundo 100% preservado
-- **Reinhard LAB:** matching tonalidade (Luminance+Chroma)
-- **Modelo:** juggernautXL, NsfwPov 0.2, CFG 4.0, sharpness 2.0
-- **Lições:**
-  - ❌ Smooth na máscara para head subtração → OK, mas 3% é pouco
-  - ❌ head_force no resultado final → máscara antiga visível
-  - ❌ face_only (V3) → bordas feias na face
-  - ✅ Smooth + head_adjusted + sem force final = melhor resultado
-- **Pendências:**
-  - Ajustar dilatação (3% é pouco, head_adjusted quase = head_mask)
-  - PLAN-2: detecção adaptativa de cabeça (haarcascade)
+- **Pendências:** PLAN-2 (haarcascade head detection), GFPGAN face restore
 
 ### Modos antigos (DEPRECATED)
-- `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v15) com deprecation warning
+- `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v17) com deprecation warning
+- `nsfw_test` → alias para `nsfw` (mesmo pipeline v17)
 
 ### Config SE11
 - `mode="nsfw"` = pipeline oficial (produção)
