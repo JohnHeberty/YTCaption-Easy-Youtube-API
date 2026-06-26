@@ -6,12 +6,7 @@
 - Produção: `POST /jobs {"mode": "nsfw"}` → v17 body_mask + binary + smooth blend
 - Teste: `POST /jobs {"mode": "nsfw_test"}` → alias para v17
 
----
-
-## Pendências
-1. PLAN-2: haarcascade head detection (detecção adaptativa)
-2. GFPGAN face restore
-3. Testar dilatação 5-10% (atual: 3.5%)
+> **Pendências:** Ver `PENDENCIAS.md`
 
 ---
 
@@ -68,7 +63,5 @@
 | HTTP Client | `services/se11-clothes-removal/app/infrastructure/http_client.py` |
 | Models | `services/se11-clothes-removal/app/core/models.py` |
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
-| Plano anterior | `UPGRADE-1.md` (Phase 1+2) |
-| Avaliação honesta | `UPGRADE-2.md` (v17 production) |
-| Plano nsfw_test | `docs/archived/PLAN-1.md` (v17 best result — ARCHIVED) |
-| Plano head detect | `PLAN-2.md` (haarcascade adaptativo) |
+| Pendências | `PENDENCIAS.md` |
+| Lições | `LIÇÕES.md` |
