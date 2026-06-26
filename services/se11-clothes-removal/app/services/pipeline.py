@@ -2259,6 +2259,9 @@ async def _run_nsfw_test(job: ClothesRemovalJob, store: ClothesRemovalJobStore) 
         # GaussianBlur (3px) for smooth mask edges — SE8 sees softer boundary
         body_expanded = _cv2.GaussianBlur(body_expanded.astype(_np.float32), (3, 3), 0)
         body_expanded = (body_expanded > 127).astype(_np.uint8) * 255
+        # Close gaps between hand and waist (morphOpen + blur may create thin holes)
+        close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+        body_expanded = _cv2.morphologyEx(body_expanded, _cv2.MORPH_CLOSE, close_k, iterations=2)
 
         # Close holes in head mask — 100% solid, no gaps
         head_closed = head_mask.copy()
