@@ -253,6 +253,16 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
         person_binary = (person_mask > 127).astype(_np.uint8) * 255
 
+        # Fill ALL internal holes in the person mask
+        # FloodFill from edge (0,0) to find background, then invert to get holes
+        _h, _w = person_binary.shape
+        _flood = person_binary.copy()
+        _flood_mask = _np.zeros((_h + 2, _w + 2), _np.uint8)
+        _cv2.floodFill(_flood, _flood_mask, (0, 0), 255)
+        _holes = _cv2.bitwise_not(_flood)
+        person_binary = _cv2.bitwise_or(person_binary, _holes)
+        logger.info("Job %s: person mask holes filled (%d px closed)", job.job_id, _np.count_nonzero(_holes))
+
         job.update_stage("detecting", "processing", progress=25.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
