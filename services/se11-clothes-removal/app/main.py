@@ -74,6 +74,36 @@ app = create_service_app(
 )
 
 
+OPENAPI_TAGS = [
+    {
+        "name": "Jobs",
+        "description": (
+            "Create, list, poll, and delete clothes removal jobs.\n\n"
+            "Use `POST /jobs` to start a job, then `GET /jobs/{job_id}` to poll progress.\n"
+            "Job status transitions: `queued` → `detecting` → `inpainting` → `completed` | `failed`."
+        ),
+    },
+    {
+        "name": "Health",
+        "description": (
+            "Health checks and service metadata.\n\n"
+            "- `GET /health` — Liveness probe (always 200 if service is up)\n"
+            "- `GET /health/deep` — Checks upstream connectivity (SE10, SE8)\n"
+            "- `GET /ping` — Simple connectivity test\n"
+            "- `GET /` — Service info and endpoint catalog"
+        ),
+    },
+    {
+        "name": "Admin",
+        "description": (
+            "System administration endpoints.\n\n"
+            "- `GET /admin/stats` — Job counts by status and disk usage\n"
+            "- `POST /admin/cleanup` — Remove completed/failed jobs and their output files"
+        ),
+    },
+]
+
+
 def custom_openapi() -> dict:
     if app.openapi_schema:
         return app.openapi_schema
@@ -82,6 +112,7 @@ def custom_openapi() -> dict:
         version=app.version,
         description=app.description,
         routes=app.routes,
+        tags=OPENAPI_TAGS,
     )
     schema["info"]["contact"] = {
         "name": "SE11 Clothes Removal",
