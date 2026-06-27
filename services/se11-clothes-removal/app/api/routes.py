@@ -219,72 +219,71 @@ async def create_job(
         ),
     ),
     mode: RemovalMode = Form(
-        default=RemovalMode.CLOTHES,
+        default=RemovalMode.NSFW,
         description=(
             "**Processing mode:**\n"
-            "- `clothes` — Default. Removes detected clothing items.\n"
+            "- `nsfw` ⭐ — **Recommended.** Production pipeline with 3-attempt retry, pose validation.\n"
+            "- `clothes` — Removes detected clothing items.\n"
             "- `person` — Removes entire torso (head preserved).\n"
-            "- `nsfw` — Production pipeline (retry + pose validation).\n"
             "- `nsfw_test` — Alias for nsfw."
         ),
     ),
     classes: str | None = Form(
-        default=None,
+        default="spaghetti strap, camisole, top, blouse",
         description=(
             "**Clothing classes to detect** (comma-separated).\n"
-            "If empty, all clothing is auto-detected.\n\n"
-            "Examples: `spaghetti strap, camisole, top, blouse`"
+            "Only used in `clothes` mode. Ignored in `nsfw` mode.\n\n"
+            "Leave as default for general fashion, or specify custom classes."
         ),
     ),
     prompt: str = Form(
-        default="",
+        default="NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, detailed breast anatomy, realistic nipples, areola details, natural skin pores, skin texture, skin imperfections, realistic body proportions, maintaining exact same body posture, keeping original body position, not moving, not rotating, same stance, identical pose, skin tone matching the person's arms and face, consistent skin color throughout, seamless skin transition, matching skin tone with surrounding body, photorealistic, professional studio photography, soft lighting, sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd",
         description=(
-            "**Inpainting prompt** — what the AI should generate in the masked area.\n"
-            "Leave empty for default skin texture prompt."
+            "**Inpainting prompt** — what the AI generates in the masked area.\n"
+            "Leave as default for best results. Customize only if you know what you're doing."
         ),
     ),
     negative_prompt: str = Form(
-        default="",
+        default="(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, mutated hands and fingers, extra fingers, missing fingers, long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, clothes, fabric, bra, straps, underwear, pattern, floral, textile, cartoon, anime, sketch, (changed pose, moved body, different position, rotated torso:1.5), (shifted weight, leaning, tilting, bending, twisting:1.4), (new angle, different posture:1.3)",
         description=(
             "**Negative prompt** — what the AI should avoid.\n"
-            "Leave empty for defaults."
+            "Leave as default for best results."
         ),
     ),
     box_threshold: float = Form(
         default=0.10,
         ge=0.0,
         le=1.0,
-        description="**SE10 detection threshold.** Higher = fewer but more confident detections.",
+        description="**SE10 detection threshold.** Higher = fewer but more confident detections. Default 0.10 works well.",
     ),
     text_threshold: float = Form(
         default=0.10,
         ge=0.0,
         le=1.0,
-        description="**SE10 text matching threshold** (Florence-2). Higher = stricter.",
+        description="**SE10 text matching threshold.** Higher = stricter class matching. Default 0.10 works well.",
     ),
     inpaint_strength: float = Form(
-        default=1.0,
+        default=0.65,
         ge=0.0,
         le=1.0,
         description=(
-            "**SE8 inpaint strength.**\n"
-            "- `0.0` = preserve original\n"
-            "- `1.0` = full AI generation (default)"
+            "**Inpainting strength.** In `nsfw` mode, the pipeline overrides this with a retry loop "
+            "(0.65 → 0.70 → 0.75). In `clothes`/`person` modes, the pipeline uses 0.70."
         ),
     ),
     per_garment: bool = Form(
         default=False,
-        description="**Inpaint each garment separately.** Slower but higher quality.",
+        description="**Inpaint each garment separately.** Slower but higher quality. Only used in `clothes` mode.",
     ),
     webhook_url: str | None = Form(
         default=None,
-        description="**Webhook URL** for completion notification (POST).",
+        description="**Webhook URL** for completion notification (POST with job status).",
     ),
     detector: DetectorType = Form(
         default=DetectorType.GROUNDINGDINO,
         description=(
             "**Detection engine:**\n"
-            "- `groundingdino` — Default. Best overall accuracy.\n"
+            "- `groundingdino` ⭐ — Default. Best overall accuracy.\n"
             "- `florence2` — Alternative. Good for fine-grained classes."
         ),
     ),
