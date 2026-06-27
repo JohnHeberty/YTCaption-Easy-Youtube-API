@@ -1,21 +1,24 @@
 """Job routes for SE11 Clothes Removal."""
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import uuid
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
 from app.core.models import ClothesRemovalJob
 from app.api.schemas import (
+    ClothesRemovalJobStatus,
     ConfigResponse,
-    CreateClothesRemovalRequest,
     CreateClothesRemovalResponse,
     DeleteJobResponse,
+    DetectorType,
     DetectorInfo,
     DetectorsResponse,
     ErrorResponse,
@@ -24,6 +27,7 @@ from app.api.schemas import (
     ListJobsResponse,
     ModeInfo,
     ModesResponse,
+    RemovalMode,
 )
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.worker import get_worker
@@ -187,20 +191,141 @@ async def get_config() -> ConfigResponse:
         "Use `GET /jobs/{job_id}` to track progress. The job status transitions:\n"
         "`queued` → `detecting` → `inpainting` → `completed` | `failed`\n\n"
         "## Webhook\n"
-        "Optionally provide `webhook_url` to receive a POST notification on completion."
+        "Optionally provide `webhook_url` to receive a POST notification on completion.\n\n"
+        "## Modes\n"
+        "| Mode | Description |\n|------|-------------|\n"
+        "| `clothes` | Default — removes detected clothing |\n"
+        "| `person` | Removes entire torso (head preserved) |\n"
+        "| `nsfw` | Production NSFW pipeline (retry + pose validation) |\n"
+        "| `nsfw_test` | Alias for nsfw |\n\n"
+        "## Tips\n"
+        "- Use `GET /modes` to list available modes with descriptions\n"
+        "- Use `GET /detectors` to list available detection engines"
     ),
     responses={
         201: {"description": "Job created successfully"},
-        422: {"model": ErrorResponse, "description": "Validation error (invalid image, unknown mode, etc.)"},
+        400: {"model": ErrorResponse, "description": "Invalid file type or size"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
         500: {"model": ErrorResponse, "description": "Internal server error"},
     },
 )
-async def create_job(request: CreateClothesRemovalRequest) -> CreateClothesRemovalResponse:
+async def create_job(
+    file: UploadFile = File(
+        ...,
+        description=(
+            "**AI-generated image file** (PNG, JPEG, WebP).\n\n"
+            "⚠️ **Policy:** Only AI-generated images are allowed. "
+            "Real people photos are strictly prohibited. See POLITICA-USO.md."
+        ),
+    ),
+    mode: RemovalMode = Form(
+        default=RemovalMode.CLOTHES,
+        description=(
+            "**Processing mode:**\n"
+            "- `clothes` — Default. Removes detected clothing items.\n"
+            "- `person` — Removes entire torso (head preserved).\n"
+            "- `nsfw` — Production pipeline (retry + pose validation).\n"
+            "- `nsfw_test` — Alias for nsfw."
+        ),
+    ),
+    classes: str | None = Form(
+        default=None,
+        description=(
+            "**Clothing classes to detect** (comma-separated).\n"
+            "If empty, all clothing is auto-detected.\n\n"
+            "Examples: `spaghetti strap, camisole, top, blouse`"
+        ),
+    ),
+    prompt: str = Form(
+        default="",
+        description=(
+            "**Inpainting prompt** — what the AI should generate in the masked area.\n"
+            "Leave empty for default skin texture prompt."
+        ),
+    ),
+    negative_prompt: str = Form(
+        default="",
+        description=(
+            "**Negative prompt** — what the AI should avoid.\n"
+            "Leave empty for defaults."
+        ),
+    ),
+    box_threshold: float = Form(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="**SE10 detection threshold.** Higher = fewer but more confident detections.",
+    ),
+    text_threshold: float = Form(
+        default=0.10,
+        ge=0.0,
+        le=1.0,
+        description="**SE10 text matching threshold** (Florence-2). Higher = stricter.",
+    ),
+    inpaint_strength: float = Form(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "**SE8 inpaint strength.**\n"
+            "- `0.0` = preserve original\n"
+            "- `1.0` = full AI generation (default)"
+        ),
+    ),
+    per_garment: bool = Form(
+        default=False,
+        description="**Inpaint each garment separately.** Slower but higher quality.",
+    ),
+    webhook_url: str | None = Form(
+        default=None,
+        description="**Webhook URL** for completion notification (POST).",
+    ),
+    detector: DetectorType = Form(
+        default=DetectorType.GROUNDINGDINO,
+        description=(
+            "**Detection engine:**\n"
+            "- `groundingdino` — Default. Best overall accuracy.\n"
+            "- `florence2` — Alternative. Good for fine-grained classes."
+        ),
+    ),
+) -> CreateClothesRemovalResponse:
+    # ── Validate file type ──
+    allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
+    if file.content_type and file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed: PNG, JPEG, WebP",
+        )
+
+    # ── Read file → base64 ──
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum: 20MB.")
+
+    image_b64 = base64.b64encode(content).decode("utf-8")
+    mime = file.content_type or "image/png"
+    image_data_uri = f"data:{mime};base64,{image_b64}"
+
+    # ── Create job ──
     job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
+
+    request_data = {
+        "image": image_data_uri,
+        "mode": mode.value,
+        "classes": classes,
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "box_threshold": box_threshold,
+        "text_threshold": text_threshold,
+        "inpaint_strength": inpaint_strength,
+        "per_garment": per_garment,
+        "webhook_url": webhook_url,
+        "detector": detector.value,
+    }
 
     job = ClothesRemovalJob(
         job_id=job_id,
-        request=request.model_dump(),
+        request=request_data,
     )
 
     store.save_job(job_id, job.model_dump(mode="json"))
@@ -266,9 +391,8 @@ async def list_jobs(
         "**Polling:** Call this endpoint every 5–10 seconds while `status` is\n"
         "`queued`, `detecting`, or `inpainting`. The job is finished when\n"
         "`status` is `completed` or `failed`.\n\n"
-        "**Output:** When completed, the `result_path` field contains the\n"
-        "internal path to the result image. Use `GET /jobs/{job_id}/download`\n"
-        "to download it."
+        "**Output:** When completed, use `GET /jobs/{job_id}/download`\n"
+        "to download the result PNG image."
     ),
     responses={
         200: {"description": "Job status"},
