@@ -32,16 +32,17 @@ def detect_head_mask(
     person_binary,
     person_bbox: tuple[int, int, int, int],
     max_head_pct: float = 0.40,
-    neck_margin_below: float = 0.4,
-    dilate_kernel_size: int = 25,
-    dilate_iterations: int = 3,
+    neck_margin_below: float = 0.15,
+    dilate_kernel_size: int = 15,
+    dilate_iterations: int = 2,
 ):
     """Detect head using face detection + silhouette scan, capped at max_head_pct.
 
     1. Detect face with haarcascade
     2. Scan person silhouette upward from face to find hair top
     3. Cap head region to max_head_pct of person height
-    4. Dilate and clip to person silhouette
+    4. Dilate sideways/upward only — clip bottom so it doesn't grow into body
+    5. Clip to person silhouette
 
     Falls back to max_head_pct of person bbox if no face found.
     """
@@ -77,7 +78,7 @@ def detect_head_mask(
                 person_top_y = sy
                 break
 
-        # Head bottom = face bottom + neck margin
+        # Head bottom = face bottom + small neck margin (chin area only)
         head_bottom = min(person_binary.shape[0], fy + fh + int(fh * neck_margin_below))
         # Head top = max silhouette top OR bottom - max_head_h
         head_top = max(person_top_y, head_bottom - max_head_h)
@@ -92,15 +93,18 @@ def detect_head_mask(
 
         logger.debug("Face (%d,%d,%d,%d) -> head y=%d-%d (sil_top=%d, max_h=%d)",
                       fx, fy, fw, fh, head_top, head_bottom, person_top_y, max_head_h)
+
     else:
         # Fallback: top max_head_pct of person bbox
         head_mask[py:py + max_head_h, px:px + pw] = 255
         head_mask = cv2.bitwise_and(head_mask, person_binary)
+        head_bottom = py + max_head_h
         logger.debug("No face -> fallback top %d%%", int(max_head_pct * 100))
 
-    # Dilate for safety margin
+    # Dilate for safety margin — but clip bottom so it doesn't grow into body
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_kernel_size, dilate_kernel_size))
     head_mask = cv2.dilate(head_mask, kernel, iterations=dilate_iterations)
+    head_mask[head_bottom:, :] = 0  # clip below head_bottom
     head_mask = cv2.bitwise_and(head_mask, person_binary)
 
     return head_mask

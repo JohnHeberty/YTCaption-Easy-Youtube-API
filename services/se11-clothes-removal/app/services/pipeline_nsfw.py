@@ -278,9 +278,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             person_binary=person_binary,
             person_bbox=(px, py, pw, ph),
             max_head_pct=0.40,
-            neck_margin_below=0.4,
-            dilate_kernel_size=25,
-            dilate_iterations=3,
+            neck_margin_below=0.15,
+            dilate_kernel_size=15,
+            dilate_iterations=2,
         )
 
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))

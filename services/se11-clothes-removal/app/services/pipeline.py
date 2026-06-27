@@ -214,9 +214,9 @@ async def _get_torso_mask(se10: SE10Client, image_bytes: bytes, filename: str, i
         person_binary=person,
         person_bbox=(0, 0, pw, ph),
         max_head_pct=0.40,
-        neck_margin_below=0.4,
-        dilate_kernel_size=25,
-        dilate_iterations=3,
+        neck_margin_below=0.15,
+        dilate_kernel_size=15,
+        dilate_iterations=2,
     )
     torso = cv2.bitwise_and(person, cv2.bitwise_not(head))
     coverage = (torso > 0).sum() / torso.size * 100
