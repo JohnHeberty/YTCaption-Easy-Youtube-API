@@ -21,7 +21,12 @@ router = APIRouter(tags=["Health"])
     "/health",
     response_model=HealthResponse,
     summary="Health check",
-    description="Basic liveness check.",
+    description=(
+        "Basic **liveness probe**.\n\n"
+        "Returns `200 OK` if the service process is running.\n"
+        "Use this for load balancers and container health checks.\n\n"
+        "Does NOT check upstream services — use `GET /health/deep` for that."
+    ),
 )
 async def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -31,9 +36,15 @@ async def health() -> HealthResponse:
     "/health/deep",
     response_model=DeepHealthResponse,
     summary="Deep health check",
-    description="Verifies connectivity to upstream services (SE10, SE8).",
+    description=(
+        "Checks connectivity to **all upstream services** (SE10, SE8).\n\n"
+        "Returns per-service status and latency. Overall status:\n"
+        "- `ok` — all services reachable\n"
+        "- `degraded` — at least one service unreachable\n\n"
+        "**Use this** to verify the full pipeline is operational before submitting jobs."
+    ),
     responses={
-        200: {"description": "Health status"},
+        200: {"description": "Health status with upstream details"},
     },
 )
 async def health_deep() -> DeepHealthResponse:
