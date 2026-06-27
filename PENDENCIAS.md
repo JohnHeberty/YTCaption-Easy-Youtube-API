@@ -9,10 +9,10 @@
 
 ### 1. Haarcascade adaptive head detection
 - **Problema:** Top 40% fixo funciona para close-up mas não para full body
-- **Solução:** OpenCV Haarcascade (CPU, ~10ms, zero dependências novas)
-- **Spec completa:** `docs/archived/PLAN-2.md`
-- **Impacto:** Melhoria na proteção facial
-- **Status:** PENDENTE
+- **Solução:** OpenCV Haarcascade + scan silhueta + cap 40% bbox
+- **Implementado:** `app/services/head_detector.py` — detect_head_mask()
+- **Resultado:** 13.3% head_adj (vs 9.7% fixo), cabelo preservado, pele correcta
+- **Status:** ✅ IMPLEMENTADO
 
 ### 2. GFPGAN/CodeFormer face restore
 - **O que:** Face restore pós-inpainting
