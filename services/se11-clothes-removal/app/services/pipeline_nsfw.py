@@ -385,6 +385,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             "(new angle, different posture:1.3)"
         )
 
+        # Use user-provided prompt if non-empty, otherwise fallback to optimized defaults
+        final_prompt = job.request.prompt or nsfw_prompt
+        final_negative = job.request.negative_prompt or nsfw_negative
+
         # ─── Retry loop with pose validation (max 3 attempts) ───
         max_attempts = 3
         tries_metadata: dict[str, dict | None] = {f"try_{i}": None for i in range(1, max_attempts + 1)}
@@ -424,8 +428,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             result1 = await se8.inpaint(
                 image_b64=image_b64, mask_b64=mask_b64,
-                prompt=nsfw_prompt,
-                negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
+                prompt=final_prompt,
+                negative_prompt=final_negative,
                 inpaint_strength=cfg["strength"],
                 inpaint_respective_field=cfg["field"],
                 inpaint_erode_or_dilate=cfg["erode"],
