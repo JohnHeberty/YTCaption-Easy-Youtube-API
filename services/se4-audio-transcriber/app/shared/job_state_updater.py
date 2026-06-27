@@ -172,12 +172,12 @@ class JobStateUpdater(IProgressTracker):
             job.completed_at = now  # type: ignore[attr-defined]
         if hasattr(job, "progress"):
             job.progress = 100.0  # type: ignore[attr-defined]
-        if output_file and hasattr(job, "output_path"):
-            job.output_path = output_file  # type: ignore[attr-defined]
-        if text and hasattr(job, "result_text"):
-            job.result_text = text  # type: ignore[attr-defined]
-        if segments is not None and hasattr(job, "segments"):
-            job.segments = segments  # type: ignore[attr-defined]
+        if output_file and hasattr(job, "output_file"):
+            job.output_file = output_file  # type: ignore[attr-defined]
+        if text and hasattr(job, "transcription_text"):
+            job.transcription_text = text  # type: ignore[attr-defined]
+        if segments is not None and hasattr(job, "transcription_segments"):
+            job.transcription_segments = segments  # type: ignore[attr-defined]
         if file_size_output > 0 and hasattr(job, "file_size_output"):
             job.file_size_output = file_size_output  # type: ignore[attr-defined]
         if language_detected is not None and hasattr(job, "language_detected"):
