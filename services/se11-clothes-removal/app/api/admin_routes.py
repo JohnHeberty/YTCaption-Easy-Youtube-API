@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Any
 
 from fastapi import APIRouter
 
+from app.api.schemas import AdminCleanupResponse, AdminStatsResponse
 from app.core.config import settings
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 
@@ -14,9 +14,13 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 store = ClothesRemovalJobStore()
 
 
-@router.get("/stats")
-async def stats() -> dict[str, Any]:
-    """Get system statistics."""
+@router.get(
+    "/stats",
+    response_model=AdminStatsResponse,
+    summary="System statistics",
+    description="Returns job counts by status and disk usage.",
+)
+async def stats() -> AdminStatsResponse:
     jobs = store.list_jobs()
     status_counts: dict[str, int] = {}
     for job in jobs:
@@ -33,22 +37,26 @@ async def stats() -> dict[str, Any]:
                 total_files += 1
                 total_size_mb += os.path.getsize(fp) / (1024 * 1024)
 
-    return {
-        "jobs": {
+    return AdminStatsResponse(
+        jobs={
             "total": len(jobs),
             "by_status": status_counts,
         },
-        "storage": {
+        storage={
             "output_dir": output_dir,
             "total_files": total_files,
             "total_size_mb": round(total_size_mb, 2),
         },
-    }
+    )
 
 
-@router.post("/cleanup")
-async def cleanup() -> dict[str, int]:
-    """Cleanup temp files and failed jobs."""
+@router.post(
+    "/cleanup",
+    response_model=AdminCleanupResponse,
+    summary="Cleanup jobs",
+    description="Remove completed/failed jobs and their output files.",
+)
+async def cleanup() -> AdminCleanupResponse:
     jobs = store.list_jobs()
     cleaned = 0
     for job in jobs:
@@ -59,4 +67,4 @@ async def cleanup() -> dict[str, int]:
             store.delete_job(job["job_id"])
             cleaned += 1
 
-    return {"cleaned": cleaned}
+    return AdminCleanupResponse(cleaned=cleaned)

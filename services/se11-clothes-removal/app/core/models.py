@@ -1,11 +1,15 @@
-"""Pydantic models for SE11 Clothes Removal."""
+"""Domain models for SE11 Clothes Removal.
+
+Internal job representation — NOT used for API serialization.
+API schemas are in app/api/schemas.py.
+"""
 from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 from common.datetime_utils import now_brazil
 
@@ -29,11 +33,25 @@ class StageStatus(str, Enum):
     FAILED = "failed"
 
 
+class RemovalMode(str, Enum):
+    CLOTHES = "clothes"
+    PERSON = "person"
+    NSFW = "nsfw"
+    NSFW_TEST = "nsfw_test"
+
+
+class DetectorType(str, Enum):
+    GROUNDINGDINO = "groundingdino"
+    FLORENCE2 = "florence2"
+
+
 # =============================================================================
 # Stage tracking
 # =============================================================================
 
 class StageInfo(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     status: StageStatus = StageStatus.PENDING
     progress: float = Field(default=0.0, ge=0.0, le=100.0)
     error: str | None = None
@@ -55,56 +73,33 @@ class StageInfo(BaseModel):
         self.error = error
 
 
+def _default_stages() -> dict[str, Any]:
+    """Factory function for mutable default stages dict."""
+    return {
+        "detecting": StageInfo().model_dump(),
+        "inpainting": StageInfo().model_dump(),
+    }
+
+
 # =============================================================================
-# Request / Response
+# Request (lightweight — for internal use by pipelines)
 # =============================================================================
 
 class CreateClothesRemovalRequest(BaseModel):
-    """Request to create a clothes removal job."""
-    image: str = Field(description="Image as base64 string or HTTP URL")
-    mode: str = Field(
-        default="clothes",
-        description="Mode: 'clothes' (default removal), 'person' (torso removal), 'nsfw' (OFFICIAL NSFW pipeline v17 — BEST RESULT, body_mask + binary mask + smooth blend), 'nsfw_test' (alias for nsfw)",
-    )
-    classes: str | None = Field(
-        default=None,
-        description="Comma-separated clothing classes to detect (e.g. 'shirt,pants,dress'). None = all clothing.",
-    )
-    prompt: str = Field(
-        default="",
-        description="Inpainting prompt (what to generate in masked area). Empty = use default clothes removal prompt.",
-    )
-    negative_prompt: str = Field(
-        default="",
-        description="Negative prompt (what to avoid generating). Empty = use default.",
-    )
-    box_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 detection threshold")
-    text_threshold: float = Field(default=0.10, ge=0.0, le=1.0, description="SE10 text matching threshold")
-    inpaint_strength: float = Field(default=1.0, ge=0.0, le=1.0, description="SE8 inpaint strength")
-    per_garment: bool = Field(default=False, description="Inpaint each garment separately (slower but better quality)")
-    webhook_url: str | None = Field(default=None, description="Webhook URL for completion notification")
-    detector: str = Field(
-        default="groundingdino",
-        description="Detection model: 'groundingdino' (default) or 'florence2' for alternative detector",
-    )
+    """Internal request model — mirrors API schema but without OpenAPI metadata."""
+    model_config = ConfigDict(str_strip_whitespace=True)
 
-
-class CreateClothesRemovalResponse(BaseModel):
-    """Response when a job is created."""
-    job_id: str
-    status: str
-    message: str
-
-
-class JobStatusResponse(BaseModel):
-    """Job status for polling."""
-    job_id: str
-    status: str
-    progress: float
-    stages: dict[str, Any]
-    objects_detected: int | None = None
-    created_at: str
-    error: str | None = None
+    image: str
+    mode: str = "clothes"
+    classes: str | None = None
+    prompt: str = ""
+    negative_prompt: str = ""
+    box_threshold: float = 0.10
+    text_threshold: float = 0.10
+    inpaint_strength: float = 1.0
+    per_garment: bool = False
+    webhook_url: str | None = None
+    detector: str = "groundingdino"
 
 
 # =============================================================================
@@ -113,13 +108,12 @@ class JobStatusResponse(BaseModel):
 
 class ClothesRemovalJob(BaseModel):
     """Internal job representation."""
+    model_config = ConfigDict(validate_assignment=True)
+
     job_id: str
     status: ClothesRemovalJobStatus = ClothesRemovalJobStatus.QUEUED
-    progress: float = 0.0
-    stages: dict[str, Any] = {
-        "detecting": StageInfo().model_dump(),
-        "inpainting": StageInfo().model_dump(),
-    }
+    progress: float = Field(default=0.0, ge=0.0, le=100.0)
+    stages: dict[str, Any] = Field(default_factory=_default_stages)
     request: CreateClothesRemovalRequest
     result_path: str | None = None
     objects_detected: int | None = None
