@@ -6,31 +6,44 @@ import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
-from app.core.models import (
-    ClothesRemovalJob,
-    ClothesRemovalJobStatus,
+from app.core.models import ClothesRemovalJob
+from app.api.schemas import (
     CreateClothesRemovalRequest,
     CreateClothesRemovalResponse,
+    DeleteJobResponse,
+    ErrorResponse,
+    JobListItem,
     JobStatusResponse,
+    ListJobsResponse,
 )
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.worker import get_worker
 
-router = APIRouter()
+router = APIRouter(tags=["Jobs"])
 store = ClothesRemovalJobStore()
 
 
-@router.get("/")
-async def root() -> dict[str, Any]:
-    """Service info endpoint."""
-    return {
-        "service": "clothes-removal",
-        "version": "1.0.0",
-        "endpoints": {
+# Service info
+class ServiceInfoResponse(BaseModel):
+    service: str = "clothes-removal"
+    version: str = "1.0.0"
+    endpoints: dict[str, str]
+
+
+@router.get(
+    "/",
+    response_model=ServiceInfoResponse,
+    summary="Service info",
+    description="Returns service name, version, and available endpoints.",
+)
+async def root() -> ServiceInfoResponse:
+    return ServiceInfoResponse(
+        endpoints={
             "POST /jobs": "Create clothes removal job",
             "GET /jobs": "List all jobs",
             "GET /jobs/{job_id}": "Get job status",
@@ -39,17 +52,27 @@ async def root() -> dict[str, Any]:
             "GET /health": "Health check",
             "GET /admin/stats": "System statistics",
         },
-    }
+    )
 
 
-@router.post("/jobs", response_model=CreateClothesRemovalResponse)
+@router.post(
+    "/jobs",
+    response_model=CreateClothesRemovalResponse,
+    status_code=201,
+    summary="Create clothes removal job",
+    description="Upload an image and start a clothes removal pipeline job.",
+    responses={
+        201: {"description": "Job created successfully"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+)
 async def create_job(request: CreateClothesRemovalRequest) -> CreateClothesRemovalResponse:
-    """Create a new clothes removal job."""
     job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
 
     job = ClothesRemovalJob(
         job_id=job_id,
-        request=request,
+        request=request.model_dump(),
     )
 
     store.save_job(job_id, job.model_dump(mode="json"))
@@ -64,9 +87,47 @@ async def create_job(request: CreateClothesRemovalRequest) -> CreateClothesRemov
     )
 
 
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+@router.get(
+    "/jobs",
+    response_model=ListJobsResponse,
+    summary="List all jobs",
+    description="Returns a paginated list of all clothes removal jobs.",
+    responses={
+        200: {"description": "Job list returned"},
+    },
+)
+async def list_jobs(
+    limit: int = Query(default=50, ge=1, le=200, description="Maximum jobs to return"),
+    offset: int = Query(default=0, ge=0, description="Number of jobs to skip"),
+) -> ListJobsResponse:
+    jobs = store.list_jobs()
+    sliced = jobs[offset : offset + limit]
+    return ListJobsResponse(
+        jobs=[
+            JobListItem(
+                job_id=j["job_id"],
+                status=j["status"],
+                progress=j.get("progress", 0),
+                objects_detected=j.get("objects_detected"),
+                created_at=j.get("created_at"),
+            )
+            for j in sliced
+        ],
+        total=len(jobs),
+    )
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=JobStatusResponse,
+    summary="Get job status",
+    description="Get the current status and progress of a clothes removal job.",
+    responses={
+        200: {"description": "Job status"},
+        404: {"model": ErrorResponse, "description": "Job not found"},
+    },
+)
 async def get_job_status(job_id: str) -> JobStatusResponse:
-    """Get the status of a clothes removal job."""
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -79,12 +140,21 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
         objects_detected=job_data.get("objects_detected"),
         created_at=job_data.get("created_at", ""),
         error=job_data.get("error"),
+        result_path=job_data.get("result_path"),
     )
 
 
-@router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str) -> dict[str, str]:
-    """Delete a clothes removal job and its files."""
+@router.delete(
+    "/jobs/{job_id}",
+    response_model=DeleteJobResponse,
+    summary="Delete job",
+    description="Delete a clothes removal job and its output files.",
+    responses={
+        200: {"description": "Job deleted"},
+        404: {"model": ErrorResponse, "description": "Job not found"},
+    },
+)
+async def delete_job(job_id: str) -> DeleteJobResponse:
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -98,23 +168,7 @@ async def delete_job(job_id: str) -> dict[str, str]:
         os.remove(result_path)
 
     store.delete_job(job_id)
-    return {"detail": f"Job {job_id} deleted"}
-
-
-@router.get("/jobs")
-async def list_jobs() -> dict[str, Any]:
-    """List all clothes removal jobs."""
-    jobs = store.list_jobs()
-    return {
-        "jobs": [
-            {
-                "job_id": j["job_id"],
-                "status": j["status"],
-                "progress": j.get("progress", 0),
-                "objects_detected": j.get("objects_detected"),
-                "created_at": j.get("created_at"),
-            }
-            for j in jobs
-        ],
-        "total": len(jobs),
-    }
+    return DeleteJobResponse(
+        message=f"Job {job_id} deleted",
+        job_id=job_id,
+    )

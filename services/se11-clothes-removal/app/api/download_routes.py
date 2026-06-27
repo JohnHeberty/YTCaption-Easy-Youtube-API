@@ -6,15 +6,24 @@ import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
+from app.api.schemas import ErrorResponse
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 
-router = APIRouter()
+router = APIRouter(tags=["Jobs"])
 store = ClothesRemovalJobStore()
 
 
-@router.get("/jobs/{job_id}/download")
+@router.get(
+    "/jobs/{job_id}/download",
+    summary="Download result image",
+    description="Download the result PNG image for a completed job.",
+    responses={
+        200: {"description": "PNG image file"},
+        400: {"model": ErrorResponse, "description": "Job not completed"},
+        404: {"model": ErrorResponse, "description": "Job or file not found"},
+    },
+)
 async def download_result(job_id: str) -> FileResponse:
-    """Download the result image for a completed job."""
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
