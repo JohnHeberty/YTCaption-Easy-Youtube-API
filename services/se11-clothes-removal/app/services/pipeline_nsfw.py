@@ -512,9 +512,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             logger.info("Job %s: %s score=%.3f recommendation=%s",
                         job.job_id, try_tag, score, meta["recommendation"])
 
-            if not meta["pose_changed"]:
-                logger.info("Job %s: %s POSE SAME — accepting", job.job_id, try_tag)
-                break
+            # Always run all 3 attempts to maximize quality.
+            # Progressive strength (0.65→0.70→0.75) gives the model
+            # multiple chances to produce the best result.
 
         # ─── Finalize ───
         tries_clean = {k: v for k, v in tries_metadata.items() if v is not None}
