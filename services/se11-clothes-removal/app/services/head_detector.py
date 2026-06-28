@@ -108,3 +108,44 @@ def detect_head_mask(
     head_mask = cv2.bitwise_and(head_mask, person_binary)
 
     return head_mask
+
+
+def detect_face_only(
+    orig_img,
+    person_binary,
+    margin_above: float = 0.25,
+    margin_below: float = 0.33,
+    margin_sides: float = 0.25,
+):
+    """Detect face region only (small box around face).
+
+    Returns a binary mask with ONLY the face area (much smaller than detect_head_mask).
+    Used when we want to protect just the face while inpainting the full body.
+    """
+    import cv2
+    import numpy as np
+
+    h, w = person_binary.shape[:2]
+    face_mask = np.zeros_like(person_binary)
+
+    cascade = _get_face_cascade()
+    if cascade is None or orig_img is None:
+        return face_mask
+
+    try:
+        gray = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY)
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
+        if len(faces) > 0:
+            face = max(faces, key=lambda f: f[2] * f[3])
+            fx, fy, fw, fh = face
+            mx = int(fw * margin_sides)
+            mt = int(fh * margin_above)
+            mb = int(fh * margin_below)
+            face_mask[max(0, fy - mt):min(h, fy + fh + mb),
+                      max(0, fx - mx):min(w, fx + fw + mx)] = 255
+            face_mask = cv2.bitwise_and(face_mask, person_binary)
+            logger.debug("Face-only: (%d,%d,%d,%d) margin=(%d,%d,%d)", fx, fy, fw, fh, mx, mt, mb)
+    except Exception as exc:
+        logger.warning("Face detection failed: %s", exc)
+
+    return face_mask

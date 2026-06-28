@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.models import ClothesRemovalJob, ClothesRemovalJobStatus
 from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
-from app.services.head_detector import detect_head_mask
+from app.services.head_detector import detect_head_mask, detect_face_only
 
 logger = get_logger(__name__)
 
@@ -283,7 +283,25 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             dilate_iterations=2,
         )
 
+        # Strategy: send FULL person to SE8 for context, only protect the face
+        # This gives SE8 maximum context for pose coherence
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
+
+        # For inpainting: use the FULL person mask (not body-mask)
+        # SE8 gets the entire person as inpaint region → better pose preservation
+        inpaint_person = person_binary.copy()
+
+        # Head protection: use ONLY the haarcascade face box (small)
+        # Just the face, not the full head+hair region
+        face_protect_mask = detect_face_only(
+            orig_img=orig_img,
+            person_binary=person_binary,
+            margin_above=0.25,
+            margin_below=0.33,
+            margin_sides=0.25,
+        )
+
+        head_adjusted = face_protect_mask
 
         # ─── Stage 3: SE10 Clothes Detection ───
         clothes_seg = await se10.segment(
@@ -312,7 +330,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             exposed_skin = body_mask
 
         # ─── Stage 4: Mask Preparation ───
-        body_closed = body_mask.copy()
+        # Use inpaint_person (full person) as the inpaint mask base
+        body_closed = inpaint_person.copy()
 
         contours_c, _ = _cv2.findContours(body_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
         if contours_c:
@@ -333,21 +352,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         v_close_k = _cv2.getStructuringElement(_cv2.MORPH_RECT, (1, 7))
         inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, v_close_k)
 
-        head_closed = head_mask.copy()
-        hk = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
-        head_closed = _cv2.morphologyEx(head_mask, _cv2.MORPH_CLOSE, hk, iterations=3)
-        hf_mask = _np.zeros((head_closed.shape[0] + 2, head_closed.shape[1] + 2), _np.uint8)
-        hcts, _ = _cv2.findContours(head_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-        if hcts:
-            hM = _cv2.moments(max(hcts, key=_cv2.contourArea))
-            if hM["m00"] > 0:
-                hcx, hcy = int(hM["m10"] / hM["m00"]), int(hM["m01"] / hM["m00"])
-                hfill = head_closed.copy()
-                _cv2.floodFill(hfill, hf_mask, (hcx, hcy), 255)
-                head_mask = _cv2.bitwise_or(head_closed, hfill)
-
-        inpaint_mask = body_expanded
-        head_adjusted = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(inpaint_mask))
+        # head_adjusted = face-only mask from haarcascade
+        # Do NOT clip against inpaint_mask — the face IS inside the person mask
+        # and we need it to paste the original face back after inpainting
 
         clothes_pct = (body_closed > 0).sum() / body_closed.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
@@ -411,13 +418,15 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         try:
             _cv2.imwrite(os.path.join(output_dir, "00_original.png"), orig_img)
             _cv2.imwrite(os.path.join(output_dir, "01_person.png"), person_binary)
-            _cv2.imwrite(os.path.join(output_dir, "02_head.png"), head_mask)
+            _cv2.imwrite(os.path.join(output_dir, "02_head_full.png"), head_mask)
             _cv2.imwrite(os.path.join(output_dir, "03_body.png"), body_mask)
+            _cv2.imwrite(os.path.join(output_dir, "03b_face_only.png"), face_protect_mask)
+            _cv2.imwrite(os.path.join(output_dir, "04_inpaint_person.png"), inpaint_person)
             if clothes_combined is not None:
-                _cv2.imwrite(os.path.join(output_dir, "04_clothes.png"), clothes_combined)
-            _cv2.imwrite(os.path.join(output_dir, "05_exposed_skin.png"), exposed_skin)
-            _cv2.imwrite(os.path.join(output_dir, "06_inpaint_mask.png"), inpaint_mask)
-            _cv2.imwrite(os.path.join(output_dir, "07_head_adjusted.png"), head_adjusted)
+                _cv2.imwrite(os.path.join(output_dir, "05_clothes.png"), clothes_combined)
+            _cv2.imwrite(os.path.join(output_dir, "06_exposed_skin.png"), exposed_skin)
+            _cv2.imwrite(os.path.join(output_dir, "07_inpaint_mask.png"), inpaint_mask)
+            _cv2.imwrite(os.path.join(output_dir, "08_head_adjusted.png"), head_adjusted)
         except Exception as exc:
             logger.warning("Job %s: failed to save debug masks: %s", job.job_id, exc)
 
@@ -573,16 +582,15 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             panels = [
                 ("00_original", orig_img, "1. Original"),
                 ("01_person", person_binary, "2. Person (SE10)"),
-                ("02_head", head_mask, "3. Head (haarcascade)"),
-                ("03_body", body_mask, "4. Body = Person - Head"),
+                ("02_head_full", head_mask, "3. Head Full (haarcascade)"),
+                ("03b_face_only", face_protect_mask, "4. Face Only (protected)"),
             ]
             if clothes_combined is not None:
-                panels.append(("04_clothes", clothes_combined, "5. Clothes (Florence-2)"))
+                panels.append(("05_clothes", clothes_combined, "5. Clothes (Florence-2)"))
             panels.extend([
-                ("05_exposed_skin", exposed_skin, f"6. Exposed Skin ({clothes_pct:.0f}%)"),
-                ("06_inpaint_mask", inpaint_mask, f"7. Inpaint Mask (dil {dilation_px}px)"),
-                ("07_head_adjusted", head_adjusted, f"8. Head Protected ({head_adj_pct:.1f}%)"),
-                ("result", best_composited, f"9. Result ({best_try}, score={best_score:.3f})"),
+                ("07_inpaint_mask", inpaint_mask, f"6. Inpaint Mask (full person)"),
+                ("08_head_adjusted", head_adjusted, f"7. Face Protected ({head_adj_pct:.1f}%)"),
+                ("result", best_composited, f"8. Result ({best_try}, score={best_score:.3f})"),
             ])
             grid = _build_debug_grid(panels)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_debug_grid.png"), grid)
