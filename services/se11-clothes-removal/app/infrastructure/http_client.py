@@ -206,7 +206,7 @@ class SE8Client(ServiceClient):
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
-                "overwrite_step": 60,
+                "overwrite_step": 40,
                 "overwrite_switch": 1.0,
                 "adaptive_cfg": 7.0,
                 "sampler_name": "dpmpp_2m_sde_gpu",
