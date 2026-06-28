@@ -332,8 +332,12 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             clothes_expanded = _cv2.dilate(clothes_combined, expand_kernel, iterations=3)
             # Clip to person area only
             clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)
-            # Exclude face
-            clothes_expanded = _cv2.bitwise_and(clothes_expanded, _cv2.bitwise_not(face_protect_mask))
+            # ERODE near face to prevent ghost anatomy at boundary
+            # Create buffer zone so SE8 doesn't generate face features at mask edge
+            face_dilate = _cv2.dilate(face_protect_mask,
+                                       _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px * 2, dilation_px * 2)),
+                                       iterations=2)
+            clothes_expanded = _cv2.bitwise_and(clothes_expanded, _cv2.bitwise_not(face_dilate))
             inpaint_mask = clothes_expanded
         else:
             # Fallback: use body mask (person - head) if no clothes detected
@@ -422,6 +426,11 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             try_tag = f"try_{attempt}"
             try_dir = os.path.join(output_dir, try_tag)
             os.makedirs(try_dir, exist_ok=True)
+
+            # Delay between attempts to release GPU memory (prevents CUDA assertion)
+            if attempt > 1:
+                import asyncio as _asyncio
+                await _asyncio.sleep(10)
 
             _retry_configs = {
                 1: {"strength": 0.85, "field": 0.62, "erode": 0, "seed": -1},
