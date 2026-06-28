@@ -283,16 +283,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             dilate_iterations=2,
         )
 
-        # Strategy: send FULL person to SE8 for context, only protect the face
-        # This gives SE8 maximum context for pose coherence
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
 
-        # For inpainting: use the FULL person mask (not body-mask)
-        # SE8 gets the entire person as inpaint region → better pose preservation
-        inpaint_person = person_binary.copy()
-
         # Head protection: use ONLY the haarcascade face box (small)
-        # Just the face, not the full head+hair region
         face_protect_mask = detect_face_only(
             orig_img=orig_img,
             person_binary=person_binary,
@@ -330,33 +323,29 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             exposed_skin = body_mask
 
         # ─── Stage 4: Mask Preparation ───
-        # Use inpaint_person (full person) as the inpaint mask base
-        body_closed = inpaint_person.copy()
-
-        contours_c, _ = _cv2.findContours(body_closed, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-        if contours_c:
-            all_pts = _np.vstack(contours_c)
-            _, _, cw, ch = _cv2.boundingRect(all_pts)
-            dilation_px = max(3, int(min(cw, ch) * 0.035))
+        # Inpaint ONLY the clothes area — body, arms, skin stay untouched
+        # This preserves original pose, body shape, and all non-clothing regions
+        if clothes_combined is not None:
+            # Dilate clothes mask slightly for edge coverage
+            dilation_px = max(5, int(min(orig_w, orig_h) * 0.01))
+            expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
+            clothes_expanded = _cv2.dilate(clothes_combined, expand_kernel, iterations=2)
+            # Clip to person area only
+            clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)
+            # Exclude face
+            clothes_expanded = _cv2.bitwise_and(clothes_expanded, _cv2.bitwise_not(face_protect_mask))
+            inpaint_mask = clothes_expanded
         else:
-            dilation_px = 4
-        expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-        body_expanded = _cv2.dilate(body_closed, expand_kernel, iterations=2)
-        open_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-        body_expanded = _cv2.morphologyEx(body_expanded, _cv2.MORPH_OPEN, open_kernel)
-        body_expanded = (body_expanded > 127).astype(_np.uint8) * 255
-        inpaint_mask = body_expanded
+            # Fallback: use body mask (person - head) if no clothes detected
+            inpaint_mask = body_mask.copy()
 
+        # Smooth the mask edges
         close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
         inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k, iterations=2)
-        v_close_k = _cv2.getStructuringElement(_cv2.MORPH_RECT, (1, 7))
-        inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, v_close_k)
+        open_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
+        inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_OPEN, open_k)
 
-        # head_adjusted = face-only mask from haarcascade
-        # Do NOT clip against inpaint_mask — the face IS inside the person mask
-        # and we need it to paste the original face back after inpainting
-
-        clothes_pct = (body_closed > 0).sum() / body_closed.size * 100
+        clothes_pct = (inpaint_mask > 0).sum() / inpaint_mask.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
         head_adj_pct = _cv2.countNonZero(head_adjusted) / head_adjusted.size * 100
         logger.info("Job %s: nsfw body=%.1f%% head_orig=%.1f%% head_adj=%.1f%%",
@@ -421,12 +410,11 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             _cv2.imwrite(os.path.join(output_dir, "02_head_full.png"), head_mask)
             _cv2.imwrite(os.path.join(output_dir, "03_body.png"), body_mask)
             _cv2.imwrite(os.path.join(output_dir, "03b_face_only.png"), face_protect_mask)
-            _cv2.imwrite(os.path.join(output_dir, "04_inpaint_person.png"), inpaint_person)
             if clothes_combined is not None:
-                _cv2.imwrite(os.path.join(output_dir, "05_clothes.png"), clothes_combined)
-            _cv2.imwrite(os.path.join(output_dir, "06_exposed_skin.png"), exposed_skin)
-            _cv2.imwrite(os.path.join(output_dir, "07_inpaint_mask.png"), inpaint_mask)
-            _cv2.imwrite(os.path.join(output_dir, "08_head_adjusted.png"), head_adjusted)
+                _cv2.imwrite(os.path.join(output_dir, "04_clothes.png"), clothes_combined)
+            _cv2.imwrite(os.path.join(output_dir, "05_exposed_skin.png"), exposed_skin)
+            _cv2.imwrite(os.path.join(output_dir, "06_inpaint_mask.png"), inpaint_mask)
+            _cv2.imwrite(os.path.join(output_dir, "07_head_adjusted.png"), head_adjusted)
         except Exception as exc:
             logger.warning("Job %s: failed to save debug masks: %s", job.job_id, exc)
 
@@ -436,9 +424,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             os.makedirs(try_dir, exist_ok=True)
 
             _retry_configs = {
-                1: {"strength": 0.65, "field": 0.62, "erode": 0, "seed": -1},
-                2: {"strength": 0.70, "field": 0.62, "erode": 0, "seed": 42},
-                3: {"strength": 0.75, "field": 0.62, "erode": 0, "seed": 99},
+                1: {"strength": 0.85, "field": 0.62, "erode": 0, "seed": -1},
+                2: {"strength": 0.90, "field": 0.62, "erode": 0, "seed": 42},
+                3: {"strength": 1.00, "field": 0.62, "erode": 0, "seed": 99},
             }
             cfg = _retry_configs.get(attempt, _retry_configs[1])
 
@@ -582,14 +570,14 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             panels = [
                 ("00_original", orig_img, "1. Original"),
                 ("01_person", person_binary, "2. Person (SE10)"),
-                ("02_head_full", head_mask, "3. Head Full (haarcascade)"),
+                ("02_head_full", head_mask, "3. Head Full"),
                 ("03b_face_only", face_protect_mask, "4. Face Only (protected)"),
             ]
             if clothes_combined is not None:
-                panels.append(("05_clothes", clothes_combined, "5. Clothes (Florence-2)"))
+                panels.append(("04_clothes", clothes_combined, "5. Clothes (Florence-2)"))
             panels.extend([
-                ("07_inpaint_mask", inpaint_mask, f"6. Inpaint Mask (full person)"),
-                ("08_head_adjusted", head_adjusted, f"7. Face Protected ({head_adj_pct:.1f}%)"),
+                ("06_inpaint_mask", inpaint_mask, f"6. Inpaint Mask (clothes only)"),
+                ("07_head_adjusted", head_adjusted, f"7. Face Protected ({head_adj_pct:.1f}%)"),
                 ("result", best_composited, f"8. Result ({best_try}, score={best_score:.3f})"),
             ])
             grid = _build_debug_grid(panels)
