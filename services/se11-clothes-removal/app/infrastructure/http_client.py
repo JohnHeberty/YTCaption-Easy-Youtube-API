@@ -187,7 +187,7 @@ class SE8Client(ServiceClient):
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "style_selections": [style] if style else [],
-            "performance_selection": "Speed",
+            "performance_selection": "Quality",
             "aspect_ratios_selection": aspect_str,
             "image_number": 1,
             "image_seed": -1,
@@ -206,7 +206,7 @@ class SE8Client(ServiceClient):
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
-                "overwrite_step": 30,
+                "overwrite_step": 40,
                 "overwrite_switch": 1.0,
             },
         }

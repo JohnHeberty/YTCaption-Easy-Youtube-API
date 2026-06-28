@@ -362,9 +362,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
         nsfw_loras = [
-            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.3},
+            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.6},
             {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 1.0},
+            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.7},
             {"enabled": True, "model_name": "None", "weight": 1.0},
             {"enabled": True, "model_name": "None", "weight": 1.0},
         ]
@@ -427,9 +427,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             os.makedirs(try_dir, exist_ok=True)
 
             _retry_configs = {
-                1: {"strength": 0.65, "field": 0.85, "erode": -3, "seed": -1},
-                2: {"strength": 0.70, "field": 0.80, "erode": -3, "seed": 42},
-                3: {"strength": 0.75, "field": 0.75, "erode": -3, "seed": 99},
+                1: {"strength": 0.65, "field": 0.62, "erode": -3, "seed": -1},
+                2: {"strength": 0.70, "field": 0.62, "erode": -3, "seed": 42},
+                3: {"strength": 0.75, "field": 0.62, "erode": -3, "seed": 99},
             }
             cfg = _retry_configs.get(attempt, _retry_configs[1])
 
@@ -465,16 +465,21 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
+            # Composite: hard paste body region, then feather ONLY at mask edges
             composited = orig_img.copy()
             body_bin = inpaint_mask > 0
             composited[body_bin] = inpainted_img[body_bin]
-            composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
-            body_float = inpaint_mask.astype(_np.float32) / 255.0
-            body_smooth = _cv2.GaussianBlur(body_float, (7, 7), 0)
-            composited = (composited.astype(_np.float32) * body_smooth[:, :, None] +
-                          orig_img.astype(_np.float32) * (1.0 - body_smooth[:, :, None]))
+            # Edge feathering: create smooth transition only at mask boundary
+            mask_float = inpaint_mask.astype(_np.float32) / 255.0
+            ksize = max(15, min(orig_w, orig_h) // 40)
+            ksize = ksize if ksize % 2 == 1 else ksize + 1  # must be odd
+            edge_feather = _cv2.GaussianBlur(mask_float, (ksize, ksize), 0)
+            composited = (composited.astype(_np.float32) * edge_feather[:, :, None] +
+                          orig_img.astype(_np.float32) * (1.0 - edge_feather[:, :, None]))
             composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+
+            # Protect head and restore original background
             composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
             _cv2.imwrite(os.path.join(try_dir, "result.png"), composited)
