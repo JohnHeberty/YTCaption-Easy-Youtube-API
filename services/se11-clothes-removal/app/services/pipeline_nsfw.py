@@ -300,7 +300,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         clothes_seg = await se10.segment(
             image_bytes=image_bytes,
             filename=f"{job.job_id}_clothes_ref.jpg",
-            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment",
+            classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt",
             box_threshold=0.06, text_threshold=0.04,
             mode="clothes", detector="florence2",
         )
@@ -326,10 +326,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # Inpaint ONLY the clothes area — body, arms, skin stay untouched
         # This preserves original pose, body shape, and all non-clothing regions
         if clothes_combined is not None:
-            # Dilate clothes mask slightly for edge coverage
-            dilation_px = max(5, int(min(orig_w, orig_h) * 0.01))
+            # Dilate clothes mask for edge coverage — prevents white artifacts
+            dilation_px = max(10, int(min(orig_w, orig_h) * 0.02))
             expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-            clothes_expanded = _cv2.dilate(clothes_combined, expand_kernel, iterations=2)
+            clothes_expanded = _cv2.dilate(clothes_combined, expand_kernel, iterations=3)
             # Clip to person area only
             clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)
             # Exclude face
