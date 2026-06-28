@@ -192,7 +192,7 @@ class SE8Client(ServiceClient):
             "image_number": 1,
             "image_seed": -1,
             "sharpness": 2.0,
-            "guidance_scale": 4.0,
+            "guidance_scale": 7.0,
             "base_model_name": base_model,
             "loras": loras,
             "input_image": image_b64,
@@ -206,8 +206,11 @@ class SE8Client(ServiceClient):
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
-                "overwrite_step": 40,
+                "overwrite_step": 60,
                 "overwrite_switch": 1.0,
+                "adaptive_cfg": 7.0,
+                "sampler_name": "dpmpp_2m_sde_gpu",
+                "scheduler_name": "karras",
             },
         }
 
