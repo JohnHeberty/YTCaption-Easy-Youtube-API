@@ -1,10 +1,50 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-06-26)
+## Última sessão (2026-06-29)
 
-### 🟢 NSFW v17 — PRODUCTION READY (BEST RESULT)
-- **Rota oficial:** `POST /jobs {"image": "<base64>", "mode": "nsfw"}`
-- **Pipeline:** `_run_nsfw_test()` (v17 — body_mask + binary mask + smooth blend)
+### 🟢 NSFW v18 — PRODUCTION (Fooocus migration + body-mask)
+- **Rota oficial:** `POST /jobs` (file upload) `mode="nsfw"`
+- **Pipeline:** `pipeline_nsfw.py` (v18 — body-mask + person_expanded + face paste)
+- **Config ótima (TESTED v1-v10):**
+  - body_mask como inpaint (person - head) — cobre TODA a roupa
+  - person_expanded clip (dilate 3x) — preenche gaps do SE10
+  - face paste simples (sem feathered blend — causa ghost)
+  - head_adjusted: face_protect_mask (margin_above=0.40, margin_below=0.60)
+  - head_mask: max_head_pct=0.45, neck_margin_below=0.50
+  - strength 0.85/0.90/1.00 (3 tentativas progressivas)
+  - field=0.45, erode=0
+  - CFG 7.0, 40 steps, dpmpp_2m_sde_gpu, karras
+  - NsfwPov 0.6, offset 0.1, add-detail 0.7
+  - IP-Adapter: original image (weight=0.6, stop=0.5)
+  - Inpaint patch LoRA v2.6: 582 keys at weight=1.0
+- **SE8 CRITICAL FIX:** worker.py estava stale (916 linhas). Container SE8 = image-engine
+  - docker cp worker.py + restart para carregar inpaint patch LoRA
+  - Sem o patch LoRA: resultado era mancha pele lisa sem anatomia
+- **Prompt positive:** NSFW×5, solo, bare skin, detailed anatomy, pose preservation, skin tone matching
+- **Prompt negative:** deformed:1.3, hands:1.4, bad hands:1.3, pose change:1.5, skin tone mismatch
+- **Debug grid:** 8 painéis (original, person, head, face, clothes, inpaint mask, face protected, result)
+- **Compositing:** SE8 post_process (morphological_open) + face paste
+- **Multi-seed floodFill:** 8 edge seeds fecham 100% dos buracos da person mask
+> **Lições aprendidas:** Ver `LIÇÕES.md`
+> **Pendências:** Ver `PENDENCIAS.md`
+
+### Arquivos modificados nesta sessão
+| Arquivo | Mudança |
+|---------|---------|
+| `services/se8-image-generation/app/services/worker.py` | Inpaint patch LoRA loading + use_fill fix |
+| `services/se11-clothes-removal/app/services/pipeline_nsfw.py` | Body-mask, face protection, floodFill, prompts |
+
+### Container SE8
+- Nome: `image-engine` (NÃO `se8-image-engine`)
+- Porta: 8008
+- NÃO monta código via bind mount — código baked na imagem
+- Para atualizar: `docker cp file.py image-engine:/app/app/path/ && docker restart image-engine`
+
+## Sessão anterior (2026-06-26)
+
+### 🟢 NSFW v18 — PRODUCTION (Fooocus migration + body-mask)
+- **Rota oficial:** `POST /jobs` (file upload) `mode="nsfw"`
+- **Pipeline:** `pipeline_nsfw.py` (v18 — body-mask + person_expanded + face paste)
 - **Config óptima (PROVEN):**
   - body_mask como inpaint (não clothing mask)
   - 3.5% dilation adaptativa
