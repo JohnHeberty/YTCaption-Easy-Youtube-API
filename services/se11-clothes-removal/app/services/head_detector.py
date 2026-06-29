@@ -148,9 +148,9 @@ def detect_head_mask(
 def detect_face_only(
     orig_img,
     person_binary,
-    margin_above: float = 0.40,
-    margin_below: float = 0.60,
-    margin_sides: float = 0.35,
+    margin_above: float = 0.50,
+    margin_below: float = 0.70,
+    margin_sides: float = 0.40,
 ):
     """Detect face region using elliptical mask clipped to person silhouette.
 

@@ -298,13 +298,13 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # Head protection: use head_mask for composite (covers full head + hair)
         head_adjusted = head_mask
 
-        # face_protect_mask: smaller ellipse for debug reference only
+        # face_protect_mask: larger ellipse for better face protection
         face_protect_mask = detect_face_only(
             orig_img=orig_img,
             person_binary=person_binary,
-            margin_above=0.30,
-            margin_below=0.40,
-            margin_sides=0.25,
+            margin_above=0.50,
+            margin_below=0.70,
+            margin_sides=0.40,
         )
 
         # ─── Stage 3: SE10 Clothes Detection ───
@@ -328,8 +328,16 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                     cb = (cm > 127).astype(_np.uint8) * 255
                     clothes_combined = cb if clothes_combined is None else _cv2.bitwise_or(clothes_combined, cb)
 
+        # FIX: Florence-2 clothes detection often picks up hair as clothing.
+        # Subtract head_mask from clothes to avoid removing body areas that
+        # overlap with hair regions.
         if clothes_combined is not None:
-            exposed_skin = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(clothes_combined))
+            clothes_clean = _cv2.bitwise_and(clothes_combined, _cv2.bitwise_not(head_mask))
+        else:
+            clothes_clean = None
+
+        if clothes_clean is not None:
+            exposed_skin = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(clothes_clean))
         else:
             exposed_skin = body_mask
 
@@ -598,11 +606,13 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 ("03b_face_only", face_protect_mask, "4. Face Only (protected)"),
             ]
             if clothes_combined is not None:
-                panels.append(("04_clothes", clothes_combined, "5. Clothes (Florence-2)"))
+                panels.append(("04_clothes", clothes_combined, "5. Clothes Raw"))
+            if clothes_clean is not None:
+                panels.append(("04b_clothes_no_hair", clothes_clean, "6. Clothes -Hair"))
             panels.extend([
-                ("06_inpaint_mask", inpaint_mask, f"6. Inpaint Mask (body-head)"),
-                ("07_head_adjusted", head_adjusted, f"7. Face Protected ({head_adj_pct:.1f}%)"),
-                ("result", best_composited, f"8. Result ({best_try}, score={best_score:.3f})"),
+                ("06_inpaint_mask", inpaint_mask, f"7. Inpaint Mask (body-head)"),
+                ("07_head_adjusted", head_adjusted, f"8. Face Protected ({head_adj_pct:.1f}%)"),
+                ("result", best_composited, f"9. Result ({best_try}, score={best_score:.3f})"),
             ])
             grid = _build_debug_grid(panels)
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_debug_grid.png"), grid)
