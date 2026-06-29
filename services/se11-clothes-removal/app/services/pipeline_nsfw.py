@@ -376,6 +376,34 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
+        # Create face-masked version for IP-Adapter reference
+        # This prevents the model from injecting face features into the body area
+        # IP-Adapter gets: proportions, skin tone, composition — NOT the face
+        ip_ref_img = orig_img.copy()
+        # Fill face region with median skin color — total face removal
+        face_cover = _cv2.dilate(head_mask,
+                                  _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (30, 30)),
+                                  iterations=3)
+        face_cover = _cv2.bitwise_or(face_cover, face_protect_mask)
+        # Sample median color from exposed skin area (arms/torso)
+        skin_mask = _cv2.inRange(_cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV),
+                                 _np.array([0, 20, 80]), _np.array([25, 150, 255]))
+        skin_mask = _cv2.bitwise_and(skin_mask, person_binary)
+        skin_mask = _cv2.bitwise_and(skin_mask, _cv2.bitwise_not(face_cover))
+        skin_pixels = orig_img[skin_mask > 0]
+        if len(skin_pixels) > 0:
+            median_color = _np.median(skin_pixels, axis=0).astype(_np.uint8)
+        else:
+            median_color = _np.array([180, 160, 140], dtype=_np.uint8)
+        # Soft fill: blend face area toward median color with gradient
+        face_float = face_cover.astype(_np.float32) / 255.0
+        face_blend = _cv2.GaussianBlur(face_float, (31, 31), 10)
+        for c in range(3):
+            ip_ref_img[:, :, c] = (ip_ref_img[:, :, c].astype(_np.float32) * (1 - face_blend) +
+                                    float(median_color[c]) * face_blend).astype(_np.uint8)
+        _, ip_ref_buf = _cv2.imencode(".jpg", ip_ref_img, [_cv2.IMWRITE_JPEG_QUALITY, 90])
+        ip_ref_b64 = _to_data_uri(base64.b64encode(ip_ref_buf).decode("utf-8"), mime="image/jpeg")
+
         nsfw_prompt = (
             "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
             "detailed breast anatomy, realistic nipples, areola details, "
@@ -393,6 +421,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             "wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, "
             "(mutated hands and fingers, extra fingers, missing fingers, webbed fingers:1.4), "
             "(bad hands, poorly drawn hands, fused fingers, too many fingers:1.3), "
+            "(extra face, second face, face on body, face on chest, face below neck:1.8), "
+            "(facial features on torso, eyes on chest, mouth on body:1.6), "
             "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
             "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
             "cartoon, anime, sketch, "
@@ -449,10 +479,11 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f seed=%d",
                         job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"], cfg["seed"])
 
-            # IP-Adapter: pass original image as reference for pose/proportion preservation
+            # IP-Adapter: pass face-masked image as reference
+            # Proportions, skin tone, composition preserved — face excluded
             ip_adapter_prompts = [
                 {
-                    "cn_img": image_b64,
+                    "cn_img": ip_ref_b64,
                     "cn_stop": 0.3,
                     "cn_weight": 0.35,
                     "cn_type": "ImagePrompt",
