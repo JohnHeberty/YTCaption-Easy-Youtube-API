@@ -211,6 +211,7 @@ class ImgInpaintOrOutpaintRequest(CommonRequest):
     outpaint_distance_right: int | None = -1
     outpaint_distance_top: int | None = -1
     outpaint_distance_bottom: int | None = -1
+    image_prompts: list[ImagePromptJson] = []
 
 
 class ImgPromptRequest(ImgInpaintOrOutpaintRequest):
