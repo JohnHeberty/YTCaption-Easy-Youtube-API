@@ -287,24 +287,25 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             orig_img=orig_img,
             person_binary=person_binary,
             person_bbox=(px, py, pw, ph),
-            max_head_pct=0.45,
-            neck_margin_below=0.50,
+            max_head_pct=0.50,
+            neck_margin_below=1.2,
             dilate_kernel_size=15,
             dilate_iterations=2,
         )
 
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
 
-        # Head protection: face region with generous margins
+        # Head protection: use head_mask for composite (covers full head + hair)
+        head_adjusted = head_mask
+
+        # face_protect_mask: smaller ellipse for debug reference only
         face_protect_mask = detect_face_only(
             orig_img=orig_img,
             person_binary=person_binary,
-            margin_above=0.40,
-            margin_below=0.60,
-            margin_sides=0.35,
+            margin_above=0.30,
+            margin_below=0.40,
+            margin_sides=0.25,
         )
-
-        head_adjusted = face_protect_mask
 
         # ─── Stage 3: SE10 Clothes Detection ───
         clothes_seg = await se10.segment(
