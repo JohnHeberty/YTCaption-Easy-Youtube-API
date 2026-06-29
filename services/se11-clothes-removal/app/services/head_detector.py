@@ -1,10 +1,7 @@
-"""Adaptive head detection using OpenCV Haarcascade + person silhouette.
+"""Adaptive head/face detection using OpenCV Haarcascade + person silhouette.
 
-Uses face detection to locate the face, then scans the person silhouette
-upward to find the full hair extent. Caps head region to a maximum
-percentage of person height to avoid protecting too much body.
-
-Fallback: fixed percentage of person bbox (no face found).
+Creates ELIPTICAL masks clipped to the person silhouette — never boxes.
+This prevents artificial rectangular edges that confuse the inpainting model.
 """
 from __future__ import annotations
 
@@ -27,40 +24,86 @@ def _get_face_cascade():
     return _FACE_CASCADE
 
 
-def detect_head_mask(
-    orig_img,
-    person_binary,
-    person_bbox: tuple[int, int, int, int],
-    max_head_pct: float = 0.40,
-    neck_margin_below: float = 0.15,
-    dilate_kernel_size: int = 15,
-    dilate_iterations: int = 2,
-):
-    """Detect head using face detection + silhouette scan, capped at max_head_pct.
+def _detect_faces(orig_img):
+    """Detect faces using haarcascade. Returns list of (x, y, w, h)."""
+    cascade = _get_face_cascade()
+    if cascade is None or orig_img is None:
+        return []
+    try:
+        import cv2
+        gray = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY)
+        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
+        return list(faces) if len(faces) > 0 else []
+    except Exception as exc:
+        logger.warning("Haarcascade failed: %s", exc)
+        return []
 
-    1. Detect face with haarcascade
-    2. Scan person silhouette upward from face to find hair top
-    3. Cap head region to max_head_pct of person height
-    4. Dilate sideways/upward only — clip bottom so it doesn't grow into body
-    5. Clip to person silhouette
 
-    Falls back to max_head_pct of person bbox if no face found.
+def _ellipse_from_face(fx, fy, fw, fh, h, w, person_binary,
+                        expand_w=0.4, expand_up=0.8, expand_down=0.3):
+    """Create an elliptical mask centered on the face, clipped to person silhouette.
+
+    Args:
+        fx, fy, fw, fh: face bounding box
+        h, w: image dimensions
+        person_binary: person silhouette mask
+        expand_w: horizontal expansion as fraction of fw
+        expand_up: upward expansion as fraction of fh (hair region)
+        expand_down: downward expansion as fraction of fh (neck region)
     """
     import cv2
     import numpy as np
 
+    face_cx = fx + fw // 2
+    face_cy = fy + fh // 2
+
+    # Ellipse dimensions
+    e_w = int(fw * (1 + expand_w * 2))
+    e_h_top = int(fh * expand_up)
+    e_h_bot = int(fh * expand_down)
+    e_h = e_h_top + e_h_bot
+
+    # Center shifted upward (hair is above face center)
+    e_cy = fy + fh // 2 - e_h_top + e_h // 2
+
+    mask = np.zeros((h, w), dtype=np.uint8)
+    cv2.ellipse(mask,
+                (face_cx, e_cy),
+                (e_w // 2, e_h // 2),
+                0, 0, 360, 255, -1)
+
+    # Clip to person silhouette
+    mask = cv2.bitwise_and(mask, person_binary)
+    return mask
+
+
+def detect_head_mask(
+    orig_img,
+    person_binary,
+    person_bbox: tuple[int, int, int, int],
+    max_head_pct: float = 0.45,
+    neck_margin_below: float = 0.50,
+    dilate_kernel_size: int = 15,
+    dilate_iterations: int = 2,
+):
+    """Detect head using face detection + elliptical mask clipped to person silhouette.
+
+    1. Detect face with haarcascade
+    2. Create elliptical mask centered on face, expanded upward for hair
+    3. Clip to person silhouette (no box edges)
+    4. Dilate slightly for safety margin
+    5. Clip bottom to prevent growing into body
+
+    Falls back to top percentage of person bbox if no face found.
+    """
+    import cv2
+    import numpy as np
+
+    h, w = person_binary.shape[:2]
     px, py, pw, ph = person_bbox
     max_head_h = int(ph * max_head_pct)
 
-    cascade = _get_face_cascade()
-    faces = []
-
-    if cascade is not None and orig_img is not None:
-        try:
-            gray = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY)
-            faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
-        except Exception as exc:
-            logger.warning("Haarcascade failed: %s", exc)
+    faces = _detect_faces(orig_img)
 
     head_mask = np.zeros_like(person_binary)
 
@@ -68,42 +111,34 @@ def detect_head_mask(
         face = max(faces, key=lambda f: f[2] * f[3])
         fx, fy, fw, fh = face
 
-        # Scan upward from face center to find silhouette top (= hair)
-        face_cx = fx + fw // 2
-        scan_half_w = max(fw // 2, 10)
-        person_top_y = fy
-        for sy in range(fy, py, -1):
-            col = person_binary[sy, max(0, face_cx - scan_half_w):min(person_binary.shape[1], face_cx + scan_half_w)]
-            if np.any(col > 127):
-                person_top_y = sy
-                break
+        # Create elliptical mask around face
+        head_mask = _ellipse_from_face(
+            fx, fy, fw, fh, h, w, person_binary,
+            expand_w=0.4, expand_up=0.8, expand_down=neck_margin_below,
+        )
 
-        # Head bottom = face bottom + small neck margin (chin area only)
-        head_bottom = min(person_binary.shape[0], fy + fh + int(fh * neck_margin_below))
-        # Head top = max silhouette top OR bottom - max_head_h
-        head_top = max(person_top_y, head_bottom - max_head_h)
-        head_top = max(0, head_top)
-
-        # Slight horizontal expansion
-        h_left = max(0, fx - fw // 6)
-        h_right = min(person_binary.shape[1], fx + fw + fw // 6)
-
-        head_mask[head_top:head_bottom, h_left:h_right] = 255
-        head_mask = cv2.bitwise_and(head_mask, person_binary)
-
-        logger.debug("Face (%d,%d,%d,%d) -> head y=%d-%d (sil_top=%d, max_h=%d)",
-                      fx, fy, fw, fh, head_top, head_bottom, person_top_y, max_head_h)
-
+        logger.debug("Face (%d,%d,%d,%d) -> elliptical head mask", fx, fy, fw, fh)
     else:
-        # Fallback: top max_head_pct of person bbox
-        head_mask[py:py + max_head_h, px:px + pw] = 255
-        head_mask = cv2.bitwise_and(head_mask, person_binary)
-        head_bottom = py + max_head_h
-        logger.debug("No face -> fallback top %d%%", int(max_head_pct * 100))
+        # Fallback: top max_head_pct of person bbox — still use ellipse
+        cx = px + pw // 2
+        cy = py + max_head_h // 2
+        mask = np.zeros_like(person_binary)
+        cv2.ellipse(mask, (cx, cy), (pw // 2, max_head_h // 2), 0, 0, 360, 255, -1)
+        head_mask = cv2.bitwise_and(mask, person_binary)
+        logger.debug("No face -> fallback elliptical top %d%%", int(max_head_pct * 100))
 
-    # Dilate for safety margin — but clip bottom so it doesn't grow into body
+    # Dilate for safety margin
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilate_kernel_size, dilate_kernel_size))
     head_mask = cv2.dilate(head_mask, kernel, iterations=dilate_iterations)
+
+    # Find head bottom from original face detection to clip
+    if len(faces) > 0:
+        face = max(faces, key=lambda f: f[2] * f[3])
+        _, fy2, _, fh2 = face
+        head_bottom = min(h, fy2 + fh2 + int(fh2 * neck_margin_below))
+    else:
+        head_bottom = py + max_head_h
+
     head_mask[head_bottom:, :] = 0  # clip below head_bottom
     head_mask = cv2.bitwise_and(head_mask, person_binary)
 
@@ -113,14 +148,14 @@ def detect_head_mask(
 def detect_face_only(
     orig_img,
     person_binary,
-    margin_above: float = 0.25,
-    margin_below: float = 0.33,
-    margin_sides: float = 0.25,
+    margin_above: float = 0.40,
+    margin_below: float = 0.60,
+    margin_sides: float = 0.35,
 ):
-    """Detect face region only (small box around face).
+    """Detect face region using elliptical mask clipped to person silhouette.
 
-    Returns a binary mask with ONLY the face area (much smaller than detect_head_mask).
-    Used when we want to protect just the face while inpainting the full body.
+    Returns a smooth elliptical mask of the face area — never a box.
+    Used for face protection during inpainting.
     """
     import cv2
     import numpy as np
@@ -128,24 +163,32 @@ def detect_face_only(
     h, w = person_binary.shape[:2]
     face_mask = np.zeros_like(person_binary)
 
-    cascade = _get_face_cascade()
-    if cascade is None or orig_img is None:
+    faces = _detect_faces(orig_img)
+    if len(faces) == 0:
         return face_mask
 
-    try:
-        gray = cv2.cvtColor(orig_img, cv2.COLOR_BGR2GRAY)
-        faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(20, 20))
-        if len(faces) > 0:
-            face = max(faces, key=lambda f: f[2] * f[3])
-            fx, fy, fw, fh = face
-            mx = int(fw * margin_sides)
-            mt = int(fh * margin_above)
-            mb = int(fh * margin_below)
-            face_mask[max(0, fy - mt):min(h, fy + fh + mb),
-                      max(0, fx - mx):min(w, fx + fw + mx)] = 255
-            face_mask = cv2.bitwise_and(face_mask, person_binary)
-            logger.debug("Face-only: (%d,%d,%d,%d) margin=(%d,%d,%d)", fx, fy, fw, fh, mx, mt, mb)
-    except Exception as exc:
-        logger.warning("Face detection failed: %s", exc)
+    face = max(faces, key=lambda f: f[2] * f[3])
+    fx, fy, fw, fh = face
+
+    face_cx = fx + fw // 2
+    face_cy = fy + fh // 2
+
+    # Ellipse with margins
+    e_w = int(fw * (1 + margin_sides * 2))
+    e_h_top = int(fh * margin_above)
+    e_h_bot = int(fh * margin_below)
+    e_h = e_h_top + e_h_bot
+    e_cy = fy + fh // 2 - e_h_top + e_h // 2
+
+    cv2.ellipse(face_mask,
+                (face_cx, e_cy),
+                (e_w // 2, e_h // 2),
+                0, 0, 360, 255, -1)
+
+    # Clip to person silhouette
+    face_mask = cv2.bitwise_and(face_mask, person_binary)
+
+    logger.debug("Face-only ellipse: (%d,%d,%d,%d) margin=(%d,%d,%d)",
+                 fx, fy, fw, fh, int(fw * margin_sides), int(fh * margin_above), int(fh * margin_below))
 
     return face_mask
