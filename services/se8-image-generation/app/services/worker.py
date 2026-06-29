@@ -464,7 +464,10 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
     # Create InpaintWorker from modules (legacy, correct implementation)
     import modules.inpaint_worker as miw
     k = async_task.inpaint_respective_field or 0.618
-    worker = miw.InpaintWorker(img, mask, use_fill=True, k=k)
+    # use_fill only when full denoise (Fooocus pattern: strength > 0.99)
+    strength = async_task.inpaint_strength or 1.0
+    use_fill = strength > 0.99
+    worker = miw.InpaintWorker(img, mask, use_fill=use_fill, k=k)
 
     # Override task dimensions to match crop size
     crop_h, crop_w = worker.interested_image.shape[:2]
@@ -570,6 +573,43 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
                 # We don't replace pipeline.final_unet because the pipeline
                 # handles model cloning internally. Instead, we store it in state.
                 logger.warning("InpaintHead patched into UNet successfully")
+
+                # P0 CRITICAL: Load inpaint patch model as LoRA (Fooocus pattern)
+                # This adds fine-tuned inpaint weights to the UNet
+                inpaint_patch_map = {
+                    "v1": "inpaint.fooocus.patch",
+                    "v2.5": "inpaint_v25.fooocus.patch",
+                    "v2.6": "inpaint_v26.fooocus.patch",
+                }
+                engine_ver = async_task.inpaint_engine or "v2.6"
+                patch_name = inpaint_patch_map.get(engine_ver, inpaint_patch_map["v2.6"])
+                inpaint_patch_path = os.path.join(os.path.dirname(inpaint_head_path), patch_name)
+                if not os.path.exists(inpaint_patch_path):
+                    try:
+                        from modules.config import downloading_inpaint_models
+                        downloading_inpaint_models(engine_ver)
+                    except Exception as dl_err:
+                        logger.warning("Failed to download inpaint patch: %s", dl_err)
+
+                if os.path.exists(inpaint_patch_path):
+                    try:
+                        lora_manager = getattr(pipeline, "lora_manager", None)
+                        if lora_manager is None:
+                            from app.services.lora_manager import load_loras
+                            lora_manager = pipeline.model_base
+                        # Add patch as LoRA with weight 1.0 (Fooocus default)
+                        base_loras = getattr(async_task, "base_model_additional_loras", [])
+                        base_loras.append((inpaint_patch_path, 1.0))
+                        async_task.base_model_additional_loras = base_loras
+                        pipeline.refresh_loras(
+                            async_task.loras,
+                            base_model_additional_loras=base_loras
+                        )
+                        logger.warning("Inpaint patch LoRA loaded: %s (weight=1.0)", patch_name)
+                    except Exception as lora_err:
+                        logger.warning("Failed to load inpaint patch LoRA: %s", lora_err)
+                else:
+                    logger.warning("Inpaint patch not found: %s", inpaint_patch_path)
             else:
                 logger.warning("Inpaint: pipeline.final_unet not available for patching")
         else:
