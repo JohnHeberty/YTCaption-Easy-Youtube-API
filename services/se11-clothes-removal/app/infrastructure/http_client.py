@@ -214,13 +214,13 @@ class SE8Client(ServiceClient):
             },
         }
 
-        # Add IP-Adapter image prompts if provided
+        # IP-Adapter image prompts for pose/proportion preservation
         if image_prompts:
             payload["image_prompts"] = image_prompts
             logger.info("SE8: IP-Adapter enabled with %d reference images", len(image_prompts))
         else:
             payload["image_prompts"] = [
-                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.6, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             ] * 4
 
         # Retry loop for empty SE8 results (CUDA assertion failures return [])

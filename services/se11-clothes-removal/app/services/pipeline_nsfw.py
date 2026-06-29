@@ -433,23 +433,38 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 await _asyncio.sleep(10)
 
             _retry_configs = {
-                1: {"strength": 0.85, "field": 0.62, "erode": 0, "seed": -1},
-                2: {"strength": 0.90, "field": 0.62, "erode": 0, "seed": 42},
-                3: {"strength": 1.00, "field": 0.62, "erode": 0, "seed": 99},
+                1: {"strength": 0.85, "field": 0.45, "erode": 0, "seed": -1},
+                2: {"strength": 0.90, "field": 0.45, "erode": 0, "seed": 42},
+                3: {"strength": 1.00, "field": 0.45, "erode": 0, "seed": 99},
             }
             cfg = _retry_configs.get(attempt, _retry_configs[1])
 
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f seed=%d",
                         job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"], cfg["seed"])
 
+            # IP-Adapter: pass original image as reference for pose/proportion preservation
+            ip_adapter_prompts = [
+                {
+                    "cn_img": image_b64,
+                    "cn_stop": 0.5,
+                    "cn_weight": 0.6,
+                    "cn_type": "ImagePrompt",
+                },
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+            ]
+
             result1 = await se8.inpaint(
                 image_b64=image_b64, mask_b64=mask_b64,
                 prompt=final_prompt,
                 negative_prompt=final_negative,
+                inpaint_additional_prompt=final_prompt,
                 inpaint_strength=cfg["strength"],
                 inpaint_respective_field=cfg["field"],
                 inpaint_erode_or_dilate=cfg["erode"],
                 loras=nsfw_loras,
+                image_prompts=ip_adapter_prompts,
                 base_model="juggernautXL_v8Rundiffusion.safetensors",
             )
             if not result1 or not result1.get("base64"):
