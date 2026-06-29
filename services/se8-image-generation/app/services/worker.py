@@ -327,15 +327,28 @@ def _apply_performance_defaults(async_task: AsyncTask) -> None:
 
 
 def _parse_image_prompts(image_prompts: list) -> dict[str, list]:
-    """Parse V2 image_prompts into cn_tasks format."""
+    """Parse image_prompts into cn_tasks format.
+
+    Accepts both dict format (from V2 JSON API) and tuple format
+    (from req_to_params conversion: (cn_img, cn_stop, cn_weight, cn_type)).
+    """
     cn_tasks: dict[str, list] = {"cn_ip": [], "cn_ip_face": [], "cn_canny": [], "cn_cpds": []}
     for prompt_item in image_prompts:
-        if not isinstance(prompt_item, dict):
+        img = None
+        stop = 0.5
+        weight = 1.0
+        cn_type = "ImagePrompt"
+
+        if isinstance(prompt_item, dict):
+            img = prompt_item.get("cn_img")
+            stop = prompt_item.get("cn_stop", 0.5)
+            weight = prompt_item.get("cn_weight", 1.0)
+            cn_type = prompt_item.get("cn_type", "ImagePrompt")
+        elif isinstance(prompt_item, (tuple, list)) and len(prompt_item) >= 4:
+            img, stop, weight, cn_type = prompt_item[0], prompt_item[1], prompt_item[2], prompt_item[3]
+        else:
             continue
-        img = prompt_item.get("cn_img")
-        stop = prompt_item.get("cn_stop", 0.5)
-        weight = prompt_item.get("cn_weight", 1.0)
-        cn_type = prompt_item.get("cn_type", "ImagePrompt")
+
         if img:
             type_map = {
                 "ImagePrompt": "cn_ip",
@@ -346,6 +359,122 @@ def _parse_image_prompts(image_prompts: list) -> dict[str, list]:
             key = type_map.get(cn_type, "cn_ip")
             cn_tasks[key].append([img, stop, weight])
     return cn_tasks
+
+
+def _apply_ip_adapter(async_task, pipeline):
+    """Apply IP-Adapter conditioning to the UNet.
+
+    This wires the parsed cn_tasks into the actual IP-Adapter pipeline:
+    1. Downloads IP-Adapter models (clip vision, negative, adapter weights)
+    2. Loads models via extras/ip_adapter.py
+    3. Preprocesses each reference image through CLIP vision
+    4. Patches pipeline.final_unet with IP-Adapter attention patches
+
+    The patched UNet then incorporates visual reference information during
+    every attention step, guiding the diffusion toward the reference image's
+    composition, pose, and color palette.
+    """
+    import numpy as np
+    from PIL import Image
+
+    cn_ip = async_task.cn_tasks.get("cn_ip", [])
+    cn_ip_face = async_task.cn_tasks.get("cn_ip_face", [])
+    all_ip = cn_ip + cn_ip_face
+
+    logger.info("IP-Adapter: cn_ip=%d, cn_ip_face=%d, total=%d", len(cn_ip), len(cn_ip_face), len(all_ip))
+    if not all_ip:
+        return
+
+    try:
+        from extras import ip_adapter
+        from modules.config import downloading_ip_adapters
+    except ImportError as e:
+        logger.warning("IP-Adapter imports failed: %s", e)
+        return
+
+    # Download and load models for each adapter type used
+    adapter_paths = {}
+    for adapter_type in ("ip", "face"):
+        tasks_for_type = cn_ip if adapter_type == "ip" else cn_ip_face
+        if not tasks_for_type:
+            continue
+        try:
+            paths = downloading_ip_adapters(adapter_type)
+            clip_path, neg_path, adapter_path = paths[0], paths[1], paths[2]
+            ip_adapter.load_ip_adapter(clip_path, neg_path, adapter_path)
+            adapter_paths[adapter_type] = adapter_path
+            logger.info("IP-Adapter loaded: type=%s path=%s", adapter_type, adapter_path)
+        except Exception as e:
+            logger.warning("IP-Adapter load failed for type=%s: %s", adapter_type, e)
+            continue
+
+    if not adapter_paths:
+        return
+
+    # Preprocess each reference image
+    ip_tasks = []
+    for img_data, stop, weight in all_ip:
+        if not img_data:
+            continue
+
+        try:
+            # Decode image from base64 data URI or raw base64
+            if isinstance(img_data, str):
+                raw = img_data
+                if "," in raw and raw.startswith("data:"):
+                    raw = raw.split(",", 1)[1]
+                # Fix padding
+                missing = len(raw) % 4
+                if missing:
+                    raw += "=" * (4 - missing)
+                img_bytes = base64.b64decode(raw)
+            elif isinstance(img_data, bytes):
+                img_bytes = img_data
+            else:
+                continue
+
+            # Decode to numpy RGB
+            pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            # Resize to 224x224 for CLIP vision
+            pil_img = pil_img.resize((224, 224), Image.LANCZOS)
+            img_np = np.array(pil_img).astype(np.float32)
+
+            # Determine adapter path based on cn_type
+            # Check if this is a face task by looking at original cn_type
+            adapter_type = "ip"  # default
+            for orig_task in cn_ip:
+                if orig_task[0] is img_data:
+                    adapter_type = "ip"
+                    break
+            for orig_task in cn_ip_face:
+                if orig_task[0] is img_data:
+                    adapter_type = "face"
+                    break
+
+            adapter_path = adapter_paths.get(adapter_type) or adapter_paths.get("ip")
+            if not adapter_path:
+                continue
+
+            # Preprocess through CLIP vision + IP-Adapter projection
+            ip_conds, ip_unconds = ip_adapter.preprocess(img_np, adapter_path)
+            ip_tasks.append([(ip_conds, ip_unconds), stop, weight])
+            logger.info("IP-Adapter preprocessed: type=%s stop=%.2f weight=%.2f",
+                        adapter_type, stop, weight)
+
+        except Exception as e:
+            logger.warning("IP-Adapter preprocess failed: %s", e)
+            continue
+
+    if not ip_tasks:
+        logger.warning("IP-Adapter: no valid tasks after preprocessing")
+        return
+
+    # Patch the UNet with IP-Adapter attention layers
+    try:
+        pipeline.final_unet = ip_adapter.patch_model(pipeline.final_unet, ip_tasks)
+        logger.info("IP-Adapter patched UNet: %d reference images applied", len(ip_tasks))
+    except Exception as e:
+        logger.warning("IP-Adapter patch_model failed: %s", e)
 
 
 # --- Core processing functions ---
@@ -801,6 +930,10 @@ def process_generate(async_job: QueueTask) -> None:
 
         if async_task.inpaint_input_image:
             tasks, inpaint_state = _apply_inpaint(async_task, tasks, pipeline)
+
+        # Step 3c: Apply IP-Adapter (visual reference from original image)
+        # Must run AFTER inpaint (patches accumulate via model.clone())
+        _apply_ip_adapter(async_task, pipeline)
 
         # Step 3b: InpaintWorker reference for post_process (crop paste)
         inpaint_worker_ref = None

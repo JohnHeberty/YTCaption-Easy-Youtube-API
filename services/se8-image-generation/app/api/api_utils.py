@@ -126,6 +126,7 @@ def req_to_params(req: CommonRequest) -> dict[str, Any]:
     if isinstance(
         req,
         (
+            ImgInpaintOrOutpaintRequest,
             ImgInpaintOrOutpaintRequestJson,
             ImgPromptRequest,
             ImgPromptRequestJson,

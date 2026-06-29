@@ -170,7 +170,15 @@ def preprocess(img, ip_adapter_path):
 
     ldm_patched.modules.model_management.load_model_gpu(clip_vision.patcher)
     pixel_values = clip_preprocess(numpy_to_pytorch(img).to(clip_vision.load_device))
-    outputs = clip_vision.model(pixel_values=pixel_values, output_hidden_states=True)
+    # SE8 ClipVisionModel uses intermediate_output=-2 (not output_hidden_states)
+    # Returns tuple: (last_hidden_state, penultimate_hidden_states, image_embeds)
+    out = clip_vision.model(pixel_values=pixel_values, intermediate_output=-2)
+    # Wrap as object with .hidden_states and .image_embeds for compatibility
+    class _ClipOutput:
+        def __init__(self, penultimate, image_embeds):
+            self.hidden_states = [penultimate]
+            self.image_embeds = image_embeds
+    outputs = _ClipOutput(out[1], out[2])
 
     ip_adapter = entry['ip_adapter']
     ip_layers = entry['ip_layers']
