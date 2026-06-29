@@ -471,46 +471,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
-            # ─── Color transfer: match inpainted skin tone to original ───
-            try:
-                # Sample original skin from exposed areas (arms, neck) outside mask
-                sample_mask = _cv2.bitwise_and(
-                    _cv2.bitwise_not(inpaint_mask), person_binary)
-                sample_mask = _cv2.dilate(sample_mask, _cv2.getStructuringElement(
-                    _cv2.MORPH_ELLIPSE, (5, 5)), iterations=1)
-                if _np.count_nonzero(sample_mask) > 100:
-                    orig_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-                    inp_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-                    for ch in range(3):
-                        orig_vals = orig_lab[:, :, ch][sample_mask > 0]
-                        inp_vals = inp_lab[:, :, ch][inpaint_mask > 0]
-                        if len(orig_vals) > 10 and len(inp_vals) > 10:
-                            o_mean, o_std = orig_vals.mean(), max(orig_vals.std(), 1.0)
-                            i_mean, i_std = inp_vals.mean(), max(inp_vals.std(), 1.0)
-                            inp_lab[:, :, ch] = (inp_lab[:, :, ch] - i_mean) * (o_std / i_std) + o_mean
-                    inpainted_img = _cv2.cvtColor(_np.clip(inp_lab, 0, 255).astype(_np.uint8),
-                                                  _cv2.COLOR_LAB2BGR)
-                    inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
-            except Exception as exc:
-                logger.debug("Job %s: color transfer skipped: %s", job.job_id, exc)
-
-            # ─── Composite: hard paste body + smooth edge-only blending ───
-            composited = orig_img.copy()
-            body_bin = inpaint_mask > 0
-            composited[body_bin] = inpainted_img[body_bin]
-
-            # Create feathered edge band (only at mask boundary)
-            kernel_size = max(21, min(orig_w, orig_h) // 30)
-            kernel_size = kernel_size if kernel_size % 2 == 1 else kernel_size + 1
-            mask_f = inpaint_mask.astype(_np.float32) / 255.0
-            feathered = _cv2.GaussianBlur(mask_f, (kernel_size, kernel_size), 0)
-
-            # Blend: body center stays 100% inpainted, only edges get feathered
-            composited = (composited.astype(_np.float32) * feathered[:, :, None] +
-                          orig_img.astype(_np.float32) * (1.0 - feathered[:, :, None]))
-            composited = _np.clip(composited, 0, 255).astype(_np.uint8)
-
-            # Protect head
+            # SE8 already composites the result via InpaintWorker.post_process()
+            # with its own morphological_open soft mask (~32px gradient).
+            # Only protect the face region that SE8 shouldn't have touched.
+            composited = inpainted_img.copy()
             composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
             _cv2.imwrite(os.path.join(try_dir, "result.png"), composited)
