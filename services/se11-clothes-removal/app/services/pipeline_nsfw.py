@@ -440,9 +440,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 await _asyncio.sleep(10)
 
             _retry_configs = {
-                1: {"strength": 0.85, "field": 0.45, "erode": 0, "seed": -1},
-                2: {"strength": 0.90, "field": 0.45, "erode": 0, "seed": 42},
-                3: {"strength": 1.00, "field": 0.45, "erode": 0, "seed": 99},
+                1: {"strength": 0.85, "field": 0.618, "erode": 0, "seed": -1},
+                2: {"strength": 0.90, "field": 0.618, "erode": 0, "seed": 42},
+                3: {"strength": 1.00, "field": 0.618, "erode": 0, "seed": 99},
             }
             cfg = _retry_configs.get(attempt, _retry_configs[1])
 
