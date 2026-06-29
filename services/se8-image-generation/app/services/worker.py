@@ -387,23 +387,46 @@ def _apply_ip_adapter(async_task, pipeline):
 
     try:
         from extras import ip_adapter
-        from modules.config import downloading_ip_adapters
     except ImportError as e:
         logger.warning("IP-Adapter imports failed: %s", e)
         return
 
-    # Download and load models for each adapter type used
+    # Load models for each adapter type used
+    # Use direct paths — downloading_ip_adapters() fails on read-only volumes
+    # Models are pre-downloaded to host: data/models/clip_vision/ and data/models/controlnet/
     adapter_paths = {}
+    import os
+    from modules.config import path_clip_vision, path_controlnet
+
+    _adapter_files = {
+        "ip": {
+            "clip": os.path.join(path_clip_vision, "clip_vision_vit_h.safetensors"),
+            "neg": os.path.join(path_controlnet, "fooocus_ip_negative.safetensors"),
+            "adapter": os.path.join(path_controlnet, "ip-adapter-plus_sdxl_vit-h.bin"),
+        },
+        "face": {
+            "clip": os.path.join(path_clip_vision, "clip_vision_vit_h.safetensors"),
+            "neg": os.path.join(path_controlnet, "fooocus_ip_negative.safetensors"),
+            "adapter": os.path.join(path_controlnet, "ip-adapter-plus-face_sdxl_vit-h.bin"),
+        },
+    }
+
     for adapter_type in ("ip", "face"):
         tasks_for_type = cn_ip if adapter_type == "ip" else cn_ip_face
         if not tasks_for_type:
             continue
+
+        files = _adapter_files[adapter_type]
+        # Verify all model files exist
+        missing = [f for f in files.values() if not os.path.exists(f)]
+        if missing:
+            logger.warning("IP-Adapter: missing model files for type=%s: %s", adapter_type, missing)
+            continue
+
         try:
-            paths = downloading_ip_adapters(adapter_type)
-            clip_path, neg_path, adapter_path = paths[0], paths[1], paths[2]
-            ip_adapter.load_ip_adapter(clip_path, neg_path, adapter_path)
-            adapter_paths[adapter_type] = adapter_path
-            logger.info("IP-Adapter loaded: type=%s path=%s", adapter_type, adapter_path)
+            ip_adapter.load_ip_adapter(files["clip"], files["neg"], files["adapter"])
+            adapter_paths[adapter_type] = files["adapter"]
+            logger.info("IP-Adapter loaded: type=%s", adapter_type)
         except Exception as e:
             logger.warning("IP-Adapter load failed for type=%s: %s", adapter_type, e)
             continue

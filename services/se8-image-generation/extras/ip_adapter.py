@@ -170,15 +170,18 @@ def preprocess(img, ip_adapter_path):
 
     ldm_patched.modules.model_management.load_model_gpu(clip_vision.patcher)
     pixel_values = clip_preprocess(numpy_to_pytorch(img).to(clip_vision.load_device))
-    # SE8 ClipVisionModel uses intermediate_output=-2 (not output_hidden_states)
-    # Returns tuple: (last_hidden_state, penultimate_hidden_states, image_embeds)
+    # SE8 CLIP uses intermediate_output=-2 (not output_hidden_states=True)
+    # Returns tuple: (last_hidden_state, penultimate_hidden_states, projected_pooled)
+    # hidden_states[-2] must resolve to penultimate — use list(out_tuple)
     out = clip_vision.model(pixel_values=pixel_values, intermediate_output=-2)
-    # Wrap as object with .hidden_states and .image_embeds for compatibility
+
     class _ClipOutput:
-        def __init__(self, penultimate, image_embeds):
-            self.hidden_states = [penultimate]
-            self.image_embeds = image_embeds
-    outputs = _ClipOutput(out[1], out[2])
+        def __init__(self, out_tuple):
+            # out_tuple[0]=last_hidden, [1]=penultimate, [2]=projected_pooled
+            # hidden_states[-2] = out_tuple[1] = penultimate (what Plus adapter needs)
+            self.hidden_states = list(out_tuple)
+            self.image_embeds = out_tuple[2]
+    outputs = _ClipOutput(out)
 
     ip_adapter = entry['ip_adapter']
     ip_layers = entry['ip_layers']
@@ -215,7 +218,12 @@ def patch_model(model, tasks):
     def make_attn_patcher(ip_index):
         def patcher(n, context_attn2, value_attn2, extra_options):
             org_dtype = n.dtype
-            current_step = float(model.model.diffusion_model.current_step.detach().cpu().numpy()[0])
+            # current_step is set by patched_unet_forward in modules/patch.py
+            # May not exist if UNet forward isn't patched — default to 0 (always active)
+            try:
+                current_step = float(model.model.diffusion_model.current_step.detach().cpu().numpy()[0])
+            except (AttributeError, IndexError):
+                current_step = 0.0
             cond_or_uncond = extra_options['cond_or_uncond']
 
             q = n

@@ -453,8 +453,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             ip_adapter_prompts = [
                 {
                     "cn_img": image_b64,
-                    "cn_stop": 0.5,
-                    "cn_weight": 0.6,
+                    "cn_stop": 0.3,
+                    "cn_weight": 0.35,
                     "cn_type": "ImagePrompt",
                 },
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
