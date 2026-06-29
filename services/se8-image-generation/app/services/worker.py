@@ -593,19 +593,34 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
 
                 if os.path.exists(inpaint_patch_path):
                     try:
-                        lora_manager = getattr(pipeline, "lora_manager", None)
-                        if lora_manager is None:
-                            from app.services.lora_manager import load_loras
-                            lora_manager = pipeline.model_base
-                        # Add patch as LoRA with weight 1.0 (Fooocus default)
-                        base_loras = getattr(async_task, "base_model_additional_loras", [])
-                        base_loras.append((inpaint_patch_path, 1.0))
-                        async_task.base_model_additional_loras = base_loras
-                        pipeline.refresh_loras(
-                            async_task.loras,
-                            base_model_additional_loras=base_loras
-                        )
-                        logger.warning("Inpaint patch LoRA loaded: %s (weight=1.0)", patch_name)
+                        # Load inpaint patch directly into existing UNet via add_patches
+                        # This avoids refresh_loras() which recreates unet_with_lora from scratch
+                        import ldm_patched.modules.utils as _utils
+                        from modules.core import match_lora
+
+                        lora_data = _utils.load_torch_file(inpaint_patch_path, safe_load=False)
+
+                        model_obj = pipeline.model_base
+                        unet = model_obj.unet if model_obj else None
+                        if unet is not None:
+                            # Build key map from current UNet state dict
+                            key_map_unet = {}
+                            for k in unet.model.state_dict().keys():
+                                if k.startswith("diffusion_model.") and k.endswith(".weight"):
+                                    lora_key = k[len("diffusion_model."):-len(".weight")].replace(".", "_")
+                                    key_map_unet[f"lora_unet_{lora_key}"] = k
+
+                            lora_unet, lora_unmatch = match_lora(lora_data, key_map_unet)
+                            total = len(lora_unet)
+                            if total > 0:
+                                if model_obj.unet_with_lora is None:
+                                    model_obj.unet_with_lora = unet.clone()
+                                loaded = model_obj.unet_with_lora.add_patches(lora_unet, 1.0)
+                                logger.warning("Inpaint patch LoRA loaded: %s — %d keys at weight=1.0", patch_name, len(loaded))
+                            else:
+                                logger.warning("Inpaint patch LoRA: 0 keys matched for UNet")
+                        else:
+                            logger.warning("Inpaint patch: UNet not available")
                     except Exception as lora_err:
                         logger.warning("Failed to load inpaint patch LoRA: %s", lora_err)
                 else:

@@ -253,15 +253,25 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
         person_binary = (person_mask > 127).astype(_np.uint8) * 255
 
-        # Fill ALL internal holes in the person mask
-        # FloodFill from edge (0,0) to find background, then invert to get holes
+        # Fill ALL internal holes in the person mask — multi-step approach
+        # Step 1: Morphological closing to fill small gaps in the mask
+        _close_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
+        person_binary = _cv2.morphologyEx(person_binary, _cv2.MORPH_CLOSE, _close_kernel, iterations=3)
+
+        # Step 2: FloodFill from ALL 4 corners + midpoints to catch background pockets
         _h, _w = person_binary.shape
         _flood = person_binary.copy()
         _flood_mask = _np.zeros((_h + 2, _w + 2), _np.uint8)
-        _cv2.floodFill(_flood, _flood_mask, (0, 0), 255)
+        seeds = [(0, 0), (_w - 1, 0), (0, _h - 1), (_w - 1, _h - 1),
+                 (_w // 2, 0), (_w // 2, _h - 1), (0, _h // 2), (_w - 1, _h // 2)]
+        for seed in seeds:
+            sx, sy = seed
+            if 0 <= sx < _w and 0 <= sy < _h and _flood[sy, sx] == 0:
+                _cv2.floodFill(_flood, _flood_mask, (sx, sy), 255)
         _holes = _cv2.bitwise_not(_flood)
         person_binary = _cv2.bitwise_or(person_binary, _holes)
-        logger.info("Job %s: person mask holes filled (%d px closed)", job.job_id, _np.count_nonzero(_holes))
+        logger.info("Job %s: person mask holes filled (%d px closed via multi-seed floodFill)",
+                     job.job_id, _np.count_nonzero(_holes))
 
         job.update_stage("detecting", "processing", progress=25.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -277,21 +287,21 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             orig_img=orig_img,
             person_binary=person_binary,
             person_bbox=(px, py, pw, ph),
-            max_head_pct=0.40,
-            neck_margin_below=0.15,
+            max_head_pct=0.45,
+            neck_margin_below=0.50,
             dilate_kernel_size=15,
             dilate_iterations=2,
         )
 
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
 
-        # Head protection: use ONLY the haarcascade face box (small)
+        # Head protection: face region with generous margins
         face_protect_mask = detect_face_only(
             orig_img=orig_img,
             person_binary=person_binary,
-            margin_above=0.25,
-            margin_below=0.33,
-            margin_sides=0.25,
+            margin_above=0.40,
+            margin_below=0.60,
+            margin_sides=0.35,
         )
 
         head_adjusted = face_protect_mask
@@ -323,31 +333,25 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             exposed_skin = body_mask
 
         # ─── Stage 4: Mask Preparation ───
-        # Inpaint ONLY the clothes area — body, arms, skin stay untouched
-        # This preserves original pose, body shape, and all non-clothing regions
-        if clothes_combined is not None:
-            # Dilate clothes mask for edge coverage — prevents white artifacts
-            dilation_px = max(10, int(min(orig_w, orig_h) * 0.02))
-            expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
-            clothes_expanded = _cv2.dilate(clothes_combined, expand_kernel, iterations=3)
-            # Clip to person area only
-            clothes_expanded = _cv2.bitwise_and(clothes_expanded, person_binary)
-            # ERODE near face to prevent ghost anatomy at boundary
-            # Create buffer zone so SE8 doesn't generate face features at mask edge
-            face_dilate = _cv2.dilate(face_protect_mask,
-                                       _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px * 2, dilation_px * 2)),
-                                       iterations=2)
-            clothes_expanded = _cv2.bitwise_and(clothes_expanded, _cv2.bitwise_not(face_dilate))
-            inpaint_mask = clothes_expanded
-        else:
-            # Fallback: use body mask (person - head) if no clothes detected
-            inpaint_mask = body_mask.copy()
+        # Strategy: body_mask (person - head) as primary inpaint area
+        # NO face buffer — the face paste in composite handles protection
+        dilation_px = max(10, int(min(orig_w, orig_h) * 0.02))
 
-        # Smooth the mask edges
+        # Primary inpaint mask = body (person minus head)
+        inpaint_mask = body_mask.copy()
+
+        # Moderate expansion to cover sleeves and arm edges
+        expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
+        inpaint_mask = _cv2.dilate(inpaint_mask, expand_kernel, iterations=2)
+
+        # Dilate person silhouette to fill edge gaps in SE10 detection
+        # This prevents white cloth artifacts at arm/shoulder boundaries
+        person_expanded = _cv2.dilate(person_binary, expand_kernel, iterations=3)
+        inpaint_mask = _cv2.bitwise_and(inpaint_mask, person_expanded)
+
+        # Morphological closing to fill small holes in the mask
         close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
         inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k, iterations=2)
-        open_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-        inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_OPEN, open_k)
 
         clothes_pct = (inpaint_mask > 0).sum() / inpaint_mask.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
@@ -386,13 +390,15 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         nsfw_negative = (
             "(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, "
             "wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, "
-            "mutated hands and fingers, extra fingers, missing fingers, "
+            "(mutated hands and fingers, extra fingers, missing fingers, webbed fingers:1.4), "
+            "(bad hands, poorly drawn hands, fused fingers, too many fingers:1.3), "
             "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
             "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
             "cartoon, anime, sketch, "
             "(changed pose, moved body, different position, rotated torso:1.5), "
             "(shifted weight, leaning, tilting, bending, twisting:1.4), "
-            "(new angle, different posture:1.3)"
+            "(new angle, different posture:1.3), "
+            "asymmetric nipples, mismatched skin tone, color banding"
         )
 
         # Use user-provided prompt if non-empty, otherwise fallback to optimized defaults
@@ -486,9 +492,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
-            # SE8 already composites the result via InpaintWorker.post_process()
-            # with its own morphological_open soft mask (~32px gradient).
-            # Only protect the face region that SE8 shouldn't have touched.
+            # Simple composite: paste original face over inpainted result
             composited = inpainted_img.copy()
             composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
@@ -564,7 +568,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             if clothes_combined is not None:
                 panels.append(("04_clothes", clothes_combined, "5. Clothes (Florence-2)"))
             panels.extend([
-                ("06_inpaint_mask", inpaint_mask, f"6. Inpaint Mask (clothes only)"),
+                ("06_inpaint_mask", inpaint_mask, f"6. Inpaint Mask (body-head)"),
                 ("07_head_adjusted", head_adjusted, f"7. Face Protected ({head_adj_pct:.1f}%)"),
                 ("result", best_composited, f"8. Result ({best_try}, score={best_score:.3f})"),
             ])
