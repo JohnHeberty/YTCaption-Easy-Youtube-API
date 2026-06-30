@@ -163,17 +163,23 @@ async def run_nsfw_experimental(job: ClothesRemovalJob, store: ClothesRemovalJob
                     cb = (cm > 127).astype(_np.uint8) * 255
                     clothes_combined = cb if clothes_combined is None else _cv2.bitwise_or(clothes_combined, cb)
 
-        # CRITICAL: Subtract clothes from head_mask (head = face+hair only)
+        # CRITICAL: Head mask = face+hair+neck (NO clothing)
         if clothes_combined is not None:
             head_mask = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_combined))
-            head_mask = _cv2.bitwise_and(head_mask, person_binary)
+        head_mask = _cv2.bitwise_and(head_mask, person_binary)
 
-        # Close holes + smooth edges
-        _ck = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
+        # Distance transform to inflate (fills concavities)
+        _dist = _cv2.distanceTransform(head_mask, _cv2.DIST_L2, 5)
+        _, _head_inflated = _cv2.threshold(_dist, 8, 255, _cv2.THRESH_BINARY)
+        head_mask = _cv2.bitwise_or(head_mask, _head_inflated.astype(_np.uint8))
+        head_mask = _cv2.bitwise_and(head_mask, person_binary)
+
+        # Close + blur for smooth edges
+        _ck = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (9, 9))
         head_mask = _cv2.morphologyEx(head_mask, _cv2.MORPH_CLOSE, _ck, iterations=2)
-        head_float = head_mask.astype(_np.float32) / 255.0
-        head_float = _cv2.GaussianBlur(head_float, (5, 5), 2.0)
-        head_mask = (head_float > 0.5).astype(_np.uint8) * 255
+        head_f = head_mask.astype(_np.float32) / 255.0
+        head_f = _cv2.GaussianBlur(head_f, (15, 15), 5.0)
+        head_mask = (head_f > 0.5).astype(_np.uint8) * 255
         head_mask = _cv2.bitwise_and(head_mask, person_binary)
 
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
