@@ -321,15 +321,17 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 **Causa raiz:** O pipeline protegia a cabeça inteira (face + cabelo + pescoço) via `head_adjusted` e a colava de volta com alpha feather de 21px. Como a cabeça, o cabelo e o pescoço permaneciam 100% originais, enquanto o corpo era gerado, a fronteira ficava visível — especialmente sob luz diferente ou com textura de pele gerada.
 
-**Solução implementada:**
-1. Reduzir a máscara de proteção para **apenas o centro do rosto** (`face_protect_mask` com margens menores: 20% acima, 30% abaixo, 25% laterais).
-2. Deixar o modelo gerar **queixo, mandíbula, pescoço e bordas do cabelo** naturalmente.
-3. Reduzir o feather de 21px para **11px Gaussian**, criando uma transição mais fina.
-4. Aplicar **harmonização de cor (Reinhard LAB)** no corpo gerado para igualar ao tom de pele original, e só depois re-aplicar a face protegida.
+**Solução implementada (v23.1 → v23.2):**
+1. Reduzir a máscara de proteção para **apenas o centro do rosto** (`face_protect_mask` com margens mínimas: 10% acima, 15% abaixo, 15% laterais).
+2. Deixar o modelo gerar **testa, bochechas, queixo, mandíbula, pescoço e bordas do cabelo** naturalmente.
+3. Substituir feather Gaussiano por **distance transform** (`cv2.distanceTransform`): alpha 1.0 no centro do rosto, decaindo para 0.0 ao longo de ~40px. A transição segue a geometria real da máscara, não uma caixa de blur fixa.
+4. Erodir `head_mask` antes de subtrair de `person_binary`, criando uma **transition band** explícita que o SE8 é instruído a gerar.
+5. Aplicar **harmonização de cor (Reinhard LAB) localizada** na faixa de transição + pele exposta original, e só depois re-aplicar a face protegida.
 
 **Resultado:**
-- Job `cr_75c5996737ab`: `face_protect_mask` = 29.9k px vs `head_adjusted` = 131.1k px (~23% da área anterior).
-- Pose score manteve-se na mesma faixa (best=12.5).
+- Job `cr_75c5996737ab` (v23.1): `face_protect_mask` = 29.9k px vs `head_adjusted` = 131.1k px (~23% da área anterior); best score = 12.5.
+- Job `cr_54e5dff89d04` (v23.2): `face_protect_mask` = 13.8k px vs `head_adjusted` = 131.1k px (~10.5% da área anterior); best score = 7.4.
+- Score melhorou (menor = melhor preservação de pose) à medida que a máscara facial foi reduzida, indicando que o modelo ganha liberdade para gerar transição natural.
 - Visualmente a fronteira entre face e corpo gerado fica mais natural porque o modelo cria a transição de pele em vez de colar uma borda suavizada.
 
 **Padrões de mercado para este problema:**
