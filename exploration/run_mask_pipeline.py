@@ -289,24 +289,10 @@ async def run_masks(image_path: str):
     px, py, pw, ph = cv2.boundingRect(max(contours, key=cv2.contourArea))
 
     head_mask = detect_head_mask(orig_img, person_binary, (px, py, pw, ph))
-    body_mask = cv2.bitwise_and(person_binary, cv2.bitwise_not(head_mask))
     face_only = detect_face_only(orig_img, person_binary)
-    neck = detect_neck_mask(person_binary, head_mask)
 
-    head_pct = cv2.countNonZero(head_mask) / head_mask.size * 100
-    body_pct = cv2.countNonZero(body_mask) / body_mask.size * 100
-    face_pct = cv2.countNonZero(face_only) / face_only.size * 100
-    neck_pct = cv2.countNonZero(neck) / neck.size * 100
-    print(f"  Head: {head_pct:.1f}% | Body: {body_pct:.1f}% | Face: {face_pct:.1f}% | Neck: {neck_pct:.1f}%")
-
-    faces = detect_faces(orig_img)
-    for i, (fx, fy, fw, fh) in enumerate(faces):
-        print(f"  face[{i}]: ({fx},{fy}) {fw}x{fh}")
-
-    save_mask(out_dir / "02_head_mask.png", head_mask)
-    save_mask(out_dir / "03_body_mask.png", body_mask)
+    save_mask(out_dir / "02_head_raw.png", head_mask)
     save_mask(out_dir / "04_face_only.png", face_only)
-    save_mask(out_dir / "04b_neck.png", neck)
 
     # ─── Stage 3: Clothes Detection ───
     print("\n[3/5] Clothes Detection (Florence-2)...")
@@ -329,15 +315,35 @@ async def run_masks(image_path: str):
         save_mask(out_dir / "05_clothes_raw.png", clothes_combined)
     save_json(out_dir / "se10_clothes.json", clothes_seg.get("objects", []))
 
+    # ─── CRITICAL: Subtract clothes from head_mask ───
+    # Head = only face + neck + hair (NOT clothing)
+    # This prevents head mask from "stealing" clothing area
+    if clothes_combined is not None:
+        head_mask = cv2.bitwise_and(head_mask, cv2.bitwise_not(clothes_combined))
+        head_mask = cv2.bitwise_and(head_mask, person_binary)
+        print(f"  Head cleaned: subtracted clothes overlap")
+
+    body_mask = cv2.bitwise_and(person_binary, cv2.bitwise_not(head_mask))
+    neck = detect_neck_mask(person_binary, head_mask)
+
+    head_pct = cv2.countNonZero(head_mask) / head_mask.size * 100
+    body_pct = cv2.countNonZero(body_mask) / body_mask.size * 100
+    face_pct = cv2.countNonZero(face_only) / face_only.size * 100
+    neck_pct = cv2.countNonZero(neck) / neck.size * 100
+    print(f"  Head: {head_pct:.1f}% | Body: {body_pct:.1f}% | Face: {face_pct:.1f}% | Neck: {neck_pct:.1f}%")
+
+    faces = detect_faces(orig_img)
+    for i, (fx, fy, fw, fh) in enumerate(faces):
+        print(f"  face[{i}]: ({fx},{fy}) {fw}x{fh}")
+
+    save_mask(out_dir / "02_head_mask.png", head_mask)
+    save_mask(out_dir / "03_body_mask.png", body_mask)
+    save_mask(out_dir / "04b_neck.png", neck)
+
     # ─── Stage 4: Exposed Skin ───
     print("\n[4/5] Exposed Skin Calculation...")
-    clothes_clean = None
     if clothes_combined is not None:
-        clothes_clean = cv2.bitwise_and(clothes_combined, cv2.bitwise_not(head_mask))
-        save_mask(out_dir / "05b_clothes_no_hair.png", clothes_clean)
-
-    if clothes_clean is not None:
-        exposed_skin = cv2.bitwise_and(body_mask, cv2.bitwise_not(clothes_clean))
+        exposed_skin = cv2.bitwise_and(body_mask, cv2.bitwise_not(clothes_combined))
     else:
         exposed_skin = body_mask.copy()
     exposed_skin = cv2.bitwise_or(exposed_skin, neck)
@@ -364,17 +370,16 @@ async def run_masks(image_path: str):
     panels = [
         ("00_original", orig_img, "1. Original"),
         ("01_person", person_binary, "2. Person (SE10)"),
-        ("02_head_mask", head_mask, f"3. Head ({head_pct:.1f}%)"),
+        ("02_head_raw", head_mask, f"3. Head ({head_pct:.1f}%)"),
         ("04_face_only", face_only, f"4. Face ({face_pct:.1f}%)"),
     ]
     if clothes_combined is not None:
         panels.append(("05_clothes_raw", clothes_combined, "5. Clothes Raw"))
-    if clothes_clean is not None:
-        panels.append(("05b_clothes_no_hair", clothes_clean, "6. Clothes -Hair"))
     panels.extend([
-        ("04b_neck", neck, f"7. Neck ({neck_pct:.1f}%)"),
-        ("06_exposed_skin", exposed_skin, f"8. Skin ({exposed_pct:.1f}%)"),
-        ("07_inpaint_mask", inpaint_mask, f"9. Inpaint ({inpaint_pct:.1f}%)"),
+        ("04b_neck", neck, f"6. Neck ({neck_pct:.1f}%)"),
+        ("06_exposed_skin", exposed_skin, f"7. Skin ({exposed_pct:.1f}%)"),
+        ("07_inpaint_mask", inpaint_mask, f"8. Inpaint ({inpaint_pct:.1f}%)"),
+        ("03_body_mask", body_mask, f"9. Body (head-sub)"),
     ])
     grid = build_debug_grid(panels, cols=3)
     cv2.imwrite(str(out_dir / "debug_grid.png"), grid)

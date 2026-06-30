@@ -163,16 +163,13 @@ async def run_nsfw_experimental(job: ClothesRemovalJob, store: ClothesRemovalJob
                     cb = (cm > 127).astype(_np.uint8) * 255
                     clothes_combined = cb if clothes_combined is None else _cv2.bitwise_or(clothes_combined, cb)
 
-        # FIX: Subtract head_mask from clothes (Florence-2 picks up hair as clothing)
+        # CRITICAL: Subtract clothes from head_mask (head = face+hair only, no clothes)
         if clothes_combined is not None:
-            clothes_clean = _cv2.bitwise_and(clothes_combined, _cv2.bitwise_not(head_mask))
-        else:
-            clothes_clean = None
+            head_mask = _cv2.bitwise_and(head_mask, _cv2.bitwise_not(clothes_combined))
+            head_mask = _cv2.bitwise_and(head_mask, person_binary)
+            body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
 
-        if clothes_clean is not None:
-            exposed_skin = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(clothes_clean))
-        else:
-            exposed_skin = body_mask
+        exposed_skin = _cv2.bitwise_and(body_mask, _cv2.bitwise_not(clothes_combined)) if clothes_combined is not None else body_mask
 
         # ─── Stage 4: Mask Preparation ───
         body_closed = body_mask.copy()
