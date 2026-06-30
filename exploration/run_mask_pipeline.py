@@ -544,7 +544,7 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
         ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
 
         ip_prompts = [
-            {"cn_img": ip_b64, "cn_stop": 0.4, "cn_weight": 0.4, "cn_type": "ImagePrompt"},
+            {"cn_img": ip_b64, "cn_stop": 0.5, "cn_weight": 0.6, "cn_type": "ImagePrompt"},
             {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
@@ -552,7 +552,7 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
 
         configs = [
             {"label": "try_1", "strength": 0.85, "field": 0.618, "seed": -1},
-            {"label": "try_2", "strength": 0.90, "field": 0.45, "seed": 42},
+            {"label": "try_2", "strength": 0.90, "field": 0.618, "seed": 42},
             {"label": "try_3", "strength": 1.00, "field": 0.618, "seed": 99},
         ]
 
