@@ -315,20 +315,43 @@ async def run_masks(image_path: str):
         save_mask(out_dir / "05_clothes_raw.png", clothes_combined)
     save_json(out_dir / "se10_clothes.json", clothes_seg.get("objects", []))
 
-    # ─── CRITICAL: Subtract clothes from head_mask ───
-    # Head = only face + neck + hair (NOT clothing)
+    # ─── CRITICAL: Head mask = face + hair + neck (NO clothing) ───
+    # Step 1: Subtract clothes from raw head
     if clothes_combined is not None:
-        head_mask = cv2.bitwise_and(head_mask, cv2.bitwise_not(clothes_combined))
-        head_mask = cv2.bitwise_and(head_mask, person_binary)
+        head_sub = cv2.bitwise_and(head_mask, cv2.bitwise_not(clothes_combined))
+    else:
+        head_sub = head_mask.copy()
+    head_sub = cv2.bitwise_and(head_sub, person_binary)
 
-    # Close holes + smooth edges
-    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    head_mask = cv2.morphologyEx(head_mask, cv2.MORPH_CLOSE, close_k, iterations=2)
-    head_float = head_mask.astype(np.float32) / 255.0
-    head_float = cv2.GaussianBlur(head_float, (5, 5), 2.0)
-    head_mask = (head_float > 0.5).astype(np.uint8) * 255
+    # Step 2: Distance transform to inflate mask back (fills small concavities)
+    dist = cv2.distanceTransform(head_sub, cv2.DIST_L2, 5)
+    _, head_inflated = cv2.threshold(dist, 8, 255, cv2.THRESH_BINARY)
+    head_inflated = head_inflated.astype(np.uint8)
+
+    # Step 3: Combine — keep original center, allow inflated edges
+    head_base = cv2.bitwise_or(head_sub, head_inflated)
+    head_base = cv2.bitwise_and(head_base, person_binary)
+
+    # Step 4: Close remaining holes
+    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    head_base = cv2.morphologyEx(head_base, cv2.MORPH_CLOSE, close_k, iterations=2)
+
+    # Step 5: Gaussian blur for smooth organic edges
+    head_f = head_base.astype(np.float32) / 255.0
+    head_f = cv2.GaussianBlur(head_f, (15, 15), 5.0)
+    head_mask = (head_f > 0.5).astype(np.uint8) * 255
+
+    # Step 6: Final clip to person silhouette
     head_mask = cv2.bitwise_and(head_mask, person_binary)
-    print(f"  Head cleaned: clothes subtracted, holes closed, edges smoothed")
+
+    # Step 7: Remove small noise components
+    n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(head_mask, connectivity=8)
+    min_area = head_mask.size * 0.005
+    for i in range(1, n_labels):
+        if stats[i, cv2.CC_STAT_AREA] < min_area:
+            head_mask[labels == i] = 0
+
+    print(f"  Head mask: inflated, smoothed, clean")
 
     body_mask = cv2.bitwise_and(person_binary, cv2.bitwise_not(head_mask))
     neck = detect_neck_mask(person_binary, head_mask)
