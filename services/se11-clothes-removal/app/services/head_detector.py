@@ -40,7 +40,7 @@ def _detect_faces(orig_img):
 
 
 def _ellipse_from_face(fx, fy, fw, fh, h, w, person_binary,
-                        expand_w=0.4, expand_up=0.8, expand_down=0.3):
+                        expand_w=0.5, expand_up=1.5, expand_down=0.3):
     """Create an elliptical mask centered on the face, clipped to person silhouette.
 
     Args:
@@ -114,7 +114,7 @@ def detect_head_mask(
         # Create elliptical mask around face
         head_mask = _ellipse_from_face(
             fx, fy, fw, fh, h, w, person_binary,
-            expand_w=0.4, expand_up=0.8, expand_down=neck_margin_below,
+                                        expand_w=0.5, expand_up=1.5, expand_down=neck_margin_below,
         )
 
         logger.debug("Face (%d,%d,%d,%d) -> elliptical head mask", fx, fy, fw, fh)
