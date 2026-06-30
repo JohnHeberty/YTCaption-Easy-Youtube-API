@@ -25,6 +25,8 @@ import numpy as np
 
 SE10_URL = os.getenv("SE10_URL", "http://localhost:8010")
 SE10_KEY = os.getenv("SE10_API_KEY", "se10-test-key-2026")
+SE8_URL = os.getenv("SE8_URL", "http://localhost:8008")
+SE8_KEY = os.getenv("SE8_API_KEY", "se8-test-key-2026")
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,11 @@ def save_mask(path: Path, mask: np.ndarray):
 def save_json(path: Path, data: dict):
     with open(path, "w") as f:
         json.dump(data, f, indent=2, default=str)
+
+def _to_data_uri(b64_str: str, mime: str = "image/png") -> str:
+    if b64_str.startswith("data:"):
+        return b64_str
+    return f"data:{mime};base64,{b64_str}"
 
 # ─── SE10 API ────────────────────────────────────────────────────────────────
 
@@ -80,6 +87,77 @@ def decode_mask(mask_b64_uri: str, target_h: int, target_w: int) -> np.ndarray:
     if mask.shape[:2] != (target_h, target_w):
         mask = cv2.resize(mask, (target_w, target_h))
     return (mask > 127).astype(np.uint8) * 255
+
+async def _se8_inpaint(image_b64, mask_b64, prompt, negative, strength, field, ip_prompts):
+    import httpx
+    loras = [
+        {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.6},
+        {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
+        {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.7},
+        {"enabled": True, "model_name": "None", "weight": 1.0},
+        {"enabled": True, "model_name": "None", "weight": 1.0},
+    ]
+    payload = {
+        "prompt": prompt, "negative_prompt": negative,
+        "style_selections": [], "performance_selection": "Quality",
+        "aspect_ratios_selection": "1024*1024", "image_number": 1,
+        "image_seed": -1, "sharpness": 2.0, "guidance_scale": 7.0,
+        "base_model_name": "juggernautXL_v8Rundiffusion.safetensors",
+        "loras": loras,
+        "input_image": image_b64, "input_mask": mask_b64,
+        "inpaint_additional_prompt": prompt,
+        "async_process": False, "require_base64": False,
+        "advanced_params": {
+            "inpaint_engine": "v2.6", "inpaint_strength": strength,
+            "inpaint_respective_field": field,
+            "inpaint_disable_initial_latent": False,
+            "inpaint_erode_or_dilate": 0, "overwrite_step": 40,
+            "overwrite_switch": 1.0, "adaptive_cfg": 7.0,
+            "sampler_name": "dpmpp_2m_sde_gpu", "scheduler_name": "karras",
+        },
+        "image_prompts": ip_prompts,
+    }
+    async with httpx.AsyncClient(base_url=SE8_URL, headers={"X-API-Key": SE8_KEY}, timeout=120) as client:
+        for attempt in range(3):
+            resp = await client.post("/v1/generation/image-inpaint-outpaint", json=payload)
+            resp.raise_for_status()
+            result = resp.json()
+            item = result
+            while isinstance(item, list) and len(item) > 0:
+                item = item[0]
+            if isinstance(item, dict) and item.get("finish_reason") == "SUCCESS":
+                _extract_se8(item); return item
+            if isinstance(item, list) and len(item) == 0:
+                await asyncio.sleep(5 * (attempt + 1)); continue
+            if isinstance(item, dict):
+                _extract_se8(item); return item
+    raise Exception("SE8 failed after 3 attempts")
+
+def _extract_se8(item):
+    if item.get("base64"):
+        return
+    url_val = item.get("url", "")
+    if not url_val:
+        return
+    if not url_val.startswith("data:"):
+        import httpx as _httpx
+        file_url = url_val if url_val.startswith("http") else f"{SE8_URL}{url_val}"
+        try:
+            dl = _httpx.get(file_url, timeout=30, headers={"X-API-Key": SE8_KEY})
+            dl.raise_for_status()
+            item["base64"] = base64.b64encode(dl.content).decode("utf-8")
+        except Exception:
+            pass
+    else:
+        data_idx = url_val.find("data:image")
+        if data_idx >= 0:
+            comma_idx = url_val.find(",", data_idx)
+            if comma_idx >= 0:
+                b64 = url_val[comma_idx + 1:].rstrip("=")
+                missing = len(b64) % 4
+                if missing:
+                    b64 += "=" * (4 - missing)
+                item["base64"] = b64
 
 # ─── Face Detection ───────────────────────────────────────────────────────────
 
@@ -226,7 +304,7 @@ def build_debug_grid(panels: list, cell_w=400, cell_h=600, cols=3, font_scale=0.
 
 # ─── Main: Generate Masks Only ───────────────────────────────────────────────
 
-async def run_masks(image_path: str):
+async def run_masks(image_path: str, skip_inpaint: bool = False):
     image_path = Path(image_path)
     stem = image_path.stem
     out_dir = Path(__file__).parent / "data" / stem
@@ -395,6 +473,119 @@ async def run_masks(image_path: str):
     print(f"  Inpaint mask: {inpaint_pct:.1f}%")
     save_mask(out_dir / "07_inpaint_mask.png", inpaint_mask)
 
+    # ─── Stage 6: IP-Adapter Reference (face-masked) ───
+    if not skip_inpaint:
+        print("\n[6/7] IP-Adapter Reference...")
+        face_cover = cv2.dilate(head_mask,
+                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (30, 30)),
+                                 iterations=3)
+        face_cover = cv2.bitwise_or(face_cover, face_only)
+        skin_mask = cv2.inRange(cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV),
+                                np.array([0, 20, 80]), np.array([25, 150, 255]))
+        skin_person = cv2.dilate(person_binary, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=5)
+        skin_person = cv2.bitwise_or(skin_person, person_binary)
+        skin_mask = cv2.bitwise_and(skin_mask, skin_person)
+        skin_mask = cv2.bitwise_and(skin_mask, cv2.bitwise_not(face_cover))
+        skin_pixels = orig_img[skin_mask > 0]
+        median_color = np.median(skin_pixels, axis=0).astype(np.uint8) if len(skin_pixels) > 0 else np.array([180, 160, 140], dtype=np.uint8)
+        ip_ref = orig_img.copy()
+        face_blend = cv2.GaussianBlur(face_cover.astype(np.float32) / 255.0, (31, 31), 10)
+        for c in range(3):
+            ip_ref[:, :, c] = (ip_ref[:, :, c].astype(np.float32) * (1 - face_blend) +
+                                float(median_color[c]) * face_blend).astype(np.uint8)
+        save_mask(out_dir / "08_ip_reference.png", ip_ref)
+
+    # ─── Stage 7: SE8 Inpainting (3 tries) ───
+    if not skip_inpaint:
+        print("\n[7/7] SE8 Inpainting...")
+        nsfw_prompt = (
+            "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
+            "detailed breast anatomy, realistic nipples, areola details, "
+            "natural skin pores, skin texture, skin imperfections, "
+            "realistic body proportions, maintaining exact same body posture, "
+            "skin tone matching the person's arms and face, consistent skin color throughout, "
+            "photorealistic, professional studio photography, soft lighting, "
+            "sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd"
+        )
+        nsfw_negative = (
+            "(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, "
+            "wrong anatomy, extra limbs, missing limbs, floating limbs, "
+            "(mutated hands and fingers, extra fingers, missing fingers:1.4), "
+            "(extra face, second face, face on body, face on chest:1.8), "
+            "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
+            "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
+            "cartoon, anime, sketch, "
+            "(changed pose, moved body, different position:1.5), "
+            "asymmetric nipples, mismatched skin tone, color banding"
+        )
+
+        # Pre-scale: ensure short side >= 1024 to avoid SE8 ESRGAN upscaler crash
+        min_dim = min(orig_w, orig_h)
+        if min_dim < 1024:
+            scale = 1024 / min_dim
+            new_w, new_h = int(orig_w * scale), int(orig_h * scale)
+            inpaint_for_se8 = cv2.resize(inpaint_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+            orig_for_se8 = cv2.resize(orig_img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            ip_ref_for_se8 = cv2.resize(ip_ref, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+        else:
+            inpaint_for_se8 = inpaint_mask
+            orig_for_se8 = orig_img
+            ip_ref_for_se8 = ip_ref
+
+        image_b64 = _to_data_uri(base64.b64encode(
+            cv2.imencode(".jpg", orig_for_se8, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
+        ).decode(), mime="image/jpeg")
+        _, mask_buf = cv2.imencode(".png", inpaint_for_se8)
+        mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode(), mime="image/png")
+        _, ip_buf = cv2.imencode(".jpg", ip_ref_for_se8, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
+
+        ip_prompts = [
+            {"cn_img": ip_b64, "cn_stop": 0.3, "cn_weight": 0.35, "cn_type": "ImagePrompt"},
+            {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+            {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+            {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+        ]
+
+        configs = [
+            {"label": "try_1", "strength": 0.85, "field": 0.618, "seed": -1},
+            {"label": "try_2", "strength": 0.90, "field": 0.618, "seed": 42},
+            {"label": "try_3", "strength": 1.00, "field": 0.618, "seed": 99},
+        ]
+
+        for cfg in configs:
+            label = cfg["label"]
+            print(f"  {label}: strength={cfg['strength']} field={cfg['field']} seed={cfg['seed']}")
+            try:
+                t_try = time.time()
+                result = await _se8_inpaint(image_b64, mask_b64, nsfw_prompt, nsfw_negative,
+                                            cfg["strength"], cfg["field"], ip_prompts)
+                elapsed = time.time() - t_try
+                if result.get("base64"):
+                    result_bytes = base64.b64decode(result["base64"])
+                    result_img = cv2.imdecode(np.frombuffer(result_bytes, np.uint8), cv2.IMREAD_COLOR)
+                    if result_img is not None:
+                        if result_img.shape[:2] != (orig_h, orig_w):
+                            result_img = cv2.resize(result_img, (orig_w, orig_h))
+                        composited = result_img.copy()
+                        composited[head_mask > 0] = orig_img[head_mask > 0]
+                        try_dir = out_dir / label
+                        try_dir.mkdir(exist_ok=True)
+                        save_mask(try_dir / "result.png", composited)
+                        save_mask(try_dir / "inpaint_mask.png", inpaint_mask)
+                        save_mask(try_dir / "head_mask.png", head_mask)
+                        save_json(try_dir / "metadata.json", {"params": cfg, "time_s": round(elapsed, 1)})
+                        print(f"    Saved: {try_dir}/result.png ({elapsed:.1f}s)")
+                    else:
+                        print(f"    WARN: cv2 decode failed")
+                else:
+                    print(f"    WARN: no base64 in result")
+            except Exception as e:
+                print(f"    ERROR: {e}")
+                if "CUDA" in str(e):
+                    print("    Waiting 15s for CUDA recovery...")
+                    await asyncio.sleep(15)
+
     # ─── Debug Grid ───
     print("\n[Grid] Building debug grid...")
     panels = [
@@ -441,8 +632,9 @@ async def run_masks(image_path: str):
 def main():
     parser = argparse.ArgumentParser(description="SE11 Mask Research")
     parser.add_argument("--image", default=str(Path(__file__).parent / "OK.jpg"))
+    parser.add_argument("--skip-inpaint", action="store_true", help="Skip SE8 inpainting (masks only)")
     args = parser.parse_args()
-    asyncio.run(run_masks(args.image))
+    asyncio.run(run_masks(args.image, skip_inpaint=args.skip_inpaint))
 
 if __name__ == "__main__":
     main()
