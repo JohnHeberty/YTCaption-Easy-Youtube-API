@@ -288,7 +288,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             person_binary=person_binary,
             person_bbox=(px, py, pw, ph),
             max_head_pct=0.50,
-            neck_margin_below=1.2,
+            neck_margin_below=1.8,
             dilate_kernel_size=15,
             dilate_iterations=2,
         )
@@ -521,26 +521,32 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
-            # Simple composite: paste original face over inpainted result
-            composited = inpainted_img.copy()
-            composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
+            # Feathered composite: smooth blend at head/body boundary
+            _head_f = head_adjusted.astype(_np.float32) / 255.0
+            _head_f = _cv2.GaussianBlur(_head_f, (21, 21), 7.0)
+            _head_f = _np.clip(_head_f * 1.5, 0, 1)
+            composited = (inpainted_img.astype(_np.float32) * (1 - _head_f[:, :, None]) +
+                          orig_img.astype(_np.float32) * _head_f[:, :, None])
+            composited = _np.clip(composited, 0, 255).astype(_np.uint8)
 
             # Reinhard color transfer: match body skin tone to original
             _skin_hsv = _cv2.inRange(_cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV),
                                       _np.array([0, 15, 60]), _np.array([30, 170, 255]))
             _skin_ref = _cv2.bitwise_and(_skin_hsv, person_binary)
             _skin_ref = _cv2.bitwise_and(_skin_ref, _cv2.bitwise_not(head_adjusted))
-            _skin_ref = (_skin_ref > 0).astype(_np.uint8) * 255
-            if _cv2.countNonZero(_skin_ref) > 100:
+            _skin_mask = (_skin_ref > 0).astype(_np.uint8) * 255
+            if _cv2.countNonZero(_skin_mask) > 100:
                 src_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
                 tgt_lab = _cv2.cvtColor(composited, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-                m = _skin_ref > 0
+                m = _skin_mask > 0
                 src_m, src_s = src_lab[m].mean(axis=0), src_lab[m].std(axis=0) + 1e-6
                 tgt_m, tgt_s = tgt_lab[m].mean(axis=0), tgt_lab[m].std(axis=0) + 1e-6
                 for ch in range(3):
                     tgt_lab[:, :, ch] = (tgt_lab[:, :, ch] - tgt_m[ch]) * (src_s[ch] / tgt_s[ch]) + src_m[ch]
                 composited = _cv2.cvtColor(_np.clip(tgt_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-                composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
+                composited = (composited.astype(_np.float32) * (1 - _head_f[:, :, None]) +
+                              orig_img.astype(_np.float32) * _head_f[:, :, None])
+                composited = _np.clip(composited, 0, 255).astype(_np.uint8)
 
             _cv2.imwrite(os.path.join(try_dir, "result.png"), composited)
             _cv2.imwrite(os.path.join(try_dir, "inpaint_mask.png"), inpaint_mask)
