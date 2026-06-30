@@ -202,7 +202,7 @@ def detect_head_mask(orig_img, person_binary, person_bbox,
     if len(faces) > 0:
         fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
         head_mask = _ellipse_from_face(fx, fy, fw, fh, h, w, person_binary,
-                                        expand_w=0.5, expand_up=1.5, expand_down=neck_margin_below)
+                                        expand_w=0.5, expand_up=1.5, expand_down=1.8)
     else:
         cx, cy = px + pw // 2, py + max_head_h // 2
         m = np.zeros_like(person_binary)
@@ -212,7 +212,7 @@ def detect_head_mask(orig_img, person_binary, person_bbox,
     head_mask = cv2.dilate(head_mask, kernel, iterations=dilate_iterations)
     if len(faces) > 0:
         _, fy2, _, fh2 = max(faces, key=lambda f: f[2] * f[3])
-        head_bottom = min(h, fy2 + fh2 + int(fh2 * neck_margin_below))
+        head_bottom = min(h, fy2 + fh2 + int(fh2 * 1.8))
     else:
         head_bottom = py + max_head_h
     head_mask[head_bottom:, :] = 0
@@ -570,18 +570,24 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
                     if result_img is not None:
                         if result_img.shape[:2] != (orig_h, orig_w):
                             result_img = cv2.resize(result_img, (orig_w, orig_h))
-                        composited = result_img.copy()
-                        # Head protection: paste original face back
-                        composited[head_mask > 0] = orig_img[head_mask > 0]
-                        # Reinhard color transfer: match body skin color to face/arms
-                        # Only use actual skin pixels as reference (not background)
+                        # Feathered composite: smooth blend at head/body boundary
+                        head_f = head_mask.astype(np.float32) / 255.0
+                        head_f = cv2.GaussianBlur(head_f, (21, 21), 7.0)
+                        head_f = np.clip(head_f * 1.5, 0, 1)  # strengthen center
+                        composited = (result_img.astype(np.float32) * (1 - head_f[:, :, None]) +
+                                      orig_img.astype(np.float32) * head_f[:, :, None])
+                        composited = np.clip(composited, 0, 255).astype(np.uint8)
+                        # Skin-only color transfer
                         _skin_hsv = cv2.inRange(cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV),
                                                  np.array([0, 15, 60]), np.array([30, 170, 255]))
-                        _skin_region = cv2.bitwise_and(_skin_hsv, person_binary)
-                        _skin_region = cv2.bitwise_and(_skin_region, cv2.bitwise_not(head_mask))
-                        composited = reinhard_color_transfer(composited, orig_img, _skin_region)
-                        # Re-apply head after color transfer
-                        composited[head_mask > 0] = orig_img[head_mask > 0]
+                        _skin_ref = cv2.bitwise_and(_skin_hsv, person_binary)
+                        _skin_ref = cv2.bitwise_and(_skin_ref, cv2.bitwise_not(head_mask))
+                        _skin_mask = (_skin_ref > 0).astype(np.uint8) * 255
+                        if cv2.countNonZero(_skin_mask) > 100:
+                            composited = reinhard_color_transfer(composited, orig_img, _skin_mask)
+                            composited = (composited.astype(np.float32) * (1 - head_f[:, :, None]) +
+                                          orig_img.astype(np.float32) * head_f[:, :, None])
+                            composited = np.clip(composited, 0, 255).astype(np.uint8)
                         try_dir = out_dir / label
                         try_dir.mkdir(exist_ok=True)
                         save_mask(try_dir / "result.png", composited)
