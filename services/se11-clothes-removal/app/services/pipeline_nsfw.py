@@ -396,31 +396,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # Create face-masked version for IP-Adapter reference
-        # This prevents the model from injecting face features into the body area
-        # IP-Adapter gets: proportions, skin tone, composition — NOT the face
+        # IP-Adapter: use ORIGINAL image (not face-masked) for pose preservation
+        # Head mask protects face during composite — no need to mask here
         ip_ref_img = orig_img.copy()
-        # Fill face region with median skin color — total face removal
-        face_cover = _cv2.dilate(head_mask,
-                                  _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (30, 30)),
-                                  iterations=3)
-        face_cover = _cv2.bitwise_or(face_cover, face_protect_mask)
-        # Sample median color from exposed skin area (arms/torso)
-        skin_mask = _cv2.inRange(_cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV),
-                                 _np.array([0, 20, 80]), _np.array([25, 150, 255]))
-        skin_mask = _cv2.bitwise_and(skin_mask, person_binary)
-        skin_mask = _cv2.bitwise_and(skin_mask, _cv2.bitwise_not(face_cover))
-        skin_pixels = orig_img[skin_mask > 0]
-        if len(skin_pixels) > 0:
-            median_color = _np.median(skin_pixels, axis=0).astype(_np.uint8)
-        else:
-            median_color = _np.array([180, 160, 140], dtype=_np.uint8)
-        # Soft fill: blend face area toward median color with gradient
-        face_float = face_cover.astype(_np.float32) / 255.0
-        face_blend = _cv2.GaussianBlur(face_float, (31, 31), 10)
-        for c in range(3):
-            ip_ref_img[:, :, c] = (ip_ref_img[:, :, c].astype(_np.float32) * (1 - face_blend) +
-                                    float(median_color[c]) * face_blend).astype(_np.uint8)
         _, ip_ref_buf = _cv2.imencode(".jpg", ip_ref_img, [_cv2.IMWRITE_JPEG_QUALITY, 90])
         ip_ref_b64 = _to_data_uri(base64.b64encode(ip_ref_buf).decode("utf-8"), mime="image/jpeg")
 
@@ -499,13 +477,12 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f seed=%d",
                         job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"], cfg["seed"])
 
-            # IP-Adapter: pass face-masked image as reference
-            # Proportions, skin tone, composition preserved — face excluded
+            # IP-Adapter: pass original image as reference for pose preservation
             ip_adapter_prompts = [
                 {
                     "cn_img": ip_ref_b64,
-                    "cn_stop": 0.3,
-                    "cn_weight": 0.35,
+                    "cn_stop": 0.5,
+                    "cn_weight": 0.6,
                     "cn_type": "ImagePrompt",
                 },
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
@@ -547,6 +524,23 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             # Simple composite: paste original face over inpainted result
             composited = inpainted_img.copy()
             composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
+
+            # Reinhard color transfer: match body skin tone to original
+            _skin_hsv = _cv2.inRange(_cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV),
+                                      _np.array([0, 15, 60]), _np.array([30, 170, 255]))
+            _skin_ref = _cv2.bitwise_and(_skin_hsv, person_binary)
+            _skin_ref = _cv2.bitwise_and(_skin_ref, _cv2.bitwise_not(head_adjusted))
+            _skin_ref = (_skin_ref > 0).astype(_np.uint8) * 255
+            if _cv2.countNonZero(_skin_ref) > 100:
+                src_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
+                tgt_lab = _cv2.cvtColor(composited, _cv2.COLOR_BGR2LAB).astype(_np.float32)
+                m = _skin_ref > 0
+                src_m, src_s = src_lab[m].mean(axis=0), src_lab[m].std(axis=0) + 1e-6
+                tgt_m, tgt_s = tgt_lab[m].mean(axis=0), tgt_lab[m].std(axis=0) + 1e-6
+                for ch in range(3):
+                    tgt_lab[:, :, ch] = (tgt_lab[:, :, ch] - tgt_m[ch]) * (src_s[ch] / tgt_s[ch]) + src_m[ch]
+                composited = _cv2.cvtColor(_np.clip(tgt_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
+                composited[head_adjusted > 0] = orig_img[head_adjusted > 0]
 
             _cv2.imwrite(os.path.join(try_dir, "result.png"), composited)
             _cv2.imwrite(os.path.join(try_dir, "inpaint_mask.png"), inpaint_mask)
