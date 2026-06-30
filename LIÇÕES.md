@@ -165,4 +165,51 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 | Models | `services/se11-clothes-removal/app/core/models.py` |
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
 | Plano production | `docs/archived/PLAN.md` |
+
+---
+
+## 13. Mask Research + Pose Preservation (2026-06-29)
+
+### Head Mask — Fluxo Oficial
+```
+1. Elipse detecta face+cabelo (expand_w=0.5, expand_up=1.5, expand_down=1.2)
+2. Subtrai clothes_combined → só face+cabelo
+3. Distance transform (8px) → preenche concavidades da subtração
+4. OR com original → mantém centro, infla bordas
+5. Morphological close (9px, 2 iters) → fecha buracos residuais
+6. GaussianBlur (15px, σ=5.0) → bordas orgânicas suaves
+7. Re-threshold 0.5 → binário limpo
+8. Clip ao person_binary
+9. Remove noise <0.5% área
+```
+**Porquê:** Elipse cruza roupa → subtrair roupa gera bordas serrilhadas → distance transform preenche → blur suaviza.
+
+### Pose Preservation
+- **IP-Adapter com imagem original** (não mascarada) preserva postura
+- weight=0.4, stop=0.4 — equilíbrio entre pose e qualidade
+- face-masked reference causava ghost face diferente a cada seed
+- Campo 0.618 (golden ratio) dá contexto suficiente para manter pose
+
+### Color Matching — Reinhard LAB
+- Transferência de cor em espaço LAB (canal L=lightness, A=verde/vermelho, B=azul/amarelo)
+- Usar APENAS pixels de pele como referência (HSV: H=0-30, S=15-170, V=60-255)
+- **Se usar body inteira → puxa cor do background** (azul, verde, etc.)
+- Aplicar DEPOIS do head paste, e reaplicar head paste ao final
+
+### SE8 ESRGAN Crash
+- Erro: `handle_0 INTERNAL ASSERT FAILED` no upscaler
+- Causa: crop do InpaintWorker < 1024px
+- Fix: pre-escalar imagem para min 1024px antes de enviar ao SE8
+- SE8 `require_base64: False` + download via URL (data URI corrompido para imgs >800KB)
+
+### Clothes Detection (Florence-2) — Hair False Positive
+- Florence-2 detecta cabelo como roupa
+- Fix: subtrair head_mask de clothes_combined ANTES de calcular exposed_skin
+- `clothes_clean = clothes AND NOT head`
+
+### Exploration Script
+- `exploration/run_mask_pipeline.py` — roda toda pipeline (masks + inpainting)
+- `--skip-inpaint` para só mascaras (~22s)
+- Com inpainting: ~330s (3 tries × ~100s cada)
+- Output em `exploration/data/{image}/` com debug grid 3x3
 | Plano head detect | `PLAN-2.md` |

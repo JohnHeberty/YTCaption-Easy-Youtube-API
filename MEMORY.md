@@ -2,29 +2,35 @@
 
 ## Última sessão (2026-06-29)
 
-### 🟢 NSFW v18 — PRODUCTION (Fooocus migration + body-mask)
+### 🟢 NSFW v20 — PRODUCTION (Mask research + improvements)
 - **Rota oficial:** `POST /jobs` (file upload) `mode="nsfw"`
-- **Pipeline:** `pipeline_nsfw.py` (v18 — body-mask + person_expanded + face paste)
+- **Pipeline:** `pipeline_nsfw.py` (v20 — distance transform head mask)
 - **Config ótima (TESTED v1-v10):**
+  - **Head mask:** subtract clothes → distance transform (8px) → inflate → close (9px) → GaussianBlur (15px, σ=5) → clip to person
   - body_mask como inpaint (person - head) — cobre TODA a roupa
   - person_expanded clip (dilate 3x) — preenche gaps do SE10
   - face paste simples (sem feathered blend — causa ghost)
-  - head_adjusted: face_protect_mask (margin_above=0.40, margin_below=0.60)
-  - head_mask: max_head_pct=0.45, neck_margin_below=0.50
+  - **face_protect_mask:** margin_above=0.50, margin_below=0.70, margin_sides=0.40
+  - head_mask: max_head_pct=0.50, neck_margin_below=1.2, expand_up=1.5
+  - **IP-Adapter:** original image (weight=0.4, stop=0.4) — preserva pose
   - strength 0.85/0.90/1.00 (3 tentativas progressivas)
-  - field=0.45, erode=0
+  - field=0.618, erode=0
   - CFG 7.0, 40 steps, dpmpp_2m_sde_gpu, karras
   - NsfwPov 0.6, offset 0.1, add-detail 0.7
-  - IP-Adapter: original image (weight=0.6, stop=0.5)
   - Inpaint patch LoRA v2.6: 582 keys at weight=1.0
+  - **Reinhard color transfer** (LAB space, skin-only reference)
+  - Pre-scale to min 1024px (avoids SE8 ESRGAN upscaler CUDA crash)
+- **Exploration script:** `exploration/run_mask_pipeline.py`
+  - Roda toda pipeline (SE10 masks + SE8 inpainting)
+  - `--skip-inpaint` para só mascaras
+  - Salva em `exploration/data/{image}/` com debug grid
 - **SE8 CRITICAL FIX:** worker.py estava stale (916 linhas). Container SE8 = image-engine
   - docker cp worker.py + restart para carregar inpaint patch LoRA
   - Sem o patch LoRA: resultado era mancha pele lisa sem anatomia
 - **Prompt positive:** NSFW×5, solo, bare skin, detailed anatomy, pose preservation, skin tone matching
-- **Prompt negative:** deformed:1.3, hands:1.4, bad hands:1.3, pose change:1.5, skin tone mismatch
-- **Debug grid:** 8 painéis (original, person, head, face, clothes, inpaint mask, face protected, result)
-- **Compositing:** SE8 post_process (morphological_open) + face paste
-- **Multi-seed floodFill:** 8 edge seeds fecham 100% dos buracos da person mask
+- **Prompt negative:** deformed:1.3, extra face:1.8, pose change:1.5, skin tone mismatch
+- **Compositing:** SE8 post_process + head paste + Reinhard color transfer
+- **Head mask pipeline:** ellipse → subtract clothes → distance transform → inflate → close → blur → clip
 > **Lições aprendidas:** Ver `LIÇÕES.md`
 > **Pendências:** Ver `PENDENCIAS.md`
 
