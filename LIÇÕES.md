@@ -172,7 +172,7 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 ### Head Mask — Fluxo Oficial
 ```
-1. Elipse detecta face+cabelo (expand_w=0.5, expand_up=1.5, expand_down=1.2)
+1. Elipse detecta face+cabelo (expand_w=0.5, expand_up=1.5, expand_down=1.8)
 2. Subtrai clothes_combined → só face+cabelo
 3. Distance transform (8px) → preenche concavidades da subtração
 4. OR com original → mantém centro, infla bordas
@@ -186,9 +186,32 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 ### Pose Preservation
 - **IP-Adapter com imagem original** (não mascarada) preserva postura
-- weight=0.4, stop=0.4 — equilíbrio entre pose e qualidade
+- **weight=0.8, stop=0.5** — melhor resultado visual (Grid 1-4, 28 configs)
 - face-masked reference causava ghost face diferente a cada seed
 - Campo 0.618 (golden ratio) dá contexto suficiente para manter pose
+- **strength=0.84** é o sweet spot — mais baixo preserva pose mas roupa "vaza"
+
+### Grid Exploration (28 configs testadas)
+
+| Grid | Params testados | Melhor |
+|------|----------------|--------|
+| 1 (A-G) | strength, field, weight, stop, erode, seed | D (weight=0.7) |
+| 2 (H-M) | weight 0.7-0.8 + combos | D (visual > scores) |
+| 3 (N-S) | weight 0.8 + intermediários | J (mão no rosto) |
+| 4 (T-Y) | stop 0.6-0.7, weight 0.85, combos | T/W (limbs 7.3-7.5%) |
+| Brute (10 seeds) | W × 5 seeds | **W_sd-1** (vencedor) |
+
+**Config vencedora final: weight=0.8, strength=0.84, stop=0.5, field=0.618**
+
+### Lições dos Grids
+- **erode negativo DESTRÓI pose** (F: corpo deitado) — NUNCA usar
+- **IP weight alto (0.8) + strength baixo (0.80)** gera pose ERRADA (braços cruzados em vez de mão no rosto)
+- **IP weight alto (0.8) + strength 0.84** = sweet spot — preserva mão no rosto
+- **IP stop 0.6-0.7** não melhora significativamente vs 0.5
+- **field=0.45** gera artefatos — manter 0.618
+- **seed=-1 (random)** pode ser melhor que seeds fixos — brute force de 5 seeds é eficaz
+- **MediaPipe scores ≠ qualidade visual** — F era #1 nos scores mas péssimo visualmente
+- **Suéter residual** é trade-off: IP weight alto preserva pose MAS também preserva roupa
 
 ### Color Matching — Reinhard LAB
 - Transferência de cor em espaço LAB (canal L=lightness, A=verde/vermelho, B=azul/amarelo)
@@ -210,6 +233,8 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 ### Exploration Script
 - `exploration/run_mask_pipeline.py` — roda toda pipeline (masks + inpainting)
 - `--skip-inpaint` para só mascaras (~22s)
-- Com inpainting: ~330s (3 tries × ~100s cada)
-- Output em `exploration/data/{image}/` com debug grid 3x3
+- Grid mode: varia 1 param por config, MediaPipe pose detection automática
+- Brute force: 5 seeds × melhor config, seleciona por score
+- Output: `exploration/data/{image}/` com grid_summary.json + result.png por config
+- Tempo: ~15s por try (com cache SE8), ~150s para grid 10 configs
 | Plano head detect | `PLAN-2.md` |

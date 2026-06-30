@@ -1,0 +1,22 @@
+{
+  "label": "T_sd777",
+  "params": {
+    "ip_weight": 0.8,
+    "ip_stop": 0.6,
+    "strength": 0.85,
+    "field": 0.618,
+    "seed": 777,
+    "erode": 0
+  },
+  "time_s": 15.8,
+  "pose": {
+    "pose_changed": true,
+    "max_landmark": 36.34,
+    "max_landmark_name": "RIGHT_WRIST",
+    "head": 0.0,
+    "torso": 2.84,
+    "limbs": 11.87,
+    "summary": "HEAD stable (0.3%) | TORSO changed (2.8% > 0.5%) | LIMBS changed (11.9% > 1.5%)"
+  },
+  "error": null
+}

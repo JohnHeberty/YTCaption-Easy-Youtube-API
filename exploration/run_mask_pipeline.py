@@ -88,7 +88,34 @@ def decode_mask(mask_b64_uri: str, target_h: int, target_w: int) -> np.ndarray:
         mask = cv2.resize(mask, (target_w, target_h))
     return (mask > 127).astype(np.uint8) * 255
 
-async def _se8_inpaint(image_b64, mask_b64, prompt, negative, strength, field, ip_prompts):
+def _run_pose_check(orig_path: str, result_path: str) -> dict:
+    """Run MediaPipe pose detection and compare original vs result."""
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).parent.parent / "services" / "se11-clothes-removal"))
+        from app.validators.pose_detector import detect_pose, compare_poses
+        orig_pose = detect_pose(orig_path)
+        result_pose = detect_pose(result_path)
+        if orig_pose is None or result_pose is None:
+            return {"error": "pose not detected", "pose_changed": True}
+        comp = compare_poses(orig_pose, result_pose, strict=True, strict_threshold_pct=0.1)
+        max_lm = max(comp.diffs, key=lambda d: d.distance_normalized)
+        head_avg = float(np.mean([d.distance_normalized for d in comp.diffs if d.group == "HEAD"])) if comp.head_changed else 0.0
+        torso_avg = float(np.mean([d.distance_normalized for d in comp.diffs if d.group == "TORSO"])) if comp.torso_changed else 0.0
+        limbs_avg = float(np.mean([d.distance_normalized for d in comp.diffs if d.group == "LIMB"])) if comp.limbs_changed else 0.0
+        return {
+            "pose_changed": bool(comp.pose_changed),
+            "max_landmark": round(max_lm.distance_normalized, 2),
+            "max_landmark_name": max_lm.name,
+            "head": round(head_avg, 2),
+            "torso": round(torso_avg, 2),
+            "limbs": round(limbs_avg, 2),
+            "summary": comp.summary,
+        }
+    except Exception as e:
+        return {"error": str(e), "pose_changed": True}
+
+async def _se8_inpaint(image_b64, mask_b64, prompt, negative, strength, field, ip_prompts, erode=0):
     import httpx
     loras = [
         {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.6},
@@ -111,7 +138,7 @@ async def _se8_inpaint(image_b64, mask_b64, prompt, negative, strength, field, i
             "inpaint_engine": "v2.6", "inpaint_strength": strength,
             "inpaint_respective_field": field,
             "inpaint_disable_initial_latent": False,
-            "inpaint_erode_or_dilate": 0, "overwrite_step": 40,
+            "inpaint_erode_or_dilate": erode, "overwrite_step": 40,
             "overwrite_switch": 1.0, "adaptive_cfg": 7.0,
             "sampler_name": "dpmpp_2m_sde_gpu", "scheduler_name": "karras",
         },
@@ -543,67 +570,105 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
         _, ip_buf = cv2.imencode(".jpg", ip_ref_for_se8, [cv2.IMWRITE_JPEG_QUALITY, 90])
         ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
 
-        ip_prompts = [
-            {"cn_img": ip_b64, "cn_stop": 0.5, "cn_weight": 0.6, "cn_type": "ImagePrompt"},
-            {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
-            {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
-            {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
-        ]
+        ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
 
-        configs = [
-            {"label": "try_1", "strength": 0.85, "field": 0.618, "seed": -1},
-            {"label": "try_2", "strength": 0.90, "field": 0.618, "seed": 42},
-            {"label": "try_3", "strength": 1.00, "field": 0.618, "seed": 99},
-        ]
+        # ─── BASE: W_sd-1 (melhor resultado visual) ───
+        grid_configs = []
+        seeds = [-1, 42, 100, 200, 777]
 
-        for cfg in configs:
+        for sd in seeds:
+            grid_configs.append({"label": f"W_sd{sd}", "ip_weight": 0.8, "ip_stop": 0.5,
+                                 "strength": 0.84, "field": 0.618, "seed": sd, "erode": 0})
+
+        grid_results = []
+
+        for cfg in grid_configs:
             label = cfg["label"]
-            print(f"  {label}: strength={cfg['strength']} field={cfg['field']} seed={cfg['seed']}")
+            s = cfg["strength"]; f = cfg["field"]; sd = cfg["seed"]
+            w = cfg["ip_weight"]; st = cfg["ip_stop"]; er = cfg["erode"]
+            print(f"\n  [{label}] str={s} field={f} seed={sd} ip_w={w} ip_st={st} erode={er}")
+
+            ip_prompts = [
+                {"cn_img": ip_b64, "cn_stop": st, "cn_weight": w, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+            ]
+
+            entry = {"label": label, "params": {k: v for k, v in cfg.items() if k != "label"},
+                     "time_s": 0, "pose": None, "error": None}
+
             try:
                 t_try = time.time()
                 result = await _se8_inpaint(image_b64, mask_b64, nsfw_prompt, nsfw_negative,
-                                            cfg["strength"], cfg["field"], ip_prompts)
+                                            s, f, ip_prompts, erode=er)
                 elapsed = time.time() - t_try
+                entry["time_s"] = round(elapsed, 1)
+
                 if result.get("base64"):
                     result_bytes = base64.b64decode(result["base64"])
                     result_img = cv2.imdecode(np.frombuffer(result_bytes, np.uint8), cv2.IMREAD_COLOR)
                     if result_img is not None:
                         if result_img.shape[:2] != (orig_h, orig_w):
                             result_img = cv2.resize(result_img, (orig_w, orig_h))
-                        # Feathered composite: smooth blend at head/body boundary
+                        # Feathered composite
                         head_f = head_mask.astype(np.float32) / 255.0
                         head_f = cv2.GaussianBlur(head_f, (21, 21), 7.0)
-                        head_f = np.clip(head_f * 1.5, 0, 1)  # strengthen center
+                        head_f = np.clip(head_f * 1.5, 0, 1)
                         composited = (result_img.astype(np.float32) * (1 - head_f[:, :, None]) +
                                       orig_img.astype(np.float32) * head_f[:, :, None])
                         composited = np.clip(composited, 0, 255).astype(np.uint8)
-                        # Skin-only color transfer
-                        _skin_hsv = cv2.inRange(cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV),
-                                                 np.array([0, 15, 60]), np.array([30, 170, 255]))
-                        _skin_ref = cv2.bitwise_and(_skin_hsv, person_binary)
-                        _skin_ref = cv2.bitwise_and(_skin_ref, cv2.bitwise_not(head_mask))
-                        _skin_mask = (_skin_ref > 0).astype(np.uint8) * 255
-                        if cv2.countNonZero(_skin_mask) > 100:
-                            composited = reinhard_color_transfer(composited, orig_img, _skin_mask)
+                        # Reinhard skin-only
+                        _sh = cv2.inRange(cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV),
+                                           np.array([0, 15, 60]), np.array([30, 170, 255]))
+                        _sr = cv2.bitwise_and(_sh, person_binary)
+                        _sr = cv2.bitwise_and(_sr, cv2.bitwise_not(head_mask))
+                        _sm = (_sr > 0).astype(np.uint8) * 255
+                        if cv2.countNonZero(_sm) > 100:
+                            composited = reinhard_color_transfer(composited, orig_img, _sm)
                             composited = (composited.astype(np.float32) * (1 - head_f[:, :, None]) +
                                           orig_img.astype(np.float32) * head_f[:, :, None])
                             composited = np.clip(composited, 0, 255).astype(np.uint8)
+                        # Save
                         try_dir = out_dir / label
                         try_dir.mkdir(exist_ok=True)
                         save_mask(try_dir / "result.png", composited)
-                        save_mask(try_dir / "inpaint_mask.png", inpaint_mask)
-                        save_mask(try_dir / "head_mask.png", head_mask)
-                        save_json(try_dir / "metadata.json", {"params": cfg, "time_s": round(elapsed, 1)})
-                        print(f"    Saved: {try_dir}/result.png ({elapsed:.1f}s)")
+                        save_json(try_dir / "metadata.json", entry)
+                        # Pose detection
+                        pose_score = _run_pose_check(str(out_dir / "00_original.png"),
+                                                      str(try_dir / "result.png"))
+                        entry["pose"] = pose_score
+                        save_json(try_dir / "metadata.json", entry)
+                        print(f"    OK ({elapsed:.1f}s) pose={pose_score.get('summary','?')}")
                     else:
+                        entry["error"] = "cv2 decode failed"
                         print(f"    WARN: cv2 decode failed")
                 else:
-                    print(f"    WARN: no base64 in result")
+                    entry["error"] = "no base64"
+                    print(f"    WARN: no base64")
             except Exception as e:
-                print(f"    ERROR: {type(e).__name__}: {e}")
+                entry["error"] = f"{type(e).__name__}: {e}"
+                print(f"    ERROR: {entry['error']}")
                 if "CUDA" in str(e):
-                    print("    Waiting 15s for CUDA recovery...")
+                    print("    Waiting 15s...")
                     await asyncio.sleep(15)
+
+            grid_results.append(entry)
+
+        # ─── GRID SUMMARY ───
+        save_json(out_dir / "grid_summary.json", grid_results)
+        # Print ranking
+        valid = [r for r in grid_results if r.get("pose") and not r.get("error")]
+        if valid:
+            print(f"\n  {'='*60}")
+            print(f"  GRID RANKING (by max_landmark_pct, lower=better)")
+            print(f"  {'='*60}")
+            ranked = sorted(valid, key=lambda r: r["pose"].get("max_landmark", 999))
+            for i, r in enumerate(ranked):
+                p = r["pose"]
+                print(f"  #{i+1} {r['label']:16s} max={p.get('max_landmark',0):.2f}% "
+                      f"head={p.get('head',0):.1f}% torso={p.get('torso',0):.1f}% "
+                      f"limbs={p.get('limbs',0):.1f}% time={r['time_s']}s")
 
     # ─── Debug Grid ───
     print("\n[Grid] Building debug grid...")
