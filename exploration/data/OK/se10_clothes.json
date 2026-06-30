@@ -1,0 +1,101 @@
+[
+  {
+    "class_name": "spaghetti strap",
+    "confidence": 0.1463,
+    "bbox": [
+      79,
+      471,
+      556,
+      958
+    ],
+    "area_pct": 14.98
+  },
+  {
+    "class_name": "skirt",
+    "confidence": 0.0722,
+    "bbox": [
+      96,
+      883,
+      494,
+      1107
+    ],
+    "area_pct": 7.2
+  },
+  {
+    "class_name": "dress",
+    "confidence": 0.0837,
+    "bbox": [
+      99,
+      748,
+      559,
+      1106
+    ],
+    "area_pct": 7.12
+  },
+  {
+    "class_name": "hoodie",
+    "confidence": 0.0809,
+    "bbox": [
+      156,
+      183,
+      489,
+      527
+    ],
+    "area_pct": 1.51
+  },
+  {
+    "class_name": "dress",
+    "confidence": 0.0944,
+    "bbox": [
+      99,
+      746,
+      558,
+      1106
+    ],
+    "area_pct": 7.11
+  },
+  {
+    "class_name": "hoodie",
+    "confidence": 0.061,
+    "bbox": [
+      128,
+      183,
+      498,
+      519
+    ],
+    "area_pct": 2.14
+  },
+  {
+    "class_name": "skirt",
+    "confidence": 0.0732,
+    "bbox": [
+      99,
+      842,
+      548,
+      1108
+    ],
+    "area_pct": 7.24
+  },
+  {
+    "class_name": "skirt",
+    "confidence": 0.065,
+    "bbox": [
+      96,
+      829,
+      547,
+      1107
+    ],
+    "area_pct": 7.11
+  },
+  {
+    "class_name": "dress",
+    "confidence": 0.0918,
+    "bbox": [
+      99,
+      779,
+      552,
+      1107
+    ],
+    "area_pct": 7.14
+  }
+]

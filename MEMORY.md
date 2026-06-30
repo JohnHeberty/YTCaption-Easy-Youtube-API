@@ -2,27 +2,25 @@
 
 ## Última sessão (2026-06-29)
 
-### 🟢 NSFW v20 — PRODUCTION (Mask research + improvements)
+### 🟢 NSFW v21 — PRODUCTION (Grid exploration: pose preservation)
 - **Rota oficial:** `POST /jobs` (file upload) `mode="nsfw"`
-- **Pipeline:** `pipeline_nsfw.py` (v20 — distance transform head mask)
-- **Config ótima (TESTED v1-v10):**
-  - **Head mask:** subtract clothes → distance transform (8px) → inflate → close (9px) → GaussianBlur (15px, σ=5) → clip to person
-  - body_mask como inpaint (person - head) — cobre TODA a roupa
-  - person_expanded clip (dilate 3x) — preenche gaps do SE10
-  - face paste simples (sem feathered blend — causa ghost)
-  - **face_protect_mask:** margin_above=0.50, margin_below=0.70, margin_sides=0.40
-  - head_mask: max_head_pct=0.50, neck_margin_below=1.2, expand_up=1.5
-  - **IP-Adapter:** original image (weight=0.4, stop=0.4) — preserva pose
-  - strength 0.85/0.90/1.00 (3 tentativas progressivas)
-  - field=0.618, erode=0
+- **Pipeline:** `pipeline_nsfw.py` (v21 — feathered composite + pose-optimized)
+- **Config vencedora (Grid 1-4, 28 configs testadas):**
+  - **IP-Adapter:** original image (weight=0.8, stop=0.5) — preserva pose (mão no rosto)
+  - strength retry: 0.84/0.85/0.90 (sweet spot = 0.84)
+  - field=0.618, erode=0, seed=-1
+  - **Head mask:** subtract clothes → DT(8px) → inflate → close(9px) → blur(15px,σ=5) → clip person
+  - **expand_up=1.5, expand_down=1.8, expand_w=0.5** (maior cobertura)
+  - **Feathered composite:** GaussianBlur(21px) alpha blend (eliminou ghost face)
+  - **Reinhard LAB color transfer:** skin-only reference (pele consistente)
+  - Pre-scale to min 1024px (avoids ESRGAN CUDA crash)
   - CFG 7.0, 40 steps, dpmpp_2m_sde_gpu, karras
   - NsfwPov 0.6, offset 0.1, add-detail 0.7
   - Inpaint patch LoRA v2.6: 582 keys at weight=1.0
-  - **Reinhard color transfer** (LAB space, skin-only reference)
-  - Pre-scale to min 1024px (avoids SE8 ESRGAN upscaler CUDA crash)
 - **Exploration script:** `exploration/run_mask_pipeline.py`
-  - Roda toda pipeline (SE10 masks + SE8 inpainting)
-  - `--skip-inpaint` para só mascaras
+  - `--skip-inpaint` para só mascaras (~22s)
+  - Grid mode: varia 1 param por config + MediaPipe pose detection
+  - Output em `exploration/data/{image}/` com grid_summary.json
   - Salva em `exploration/data/{image}/` com debug grid
 - **SE8 CRITICAL FIX:** worker.py estava stale (916 linhas). Container SE8 = image-engine
   - docker cp worker.py + restart para carregar inpaint patch LoRA

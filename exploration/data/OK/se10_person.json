@@ -1,0 +1,24 @@
+[
+  {
+    "class_name": "person",
+    "confidence": 0.4482,
+    "bbox": [
+      80,
+      190,
+      567,
+      1108
+    ],
+    "area_pct": 35.57
+  },
+  {
+    "class_name": "woman",
+    "confidence": 0.532,
+    "bbox": [
+      80,
+      190,
+      567,
+      1108
+    ],
+    "area_pct": 35.57
+  }
+]

@@ -468,9 +468,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 await _asyncio.sleep(10)
 
             _retry_configs = {
-                1: {"strength": 0.85, "field": 0.618, "erode": 0, "seed": -1},
-                2: {"strength": 0.90, "field": 0.618, "erode": 0, "seed": 42},
-                3: {"strength": 1.00, "field": 0.618, "erode": 0, "seed": 99},
+                1: {"strength": 0.84, "field": 0.618, "erode": 0, "seed": -1},
+                2: {"strength": 0.85, "field": 0.618, "erode": 0, "seed": 42},
+                3: {"strength": 0.90, "field": 0.618, "erode": 0, "seed": 99},
             }
             cfg = _retry_configs.get(attempt, _retry_configs[1])
 
@@ -482,7 +482,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 {
                     "cn_img": ip_ref_b64,
                     "cn_stop": 0.5,
-                    "cn_weight": 0.6,
+                    "cn_weight": 0.8,
                     "cn_type": "ImagePrompt",
                 },
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},

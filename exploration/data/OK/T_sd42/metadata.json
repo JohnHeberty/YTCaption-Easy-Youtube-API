@@ -1,0 +1,22 @@
+{
+  "label": "T_sd42",
+  "params": {
+    "ip_weight": 0.8,
+    "ip_stop": 0.6,
+    "strength": 0.85,
+    "field": 0.618,
+    "seed": 42,
+    "erode": 0
+  },
+  "time_s": 15.7,
+  "pose": {
+    "pose_changed": true,
+    "max_landmark": 27.69,
+    "max_landmark_name": "RIGHT_WRIST",
+    "head": 0.0,
+    "torso": 3.32,
+    "limbs": 11.68,
+    "summary": "HEAD stable (0.2%) | TORSO changed (3.3% > 0.5%) | LIMBS changed (11.7% > 1.5%)"
+  },
+  "error": null
+}

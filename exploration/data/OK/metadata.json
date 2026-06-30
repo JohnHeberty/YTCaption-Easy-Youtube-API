@@ -1,0 +1,23 @@
+{
+  "image": "exploration/OK.jpg",
+  "dimensions": {
+    "w": 740,
+    "h": 1110
+  },
+  "timing": {
+    "person_s": 10.9,
+    "clothes_s": 10.8,
+    "total_s": 220.8
+  },
+  "masks": {
+    "head_pct": 7.92,
+    "body_pct": 28.11,
+    "face_pct": 4.86,
+    "neck_pct": 0.0,
+    "exposed_skin_pct": 5.43,
+    "inpaint_pct": 33.81
+  },
+  "person_objects": 2,
+  "clothes_objects": 9,
+  "faces_detected": 1
+}
