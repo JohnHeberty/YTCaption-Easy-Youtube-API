@@ -183,13 +183,24 @@ class PoseComparison:
 # ─── Detection ──────────────────────────────────────────────────────────────
 
 def detect_pose(
-    image_path: str | Path,
+    image_path: str | Path | np.ndarray,
     min_detection_confidence: float = 0.5,
 ) -> PoseResult | None:
-    """Detect pose landmarks in a single image."""
-    img = cv2.imread(str(image_path))
-    if img is None:
-        raise FileNotFoundError(f"Image not found: {image_path}")
+    """Detect pose landmarks in a single image.
+
+    Args:
+        image_path: Path to image OR a BGR numpy image.
+        min_detection_confidence: Minimum confidence for pose detection.
+
+    Returns:
+        PoseResult or None if no pose detected.
+    """
+    if isinstance(image_path, np.ndarray):
+        img = image_path
+    else:
+        img = cv2.imread(str(image_path))
+        if img is None:
+            raise FileNotFoundError(f"Image not found: {image_path}")
 
     h, w = img.shape[:2]
     rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -197,7 +208,7 @@ def detect_pose(
     with mp_pose.Pose(
         static_image_mode=True,
         min_detection_confidence=min_detection_confidence,
-        model_complexity=2,  # 0=lite, 1=full, 2=heavy
+        model_complexity=1,  # 0=lite, 1=full, 2=heavy (heavy downloads model on demand)
     ) as pose:
         results = pose.process(rgb)
 
@@ -225,6 +236,109 @@ def detect_pose(
         image_height=h,
         detection_confidence=avg_confidence,
     )
+
+
+def render_pose_stick_figure(
+    pose_result: PoseResult,
+    output_size: tuple[int, int] | None = None,
+    thickness: int = 6,
+    bg_color: tuple[int, int, int] = (0, 0, 0),
+) -> np.ndarray:
+    """Render a pose stick figure from MediaPipe landmarks.
+
+    Creates an OpenPose-style conditioning image that can be used as an
+    additional IP-Adapter reference to preserve body structure.
+
+    Args:
+        pose_result: PoseResult from detect_pose().
+        output_size: (width, height) for output image. Defaults to pose image size.
+        thickness: Line thickness for limbs.
+        bg_color: Background color (BGR).
+
+    Returns:
+        BGR numpy image with pose stick figure.
+    """
+    w, h = output_size or (pose_result.image_width, pose_result.image_height)
+    canvas = np.full((h, w, 3), bg_color, dtype=np.uint8)
+
+    def get(lm_enum: mp_pose.PoseLandmark) -> Landmark | None:
+        lm = pose_result.landmarks[lm_enum.value]
+        return lm if lm.visibility > 0.5 else None
+
+    def pt(lm_enum: mp_pose.PoseLandmark) -> tuple[int, int] | None:
+        lm = get(lm_enum)
+        if lm is None:
+            return None
+        return (int(lm.x * w / pose_result.image_width), int(lm.y * h / pose_result.image_height))
+
+    def line(p1, p2, color, t=thickness):
+        if p1 is not None and p2 is not None:
+            cv2.line(canvas, p1, p2, color, t, cv2.LINE_AA)
+
+    def circle(center, color, radius=8):
+        if center is not None:
+            cv2.circle(canvas, center, radius, color, -1, cv2.LINE_AA)
+
+    # Colors (BGR)
+    c_head = (0, 255, 255)      # yellow
+    c_torso = (0, 255, 0)       # green
+    c_arm_l = (255, 0, 0)       # blue
+    c_arm_r = (0, 0, 255)       # red
+    c_leg_l = (255, 255, 0)     # cyan
+    c_leg_r = (255, 0, 255)     # magenta
+
+    nose = pt(mp_pose.PoseLandmark.NOSE)
+    left_ear = pt(mp_pose.PoseLandmark.LEFT_EAR)
+    right_ear = pt(mp_pose.PoseLandmark.RIGHT_EAR)
+    left_eye = pt(mp_pose.PoseLandmark.LEFT_EYE)
+    right_eye = pt(mp_pose.PoseLandmark.RIGHT_EYE)
+    mouth = pt(mp_pose.PoseLandmark.MOUTH_LEFT)
+
+    # Head circle approximation
+    if nose is not None and left_ear is not None and right_ear is not None:
+        head_radius = max(10, int(abs(left_ear[0] - right_ear[0]) * 0.7))
+        cv2.circle(canvas, nose, head_radius, c_head, thickness, cv2.LINE_AA)
+        circle(nose, c_head, radius=5)
+    elif nose is not None:
+        circle(nose, c_head, radius=10)
+
+    # Torso
+    ls = pt(mp_pose.PoseLandmark.LEFT_SHOULDER)
+    rs = pt(mp_pose.PoseLandmark.RIGHT_SHOULDER)
+    lh = pt(mp_pose.PoseLandmark.LEFT_HIP)
+    rh = pt(mp_pose.PoseLandmark.RIGHT_HIP)
+    line(ls, rs, c_torso)
+    line(lh, rh, c_torso)
+    line(ls, lh, c_torso)
+    line(rs, rh, c_torso)
+
+    # Arms
+    le = pt(mp_pose.PoseLandmark.LEFT_ELBOW)
+    lw = pt(mp_pose.PoseLandmark.LEFT_WRIST)
+    line(ls, le, c_arm_l)
+    line(le, lw, c_arm_l)
+
+    re = pt(mp_pose.PoseLandmark.RIGHT_ELBOW)
+    rw = pt(mp_pose.PoseLandmark.RIGHT_WRIST)
+    line(rs, re, c_arm_r)
+    line(re, rw, c_arm_r)
+
+    # Legs
+    lk = pt(mp_pose.PoseLandmark.LEFT_KNEE)
+    la = pt(mp_pose.PoseLandmark.LEFT_ANKLE)
+    line(lh, lk, c_leg_l)
+    line(lk, la, c_leg_l)
+
+    rk = pt(mp_pose.PoseLandmark.RIGHT_KNEE)
+    ra = pt(mp_pose.PoseLandmark.RIGHT_ANKLE)
+    line(rh, rk, c_leg_r)
+    line(rk, ra, c_leg_r)
+
+    # Joints
+    for p in [ls, rs, le, re, lw, rw, lh, rh, lk, rk, la, ra]:
+        circle(p, (255, 255, 255), radius=thickness)
+
+    return canvas
 
 
 def detect_pose_multi(
@@ -257,7 +371,7 @@ def detect_pose_multi(
         with mp_pose.Pose(
             static_image_mode=True,
             min_detection_confidence=min_detection_confidence,
-            model_complexity=2,
+            model_complexity=1,
         ) as pose:
             results = pose.process(rgb)
 

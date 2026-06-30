@@ -306,6 +306,66 @@ def reinhard_color_transfer(target, source, mask):
     full_lab = np.clip(full_lab, 0, 255).astype(np.uint8)
     return cv2.cvtColor(full_lab, cv2.COLOR_LAB2BGR)
 
+def build_clothes_neutral_ref(orig_img, clothes_mask, person_mask, head_mask):
+    """Opção A: Create IP-Adapter reference with clothing neutralized.
+    
+    Replaces clothing area with mean skin tone + subtle noise so the
+    IP-Adapter encoder cannot extract clothing texture features.
+    Keeps face/hair/pose/body-shape intact — only clothing is neutralized.
+    
+    This is the direct analog of Leffa's insight: control what the encoder sees.
+    """
+    if clothes_mask is None or cv2.countNonZero(clothes_mask) == 0:
+        return orig_img.copy()
+    
+    h, w = orig_img.shape[:2]
+    ref = orig_img.copy()
+    
+    # 1. Compute mean skin tone from exposed skin regions (arms, neck, face edges)
+    skin_mask = cv2.bitwise_and(person_mask, cv2.bitwise_not(clothes_mask))
+    skin_mask = cv2.bitwise_and(skin_mask, cv2.bitwise_not(head_mask))
+    if cv2.countNonZero(skin_mask) < 100:
+        # Fallback: use face region for skin sampling
+        skin_mask = head_mask.copy()
+    
+    # Sample skin pixels in HSV
+    hsv = cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV)
+    skin_pixels = hsv[skin_mask > 0]
+    if len(skin_pixels) > 0:
+        mean_h = np.median(skin_pixels[:, 0])
+        mean_s = np.median(skin_pixels[:, 1])
+        mean_v = np.median(skin_pixels[:, 2])
+    else:
+        # Fallback neutral skin tone
+        mean_h, mean_s, mean_v = 15, 80, 180
+    
+    # 2. Create neutral skin fill: solid tone + subtle noise
+    fill_hsv = np.full((h, w, 3), [mean_h, mean_s, mean_v], dtype=np.uint8)
+    # Add noise to avoid perfectly flat regions (helps diffusion)
+    noise = np.random.normal(0, 8, (h, w, 3)).astype(np.int16)
+    fill_hsv = np.clip(fill_hsv.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    fill_bgr = cv2.cvtColor(fill_hsv, cv2.COLOR_HSV2BGR)
+    
+    # 3. Blur the fill slightly for organic look
+    fill_bgr = cv2.GaussianBlur(fill_bgr, (5, 5), 2.0)
+    
+    # 4. Composite: replace clothing area with neutral fill
+    # Use a slightly eroded clothes mask to keep boundary transitions natural
+    clothes_eroded = clothes_mask.copy()
+    ke = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    clothes_eroded = cv2.erode(clothes_eroded, ke, iterations=1)
+    
+    mask_f = clothes_eroded.astype(np.float32) / 255.0
+    # Feather the boundary
+    mask_f = cv2.GaussianBlur(mask_f, (15, 15), 5.0)
+    
+    ref = (ref.astype(np.float32) * (1 - mask_f[:, :, None]) +
+           fill_bgr.astype(np.float32) * mask_f[:, :, None])
+    ref = np.clip(ref, 0, 255).astype(np.uint8)
+    
+    return ref
+
+
 def build_debug_grid(panels: list, cell_w=400, cell_h=600, cols=3, font_scale=0.55, padding=4):
     n = len(panels)
     rows_count = (n + cols - 1) // cols
@@ -517,17 +577,26 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
     print(f"  Inpaint mask: {inpaint_pct:.1f}%")
     save_mask(out_dir / "07_inpaint_mask.png", inpaint_mask)
 
-    # ─── Stage 6: IP-Adapter Reference (face-masked) ───
+    # ─── Stage 6: IP-Adapter Reference ───
+    ip_ref_original = None
+    ip_ref_neutral = None
     if not skip_inpaint:
         print("\n[6/7] IP-Adapter Reference...")
-        # Use original image as reference (NOT face-masked) for pose preservation
-        # The head_mask protects face during composite — no need to mask here
-        ip_ref = orig_img.copy()
-        save_mask(out_dir / "08_ip_reference.png", ip_ref)
+        # REF A: Original image (vestida) — current baseline (causa suéter residual)
+        ip_ref_original = orig_img.copy()
+        save_mask(out_dir / "08_ip_ref_original.png", ip_ref_original)
 
-    # ─── Stage 7: SE8 Inpainting (3 tries) ───
+        # REF B: Clothes-neutralized (Opção A do UPGRADE.md)
+        # IP-Adapter vê pose/rosto/corpo mas NÃO vê textura da roupa
+        ip_ref_neutral = build_clothes_neutral_ref(
+            orig_img, clothes_combined, person_binary, head_mask)
+        save_mask(out_dir / "08b_ip_ref_neutral.png", ip_ref_neutral)
+        print(f"  REF A: original (vestida) — baseline")
+        print(f"  REF B: clothes-neutralized — Opção A (Leffa-style)")
+
+    # ─── Stage 7: SE8 Inpainting (comparing REF A vs REF B) ───
     if not skip_inpaint:
-        print("\n[7/7] SE8 Inpainting...")
+        print("\n[7/7] SE8 Inpainting — REF A (original) vs REF B (clothes-neutral)...")
         nsfw_prompt = (
             "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
             "detailed breast anatomy, realistic nipples, areola details, "
@@ -556,29 +625,39 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
             new_w, new_h = int(orig_w * scale), int(orig_h * scale)
             inpaint_for_se8 = cv2.resize(inpaint_mask, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
             orig_for_se8 = cv2.resize(orig_img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
-            ip_ref_for_se8 = cv2.resize(ip_ref, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            ip_ref_orig_s8 = cv2.resize(ip_ref_original, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
+            ip_ref_neu_s8 = cv2.resize(ip_ref_neutral, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
         else:
             inpaint_for_se8 = inpaint_mask
             orig_for_se8 = orig_img
-            ip_ref_for_se8 = ip_ref
+            ip_ref_orig_s8 = ip_ref_original
+            ip_ref_neu_s8 = ip_ref_neutral
 
         image_b64 = _to_data_uri(base64.b64encode(
             cv2.imencode(".jpg", orig_for_se8, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
         ).decode(), mime="image/jpeg")
         _, mask_buf = cv2.imencode(".png", inpaint_for_se8)
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode(), mime="image/png")
-        _, ip_buf = cv2.imencode(".jpg", ip_ref_for_se8, [cv2.IMWRITE_JPEG_QUALITY, 90])
-        ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
+        _, ip_orig_buf = cv2.imencode(".jpg", ip_ref_orig_s8, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        ip_orig_b64 = _to_data_uri(base64.b64encode(ip_orig_buf).decode(), mime="image/jpeg")
+        _, ip_neu_buf = cv2.imencode(".jpg", ip_ref_neu_s8, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        ip_neu_b64 = _to_data_uri(base64.b64encode(ip_neu_buf).decode(), mime="image/jpeg")
 
-        ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
-
-        # ─── BASE: W_sd-1 (melhor resultado visual) ───
-        grid_configs = []
-        seeds = [-1, 42, 100, 200, 777]
-
-        for sd in seeds:
-            grid_configs.append({"label": f"W_sd{sd}", "ip_weight": 0.8, "ip_stop": 0.5,
-                                 "strength": 0.84, "field": 0.618, "seed": sd, "erode": 0})
+        # ─── Grid: REF B (neutral) — find sweet spot strength for sweater removal + pose ───
+        grid_configs = [
+            # Baseline: REF A original (para comparação)
+            {"label": "A_orig_s084", "ip_b64": ip_orig_b64, "ip_weight": 0.8, "ip_stop": 0.5,
+             "strength": 0.84, "field": 0.618, "seed": -1, "erode": 0},
+            # REF B: neutral ref — sweep strength 0.84→0.90 to find minimum that removes sweater
+            {"label": "B_neu_s084", "ip_b64": ip_neu_b64, "ip_weight": 0.8, "ip_stop": 0.5,
+             "strength": 0.84, "field": 0.618, "seed": -1, "erode": 0},
+            {"label": "B_neu_s086", "ip_b64": ip_neu_b64, "ip_weight": 0.8, "ip_stop": 0.5,
+             "strength": 0.86, "field": 0.618, "seed": -1, "erode": 0},
+            {"label": "B_neu_s088", "ip_b64": ip_neu_b64, "ip_weight": 0.8, "ip_stop": 0.5,
+             "strength": 0.88, "field": 0.618, "seed": -1, "erode": 0},
+            {"label": "B_neu_s090", "ip_b64": ip_neu_b64, "ip_weight": 0.8, "ip_stop": 0.5,
+             "strength": 0.90, "field": 0.618, "seed": -1, "erode": 0},
+        ]
 
         grid_results = []
 
@@ -586,16 +665,17 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
             label = cfg["label"]
             s = cfg["strength"]; f = cfg["field"]; sd = cfg["seed"]
             w = cfg["ip_weight"]; st = cfg["ip_stop"]; er = cfg["erode"]
+            ip_b64_cfg = cfg["ip_b64"]
             print(f"\n  [{label}] str={s} field={f} seed={sd} ip_w={w} ip_st={st} erode={er}")
 
             ip_prompts = [
-                {"cn_img": ip_b64, "cn_stop": st, "cn_weight": w, "cn_type": "ImagePrompt"},
+                {"cn_img": ip_b64_cfg, "cn_stop": st, "cn_weight": w, "cn_type": "ImagePrompt"},
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             ]
 
-            entry = {"label": label, "params": {k: v for k, v in cfg.items() if k != "label"},
+            entry = {"label": label, "params": {k: v for k, v in cfg.items() if k not in ("label", "ip_b64")},
                      "time_s": 0, "pose": None, "error": None}
 
             try:

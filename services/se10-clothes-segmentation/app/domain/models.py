@@ -23,6 +23,12 @@ class SegmentResult(BaseModel):
     masks: list[str] | None = Field(
         default=None, description="List of base64-encoded binary masks (data:image/png;base64,...), one per detected object"
     )
+    controlnet_image: str | None = Field(
+        default=None, description="Base64-encoded OpenPose-style control image (data:image/png;base64,...)"
+    )
+    pose_landmarks: list[dict[str, object]] | None = Field(
+        default=None, description="Detected pose landmarks for debugging"
+    )
     processing_time_ms: float
 
 

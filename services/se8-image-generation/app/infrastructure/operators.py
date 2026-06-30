@@ -219,30 +219,20 @@ class ControlNetApplyAdvanced:
     """Apply ControlNet conditioning.
 
     Wraps ldm_patched.contrib.external.ControlNetApplyAdvanced.
-    Stub for Sprint 4 — full implementation in Sprint 7.
     """
 
     def apply_controlnet(
         self, positive: Any, negative: Any, control_net: Any, image: Any,
         strength: float = 1.0, start_percent: float = 0.0, end_percent: float = 1.0
     ) -> tuple[Any, Any]:
-        """Apply ControlNet to conditioning.
-
-        Args:
-            positive: Positive conditioning.
-            negative: Negative conditioning.
-            control_net: ControlNet model.
-            image: Control image tensor.
-            strength: Control strength [0, 1].
-            start_percent: Start percentage for control.
-            end_percent: End percentage for control.
-
-        Returns:
-            (positive_out, negative_out) tuple.
-        """
-        # Stub — full implementation in Sprint 7
-        logger.warning("ControlNetApplyAdvanced is a stub — full implementation pending")
-        return positive, negative
+        """Apply ControlNet to conditioning."""
+        from ldm_patched.contrib.external import ControlNetApplyAdvanced as RealControlNetApplyAdvanced
+        op = RealControlNetApplyAdvanced()
+        return op.apply_controlnet(
+            positive=positive, negative=negative,
+            control_net=control_net, image=image,
+            strength=strength, start_percent=start_percent, end_percent=end_percent,
+        )
 
 
 class ModelSamplingDiscrete:

@@ -21,6 +21,7 @@ from PIL import Image
 
 from common.log_utils import get_logger
 from app.core.config import ClothesSegSettings
+from app.services.pose_renderer import PoseRenderer
 from app.core.constants import (
     CLOTHING_CLASSES,
     PERSON_CLASSES,
@@ -54,6 +55,7 @@ class ClothesSegmentor:
 
         self._gd_model: Any = None
         self._sam2_predictor: Any = None
+        self._pose_renderer: PoseRenderer | None = None
         self._load_models()
 
     @property
@@ -115,6 +117,12 @@ class ClothesSegmentor:
         self._sam2_predictor = SAM2ImagePredictor(sam2_model)
         logger.info("SAM2 loaded")
 
+        # Pose renderer (lazy — only used when include_pose=True)
+        self._pose_renderer = PoseRenderer(
+            min_detection_confidence=self.settings.pose_min_confidence
+        )
+        logger.info("Pose renderer ready")
+
         logger.info("All models loaded in %.1fs", time.time() - t0)
 
     # ------------------------------------------------------------------ #
@@ -141,6 +149,7 @@ class ClothesSegmentor:
         max_objects: int | None = None,
         mode: str = "clothes",
         detector: str = "groundingdino",
+        include_pose: bool = False,
     ) -> dict[str, Any]:
         """Run full segmentation pipeline on image bytes.
 
@@ -148,9 +157,12 @@ class ClothesSegmentor:
             mode: "clothes" for clothing detection, "person" for person detection.
                   When "person", defaults to PERSON_CLASSES and relaxes area filter to 80%.
             detector: "groundingdino" (default) or "florence2" for alternative detector.
+            include_pose: If True, also generate an OpenPose-style control image
+                          from MediaPipe Pose landmarks.
 
         Returns:
-            dict with keys: detected, objects, mask_image, masks, processing_time_ms
+            dict with keys: detected, objects, mask_image, masks, controlnet_image,
+                            pose_landmarks, processing_time_ms
         """
         t0 = time.time()
         if mode == "person":
@@ -287,6 +299,28 @@ class ClothesSegmentor:
         _, buffer = cv2.imencode(".jpg", annotated)
         mask_b64 = f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
+        # 8. Optional pose control image
+        controlnet_image: str | None = None
+        pose_landmarks: list[dict[str, Any]] = []
+        if include_pose and self._pose_renderer is not None:
+            try:
+                rgb_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
+                landmarks = self._pose_renderer.detect(rgb_image)
+                if landmarks is not None:
+                    pose_canvas = self._pose_renderer.render_stick_figure(
+                        landmarks, image_size=(height, width)
+                    )
+                    _, pose_buf = cv2.imencode(".png", pose_canvas)
+                    controlnet_image = (
+                        f"data:image/png;base64,{base64.b64encode(pose_buf).decode('utf-8')}"
+                    )
+                    pose_landmarks = [lm.to_dict() for lm in landmarks]
+                    logger.info("Pose control image generated | landmarks=%d", len(landmarks))
+                else:
+                    logger.info("No pose detected for control image")
+            except Exception as exc:
+                logger.warning("Failed to generate pose control image: %s", exc)
+
         processing_ms = round((time.time() - t0) * 1000, 1)
         logger.info(
             "Segmentation complete | objects=%d time=%.1fms",
@@ -298,5 +332,7 @@ class ClothesSegmentor:
             "objects": detected_objects,
             "mask_image": mask_b64,
             "masks": binary_masks,
+            "controlnet_image": controlnet_image,
+            "pose_landmarks": pose_landmarks,
             "processing_time_ms": processing_ms,
         }

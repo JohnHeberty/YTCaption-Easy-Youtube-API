@@ -6,10 +6,10 @@ FROM nvidia/cuda:12.1.1-devel-ubuntu22.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl python3.11 python3.11-venv python3-pip \
+    ca-certificates curl \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libxcb1 libxcb-shm0 libxcb-xfixes0 libxcb-shape0 \
     git && \
-    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
     rm -rf /var/lib/apt/lists/*
 
 RUN python3.11 -m pip install --no-cache-dir --upgrade pip setuptools wheel
@@ -18,7 +18,8 @@ COPY shared/ ./common/
 RUN pip install --no-cache-dir -e ./common
 
 COPY services/se10-clothes-segmentation/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    chmod -R a+r /usr/local/lib/python3.11/site-packages
 
 # Install PyTorch with CUDA support
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu121

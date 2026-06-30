@@ -96,3 +96,14 @@ def cpds(x: np.ndarray) -> np.ndarray:
     # Normalize and combine
     result = norm255(offset)
     return result.astype(np.uint8)
+
+
+def openpose_identity(x: np.ndarray) -> np.ndarray:
+    """Pass-through for OpenPose control images.
+
+    The SE10 pose_renderer already generates an OpenPose-style stick figure.
+    No further preprocessing is needed; just ensure correct size and dtype.
+    """
+    if x.ndim == 2:
+        x = cv2.cvtColor(x, cv2.COLOR_GRAY2BGR)
+    return x.astype(np.uint8)

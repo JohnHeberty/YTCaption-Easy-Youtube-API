@@ -26,6 +26,7 @@ async def segment_clothes(
     box_threshold: float | None = Form(None, description="Detection confidence threshold"),
     text_threshold: float | None = Form(None, description="Text matching threshold"),
     mode: str = Form("clothes", description="Detection mode: 'clothes' or 'person'"),
+    include_pose: bool = Form(False, description="Generate OpenPose-style controlnet_image for SE8 ControlNet"),
 ) -> SegmentResponse:
     if not file.filename:
         return SegmentResponse(
@@ -86,12 +87,13 @@ async def segment_clothes(
         loop = asyncio.get_running_loop()
         result: dict[str, Any] = await loop.run_in_executor(
             executor,
-            lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold, _mode=mode: segmentor.segment(
+            lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold, _mode=mode, _ip=include_pose: segmentor.segment(
                 image_bytes=_img,
                 classes=_cls,
                 box_threshold=_bt,
                 text_threshold=_tt,
                 mode=_mode,
+                include_pose=_ip,
             ),
         )
     except Exception as e:
@@ -112,6 +114,8 @@ async def segment_clothes(
                 object_count=0,
                 objects=[],
                 mask_image=None,
+                controlnet_image=result.get("controlnet_image"),
+                pose_landmarks=result.get("pose_landmarks"),
                 processing_time_ms=result["processing_time_ms"],
             ),
         )
@@ -127,6 +131,8 @@ async def segment_clothes(
             objects=objects,
             mask_image=result.get("mask_image"),
             masks=result.get("masks"),
+            controlnet_image=result.get("controlnet_image"),
+            pose_landmarks=result.get("pose_landmarks"),
             processing_time_ms=result["processing_time_ms"],
         ),
     )

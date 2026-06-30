@@ -6,6 +6,7 @@ FROM python:3.11-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl \
     libgl1 libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libxcb1 libxcb-shm0 libxcb-xfixes0 libxcb-shape0 \
     git && \
     rm -rf /var/lib/apt/lists/*
 
@@ -13,7 +14,8 @@ COPY shared/ ./common/
 RUN pip install --no-cache-dir ./common
 
 COPY services/se10-clothes-segmentation/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    chmod -R a+r /usr/local/lib/python3.11/site-packages
 
 # =============================================================================
 # Stage: api

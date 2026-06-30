@@ -19,6 +19,7 @@ from app.core.models import ClothesRemovalJob, ClothesRemovalJobStatus
 from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.services.head_detector import detect_head_mask, detect_face_only
+from app.validators.pose_detector import render_pose_stick_figure, detect_pose
 
 logger = get_logger(__name__)
 
@@ -62,6 +63,65 @@ def _fix_b64_padding(s: str) -> str:
     if missing:
         s += "=" * (4 - missing)
     return s
+
+
+def _build_clothes_neutral_ref(orig_img, clothes_mask, person_mask, head_mask):
+    """Create IP-Adapter reference with clothing neutralized (Leffa-style).
+
+    Replaces clothing area with mean skin tone + subtle noise so the
+    IP-Adapter encoder cannot extract clothing texture features.
+    Keeps face/hair/pose/body-shape intact — only clothing is neutralized.
+
+    This is the direct analog of Leffa's insight (CVPR 2025): control what
+    the encoder sees to prevent attention leaking to clothing regions.
+    """
+    import cv2 as _cv2
+    import numpy as _np
+
+    if clothes_mask is None or _cv2.countNonZero(clothes_mask) == 0:
+        return orig_img.copy()
+
+    h, w = orig_img.shape[:2]
+    ref = orig_img.copy()
+
+    # 1. Compute mean skin tone from exposed skin regions (arms, neck, face edges)
+    skin_mask = _cv2.bitwise_and(person_mask, _cv2.bitwise_not(clothes_mask))
+    skin_mask = _cv2.bitwise_and(skin_mask, _cv2.bitwise_not(head_mask))
+    if _cv2.countNonZero(skin_mask) < 100:
+        skin_mask = head_mask.copy()
+
+    # Sample skin pixels in HSV
+    hsv = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV)
+    skin_pixels = hsv[skin_mask > 0]
+    if len(skin_pixels) > 0:
+        mean_h = _np.median(skin_pixels[:, 0])
+        mean_s = _np.median(skin_pixels[:, 1])
+        mean_v = _np.median(skin_pixels[:, 2])
+    else:
+        mean_h, mean_s, mean_v = 15, 80, 180
+
+    # 2. Create neutral skin fill: solid tone + subtle noise
+    fill_hsv = _np.full((h, w, 3), [mean_h, mean_s, mean_v], dtype=_np.uint8)
+    noise = _np.random.normal(0, 8, (h, w, 3)).astype(_np.int16)
+    fill_hsv = _np.clip(fill_hsv.astype(_np.int16) + noise, 0, 255).astype(_np.uint8)
+    fill_bgr = _cv2.cvtColor(fill_hsv, _cv2.COLOR_HSV2BGR)
+
+    # 3. Blur the fill slightly for organic look
+    fill_bgr = _cv2.GaussianBlur(fill_bgr, (5, 5), 2.0)
+
+    # 4. Composite: replace clothing area with neutral fill
+    clothes_eroded = clothes_mask.copy()
+    ke = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+    clothes_eroded = _cv2.erode(clothes_eroded, ke, iterations=1)
+
+    mask_f = clothes_eroded.astype(_np.float32) / 255.0
+    mask_f = _cv2.GaussianBlur(mask_f, (15, 15), 5.0)
+
+    ref = (ref.astype(_np.float32) * (1 - mask_f[:, :, None]) +
+           fill_bgr.astype(_np.float32) * mask_f[:, :, None])
+    ref = _np.clip(ref, 0, 255).astype(_np.uint8)
+
+    return ref
 
 
 # ─── Debug Grid ──────────────────────────────────────────────────────────────
@@ -235,7 +295,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         person_seg = await se10.segment(
             image_bytes=image_bytes, filename=f"{job.job_id}_person.jpg",
             classes="person, woman, man", box_threshold=0.20, text_threshold=0.15, mode="person",
+            include_pose=True,
         )
+        pose_cn_b64 = person_seg.get("controlnet_image")
         if not person_seg.get("detected") or not person_seg.get("masks"):
             job.status = ClothesRemovalJobStatus.COMPLETED
             job.error = "No person detected"
@@ -298,13 +360,15 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # Head protection: use head_mask for composite (covers full head + hair)
         head_adjusted = head_mask
 
-        # face_protect_mask: larger ellipse for better face protection
+        # face_protect_mask: SMALLER ellipse covering only inner face features
+        # (eyes, nose, mouth, eyebrows). Jaw, chin, neck and hair edges are left
+        # for the model to generate, which avoids the "cutout" collage look.
         face_protect_mask = detect_face_only(
             orig_img=orig_img,
             person_binary=person_binary,
-            margin_above=0.50,
-            margin_below=0.70,
-            margin_sides=0.40,
+            margin_above=0.20,
+            margin_below=0.30,
+            margin_sides=0.25,
         )
 
         # ─── Stage 3: SE10 Clothes Detection ───
@@ -396,11 +460,31 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # IP-Adapter: use ORIGINAL image (not face-masked) for pose preservation
-        # Head mask protects face during composite — no need to mask here
-        ip_ref_img = orig_img.copy()
+        # IP-Adapter: use CLOTHES-NEUTRALIZED reference (Leffa-style)
+        # The encoder sees pose/face/body-shape but NOT clothing texture.
+        # This prevents attention leaking to clothing regions → no sweater residual.
+        ip_ref_img = _build_clothes_neutral_ref(
+            orig_img, clothes_combined, person_binary, head_mask)
         _, ip_ref_buf = _cv2.imencode(".jpg", ip_ref_img, [_cv2.IMWRITE_JPEG_QUALITY, 90])
         ip_ref_b64 = _to_data_uri(base64.b64encode(ip_ref_buf).decode("utf-8"), mime="image/jpeg")
+
+        # Pose conditioning: MediaPipe stick figure as secondary IP-Adapter reference
+        # NOTE (2026-06-30): Tested and degraded pose preservation (score 21.3 vs 0.0).
+        # Kept disabled in production. The render_pose_stick_figure function remains
+        # available in app.validators.pose_detector for future experiments.
+        ip_pose_b64 = None
+        # try:
+        #     pose_result = detect_pose(orig_img, min_detection_confidence=0.5)
+        #     if pose_result is not None:
+        #         pose_img = render_pose_stick_figure(pose_result, output_size=(orig_w, orig_h))
+        #         _, ip_pose_buf = _cv2.imencode(".jpg", pose_img, [_cv2.IMWRITE_JPEG_QUALITY, 95])
+        #         ip_pose_b64 = _to_data_uri(base64.b64encode(ip_pose_buf).decode("utf-8"), mime="image/jpeg")
+        #         logger.info("Job %s: pose stick figure generated (confidence=%.3f)",
+        #                     job.job_id, pose_result.detection_confidence)
+        #     else:
+        #         logger.warning("Job %s: MediaPipe pose not detected", job.job_id)
+        # except Exception as exc:
+        #     logger.warning("Job %s: failed to generate pose stick figure: %s", job.job_id, exc)
 
         nsfw_prompt = (
             "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
@@ -454,6 +538,12 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             _cv2.imwrite(os.path.join(output_dir, "05_exposed_skin.png"), exposed_skin)
             _cv2.imwrite(os.path.join(output_dir, "06_inpaint_mask.png"), inpaint_mask)
             _cv2.imwrite(os.path.join(output_dir, "07_head_adjusted.png"), head_adjusted)
+            if pose_cn_b64 is not None:
+                pose_bytes = base64.b64decode(pose_cn_b64.split(",")[1])
+                pose_arr = _np.frombuffer(pose_bytes, _np.uint8)
+                pose_decoded = _cv2.imdecode(pose_arr, _cv2.IMREAD_COLOR)
+                if pose_decoded is not None:
+                    _cv2.imwrite(os.path.join(output_dir, "08_pose_controlnet.png"), pose_decoded)
         except Exception as exc:
             logger.warning("Job %s: failed to save debug masks: %s", job.job_id, exc)
 
@@ -468,8 +558,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 await _asyncio.sleep(10)
 
             _retry_configs = {
-                1: {"strength": 0.84, "field": 0.618, "erode": 0, "seed": -1},
-                2: {"strength": 0.85, "field": 0.618, "erode": 0, "seed": 42},
+                1: {"strength": 0.86, "field": 0.618, "erode": 0, "seed": -1},
+                2: {"strength": 0.87, "field": 0.618, "erode": 0, "seed": 42},
                 3: {"strength": 0.90, "field": 0.618, "erode": 0, "seed": 99},
             }
             cfg = _retry_configs.get(attempt, _retry_configs[1])
@@ -477,7 +567,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f seed=%d",
                         job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"], cfg["seed"])
 
-            # IP-Adapter: pass original image as reference for pose preservation
+            # IP-Adapter: clothes-neutralized ref for face/body preservation
+            # ControlNet OpenPose: pose stick figure from SE10 for body structure
             ip_adapter_prompts = [
                 {
                     "cn_img": ip_ref_b64,
@@ -485,10 +576,17 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                     "cn_weight": 0.8,
                     "cn_type": "ImagePrompt",
                 },
-                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {
+                    "cn_img": pose_cn_b64,
+                    "cn_stop": 0.7,
+                    "cn_weight": 0.5,
+                    "cn_type": "OpenPose",
+                },
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             ]
+            if pose_cn_b64:
+                logger.info("Job %s: OpenPose ControlNet enabled", job.job_id)
 
             result1 = await se8.inpaint(
                 image_b64=image_b64, mask_b64=mask_b64,
@@ -519,21 +617,30 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             if inpainted_img is not None and inpainted_img.shape[:2] != (orig_h, orig_w):
                 inpainted_img = _cv2.resize(inpainted_img, (orig_w, orig_h))
 
-            inpainted_img[head_adjusted > 0] = orig_img[head_adjusted > 0]
+            # ─── Face preservation with natural blending ───
+            # Protect only the INNER FACE (face_protect_mask). Jaw, chin, neck
+            # and hair are generated by the model, avoiding a hard cutout.
+            # A narrow, smooth alpha feather blends the preserved face into the
+            # generated body. We keep the transition zone small so the model has
+            # freedom to generate natural neck/hair, but large enough to avoid
+            # visible seams.
+            face_f = face_protect_mask.astype(_np.float32) / 255.0
+            # Distance-based feather: pixels near the mask edge get alpha in [0,1]
+            face_f = _cv2.GaussianBlur(face_f, (11, 11), 3.0)
+            face_f = _np.clip(face_f, 0, 1)
 
-            # Feathered composite: smooth blend at head/body boundary
-            _head_f = head_adjusted.astype(_np.float32) / 255.0
-            _head_f = _cv2.GaussianBlur(_head_f, (21, 21), 7.0)
-            _head_f = _np.clip(_head_f * 1.5, 0, 1)
-            composited = (inpainted_img.astype(_np.float32) * (1 - _head_f[:, :, None]) +
-                          orig_img.astype(_np.float32) * _head_f[:, :, None])
+            # First paste: hard inner face, soft transition
+            composited = (inpainted_img.astype(_np.float32) * (1 - face_f[:, :, None]) +
+                          orig_img.astype(_np.float32) * face_f[:, :, None])
             composited = _np.clip(composited, 0, 255).astype(_np.uint8)
 
-            # Reinhard color transfer: match body skin tone to original
+            # ─── Color harmonization: match generated body to original face ───
+            # Use original exposed skin (arms, visible chest, face edges) as the
+            # target color distribution and apply it to the generated body region.
             _skin_hsv = _cv2.inRange(_cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV),
                                       _np.array([0, 15, 60]), _np.array([30, 170, 255]))
             _skin_ref = _cv2.bitwise_and(_skin_hsv, person_binary)
-            _skin_ref = _cv2.bitwise_and(_skin_ref, _cv2.bitwise_not(head_adjusted))
+            _skin_ref = _cv2.bitwise_and(_skin_ref, _cv2.bitwise_not(face_protect_mask))
             _skin_mask = (_skin_ref > 0).astype(_np.uint8) * 255
             if _cv2.countNonZero(_skin_mask) > 100:
                 src_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
@@ -543,14 +650,17 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 tgt_m, tgt_s = tgt_lab[m].mean(axis=0), tgt_lab[m].std(axis=0) + 1e-6
                 for ch in range(3):
                     tgt_lab[:, :, ch] = (tgt_lab[:, :, ch] - tgt_m[ch]) * (src_s[ch] / tgt_s[ch]) + src_m[ch]
-                composited = _cv2.cvtColor(_np.clip(tgt_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-                composited = (composited.astype(_np.float32) * (1 - _head_f[:, :, None]) +
-                              orig_img.astype(_np.float32) * _head_f[:, :, None])
+                harmonized = _cv2.cvtColor(_np.clip(tgt_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
+                # Re-apply face blend after color harmonization so the protected
+                # face stays pixel-perfect original.
+                composited = (harmonized.astype(_np.float32) * (1 - face_f[:, :, None]) +
+                              orig_img.astype(_np.float32) * face_f[:, :, None])
                 composited = _np.clip(composited, 0, 255).astype(_np.uint8)
 
             _cv2.imwrite(os.path.join(try_dir, "result.png"), composited)
             _cv2.imwrite(os.path.join(try_dir, "inpaint_mask.png"), inpaint_mask)
             _cv2.imwrite(os.path.join(try_dir, "head_adjusted.png"), head_adjusted)
+            _cv2.imwrite(os.path.join(try_dir, "face_protect_mask.png"), face_protect_mask)
 
             orig_path = os.path.join(output_dir, "00_original.png")
             result_path_try = os.path.join(try_dir, "result.png")

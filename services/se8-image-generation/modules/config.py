@@ -894,6 +894,15 @@ def downloading_controlnet_canny():
     return os.path.join(path_controlnet, 'control-lora-canny-rank128.safetensors')
 
 
+def downloading_controlnet_openpose():
+    load_file_from_url(
+        url='https://huggingface.co/thibaud/controlnet-openpose-sdxl-1.0/resolve/main/control-lora-openposeXL2-rank256.safetensors',
+        model_dir=path_controlnet,
+        file_name='controlnet-openpose-sdxl.safetensors'
+    )
+    return os.path.join(path_controlnet, 'controlnet-openpose-sdxl.safetensors')
+
+
 def downloading_controlnet_cpds():
     load_file_from_url(
         url='https://huggingface.co/lllyasviel/misc/resolve/main/fooocus_xl_cpds_128.safetensors',

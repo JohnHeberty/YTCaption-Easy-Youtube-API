@@ -238,3 +238,113 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 - Output: `exploration/data/{image}/` com grid_summary.json + result.png por config
 - Tempo: ~15s por try (com cache SE8), ~150s para grid 10 configs
 | Plano head detect | `PLAN-2.md` |
+
+## 14. Leffa-style: Controlar o que o encoder vê (2026-06-30)
+
+**Problema:** Suéter residual — IP-Adapter com weight=0.8 preservava pose mas também preservava roupa. Trade-off fundamental.
+
+**Causa raiz (diagnosticada via pesquisa VTON):** O IP-Adapter recebia a imagem original VESTIDA como referência. O encoder CLIP extraía features de roupa junto com pose/rosto/corpo. Essa atenção vazando para a região errada é EXATAMENTE o que a Leffa (CVPR 2025) descreve como "inadequate attention to corresponding regions in the reference image" → distorção de textura.
+
+**Solução (Opção A do UPGRADE.md):** `_build_clothes_neutral_ref()` — antes de passar a imagem ao IP-Adapter, preencher a região de roupa com tom de pele médio (amostrado da pele exposta da própria pessoa) + ruído sutil + blur. O encoder então só vê pose/rosto/formato-do-corpo, sem acesso à textura da roupa.
+
+**Resultado:** Suéter residual desapareceu. Config vencedora: B_neu_s086 (ref neutra + strength=0.86). Pose: head=0.0%, torso=2.0%, limbs=4.1% (baseline era limbs=10.0%). Speed: 16s/try (era 46s).
+
+**Lições:**
+- Neutral ref precisa strength MAIOR (0.86 vs 0.84) — a neutralização enfraquece o sinal, a difusão precisa mais passos para compensar
+- Amostrar tom de pele da própria pessoa (HSV mediana da pele exposta) — não usar tom fixo
+- Erode clothes mask 5px antes de preencher + blur 15px na borda → transição natural
+- Pesquisa de papers paga off: entender o mecanismo de como VTON models funcionam (sintetizar não colar, dual-encoder, attention regularization) levou direto à solução
+- `exploration/UPGRADE.md` documenta a pesquisa completa (IDM-VTON, OOTDiffusion, Leffa)
+
+
+## 15. Pose stick figure como IP-Adapter reference DEGRADA resultado (2026-06-30)
+
+**Hipótese:** Usar MediaPipe para gerar um OpenPose-style stick figure e passar como segunda imagem do IP-Adapter ajudaria a preservar a estrutura corporal.
+
+**Implementação:**
+- Adicionado `render_pose_stick_figure()` em `app/validators/pose_detector.py`
+- Gerado a partir da imagem original via MediaPipe Pose (model_complexity=1)
+- Passado como IP-Adapter ImagePrompt com weight=0.4
+
+**Resultado:**
+- Com stick figure: best score 21.3, pose_changed=true
+- Sem stick figure: score 0.0, pose_changed=false
+- **Conclusão: degradou a preservação de pose**
+
+**Por que falhou:**
+- IP-Adapter usa CLIP image encoder treinado em fotos reais
+- Stick figure sintético (fundo preto + linhas coloridas) é codificado como "desenho abstrato" / "arte vetorial"
+- A atenção do diffusion se mistura entre referência foto-realista (clothes-neutral ref) e referência sintética, criando conflito
+- Para usar pose como conditioning efetivo, precisa ser via **ControlNet** (treinado especificamente para condicionamento estrutural) ou **DensePose**, NÃO via IP-Adapter
+
+**Lição:** Não confundir "condicionamento de aparência" (IP-Adapter) com "condicionamento estrutural" (ControlNet/DensePose). São mecanismos diferentes e não são intercambiáveis.
+
+**Status:** Código mantido em `pose_detector.py` para futuras experimentações, mas desativado em produção.
+
+
+## 16. OpenPose ControlNet integrado, mas qualidade precisa de ajuste (2026-06-30)
+
+**Objetivo:** Adicionar condicionamento estrutural de pose ao pipeline NSFW via ControlNet OpenPose, conforme fase 2 do `UPGRADE.md`.
+
+**Implementação:**
+- SE10: novo `pose_renderer.py` gera stick figure a partir de landmarks MediaPipe Pose; endpoint `/v1/segment` aceita `include_pose=true`
+- SE11: requisita `controlnet_image` do SE10 no modo person e envia ao SE8 como image prompt `cn_type="OpenPose"` (weight=0.5, stop=0.7)
+- SE8: `_apply_controlnet()` carrega `controlnet-openpose-sdxl.safetensors`, decodifica a imagem de controle e aplica via `ControlNetApplyAdvanced`
+- Corrigido formato do tensor: ComfyUI espera `[B, H, W, C]` e faz `movedim(-1,1)` internamente
+- Corrigido decodificação quando `cn_img` chega como `bytes` (API V2 faz `_decode_image()` antes de enfileirar)
+
+**Resultado E2E:**
+- Job `cr_b7565e9710cc` completou com OpenPose ControlNet aplicado (verificado nos logs)
+- Job `cr_adfbaeb973e3` (weight=0.5, stop=0.7) best score = 17.9
+- Job `cr_31850bf1a28b` (ControlNet não aplicado por bug de bytes) best score = 6.7
+- **Conclusão:** integração funciona, mas ControlNet atual DEGRADA pose preservation em relação ao clothes-neutral ref sozinho
+
+**Por que pode estar degradando:**
+- O modelo `control-lora-openposeXL2-rank256` foi treinado no formato de skeleton OpenPose COCO/Body_25
+- MediaPipe Pose produz 33 landmarks com topologia diferente; nosso stick figure é uma aproximação visual
+- O ControlNet pode estar interpretando a figura como pose errada ou aplicando condicionamento em conflito com o IP-Adapter
+- Weight/stop ainda não calibrados para este pipeline
+
+**Lições:**
+- ControlNet NÃO é plug-and-play: o preprocessador de pose deve gerar imagem compatível com o modelo usado
+- Para OpenPose ControlNet SDXL, o ideal é usar o preprocessador oficial OpenPose (25 keypoints) em vez de MediaPipe
+- Tensor shape importa: `[B, H, W, C]` para `ControlNetApplyAdvanced`, `[B, C, H, W]` para a maioria dos outros operadores
+- Sempre verificar se `cn_img` chega como string, bytes ou numpy — diferentes caminhos da API tratam diferente
+- Bind mounts GPU são necessários com driver 590 (`libnvidia-ml.so.1`, `libcuda.so.1`, dispositivos `/dev/nvidia*`)
+
+**Status:** Código integrado e funcional. Ajuste fino de pose renderer/weight fica como próxima iteração.
+
+
+## 17. Face blending: proteger só o centro do rosto evita efeito recorte (2026-06-30)
+
+**Problema:** Usuário reportou que a face parecia um recorte colado da original ("efeito colagem").
+
+**Causa raiz:** O pipeline protegia a cabeça inteira (face + cabelo + pescoço) via `head_adjusted` e a colava de volta com alpha feather de 21px. Como a cabeça, o cabelo e o pescoço permaneciam 100% originais, enquanto o corpo era gerado, a fronteira ficava visível — especialmente sob luz diferente ou com textura de pele gerada.
+
+**Solução implementada:**
+1. Reduzir a máscara de proteção para **apenas o centro do rosto** (`face_protect_mask` com margens menores: 20% acima, 30% abaixo, 25% laterais).
+2. Deixar o modelo gerar **queixo, mandíbula, pescoço e bordas do cabelo** naturalmente.
+3. Reduzir o feather de 21px para **11px Gaussian**, criando uma transição mais fina.
+4. Aplicar **harmonização de cor (Reinhard LAB)** no corpo gerado para igualar ao tom de pele original, e só depois re-aplicar a face protegida.
+
+**Resultado:**
+- Job `cr_75c5996737ab`: `face_protect_mask` = 29.9k px vs `head_adjusted` = 131.1k px (~23% da área anterior).
+- Pose score manteve-se na mesma faixa (best=12.5).
+- Visualmente a fronteira entre face e corpo gerado fica mais natural porque o modelo cria a transição de pele em vez de colar uma borda suavizada.
+
+**Padrões de mercado para este problema:**
+- **Face-only protection** (nunca proteger cabelo/pescoço inteiro) — usado em pipelines de face-swap e inpainting com preservação facial.
+- **Poisson blending / seamlessClone** — integra gradientes na fronteira; requer máscara bem definida e pode trazer artefatos se houver diferença grande de cor.
+- **Laplacian pyramid blending** — transição multi-escala, melhor que alpha feather simples.
+- **Color harmonization** (Reinhard, histogram matching) — iguala estatísticas de cor entre regiões preservadas e geradas.
+- **Face restoration** (GFPGAN/CodeFormer) — aplicado depois do blend para aumentar coerência e nitidez facial.
+- **Face identity preservation via IP-Adapter FaceID / InsightFace** — ao invés de colar face, guia a difusão para gerar a mesma identidade.
+
+**Lições:**
+- Proteger menos = resultado mais natural. A tentação de proteger cabelo/pescoço aumenta o "efeito colagem".
+- Feather pequeno e bem localizado é melhor que feather grande que espalha a borda.
+- Harmonização de cor deve ser aplicada ANTES de re-colocar a face, senão a face fica fora do novo espaço de cor.
+- Poisson/Laplacian são os próximos passos se o feather Gaussiano ainda não for suficiente.
+
+**Status:** Melhoria aplicada e validada. Face restoration (GFPGAN) e Laplacian blending ficam como próximas iterações.
+
