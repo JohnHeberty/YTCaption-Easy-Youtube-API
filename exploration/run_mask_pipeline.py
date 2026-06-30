@@ -117,7 +117,7 @@ async def _se8_inpaint(image_b64, mask_b64, prompt, negative, strength, field, i
         },
         "image_prompts": ip_prompts,
     }
-    async with httpx.AsyncClient(base_url=SE8_URL, headers={"X-API-Key": SE8_KEY}, timeout=120) as client:
+    async with httpx.AsyncClient(base_url=SE8_URL, headers={"X-API-Key": SE8_KEY}, timeout=300) as client:
         for attempt in range(3):
             resp = await client.post("/v1/generation/image-inpaint-outpaint", json=payload)
             resp.raise_for_status()
@@ -202,7 +202,7 @@ def detect_head_mask(orig_img, person_binary, person_bbox,
     if len(faces) > 0:
         fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
         head_mask = _ellipse_from_face(fx, fy, fw, fh, h, w, person_binary,
-                                        expand_w=0.4, expand_up=0.8, expand_down=neck_margin_below)
+                                        expand_w=0.5, expand_up=1.5, expand_down=neck_margin_below)
     else:
         cx, cy = px + pw // 2, py + max_head_h // 2
         m = np.zeros_like(person_binary)
@@ -261,6 +261,23 @@ def detect_neck_mask(person_binary, head_mask):
     return neck_mask
 
 # ─── Debug Grid ───────────────────────────────────────────────────────────────
+
+def reinhard_color_transfer(target, source, mask):
+    """Transfer color statistics from source to target using LAB color space (Reinhard)."""
+    source_lab = cv2.cvtColor(source, cv2.COLOR_BGR2LAB).astype(np.float32)
+    target_lab = cv2.cvtColor(target, cv2.COLOR_BGR2LAB).astype(np.float32)
+    m = mask > 0
+    if np.sum(m) < 100:
+        return target
+    src_pixels = source_lab[m]
+    tgt_pixels = target_lab[m]
+    src_mean, src_std = src_pixels.mean(axis=0), src_pixels.std(axis=0) + 1e-6
+    tgt_mean, tgt_std = tgt_pixels.mean(axis=0), tgt_pixels.std(axis=0) + 1e-6
+    full_lab = target_lab.copy()
+    for ch in range(3):
+        full_lab[:, :, ch] = (full_lab[:, :, ch] - tgt_mean[ch]) * (src_std[ch] / tgt_std[ch]) + src_mean[ch]
+    full_lab = np.clip(full_lab, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(full_lab, cv2.COLOR_LAB2BGR)
 
 def build_debug_grid(panels: list, cell_w=400, cell_h=600, cols=3, font_scale=0.55, padding=4):
     n = len(panels)
@@ -476,23 +493,9 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
     # ─── Stage 6: IP-Adapter Reference (face-masked) ───
     if not skip_inpaint:
         print("\n[6/7] IP-Adapter Reference...")
-        face_cover = cv2.dilate(head_mask,
-                                 cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (30, 30)),
-                                 iterations=3)
-        face_cover = cv2.bitwise_or(face_cover, face_only)
-        skin_mask = cv2.inRange(cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV),
-                                np.array([0, 20, 80]), np.array([25, 150, 255]))
-        skin_person = cv2.dilate(person_binary, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)), iterations=5)
-        skin_person = cv2.bitwise_or(skin_person, person_binary)
-        skin_mask = cv2.bitwise_and(skin_mask, skin_person)
-        skin_mask = cv2.bitwise_and(skin_mask, cv2.bitwise_not(face_cover))
-        skin_pixels = orig_img[skin_mask > 0]
-        median_color = np.median(skin_pixels, axis=0).astype(np.uint8) if len(skin_pixels) > 0 else np.array([180, 160, 140], dtype=np.uint8)
+        # Use original image as reference (NOT face-masked) for pose preservation
+        # The head_mask protects face during composite — no need to mask here
         ip_ref = orig_img.copy()
-        face_blend = cv2.GaussianBlur(face_cover.astype(np.float32) / 255.0, (31, 31), 10)
-        for c in range(3):
-            ip_ref[:, :, c] = (ip_ref[:, :, c].astype(np.float32) * (1 - face_blend) +
-                                float(median_color[c]) * face_blend).astype(np.uint8)
         save_mask(out_dir / "08_ip_reference.png", ip_ref)
 
     # ─── Stage 7: SE8 Inpainting (3 tries) ───
@@ -541,7 +544,7 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
         ip_b64 = _to_data_uri(base64.b64encode(ip_buf).decode(), mime="image/jpeg")
 
         ip_prompts = [
-            {"cn_img": ip_b64, "cn_stop": 0.3, "cn_weight": 0.35, "cn_type": "ImagePrompt"},
+            {"cn_img": ip_b64, "cn_stop": 0.4, "cn_weight": 0.4, "cn_type": "ImagePrompt"},
             {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
@@ -549,7 +552,7 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
 
         configs = [
             {"label": "try_1", "strength": 0.85, "field": 0.618, "seed": -1},
-            {"label": "try_2", "strength": 0.90, "field": 0.618, "seed": 42},
+            {"label": "try_2", "strength": 0.90, "field": 0.45, "seed": 42},
             {"label": "try_3", "strength": 1.00, "field": 0.618, "seed": 99},
         ]
 
@@ -568,6 +571,16 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
                         if result_img.shape[:2] != (orig_h, orig_w):
                             result_img = cv2.resize(result_img, (orig_w, orig_h))
                         composited = result_img.copy()
+                        # Head protection: paste original face back
+                        composited[head_mask > 0] = orig_img[head_mask > 0]
+                        # Reinhard color transfer: match body skin color to face/arms
+                        # Only use actual skin pixels as reference (not background)
+                        _skin_hsv = cv2.inRange(cv2.cvtColor(orig_img, cv2.COLOR_BGR2HSV),
+                                                 np.array([0, 15, 60]), np.array([30, 170, 255]))
+                        _skin_region = cv2.bitwise_and(_skin_hsv, person_binary)
+                        _skin_region = cv2.bitwise_and(_skin_region, cv2.bitwise_not(head_mask))
+                        composited = reinhard_color_transfer(composited, orig_img, _skin_region)
+                        # Re-apply head after color transfer
                         composited[head_mask > 0] = orig_img[head_mask > 0]
                         try_dir = out_dir / label
                         try_dir.mkdir(exist_ok=True)
@@ -581,7 +594,7 @@ async def run_masks(image_path: str, skip_inpaint: bool = False):
                 else:
                     print(f"    WARN: no base64 in result")
             except Exception as e:
-                print(f"    ERROR: {e}")
+                print(f"    ERROR: {type(e).__name__}: {e}")
                 if "CUDA" in str(e):
                     print("    Waiting 15s for CUDA recovery...")
                     await asyncio.sleep(15)
