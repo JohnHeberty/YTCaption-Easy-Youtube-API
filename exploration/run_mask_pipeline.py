@@ -317,11 +317,18 @@ async def run_masks(image_path: str):
 
     # ─── CRITICAL: Subtract clothes from head_mask ───
     # Head = only face + neck + hair (NOT clothing)
-    # This prevents head mask from "stealing" clothing area
     if clothes_combined is not None:
         head_mask = cv2.bitwise_and(head_mask, cv2.bitwise_not(clothes_combined))
         head_mask = cv2.bitwise_and(head_mask, person_binary)
-        print(f"  Head cleaned: subtracted clothes overlap")
+
+    # Close holes + smooth edges
+    close_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    head_mask = cv2.morphologyEx(head_mask, cv2.MORPH_CLOSE, close_k, iterations=2)
+    head_float = head_mask.astype(np.float32) / 255.0
+    head_float = cv2.GaussianBlur(head_float, (5, 5), 2.0)
+    head_mask = (head_float > 0.5).astype(np.uint8) * 255
+    head_mask = cv2.bitwise_and(head_mask, person_binary)
+    print(f"  Head cleaned: clothes subtracted, holes closed, edges smoothed")
 
     body_mask = cv2.bitwise_and(person_binary, cv2.bitwise_not(head_mask))
     neck = detect_neck_mask(person_binary, head_mask)
