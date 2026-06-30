@@ -32,6 +32,9 @@ class ClothesSegSettings(BaseServiceSettings):
     max_area_pct: float = Field(default=0.29, env="MAX_AREA_PCT")
     max_objects: int = Field(default=50, env="MAX_OBJECTS")
 
+    # Pose control image
+    pose_min_confidence: float = Field(default=0.5, env="POSE_MIN_CONFIDENCE")
+
     # Worker
     worker_threads: int = Field(default=2, env="WORKER_THREADS")
 

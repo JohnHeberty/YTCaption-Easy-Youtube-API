@@ -332,7 +332,7 @@ def _parse_image_prompts(image_prompts: list) -> dict[str, list]:
     Accepts both dict format (from V2 JSON API) and tuple format
     (from req_to_params conversion: (cn_img, cn_stop, cn_weight, cn_type)).
     """
-    cn_tasks: dict[str, list] = {"cn_ip": [], "cn_ip_face": [], "cn_canny": [], "cn_cpds": []}
+    cn_tasks: dict[str, list] = {"cn_ip": [], "cn_ip_face": [], "cn_canny": [], "cn_cpds": [], "cn_openpose": []}
     for prompt_item in image_prompts:
         img = None
         stop = 0.5
@@ -355,6 +355,7 @@ def _parse_image_prompts(image_prompts: list) -> dict[str, list]:
                 "FaceSwap": "cn_ip_face",
                 "PyraCanny": "cn_canny",
                 "CPDS": "cn_cpds",
+                "OpenPose": "cn_openpose",
             }
             key = type_map.get(cn_type, "cn_ip")
             cn_tasks[key].append([img, stop, weight])
@@ -843,6 +844,113 @@ def _apply_freeu(async_task: AsyncTask, pipeline: Any) -> None:
         logger.warning("Failed to apply FreeU: %s", e)
 
 
+def _apply_controlnet(
+    async_task: AsyncTask,
+    pipeline: Any,
+    positive_cond: Any,
+    negative_cond: Any,
+    width: int,
+    height: int,
+) -> tuple[Any, Any]:
+    """Apply ControlNet conditioning (OpenPose) to positive/negative conditioning.
+
+    Loads the OpenPose ControlNet model on demand and applies it for each
+    OpenPose control image provided in cn_tasks.
+    """
+    import base64
+    import numpy as np
+    from PIL import Image
+    from app.infrastructure.core_ops import load_controlnet, apply_controlnet
+    from app.services import preprocessors
+    from modules.config import path_controlnet
+    import os
+
+    cn_openpose = async_task.cn_tasks.get("cn_openpose", [])
+    if not cn_openpose:
+        return positive_cond, negative_cond
+
+    import cv2
+    import torch
+    import modules.core as core
+
+    openpose_path = os.path.join(path_controlnet, "controlnet-openpose-sdxl.safetensors")
+    if not os.path.exists(openpose_path):
+        logger.warning("OpenPose ControlNet model not found: %s", openpose_path)
+        return positive_cond, negative_cond
+
+    try:
+        controlnet = load_controlnet(openpose_path)
+    except Exception as e:
+        logger.warning("Failed to load OpenPose ControlNet: %s", e)
+        return positive_cond, negative_cond
+
+    def _decode_b64(img_b64: str) -> np.ndarray | None:
+        try:
+            if "," in img_b64:
+                img_b64 = img_b64.split(",", 1)[1]
+            img_bytes = base64.b64decode(img_b64)
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            return np.array(img).astype(np.uint8)
+        except Exception as e:
+            logger.warning("Failed to decode control image: %s", e)
+            return None
+
+    def _decode_bytes(img_bytes: bytes) -> np.ndarray | None:
+        try:
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            return np.array(img).astype(np.uint8)
+        except Exception as e:
+            logger.warning("Failed to decode control image bytes: %s", e)
+            return None
+
+    for cn_img_b64, cn_stop, cn_weight in cn_openpose:
+        img = None
+        if isinstance(cn_img_b64, str):
+            img = _decode_b64(cn_img_b64)
+        elif isinstance(cn_img_b64, bytes):
+            img = _decode_bytes(cn_img_b64)
+        elif isinstance(cn_img_b64, np.ndarray):
+            img = cn_img_b64
+        elif hasattr(cn_img_b64, "convert"):
+            img = np.array(cn_img_b64.convert("RGB")).astype(np.uint8)
+        else:
+            logger.warning("OpenPose control image has unexpected type: %s", type(cn_img_b64).__name__)
+            continue
+
+        if img is None:
+            continue
+
+        logger.info("OpenPose control image | raw_shape=%s dtype=%s target=%dx%d", img.shape, img.dtype, width, height)
+
+        # Ensure contiguous uint8 HWC array for OpenCV
+        img = np.ascontiguousarray(img)
+        if img.dtype != np.uint8:
+            img = img.astype(np.uint8)
+
+        # Resize to target diffusion size
+        img = cv2.resize(img, (width, height), interpolation=cv2.INTER_LANCZOS4)
+        img = preprocessors.openpose_identity(img)
+        logger.info("OpenPose control image | resized_shape=%s", img.shape)
+
+        # Convert to tensor [B, H, W, C] float — ComfyUI's ControlNetApplyAdvanced
+        # internally does image.movedim(-1,1) to obtain [B, C, H, W].
+        img_tensor = torch.from_numpy(img.astype(np.float32) / 255.0).unsqueeze(0)
+
+        try:
+            positive_cond, negative_cond = apply_controlnet(
+                positive_cond, negative_cond,
+                controlnet, img_tensor,
+                strength=float(cn_weight),
+                start_percent=0.0,
+                end_percent=float(cn_stop),
+            )
+            logger.info("Applied OpenPose ControlNet | weight=%.2f stop=%.2f", cn_weight, cn_stop)
+        except Exception as e:
+            logger.warning("Failed to apply OpenPose ControlNet: %s", e)
+
+    return positive_cond, negative_cond
+
+
 def _process_diffusion(
     pipeline: Any,
     async_task: AsyncTask,
@@ -881,6 +989,11 @@ def _process_diffusion(
         pipeline.set_clip_skip(async_task.clip_skip)
     positive_cond = pipeline.clip_encode([task["prompt"]])
     negative_cond = pipeline.clip_encode([task["negative"]])
+
+    # Apply ControlNet conditioning (OpenPose) if present
+    positive_cond, negative_cond = _apply_controlnet(
+        async_task, pipeline, positive_cond, negative_cond, width, height
+    )
 
     # Calculate steps
     steps = async_task.overwrite_step if async_task.overwrite_step > 0 else 30

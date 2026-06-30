@@ -1,116 +1,6 @@
 [
   {
-    "label": "T_sd-1",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.6,
-      "strength": 0.85,
-      "field": 0.618,
-      "seed": -1,
-      "erode": 0
-    },
-    "time_s": 46.4,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 41.54,
-      "max_landmark_name": "RIGHT_WRIST",
-      "head": 0.55,
-      "torso": 6.02,
-      "limbs": 13.61,
-      "summary": "HEAD changed (0.6% > 0.3%) | TORSO changed (6.0% > 0.5%) | LIMBS changed (13.6% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "T_sd42",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.6,
-      "strength": 0.85,
-      "field": 0.618,
-      "seed": 42,
-      "erode": 0
-    },
-    "time_s": 15.7,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 27.69,
-      "max_landmark_name": "RIGHT_WRIST",
-      "head": 0.0,
-      "torso": 3.32,
-      "limbs": 11.68,
-      "summary": "HEAD stable (0.2%) | TORSO changed (3.3% > 0.5%) | LIMBS changed (11.7% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "T_sd100",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.6,
-      "strength": 0.85,
-      "field": 0.618,
-      "seed": 100,
-      "erode": 0
-    },
-    "time_s": 15.7,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 48.15,
-      "max_landmark_name": "LEFT_ANKLE",
-      "head": 0.44,
-      "torso": 13.26,
-      "limbs": 27.31,
-      "summary": "HEAD changed (0.4% > 0.3%) | TORSO changed (13.3% > 0.5%) | LIMBS changed (27.3% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "T_sd200",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.6,
-      "strength": 0.85,
-      "field": 0.618,
-      "seed": 200,
-      "erode": 0
-    },
-    "time_s": 17.3,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 35.27,
-      "max_landmark_name": "RIGHT_WRIST",
-      "head": 1.07,
-      "torso": 9.02,
-      "limbs": 16.88,
-      "summary": "HEAD changed (1.1% > 0.3%) | TORSO changed (9.0% > 0.5%) | LIMBS changed (16.9% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "T_sd777",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.6,
-      "strength": 0.85,
-      "field": 0.618,
-      "seed": 777,
-      "erode": 0
-    },
-    "time_s": 15.8,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 36.34,
-      "max_landmark_name": "RIGHT_WRIST",
-      "head": 0.0,
-      "torso": 2.84,
-      "limbs": 11.87,
-      "summary": "HEAD stable (0.3%) | TORSO changed (2.8% > 0.5%) | LIMBS changed (11.9% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "W_sd-1",
+    "label": "A_orig_s084",
     "params": {
       "ip_weight": 0.8,
       "ip_stop": 0.5,
@@ -119,103 +9,103 @@
       "seed": -1,
       "erode": 0
     },
-    "time_s": 15.8,
+    "time_s": 45.6,
     "pose": {
       "pose_changed": true,
-      "max_landmark": 14.69,
+      "max_landmark": 16.5,
       "max_landmark_name": "RIGHT_ANKLE",
+      "head": 0.44,
+      "torso": 6.35,
+      "limbs": 9.98,
+      "summary": "HEAD changed (0.4% > 0.3%) | TORSO changed (6.3% > 0.5%) | LIMBS changed (10.0% > 1.5%)"
+    },
+    "error": null
+  },
+  {
+    "label": "B_neu_s084",
+    "params": {
+      "ip_weight": 0.8,
+      "ip_stop": 0.5,
+      "strength": 0.84,
+      "field": 0.618,
+      "seed": -1,
+      "erode": 0
+    },
+    "time_s": 15.6,
+    "pose": {
+      "pose_changed": true,
+      "max_landmark": 17.38,
+      "max_landmark_name": "RIGHT_WRIST",
+      "head": 0.3,
+      "torso": 4.22,
+      "limbs": 7.16,
+      "summary": "HEAD changed (0.3% > 0.3%) | TORSO changed (4.2% > 0.5%) | LIMBS changed (7.2% > 1.5%)"
+    },
+    "error": null
+  },
+  {
+    "label": "B_neu_s086",
+    "params": {
+      "ip_weight": 0.8,
+      "ip_stop": 0.5,
+      "strength": 0.86,
+      "field": 0.618,
+      "seed": -1,
+      "erode": 0
+    },
+    "time_s": 16.6,
+    "pose": {
+      "pose_changed": true,
+      "max_landmark": 11.61,
+      "max_landmark_name": "RIGHT_WRIST",
       "head": 0.0,
-      "torso": 3.54,
-      "limbs": 8.42,
-      "summary": "HEAD stable (0.2%) | TORSO changed (3.5% > 0.5%) | LIMBS changed (8.4% > 1.5%)"
+      "torso": 1.96,
+      "limbs": 4.12,
+      "summary": "HEAD stable (0.2%) | TORSO changed (2.0% > 0.5%) | LIMBS changed (4.1% > 1.5%)"
     },
     "error": null
   },
   {
-    "label": "W_sd42",
+    "label": "B_neu_s088",
     "params": {
       "ip_weight": 0.8,
       "ip_stop": 0.5,
-      "strength": 0.84,
+      "strength": 0.88,
       "field": 0.618,
-      "seed": 42,
+      "seed": -1,
       "erode": 0
     },
-    "time_s": 15.8,
+    "time_s": 15.7,
     "pose": {
       "pose_changed": true,
-      "max_landmark": 22.65,
+      "max_landmark": 22.88,
       "max_landmark_name": "RIGHT_WRIST",
-      "head": 0.37,
-      "torso": 5.3,
-      "limbs": 11.37,
-      "summary": "HEAD changed (0.4% > 0.3%) | TORSO changed (5.3% > 0.5%) | LIMBS changed (11.4% > 1.5%)"
+      "head": 0.0,
+      "torso": 2.48,
+      "limbs": 7.92,
+      "summary": "HEAD stable (0.2%) | TORSO changed (2.5% > 0.5%) | LIMBS changed (7.9% > 1.5%)"
     },
     "error": null
   },
   {
-    "label": "W_sd100",
+    "label": "B_neu_s090",
     "params": {
       "ip_weight": 0.8,
       "ip_stop": 0.5,
-      "strength": 0.84,
+      "strength": 0.9,
       "field": 0.618,
-      "seed": 100,
+      "seed": -1,
       "erode": 0
     },
-    "time_s": 16.8,
+    "time_s": 15.7,
     "pose": {
       "pose_changed": true,
-      "max_landmark": 13.58,
+      "max_landmark": 10.28,
       "max_landmark_name": "LEFT_WRIST",
-      "head": 0.31,
-      "torso": 3.48,
-      "limbs": 7.28,
-      "summary": "HEAD changed (0.3% > 0.3%) | TORSO changed (3.5% > 0.5%) | LIMBS changed (7.3% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "W_sd200",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.5,
-      "strength": 0.84,
-      "field": 0.618,
-      "seed": 200,
-      "erode": 0
-    },
-    "time_s": 15.9,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 34.6,
-      "max_landmark_name": "RIGHT_WRIST",
-      "head": 0.32,
-      "torso": 2.64,
-      "limbs": 12.98,
-      "summary": "HEAD changed (0.3% > 0.3%) | TORSO changed (2.6% > 0.5%) | LIMBS changed (13.0% > 1.5%)"
-    },
-    "error": null
-  },
-  {
-    "label": "W_sd777",
-    "params": {
-      "ip_weight": 0.8,
-      "ip_stop": 0.5,
-      "strength": 0.84,
-      "field": 0.618,
-      "seed": 777,
-      "erode": 0
-    },
-    "time_s": 16.0,
-    "pose": {
-      "pose_changed": true,
-      "max_landmark": 27.83,
-      "max_landmark_name": "LEFT_WRIST",
-      "head": 0.83,
-      "torso": 3.88,
-      "limbs": 17.86,
-      "summary": "HEAD changed (0.8% > 0.3%) | TORSO changed (3.9% > 0.5%) | LIMBS changed (17.9% > 1.5%)"
+      "head": 0.44,
+      "torso": 5.6,
+      "limbs": 8.04,
+      "summary": "HEAD changed (0.4% > 0.3%) | TORSO changed (5.6% > 0.5%) | LIMBS changed (8.0% > 1.5%)"
     },
     "error": null
   }

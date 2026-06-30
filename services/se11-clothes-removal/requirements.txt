@@ -9,9 +9,10 @@ httpx==0.28.1
 redis==5.2.1
 
 # Image processing
-opencv-python-headless>=4.10.0
 Pillow>=11.0.0
 numpy>=1.26.0
+mediapipe==0.10.8
+opencv-python-headless>=4.10.0  # reinstall after mediapipe to ensure headless variant
 
 python-multipart>=0.0.18
 

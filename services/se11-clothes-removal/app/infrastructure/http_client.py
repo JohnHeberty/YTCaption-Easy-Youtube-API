@@ -84,14 +84,17 @@ class SE10Client(ServiceClient):
         text_threshold: float | None = None,
         mode: str = "clothes",
         detector: str = "groundingdino",
+        include_pose: bool = False,
     ) -> dict[str, Any]:
         """Send image to SE10 for segmentation.
 
         Args:
             mode: "clothes" for clothing detection, "person" for person detection.
             detector: "groundingdino" (default) or "florence2" for alternative detector.
+            include_pose: If True, request OpenPose control image from SE10.
 
-        Returns dict with keys: detected, objects, masks, mask_image, processing_time_ms
+        Returns dict with keys: detected, objects, masks, mask_image,
+                               controlnet_image, pose_landmarks, processing_time_ms
         """
         form_data: dict[str, str] = {}
         files = {"file": (filename, image_bytes, "image/jpeg")}
@@ -105,6 +108,8 @@ class SE10Client(ServiceClient):
             form_data["mode"] = mode
         if detector:
             form_data["detector"] = detector
+        if include_pose:
+            form_data["include_pose"] = "true"
 
         response = await self._request_with_retry(
             "POST",

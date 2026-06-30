@@ -39,6 +39,23 @@
 - **Causa:** JSON parse error no subprocess
 - **Status:** PENDENTE
 
+### 7. OpenPose ControlNet quality tuning
+- **Problema:** ControlNet OpenPose degradou pose scores vs clothes-neutral ref sozinho
+- **Causa provável:** MediaPipe 33-landmark stick figure não é compatível com OpenPose COCO/Body_25 esperado pelo modelo SDXL
+- **Solução candidata:** Substituir MediaPipe por preprocessador OpenPose oficial (25 keypoints) ou mapear landmarks MediaPipe → OpenPose
+- **Status:** PENDENTE
+
+### 8. SE8 container GPU mounts
+- **Problema:** Restart perdia acesso a driver NVIDIA; `PermissionError` em `/app/data/wildcards`
+- **Solução aplicada:** Recriar container com binds para libs GPU + dispositivos; criar `data/wildcards` com uid 1000
+- **Status:** ✅ RESOLVIDO (documentar no compose)
+
+### 9. Face blend / anti-recorte
+- **Problema:** Face parecia recorte colado da original
+- **Solução aplicada:** Proteger só centro do rosto (~23% da área anterior), gerar queixo/pescoço/cabelo, feather 11px + harmonização LAB
+- **Próximos passos:** Avaliar Laplacian pyramid blending ou Poisson editing; integrar GFPGAN/CodeFormer face restore
+- **Status:** ✅ MELHORADO — avaliar visualmente e iterar
+
 ---
 
 ## ✅ Implementados nesta sessão

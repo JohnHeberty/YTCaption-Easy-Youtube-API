@@ -39,6 +39,7 @@ class ControlNetType(str):
     cn_ip_face = "FaceSwap"
     cn_canny = "PyraCanny"
     cn_cpds = "CPDS"
+    cn_openpose = "OpenPose"
 
 
 class MaskModel(str):

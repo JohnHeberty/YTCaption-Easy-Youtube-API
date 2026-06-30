@@ -12,20 +12,8 @@
                 "apiKey": "sk-litellm-master"
             },
             "models": {
-                "glm-5.1:cloud": {
-                    "name": "glm-5.1:cloud"
-                },
-                "kimi-k2.6:cloud": {
-                    "name": "kimi-k2.6:cloud"
-                },
-                "kimi-k2.5:cloud": {
-                    "name": "kimi-k2.5:cloud"
-                },
-                "qwen3.5:397b-cloud": {
-                    "name": "qwen3.5:397b-cloud"
-                },
-                "laguna-xs.2:latest": {
-                    "name": "laguna-xs.2:latest",
+                "ornith:35b": {
+                    "name": "ornith:35b",
                     "limit": {
                         "context": 59392,
                         "output": 4096

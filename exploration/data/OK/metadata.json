@@ -5,9 +5,9 @@
     "h": 1110
   },
   "timing": {
-    "person_s": 10.9,
-    "clothes_s": 10.8,
-    "total_s": 220.8
+    "person_s": 10.6,
+    "clothes_s": 11.4,
+    "total_s": 135.9
   },
   "masks": {
     "head_pct": 7.92,
