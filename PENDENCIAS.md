@@ -52,9 +52,10 @@
 
 ### 9. Face blend / anti-recorte
 - **Problema:** Face parecia recorte colado da original
-- **Solução aplicada:** Proteger só centro do rosto (~23% da área anterior), gerar queixo/pescoço/cabelo, feather 11px + harmonização LAB
-- **Próximos passos:** Avaliar Laplacian pyramid blending ou Poisson editing; integrar GFPGAN/CodeFormer face restore
-- **Status:** ✅ MELHORADO — avaliar visualmente e iterar
+- **Solução aplicada (v23.2):** Proteger só centro do rosto (~10.5% da cabeça), gerar testa/bochechas/queixo/pescoço/cabelo, distance-transform feather + transition band + harmonização LAB localizada
+- **Resultado:** job `cr_54e5dff89d04` best score = 7.4 (melhor que v23.1 = 12.5)
+- **Próximos passos:** Avaliar visualmente; se ainda houver recorte, aplicar Laplacian pyramid blending ou GFPGAN face restore
+- **Status:** ✅ MELHORADO — aguardar avaliação visual
 
 ---
 

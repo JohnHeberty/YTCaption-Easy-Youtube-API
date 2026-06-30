@@ -113,23 +113,26 @@ result.png
 
 **Objetivo:** maximizar qualidade com mudanças rápidas no SE11.
 
-#### A.1 Reduzir ainda mais a máscara de proteção facial
+#### A.1 Reduzir ainda mais a máscara de proteção facial ✅
 - **Ação:** em `detect_face_only()`, reduzir margens para:
   - `margin_above=0.10`
   - `margin_below=0.15`
   - `margin_sides=0.15`
 - **Racional:** proteger apenas olhos, nariz e boca. Queixo, bochechas e testa são gerados pelo modelo, criando transição natural.
 - **Risco:** modelo pode alterar expressão ou formato do rosto. Mitigar com IP-Adapter weight maior ou usar face restoration.
-- **Validação:** comparar visualmente `try_1` do novo job vs `cr_75c5996737ab/try_1`.
+- **Validação:** job `cr_54e5dff89d04`; `face_protect_mask` = 13.8k px vs `head_adjusted` = 131.1k px (~10.5%).
 
-#### A.2 Zona de transição gradual (grayscale mask)
+#### A.2 Zona de transição gradual (grayscale mask) ✅
 - **Ação:** criar `face_transition_mask` que vai de 1.0 no centro do rosto até 0.0 na fronteira com o corpo (distance transform de ~30-50px).
 - **Racional:** em vez de transição Gaussiana fixa, usar a distância real da borda para alpha, dando ao modelo uma "faixa" para pintar a transição.
 - **Implementação:**
   ```python
-  face_f = distance_transform_edt(face_protect_mask) / transition_width
-  face_f = np.clip(face_f, 0, 1)
+  transition_width = max(20, int(min(orig_w, orig_h) * 0.035))
+  face_dist = cv2.distanceTransform(face_protect_mask, cv2.DIST_L2, 5).astype(np.float32)
+  face_f = np.clip(face_dist / transition_width, 0, 1)
   ```
+- **Plus aplicado:** erodir `head_mask` antes de criar `body_mask`, deixando uma transition band explícita para SE8 gerar.
+- **Resultado:** best pose score = 7.4 (melhor que v23.1 = 12.5).
 
 #### A.3 Harmonização de cor localizada na borda
 - **Ação:** aplicar color transfer APENAS numa faixa de ~50px ao redor de `face_protect_mask`, não no corpo inteiro.

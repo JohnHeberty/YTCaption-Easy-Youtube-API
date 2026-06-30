@@ -6,14 +6,11 @@
             "npm": "@ai-sdk/openai-compatible",
             "name": "LiteLLM Gateway",
             "options": {
-                "baseURL-LOCAL": "http://192.168.1.139:11434/v1",
-                "baseURL-OLLAMA": "http://100.102.127.47:11434/v1",
-                "baseURL": "http://100.91.54.69:4000/v1",
-                "apiKey": "sk-litellm-master"
+                "baseURL": "http://192.168.1.139:11434/v1"
             },
             "models": {
-                "ornith:35b": {
-                    "name": "ornith:35b",
+                "ornith:35b-smart": {
+                    "name": "ornith:35b-smart",
                     "limit": {
                         "context": 59392,
                         "output": 4096
