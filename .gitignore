@@ -111,3 +111,6 @@ services/se10-clothes-segmentation/external/
 
 # Large model checkpoints (>100MB)
 services/se10-clothes-segmentation/checkpoints/*.pth
+exploration/data/
+Fooocus
+OK.jpg
