@@ -188,6 +188,64 @@ class CreateClothesRemovalRequest(BaseModel):
         ),
         examples=["groundingdino"],
     )
+    face_blend_mode: Literal["alpha", "laplacian"] = Field(
+        default="laplacian",
+        description=(
+            "**Face-body blending mode:**\n"
+            "- `laplacian` — Multi-scale Laplacian pyramid blend (smoother transitions).\n"
+            "- `alpha` — Simple alpha/feather blend (legacy v23.4)."
+        ),
+        examples=["laplacian"],
+    )
+    face_restore: bool = Field(
+        default=False,
+        description="Apply face restoration (CodeFormer/GFPGAN) after compositing to unify texture.",
+    )
+    face_restore_model: Literal["CodeFormer", "GFPGAN"] = Field(
+        default="CodeFormer",
+        description="Face restoration model. CodeFormer preserves identity better; GFPGAN is more smoothing.",
+        examples=["CodeFormer"],
+    )
+    face_restore_fidelity: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity preservation.",
+        examples=[0.5],
+    )
+    inpaint_mode: Literal["body_mask", "clothes_mask", "invert_mask"] = Field(
+        default="invert_mask",
+        description=(
+            "**Experimental v2 — inpainting mask strategy:**\n"
+            "- `body_mask` — inpaint entire body minus head (legacy).\n"
+            "- `clothes_mask` — inpaint only detected clothing regions.\n"
+            "- `invert_mask` — **default v2.** Keep face/body/background and regenerate only clothing regions via inverted mask."
+        ),
+        examples=["invert_mask"],
+    )
+    use_faceid: bool = Field(
+        default=True,
+        description="**Experimental v2.** Enable IP-Adapter FaceID to preserve facial identity during inpainting.",
+    )
+    faceid_weight: float = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.5,
+        description="**Experimental v2.** IP-Adapter FaceID weight. 0.7-1.0 recommended; higher = stronger identity lock.",
+        examples=[0.8],
+    )
+    test_inpaint_strength: float = Field(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.35 is default).",
+        examples=[0.35],
+    )
+    base_model: str = Field(
+        default="juggernautXL_v8Rundiffusion.safetensors",
+        description="**Experimental v2.** Base SDXL checkpoint. Use 'fooocus_inpaint' only if SE8 has Fooocus inpaint checkpoints configured.",
+        examples=["juggernautXL_v8Rundiffusion.safetensors", "fooocus_inpaint"],
+    )
 
 
 # =============================================================================

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -100,6 +100,15 @@ class CreateClothesRemovalRequest(BaseModel):
     per_garment: bool = False
     webhook_url: str | None = None
     detector: str = "groundingdino"
+    face_blend_mode: Literal["alpha", "laplacian"] = "laplacian"
+    face_restore: bool = False
+    face_restore_model: Literal["CodeFormer", "GFPGAN"] = "CodeFormer"
+    face_restore_fidelity: float = 0.5
+    inpaint_mode: str = "invert_mask"
+    use_faceid: bool = True
+    faceid_weight: float = 0.8
+    test_inpaint_strength: float = 0.35
+    base_model: str = "juggernautXL_v8Rundiffusion.safetensors"
 
 
 # =============================================================================

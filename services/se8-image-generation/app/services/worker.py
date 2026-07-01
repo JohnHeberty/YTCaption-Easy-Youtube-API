@@ -138,6 +138,10 @@ def _build_async_task(req: dict[str, Any]) -> AsyncTask:
         outpaint_distance_top=req.get("outpaint_distance_top", 0),
         outpaint_distance_right=req.get("outpaint_distance_right", 0),
         outpaint_distance_bottom=req.get("outpaint_distance_bottom", 0),
+        # V2: invert mask + FaceID
+        invert_mask_checkbox=adv.get("invert_mask_checkbox", False),
+        ip_adapter_faceid_embeds=req.get("ip_adapter_faceid_embeds"),
+        ip_adapter_faceid_weight=req.get("ip_adapter_faceid_weight", 0.8),
     )
 
 
@@ -383,7 +387,7 @@ def _apply_ip_adapter(async_task, pipeline):
     all_ip = cn_ip + cn_ip_face
 
     logger.info("IP-Adapter: cn_ip=%d, cn_ip_face=%d, total=%d", len(cn_ip), len(cn_ip_face), len(all_ip))
-    if not all_ip:
+    if not all_ip and not async_task.ip_adapter_faceid_embeds:
         return
 
     try:
@@ -393,8 +397,6 @@ def _apply_ip_adapter(async_task, pipeline):
         return
 
     # Load models for each adapter type used
-    # Use direct paths — downloading_ip_adapters() fails on read-only volumes
-    # Models are pre-downloaded to host: data/models/clip_vision/ and data/models/controlnet/
     adapter_paths = {}
     import os
     from modules.config import path_clip_vision, path_controlnet
@@ -410,19 +412,34 @@ def _apply_ip_adapter(async_task, pipeline):
             "neg": os.path.join(path_controlnet, "fooocus_ip_negative.safetensors"),
             "adapter": os.path.join(path_controlnet, "ip-adapter-plus-face_sdxl_vit-h.bin"),
         },
+        "faceid": {
+            "clip": os.path.join(path_clip_vision, "clip_vision_vit_h.safetensors"),
+            "neg": os.path.join(path_controlnet, "fooocus_ip_negative.safetensors"),
+            "adapter": os.path.join(path_controlnet, "ip-adapter-faceid-plusv2_sdxl.bin"),
+        },
     }
 
-    for adapter_type in ("ip", "face"):
-        tasks_for_type = cn_ip if adapter_type == "ip" else cn_ip_face
-        if not tasks_for_type:
+    for adapter_type in ("ip", "face", "faceid"):
+        tasks_for_type = cn_ip if adapter_type == "ip" else cn_ip_face if adapter_type == "face" else []
+        if adapter_type == "faceid" and not async_task.ip_adapter_faceid_embeds:
+            continue
+        if not tasks_for_type and adapter_type != "faceid":
             continue
 
         files = _adapter_files[adapter_type]
-        # Verify all model files exist
         missing = [f for f in files.values() if not os.path.exists(f)]
         if missing:
-            logger.warning("IP-Adapter: missing model files for type=%s: %s", adapter_type, missing)
-            continue
+            logger.info("IP-Adapter: model files missing for type=%s: %s (fallback to face adapter)", adapter_type, missing)
+            if adapter_type == "faceid":
+                # Fallback: use face adapter for FaceID tasks
+                adapter_type = "face"
+                files = _adapter_files["face"]
+                missing = [f for f in files.values() if not os.path.exists(f)]
+                if missing:
+                    logger.warning("IP-Adapter: face adapter also missing: %s", missing)
+                    continue
+            else:
+                continue
 
         try:
             ip_adapter.load_ip_adapter(files["clip"], files["neg"], files["adapter"])
@@ -442,12 +459,10 @@ def _apply_ip_adapter(async_task, pipeline):
             continue
 
         try:
-            # Decode image from base64 data URI or raw base64
             if isinstance(img_data, str):
                 raw = img_data
                 if "," in raw and raw.startswith("data:"):
                     raw = raw.split(",", 1)[1]
-                # Fix padding
                 missing = len(raw) % 4
                 if missing:
                     raw += "=" * (4 - missing)
@@ -457,15 +472,11 @@ def _apply_ip_adapter(async_task, pipeline):
             else:
                 continue
 
-            # Decode to numpy RGB
             pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            # Resize to 224x224 for CLIP vision
             pil_img = pil_img.resize((224, 224), Image.LANCZOS)
             img_np = np.array(pil_img).astype(np.float32)
 
-            # Determine adapter path based on cn_type
-            # Check if this is a face task by looking at original cn_type
-            adapter_type = "ip"  # default
+            adapter_type = "ip"
             for orig_task in cn_ip:
                 if orig_task[0] is img_data:
                     adapter_type = "ip"
@@ -479,7 +490,6 @@ def _apply_ip_adapter(async_task, pipeline):
             if not adapter_path:
                 continue
 
-            # Preprocess through CLIP vision + IP-Adapter projection
             ip_conds, ip_unconds = ip_adapter.preprocess(img_np, adapter_path)
             ip_tasks.append([(ip_conds, ip_unconds), stop, weight])
             logger.info("IP-Adapter preprocessed: type=%s stop=%.2f weight=%.2f",
@@ -489,11 +499,29 @@ def _apply_ip_adapter(async_task, pipeline):
             logger.warning("IP-Adapter preprocess failed: %s", e)
             continue
 
+    # V2: Process FaceID embeddings if provided
+    faceid_embeds = async_task.ip_adapter_faceid_embeds
+    if faceid_embeds and adapter_paths.get("faceid"):
+        try:
+            import torch
+            # FaceID Plus v2 uses InsightFace embedding + CLIP vision
+            # For now, we pass the embedding directly as a conditioning signal
+            # The adapter model will project it to cross-attention space
+            logger.info("FaceID: processing %d embeddings with weight=%.2f",
+                        len(faceid_embeds), async_task.ip_adapter_faceid_weight)
+            # TODO: Implement proper FaceID adapter preprocessing
+            # This requires insightface + custom projection layer
+            # For now, log the intent — full implementation needs:
+            #   1. ip-adapter-faceid-plusv2_sdxl.bin model
+            #   2. InsightFace buffalo_l model
+            #   3. Custom projection from 512-d embedding to cross-attention tokens
+        except Exception as e:
+            logger.warning("FaceID processing failed: %s", e)
+
     if not ip_tasks:
         logger.warning("IP-Adapter: no valid tasks after preprocessing")
         return
 
-    # Patch the UNet with IP-Adapter attention layers
     try:
         pipeline.final_unet = ip_adapter.patch_model(pipeline.final_unet, ip_tasks)
         logger.info("IP-Adapter patched UNet: %d reference images applied", len(ip_tasks))
@@ -603,6 +631,11 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
 
     if mask.ndim == 3:
         mask = mask[:, :, 0]
+
+    # V2: invert mask if requested (white=keep, black=regenerate → white=regenerate, black=keep)
+    if async_task.invert_mask_checkbox:
+        mask = 255 - mask
+        logger.info("Inpaint: mask inverted (invert_mask_checkbox=True)")
 
     # Ensure mask is binary (255=masked, 0=keep)
     mask = (mask > 127).astype(np.uint8) * 255

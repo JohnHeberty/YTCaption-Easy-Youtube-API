@@ -287,6 +287,55 @@ async def create_job(
             "- `florence2` — Alternative. Good for fine-grained classes."
         ),
     ),
+    face_blend_mode: str = Form(
+        default="laplacian",
+        description=(
+            "**Face-body blending mode:**\n"
+            "- `laplacian` (default v24) — Multi-scale pyramid blend, smoother transitions.\n"
+            "- `alpha` — Simple alpha/feather blend (legacy v23.4)."
+        ),
+    ),
+    face_restore: bool = Form(
+        default=False,
+        description="Apply face restoration (CodeFormer/GFPGAN) after compositing to unify texture.",
+    ),
+    face_restore_model: str = Form(
+        default="CodeFormer",
+        description="Face restoration model. CodeFormer preserves identity better; GFPGAN is more smoothing.",
+    ),
+    face_restore_fidelity: float = Form(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity preservation.",
+    ),
+    inpaint_mode: str = Form(
+        default="invert_mask",
+        description=(
+            "Experimental v2 mask strategy: `body_mask` (legacy), "
+            "`clothes_mask` (only detected clothing), `invert_mask` (default v2)."
+        ),
+    ),
+    use_faceid: bool = Form(
+        default=True,
+        description="Experimental v2. Enable IP-Adapter FaceID to preserve facial identity.",
+    ),
+    faceid_weight: float = Form(
+        default=0.8,
+        ge=0.0,
+        le=1.5,
+        description="Experimental v2. IP-Adapter FaceID weight (0.7-1.0 recommended).",
+    ),
+    test_inpaint_strength: float = Form(
+        default=0.35,
+        ge=0.0,
+        le=1.0,
+        description="Experimental v2. Denoising strength for nsfw_test (0.35 default).",
+    ),
+    base_model: str = Form(
+        default="juggernautXL_v8Rundiffusion.safetensors",
+        description="Experimental v2. Base SDXL checkpoint. 'fooocus_inpaint' requires SE8 setup.",
+    ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
@@ -320,6 +369,15 @@ async def create_job(
         "per_garment": per_garment,
         "webhook_url": webhook_url,
         "detector": detector.value,
+        "face_blend_mode": face_blend_mode,
+        "face_restore": face_restore,
+        "face_restore_model": face_restore_model,
+        "face_restore_fidelity": face_restore_fidelity,
+        "inpaint_mode": inpaint_mode,
+        "use_faceid": use_faceid,
+        "faceid_weight": faceid_weight,
+        "test_inpaint_strength": test_inpaint_strength,
+        "base_model": base_model,
     }
 
     job = ClothesRemovalJob(

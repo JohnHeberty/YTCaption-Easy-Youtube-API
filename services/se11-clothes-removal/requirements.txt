@@ -14,6 +14,10 @@ numpy>=1.26.0
 mediapipe==0.10.8
 opencv-python-headless>=4.10.0  # reinstall after mediapipe to ensure headless variant
 
+# FaceID (InsightFace for IP-Adapter FaceID)
+insightface>=0.7.3
+onnxruntime-gpu>=1.16.0
+
 python-multipart>=0.0.18
 
 # Common library (installed separately in Dockerfile: pip install -e /app/shared)

@@ -165,6 +165,13 @@ class AsyncTask:
     save_metadata_to_images: bool = False
     metadata_scheme: str = "fooocus"
 
+    # V2: invert mask support
+    invert_mask_checkbox: bool = False
+
+    # V2: IP-Adapter FaceID support
+    ip_adapter_faceid_embeds: list[list[float]] | None = None
+    ip_adapter_faceid_weight: float = 0.8
+
     # ControlNet tasks: {cn_type: [[img, stop, weight], ...]}
     cn_tasks: dict[str, list[list[Any]]] = field(default_factory=dict)
 
