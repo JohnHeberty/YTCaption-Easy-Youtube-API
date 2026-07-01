@@ -2,24 +2,21 @@
 
 ## Última sessão (2026-07-01)
 
-### 🟡 NSFW TEST V2 — INVERT MASK + FACEID (Implementation Complete, E2E Passed)
-- **Rota:** `POST /jobs` `mode="nsfw_test"` — experimental v2 pipeline, isolated from production
-- **Pipeline:** `pipeline_nsfw_experimental_v2.py` (NEW — independent from `pipeline_nsfw.py`)
-- **Key Changes:**
-  - **Invert mask:** Clothes-only inpainting — SE10 detects person → subtracts body → clothes mask inverted → only clothing regions inpainted
-  - **FaceID:** InsightFace buffalo_l 512-d embedding → SE8 IP-Adapter for identity preservation
-  - **Low denoise:** 0.35 → 0.40 → 0.45 progressive (vs 0.65-0.75 in production nsfw)
-  - **Clothes-neutral ref:** Same `_build_clothes_neutral_ref()` technique from production, duplicated for isolation
-- **SE11 changes (6 files):** `schemas.py` (+5 v2 fields), `routes.py` (+5 Form params), `models.py` (+5 fields), `http_client.py` (SE8Client.inpaint extended with invert_mask + FaceID), `pipeline.py` (dispatcher routes nsfw_test to v2), `requirements.txt` (+insightface, +onnxruntime-gpu)
-- **SE11 new files:** `pipeline_nsfw_experimental_v2.py`, `faceid_extractor.py`
-- **SE8 changes (2 files):** `task_models.py` (+3 fields), `worker.py` (invert_mask_checkbox + FaceID wiring + mask inversion logic)
-- **SE8 new model:** `ip-adapter-plus-face_sdxl_vit-h.bin` (966MB) in `data/models/controlnet/`
-- **Docker fixes:** insightface pip installed in SE11 container; SE8 code copied via `docker cp`; SE11 rebuilt with updated code
-- **Bug fixes during E2E:** numpy float32 JSON serialization (faceid_extractor + http_client + pipeline_v2 meta dict)
-- **E2E result:** `cr_38362338519e` — completed, best_score=59.9, FaceID=on, invert_mask=True, 3 attempts
-- **Results in:** `/root/YTCaption-Easy-Youtube-API/show/` — original, person, clothes, invert_mask, neutral_ref, tries, debug_overlay, result
-- **Remaining:** `ip-adapter-faceid-plusv2_sdxl.bin` not yet downloaded (true FaceID model for SE8); currently falls back to face adapter
-- **Status:** Code complete, E2E passed. Needs visual quality assessment by user before promotion to production.
+### 🟡 NSFW TEST V2 — HEAD MASK FIX + FACE BLENDING (Committed + Pushed)
+- **Commits:** `fd556cb` (feat), `b8000ca` (fix mask), `5572c0b` (fix head params + blend_utils + SE8 face_routes)
+- **Branch:** main, 3 commits ahead of origin (all pushed)
+- **Head detection fix:** `neck_margin_below` 0.15→0.50, `max_head_pct` 0.40→0.45 in 4 files
+  - **Root cause:** `neck_margin_below=0.15` made head mask too small → face was included in inpaint mask
+  - **Fix:** Now matches production default (0.50), face properly excluded from inpaint region
+  - **E2E validated:** `cr_testmaskfix01` — mask stops at neck, face 100% preserved
+- **New files:** `blend_utils.py` (selectable laplacian/alpha face blending), `face_routes.py` (SE8 face crop/restore endpoints)
+- **SE8 improvements:** face_crop.py, face_restoration.py updates, docker-compose GPU config
+- **Results:** `show/v2_headfix_*.png` — debug overlay, result, inpaint mask
+
+### Known Issues
+- `POST /jobs` 307 redirect_slashes → `/jobs/` (only GET) — pre-existing Starlette behavior, jobs must be submitted via pipeline function directly or through Swagger UI
+- FaceID CUDA assertion at strength ≥0.55 — works at 0.45 without FaceID, or 0.65 without FaceID
+- Skin generation quality needs tuning (prompt + strength optimization)
 
 ## Última sessão (2026-06-30)
 
