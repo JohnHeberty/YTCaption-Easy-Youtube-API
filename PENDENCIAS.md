@@ -1,9 +1,17 @@
 # PENDENCIAS.md — Items Pendentes
 
-**Data:** 2026-06-28
-**Última atualização:** NSFW quality cycle + Fooocus params
+**Data:** 2026-07-01
+**Última atualização:** NSFW Test V2 E2E Passed
 
 ---
+
+## NSFW Test V2 (2026-07-01)
+
+### 1. NSFW Test V2 Pipeline — Invert Mask + FaceID
+- **Status:** ✅ IMPLEMENTADO E E2E VALIDADO
+- **Job:** `cr_38362338519e` — completed, FaceID=on, invert_mask=True
+- **Pendência:** Avaliação visual pelo usuário antes de promover a produção
+- **Pendência:** Download `ip-adapter-faceid-plusv2_sdxl.bin` (true FaceID model, currently falls back to face adapter)
 
 ## NSFW Pipeline
 

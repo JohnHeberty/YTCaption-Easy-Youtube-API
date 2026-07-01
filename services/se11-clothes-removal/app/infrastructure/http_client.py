@@ -152,6 +152,9 @@ class SE8Client(ServiceClient):
         loras: list[dict[str, Any]] | None = None,
         image_prompts: list[dict[str, Any]] | None = None,
         base_model: str = "juggernautXL_v8Rundiffusion.safetensors",
+        invert_mask: bool = False,
+        ip_adapter_faceid_embeds: list[list[float]] | None = None,
+        ip_adapter_faceid_weight: float = 0.8,
     ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
@@ -228,6 +231,23 @@ class SE8Client(ServiceClient):
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             ] * 4
 
+        # ─── V2: invert_mask support ───
+        # NOTE: invert_mask_checkbox is NOT sent to SE8 because the mask is already
+        # built correctly on SE11 side (clothes = white = inpaint).
+        # Sending invert_mask_checkbox=True would cause a double-inversion.
+        if invert_mask:
+            logger.info("SE8: invert_mask mode — mask already built correctly on SE11 side")
+
+        # ─── V2: IP-Adapter FaceID support ───
+        if ip_adapter_faceid_embeds:
+            import numpy as _np
+            payload["ip_adapter_faceid_embeds"] = [
+                [float(v) for v in row] for row in ip_adapter_faceid_embeds
+            ]
+            payload["ip_adapter_faceid_weight"] = float(ip_adapter_faceid_weight)
+            logger.info("SE8: FaceID enabled with %d embeddings, weight=%.2f",
+                        len(ip_adapter_faceid_embeds), ip_adapter_faceid_weight)
+
         # Retry loop for empty SE8 results (CUDA assertion failures return [])
         max_attempts = 3
         for attempt in range(max_attempts):
@@ -282,6 +302,48 @@ class SE8Client(ServiceClient):
         """Check SE8 health."""
         response = await self._request_with_retry("GET", "/health")
         return response.json()
+
+    async def restore_face(
+        self,
+        image_b64: str,
+        model: str = "CodeFormer",
+        fidelity: float = 0.5,
+    ) -> dict[str, Any]:
+        """Restore faces in an image via SE8 face restoration endpoint.
+
+        Args:
+            image_b64: Base64 image string (with or without data URI prefix).
+            model: "CodeFormer" or "GFPGAN".
+            fidelity: CodeFormer fidelity slider (0.0-1.0).
+
+        Returns dict with keys: success, base64, url, model, faces_detected, message
+        """
+        payload: dict[str, Any] = {
+            "image": image_b64,
+            "model": model,
+            "fidelity": fidelity,
+            "require_base64": True,
+        }
+
+        response = await self._request_with_retry(
+            "POST", "/v1/face/restore", json=payload,
+        )
+        result = response.json()
+
+        if not result.get("success"):
+            raise Exception(f"SE8 face restore failed: {result.get('message', 'Unknown error')}")
+
+        # Download from URL if base64 not present (defensive)
+        if not result.get("base64") and result.get("url"):
+            url_val = result["url"]
+            try:
+                dl_resp = await self._request_with_retry("GET", url_val)
+                result["base64"] = base64.b64encode(dl_resp.content).decode("utf-8")
+            except Exception as e:
+                logger.error("SE8 face restore failed to download result: %s", e)
+                raise
+
+        return result
 
     async def enhance(
         self,

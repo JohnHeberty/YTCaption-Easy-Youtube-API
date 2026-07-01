@@ -417,11 +417,17 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await run_nsfw(job, store)
         return
 
-    # ─── NSFW TEST: experimental, single-pass, debug masks ───
+    # ─── NSFW TEST: experimental v2 — invert mask + low denoise + FaceID ───
     if mode == "nsfw_test":
-        logger.info("Job %s: using NSFW EXPERIMENTAL pipeline (no retry, debug masks)", job.job_id)
-        from app.services.pipeline_nsfw_experimental import run_nsfw_experimental
-        await run_nsfw_experimental(job, store)
+        use_v2 = getattr(job.request, "use_faceid", True) or getattr(job.request, "inpaint_mode", "invert_mask") == "invert_mask"
+        if use_v2:
+            logger.info("Job %s: using NSFW EXPERIMENTAL V2 pipeline (invert mask + FaceID)", job.job_id)
+            from app.services.pipeline_nsfw_experimental_v2 import run_nsfw_experimental_v2
+            await run_nsfw_experimental_v2(job, store)
+        else:
+            logger.info("Job %s: using NSFW EXPERIMENTAL V1 pipeline (legacy)", job.job_id)
+            from app.services.pipeline_nsfw_experimental import run_nsfw_experimental
+            await run_nsfw_experimental(job, store)
         return
 
     # ─── Progressive mode ───
