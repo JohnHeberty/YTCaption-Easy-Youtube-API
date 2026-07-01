@@ -321,17 +321,19 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 **Causa raiz:** O pipeline protegia a cabeça inteira (face + cabelo + pescoço) via `head_adjusted` e a colava de volta com alpha feather de 21px. Como a cabeça, o cabelo e o pescoço permaneciam 100% originais, enquanto o corpo era gerado, a fronteira ficava visível — especialmente sob luz diferente ou com textura de pele gerada.
 
-**Solução implementada (v23.1 → v23.2):**
-1. Reduzir a máscara de proteção para **apenas o centro do rosto** (`face_protect_mask` com margens mínimas: 10% acima, 15% abaixo, 15% laterais).
+**Solução implementada (v23.1 → v23.2 → v23.3):**
+1. Reduzir a máscara de proteção para **apenas o centro do rosto** (`face_protect_mask` com margens mínimas).
 2. Deixar o modelo gerar **testa, bochechas, queixo, mandíbula, pescoço e bordas do cabelo** naturalmente.
 3. Substituir feather Gaussiano por **distance transform** (`cv2.distanceTransform`): alpha 1.0 no centro do rosto, decaindo para 0.0 ao longo de ~40px. A transição segue a geometria real da máscara, não uma caixa de blur fixa.
 4. Erodir `head_mask` antes de subtrair de `person_binary`, criando uma **transition band** explícita que o SE8 é instruído a gerar.
 5. Aplicar **harmonização de cor (Reinhard LAB) localizada** na faixa de transição + pele exposta original, e só depois re-aplicar a face protegida.
+6. **v23.3:** Centrar a máscara em **landmarks faciais** (MediaPipe Face Mesh) ao invés de Haar cascade bbox. O centro do rosto é calculado como midpoint entre os olhos, com leve deslocamento para o nariz. Isso corrigiu o deslocamento observado em v23.2.
 
 **Resultado:**
 - Job `cr_75c5996737ab` (v23.1): `face_protect_mask` = 29.9k px vs `head_adjusted` = 131.1k px (~23% da área anterior); best score = 12.5.
 - Job `cr_54e5dff89d04` (v23.2): `face_protect_mask` = 13.8k px vs `head_adjusted` = 131.1k px (~10.5% da área anterior); best score = 7.4.
-- Score melhorou (menor = melhor preservação de pose) à medida que a máscara facial foi reduzida, indicando que o modelo ganha liberdade para gerar transição natural.
+- Job `cr_4203b2e571c5` (v23.3): máscara centrada em landmarks MediaPipe Face Mesh; `face_protect_mask` = 14.8k px (~11.3%); best score = 12.0. Corrigiu deslocamento do rosto causado por Haar bbox off-center.
+- Score v23.2 foi melhor, mas v23.3 corrigiu alinhamento facial. Compromisso entre pose preservation e alinhamento facial.
 - Visualmente a fronteira entre face e corpo gerado fica mais natural porque o modelo cria a transição de pele em vez de colar uma borda suavizada.
 
 **Padrões de mercado para este problema:**

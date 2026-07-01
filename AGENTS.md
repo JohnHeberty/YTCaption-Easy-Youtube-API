@@ -296,3 +296,49 @@ Objetivo e sempre ficar com contexto limpo de para manter foco e atenção, siga
 - Vozes masculinas/femininas são implementadas como **voice profiles** (áudios de referência) registrados no startup via `voice_seeder.py`.
 - Para adicionar vozes: criar amostra WAV, colocar em `data/voices/_builtin/`, e adicionar entrada em `BUILTIN_VOICES` em `voice_seeder.py`.
 - O modelo Chatterbox é de **clonagem de voz** — sem áudio de referência, usa o `conds.pt` (speaker embedding embutido).
+
+## 14. Pasta `show/` para Resultados Visuais
+
+Quando o agente precisar apresentar resultados visuais ao usuário (imagens, vídeos, grids de comparação, máscaras, etc.), **SEMPRE copiar os artefatos relevantes para a pasta `show/` na raiz do projeto**:
+
+```
+/root/YTCaption-Easy-Youtube-API/show/
+```
+
+### Regras
+
+1. **Criar a pasta se não existir:**
+   ```bash
+   mkdir -p /root/YTCaption-Easy-Youtube-API/show
+   ```
+
+2. **Usar nomes descritivos** que indiquem versão e conteúdo:
+   ```
+   v23.2_face_displaced.png
+   v23.3_face_fixed.png
+   v23.2_vs_v23.3_grid.png
+   ```
+
+3. **Copiar SEMPRE que:**
+   - Um job E2E gerar resultado visual relevante
+   - O usuário solicitar comparação visual
+   - O agente quiser ilustrar uma regressão ou melhoria
+
+4. **NÃO copiar:**
+   - Logs, JSONs de metadados ou arquivos temporários
+   - Imagens muito grandes (>50MB) sem compressão prévia
+   - Arquivos que contenham informação sensível
+
+5. **Na resposta final, mencionar os paths completos** dos arquivos em `show/`.
+
+### Exemplo
+
+```bash
+mkdir -p /root/YTCaption-Easy-Youtube-API/show
+cp /root/YTCaption-Easy-Youtube-API/services/se11-clothes-removal/data/outputs/cr_xxx/cr_xxx_result.png \
+   /root/YTCaption-Easy-Youtube-API/show/v23.3_result.png
+cp /root/YTCaption-Easy-Youtube-API/services/se11-clothes-removal/data/outputs/cr_xxx/try_1/face_protect_mask.png \
+   /root/YTCaption-Easy-Youtube-API/show/v23.3_face_mask.png
+```
+
+

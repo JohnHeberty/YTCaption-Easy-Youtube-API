@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.core.models import ClothesRemovalJob, ClothesRemovalJobStatus
 from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
-from app.services.head_detector import detect_head_mask, detect_face_only
+from app.services.head_detector import detect_head_mask, detect_face_landmark_mask
 from app.validators.pose_detector import render_pose_stick_figure, detect_pose
 
 logger = get_logger(__name__)
@@ -360,16 +360,16 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # Head protection: use head_mask for composite (covers full head + hair)
         head_adjusted = head_mask
 
-        # face_protect_mask: MINIMAL ellipse covering only central face features
-        # (eyes, nose, mouth). Forehead, cheeks, jaw, chin, neck and hair are left
-        # for the model to generate, maximizing natural transition and avoiding
-        # the "cutout" collage look.
-        face_protect_mask = detect_face_only(
+        # face_protect_mask: landmark-centered ellipse covering only central
+        # face features (eyes, nose, mouth). MediaPipe Face Mesh aligns the mask
+        # with the actual face, preventing the displacement seen with Haar-only
+        # bounding boxes. Forehead, cheeks, jaw, chin, neck and hair are left
+        # for the model to generate, maximizing natural transition.
+        face_protect_mask = detect_face_landmark_mask(
             orig_img=orig_img,
             person_binary=person_binary,
-            margin_above=0.10,
-            margin_below=0.15,
-            margin_sides=0.15,
+            scale_width=1.25,
+            scale_height=1.55,
         )
 
         # ─── Stage 3: SE10 Clothes Detection ───

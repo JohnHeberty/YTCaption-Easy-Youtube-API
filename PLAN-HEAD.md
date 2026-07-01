@@ -132,14 +132,21 @@ result.png
   face_f = np.clip(face_dist / transition_width, 0, 1)
   ```
 - **Plus aplicado:** erodir `head_mask` antes de criar `body_mask`, deixando uma transition band explícita para SE8 gerar.
-- **Resultado:** best pose score = 7.4 (melhor que v23.1 = 12.5).
+- **Resultado v23.2:** best pose score = 7.4 (melhor que v23.1 = 12.5).
 
-#### A.3 Harmonização de cor localizada na borda
+#### A.3 Centrar máscara em landmarks faciais ✅
+- **Problema:** v23.2 usava Haar cascade bbox para posicionar a máscara; o rosto ficou deslocado.
+- **Ação:** substituir `detect_face_only()` por `detect_face_landmark_mask()` usando MediaPipe Face Mesh.
+- **Racional:** landmarks dos olhos e nariz fornecem centro facial confiável, independente da inclinação ou bbox impreciso.
+- **Implementação:** centro = midpoint entre olhos, deslocado 45% para nariz; elipse com scale_width=1.25, scale_height=1.55.
+- **Resultado v23.3:** job `cr_4203b2e571c5`; máscara = 14.8k px (~11.3% da cabeça); best score = 12.0; deslocamento corrigido.
+
+#### A.4 Harmonização de cor localizada na borda
 - **Ação:** aplicar color transfer APENAS numa faixa de ~50px ao redor de `face_protect_mask`, não no corpo inteiro.
 - **Racional:** evita alterar o corpo longe da face e concentra o ajuste onde a borda é visível.
 - **Plus:** usar histogram matching em vez de apenas mean/std para melhor correspondência.
 
-#### A.4 Testar múltiplos tamanhos de feather
+#### A.5 Testar múltiplos tamanhos de feather
 - **Ação:** grid com feather widths: 5px, 9px, 13px, 17px, 21px.
 - **Critério de seleção:** avaliação visual + métrica de borda (gradiente ao longo da transição).
 
@@ -208,8 +215,8 @@ result.png
 ## 5. Ordem de Execução Recomendada
 
 ```
-1. A.1 (máscara menor) + A.2 (transição gradual) → teste E2E
-2. A.3 (harmonização local) → teste E2E
+1. A.1 (máscara menor) + A.2 (transição gradual) + A.3 (landmark centering) ✅
+2. A.4 (harmonização local com histogram matching) → teste E2E
 3. B.1 (Laplacian blending) → teste E2E
 4. C.1 (GFPGAN) → teste E2E
 5. Se ainda insuficiente: D.1/D.2 (IP-Adapter FaceID) → mudança arquitetural maior
@@ -310,11 +317,11 @@ face_mask_shrink: float = 0.0  # 0=v23.1, 0.3=mais agressivo
 
 ## 10. Próxima Ação Imediata (a executar quando solicitado)
 
-**Fase A.1 + A.2:** Reduzir máscara facial ao mínimo viável e substituir feather Gaussiano por transição baseada em distance transform.
+**Fase A.4:** Melhorar harmonização de cor na transição face-corpo usando histogram matching concentrado na banda de transição, em vez de transferência Reinhard por mean/std no corpo inteiro.
 
 **Input de teste:** `/root/YTCaption-Easy-Youtube-API/exploration/data/OK/00_original.png` (ou a imagem que o usuário indicar).  
-**Output esperado:** job em `data/outputs/` com `face_protect_mask.png` visivelmente menor e `result.png` com transição mais natural.
+**Output esperado:** job em `data/outputs/` com menor diferença de cor na zona de transição e `result.png` visualmente mais coeso.
 
 ---
 
-> **⚠️ INSTRUÇÃO DO USUÁRIO:** Não executar este plano ainda. Aguardar confirmação para iniciar a próxima fase.
+> **⚠️ INSTRUÇÃO DO USUÁRIO:** Aguardar confirmação para iniciar a próxima fase.
