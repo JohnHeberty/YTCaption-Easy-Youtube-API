@@ -52,9 +52,9 @@
 
 ### 9. Face blend / anti-recorte
 - **Problema:** Face parecia recorte colado da original + deslocamento do rosto em v23.2
-- **Solução aplicada (v23.3):** Proteger só centro do rosto (~11.3% da cabeça), máscara centrada em landmarks MediaPipe Face Mesh, gerar testa/bochechas/queixo/pescoço/cabelo, distance-transform feather + transition band + harmonização LAB localizada
-- **Resultado:** job `cr_4203b2e571c5` best score = 12.0; deslocamento corrigido
-- **Próximos passos:** Se ainda houver artefatos de borda/colagem, aplicar Laplacian pyramid blending ou GFPGAN face restore
+- **Solução aplicada (v23.4):** Preservar FACE COMPLETA via Haar bbox (margin 5%/55%/40%) + feather direcional só no queixo/pescoço + distance transform + harmonização LAB localizada
+- **Resultado:** job `cr_4c585ccaada4` best score = 11.8; máscara = 38.8k px (~29.6% da cabeça); deslocamento corrigido
+- **Próximos passos:** Se ainda houver colagem/borda visível, aplicar Laplacian pyramid blending ou GFPGAN face restore
 - **Status:** ✅ MELHORADO — aguardar avaliação visual
 
 ---

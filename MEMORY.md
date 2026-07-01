@@ -34,14 +34,16 @@
   - Tensor format: `[B, H, W, C]` — ComfyUI `ControlNetApplyAdvanced` internally moves channel to position 1
   - **E2E validated:** job `cr_b7565e9710cc` completed with OpenPose ControlNet applied
   - **Quality observation:** on the tested 1024×1536 image, OpenPose ControlNet degraded pose scores vs clothes-neutral ref alone (best score 14.6 vs 6.7 without ControlNet). Likely cause: MediaPipe 33-landmark skeleton differs from OpenPose COCO/Body_25 format expected by the ControlNet model.
-- **Face blend improvement (v23.1 → v23.2 → v23.3):**
+- **Face blend improvement (v23.1 → v23.2 → v23.3 → v23.4):**
   - v23.1: Protected region reduced from full head+hair+neck to inner face only (~23% of previous mask)
   - v23.2: Protected region reduced further to central face only (~10.5% of head mask)
-  - v23.2: Distance-transform feather substitui Gaussian blur (transição de 1.0 no centro até 0.0 na borda sobre ~40px)
+  - v23.2: Distance-transform feather substitui Gaussian blur
   - v23.2: Eroded head mask cria transition band para SE8 gerar queixo/bochechas
   - v23.2: Harmonização LAB localizada na faixa de transição + pele exposta original
-  - **v23.3:** Face mask centrada em landmarks do MediaPipe Face Mesh (midpoint entre olhos + nariz) para corrigir deslocamento do rosto
-  - **E2E validated:** job `cr_4203b2e571c5` completed; face_protect_mask = 14.8k px vs head_adjusted = 131.1k px (~11.3%); best score = 12.0
+  - v23.3: Tentativa com MediaPipe Face Mesh para centralizar máscara; descartado por falha de contexto GPU no container
+  - **v23.4:** Voltou a Haar bbox com máscara de FACE COMPLETA (margin_above=0.05, margin_below=0.55, margin_sides=0.40) para preservar geometria facial e evitar deslocamento
+  - **v23.4:** Feather direcional: bordas superior/laterais duras, só queixo/pescoço é suavizado por distance transform
+  - **E2E validated:** job `cr_4c585ccaada4` completed; face_protect_mask = 38.8k px vs head_adjusted = 131.1k px (~29.6%); best score = 11.8
   - Resultados visuais copiados para `/root/YTCaption-Easy-Youtube-API/show/`
 - **Exploration script:** `exploration/run_mask_pipeline.py` — grid REF A vs REF B
 - **Research doc:** `exploration/UPGRADE.md` — como VTON models (IDM-VTON, OOTDiffusion, Leffa) funcionam

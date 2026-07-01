@@ -5,6 +5,11 @@ This prevents artificial rectangular edges that confuse the inpainting model.
 """
 from __future__ import annotations
 
+import os
+
+# Force MediaPipe to use CPU; avoids EGL/GPU context errors in Docker
+os.environ.setdefault("MEDIAPIPE_DISABLE_GPU", "1")
+
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -200,6 +205,9 @@ _FACE_MESH = None
 def _get_face_mesh():
     global _FACE_MESH
     if _FACE_MESH is None:
+        import os
+        # Force MediaPipe to use CPU; avoids EGL/GPU context errors in Docker
+        os.environ.setdefault("MEDIAPIPE_DISABLE_GPU", "1")
         import mediapipe as mp
         _FACE_MESH = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=True,
@@ -283,4 +291,71 @@ def detect_face_landmark_mask(
     logger.debug("Face landmark mask: center=(%d,%d) size=%dx%d",
                  face_cx, face_cy, e_w, e_h)
 
+    return face_mask
+
+
+def detect_face_oval_mask(
+    orig_img,
+    person_binary,
+    feather_bottom_px: int = 35,
+):
+    """Create a full-face mask from MediaPipe Face Mesh oval landmarks.
+
+    The mask follows the actual face contour (including jaw and chin) so the
+    original face geometry is preserved. The bottom part of the oval is
+    feathered into the neck, allowing SE8 to generate the neck/shoulder
+    transition while keeping the face aligned with the body.
+
+    Args:
+        feather_bottom_px: vertical distance over which the bottom of the oval
+            fades to transparent. Larger = smoother neck transition.
+    """
+    import cv2
+    import numpy as np
+
+    h, w = person_binary.shape[:2]
+    face_mask = np.zeros_like(person_binary)
+
+    try:
+        face_mesh = _get_face_mesh()
+        rgb = cv2.cvtColor(orig_img, cv2.COLOR_BGR2RGB)
+        results = face_mesh.process(rgb)
+    except Exception as exc:
+        logger.warning("Face Mesh failed: %s", exc)
+        return face_mask
+
+    if not results or not results.multi_face_landmarks:
+        logger.debug("Face Mesh found no faces")
+        return face_mask
+
+    landmarks = results.multi_face_landmarks[0].landmark
+
+    # MediaPipe Face Mesh face oval contour (clockwise from forehead)
+    oval_indices = [
+        10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+        397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+        172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+    ]
+    pts = np.array([
+        [int(landmarks[idx].x * w), int(landmarks[idx].y * h)]
+        for idx in oval_indices
+    ], dtype=np.int32)
+
+    cv2.fillPoly(face_mask, [pts], 255)
+
+    # Feather only the bottom half of the oval so the jawline stays sharp
+    # but the chin/neck junction blends smoothly.
+    _, _, _, face_bottom = cv2.boundingRect(pts)
+    face_cy = int((pts[:, 1].min() + face_bottom) / 2)
+
+    mask_f = face_mask.astype(np.float32) / 255.0
+    for y in range(h):
+        if y > face_cy:
+            fade = max(0.0, 1.0 - (y - face_cy) / feather_bottom_px)
+            mask_f[y, :] *= fade
+
+    face_mask = (mask_f * 255).astype(np.uint8)
+    face_mask = cv2.bitwise_and(face_mask, person_binary)
+
+    logger.debug("Face oval mask: pts=%d bottom=%d", len(pts), face_bottom)
     return face_mask
