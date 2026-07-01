@@ -134,8 +134,8 @@ async def run_nsfw_experimental(job: ClothesRemovalJob, store: ClothesRemovalJob
             orig_img=orig_img,
             person_binary=person_binary,
             person_bbox=(px, py, pw, ph),
-            max_head_pct=0.40,
-            neck_margin_below=0.15,
+            max_head_pct=0.45,
+            neck_margin_below=0.50,
             dilate_kernel_size=15,
             dilate_iterations=2,
         )

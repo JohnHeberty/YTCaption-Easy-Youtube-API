@@ -22,18 +22,24 @@ def _get_face_restore_helper() -> Any:
 
     try:
         from extras.facexlib.utils.face_restoration_helper import FaceRestoreHelper
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         _face_restore_helper = FaceRestoreHelper(
-            face_detection_model="retinaface_resnet50",
             upscale_factor=1,
             face_size=512,
-            crop_ratio=1,
+            crop_ratio=(1, 1),
             det_model="retinaface_resnet50",
             save_ext="png",
-            device="cpu",
+            device=device,
         )
+        logger.info("FaceRestoreHelper loaded on %s", device)
         return _face_restore_helper
     except ImportError:
         logger.warning("facexlib not available, face restoration disabled")
+        return None
+    except Exception as e:
+        logger.warning("Failed to initialize FaceRestoreHelper: %s", e)
         return None
 
 
@@ -55,20 +61,31 @@ def _load_restoration_model(model_name: str = "CodeFormer") -> Any:
         if model_name == "CodeFormer":
             from ldm_patched.pfn.architecture.face.codeformer import CodeFormer
             model_path = _resolve_model_path("codeformer")
-            state_dict = torch.load(model_path, map_location="cpu")
-            model = CodeFormer()
-            model.load_state_dict(state_dict, strict=False)
+            checkpoint = torch.load(model_path, map_location="cpu")
+            state_dict = checkpoint
+            if isinstance(checkpoint, dict):
+                if "params_ema" in checkpoint:
+                    state_dict = checkpoint["params_ema"]
+                elif "params-ema" in checkpoint:
+                    state_dict = checkpoint["params-ema"]
+                elif "params" in checkpoint:
+                    state_dict = checkpoint["params"]
+            model = CodeFormer(state_dict)
         elif model_name == "GFPGAN":
             from ldm_patched.pfn.architecture.face.gfpganv1_clean_arch import GFPGANv1Clean
             model_path = _resolve_model_path("gfpgan")
-            state_dict = torch.load(model_path, map_location="cpu")
-            model = GFPGANv1Clean(
-                out_size=512,
-                channel_multiplier=2,
-                num_mlp=8,
-                lr_multiplier=1.0,
-            )
-            model.load_state_dict(state_dict, strict=False)
+            checkpoint = torch.load(model_path, map_location="cpu")
+            state_dict = checkpoint
+            if isinstance(checkpoint, dict):
+                if "params_ema" in checkpoint:
+                    state_dict = checkpoint["params_ema"]
+                elif "params-ema" in checkpoint:
+                    state_dict = checkpoint["params-ema"]
+                elif "params" in checkpoint:
+                    state_dict = checkpoint["params"]
+                elif "state_dict" in checkpoint:
+                    state_dict = checkpoint["state_dict"]
+            model = GFPGANv1Clean(state_dict)
         else:
             raise ValueError(f"Unknown face restoration model: {model_name}")
 
@@ -115,7 +132,7 @@ def restore_face(
     img: np.ndarray,
     model_name: str = "CodeFormer",
     fidelity: float = 0.5,
-) -> np.ndarray:
+) -> tuple[np.ndarray, int]:
     """Restore faces in an image using GFPGAN or CodeFormer.
 
     Args:
@@ -124,17 +141,17 @@ def restore_face(
         fidelity: CodeFormer fidelity slider (0.0-1.0), only used for CodeFormer
 
     Returns:
-        Image with restored faces (HWC, RGB, uint8)
+        Tuple of (image with restored faces (HWC, RGB, uint8), number of faces restored)
     """
     model = _load_restoration_model(model_name)
     if model is None:
         logger.warning("Face restoration model not available, returning original")
-        return img
+        return img, 0
 
     helper = _get_face_restore_helper()
     if helper is None:
         logger.warning("Face restore helper not available, returning original")
-        return img
+        return img, 0
 
     try:
         # Detect faces
@@ -142,16 +159,24 @@ def restore_face(
         helper.read_image(img)
         helper.get_face_landmarks_5(only_center_face=False)
 
-        if len(helper.all_landmarks_5) == 0:
+        faces_count = len(helper.all_landmarks_5)
+        if faces_count == 0:
             logger.info("No faces detected, skipping restoration")
-            return img
+            return img, 0
 
         # Align and warp each face
         helper.align_warp_face()
+        helper.get_inverse_affine()
 
         # Restore each face
         for i, cropped_face in enumerate(helper.cropped_faces):
-            # Convert to tensor
+            # Facexlib may return batched faces (N,H,W,C); normalize to (H,W,C)
+            if cropped_face.ndim == 4 and cropped_face.shape[0] == 1:
+                cropped_face = cropped_face[0]
+            elif cropped_face.ndim == 4 and cropped_face.shape[-1] == 1:
+                cropped_face = cropped_face.squeeze(-1)
+
+            # Convert to tensor (C, H, W) with batch dim
             face_tensor = torch.from_numpy(cropped_face).permute(2, 0, 1).unsqueeze(0).float() / 255.0
             face_tensor = face_tensor.to(next(model.parameters()).device)
 
@@ -162,22 +187,25 @@ def restore_face(
                 else:
                     restored = model(face_tensor)
 
-            # Convert back to numpy
-            restored = restored[0].permute(1, 2, 0).clamp(0, 1).float().cpu().numpy()
+            # Models return (tensor, aux_info) tuple; image is the first element
+            if isinstance(restored, tuple):
+                restored = restored[0]
+
+            # Model output may be (1, C, H, W) or (C, H, W); normalize to (H, W, C)
+            if restored.ndim == 4 and restored.shape[0] == 1:
+                restored = restored[0]
+            restored = restored.permute(1, 2, 0).clamp(0, 1).float().cpu().numpy()
             restored = (restored * 255).astype(np.uint8)
 
             helper.add_restored_face(restored)
 
         # Paste restored faces back
-        helper.paste_faces_to_input_image(upscale_factor=1)
-
-        # Get result
-        result = helper.output
+        result = helper.paste_faces_to_input_image()
         if result is None:
-            return img
+            return img, faces_count
 
-        return result
+        return result, faces_count
 
     except Exception as e:
         logger.warning("Face restoration failed: %s", e)
-        return img
+        return img, 0

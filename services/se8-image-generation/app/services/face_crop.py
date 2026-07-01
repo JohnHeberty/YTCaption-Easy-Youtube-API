@@ -23,18 +23,24 @@ def _get_face_restore_helper() -> Any:
 
     try:
         from extras.facexlib.utils.face_restoration_helper import FaceRestoreHelper
+        import torch
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         _face_restore_helper = FaceRestoreHelper(
-            face_detection_model="retinaface_resnet50",
             upscale_factor=1,
             face_size=512,
-            crop_ratio=1,
+            crop_ratio=(1, 1),
             det_model="retinaface_resnet50",
             save_ext="png",
-            device="cpu",
+            device=device,
         )
+        logger.info("FaceRestoreHelper loaded on %s", device)
         return _face_restore_helper
     except ImportError:
         logger.warning("facexlib not available, face detection disabled")
+        return None
+    except Exception as e:
+        logger.warning("Failed to initialize FaceRestoreHelper: %s", e)
         return None
 
 

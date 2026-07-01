@@ -24,6 +24,7 @@ from app.core.models import ClothesRemovalJob, ClothesRemovalJobStatus
 from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.services.head_detector import detect_head_mask, detect_face_only
+from app.services.blend_utils import blend_face_region
 from app.validators.pose_detector import render_pose_stick_figure, detect_pose
 
 logger = get_logger(__name__)
@@ -631,35 +632,17 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             if inpainted_img is not None and inpainted_img.shape[:2] != (orig_h, orig_w):
                 inpainted_img = _cv2.resize(inpainted_img, (orig_w, orig_h))
 
-            # ─── Face preservation with directional distance-transform feather ───
+            # ─── Face preservation with selectable blending ───
             # Protect the FULL FACE (face_protect_mask). The forehead, cheeks and
             # jaw sides keep hard edges so the original face geometry is preserved
             # and cannot be displaced. Only the CHIN/NECK junction is feathered
             # using distance transform, giving SE8 a band to generate a natural
-            # neck transition.
+            # neck transition. The blend mode is selectable:
+            #   - "laplacian" (default v24): multi-scale pyramid blending, smoother
+            #   - "alpha" (legacy v23.4): simple weighted feather blend
             transition_width = max(20, int(min(orig_w, orig_h) * 0.035))
-            face_dist = _cv2.distanceTransform(face_protect_mask, _cv2.DIST_L2, 5).astype(_np.float32)
-            face_feather = _np.clip(face_dist / transition_width, 0, 1)
-
-            # Find vertical midpoint of the face mask; feather only below it
-            _, face_y, _, face_h = _cv2.boundingRect(face_protect_mask)
-            face_cy = face_y + face_h // 2
-            y_coords = _np.arange(orig_h)[:, None]
-            face_f = _np.where(
-                (face_protect_mask > 0) & (y_coords >= face_cy),
-                face_feather,
-                (face_protect_mask > 0).astype(_np.float32),
-            )
-            face_f = _np.clip(face_f, 0, 1)
-
-            # First paste: full face preserved with hard top/sides, soft chin
-            composited = (inpainted_img.astype(_np.float32) * (1 - face_f[:, :, None]) +
-                          orig_img.astype(_np.float32) * face_f[:, :, None])
-            composited = _np.clip(composited, 0, 255).astype(_np.uint8)
 
             # ─── Localized color harmonization at face/body boundary ───
-            # Build a transition band around the protected face and match the
-            # generated body color to the original skin statistics in that band.
             band_mask = _cv2.dilate(face_protect_mask,
                                     _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (transition_width, transition_width)),
                                     iterations=1)
@@ -675,24 +658,86 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             # Combine skin reference with transition band to concentrate correction
             _harmony_mask = _cv2.bitwise_or(_skin_mask, band_mask)
+            harmonized = inpainted_img.copy()
             if _cv2.countNonZero(_harmony_mask) > 100:
                 src_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-                tgt_lab = _cv2.cvtColor(composited, _cv2.COLOR_BGR2LAB).astype(_np.float32)
+                tgt_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
                 m = _harmony_mask > 0
                 src_m, src_s = src_lab[m].mean(axis=0), src_lab[m].std(axis=0) + 1e-6
                 tgt_m, tgt_s = tgt_lab[m].mean(axis=0), tgt_lab[m].std(axis=0) + 1e-6
                 for ch in range(3):
                     tgt_lab[:, :, ch] = (tgt_lab[:, :, ch] - tgt_m[ch]) * (src_s[ch] / tgt_s[ch]) + src_m[ch]
                 harmonized = _cv2.cvtColor(_np.clip(tgt_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-                # Re-apply distance-transform face blend after harmonization
+
+            # Directional face feather: hard top/sides, soft chin/neck
+            face_dist = _cv2.distanceTransform(face_protect_mask, _cv2.DIST_L2, 5).astype(_np.float32)
+            face_feather = _np.clip(face_dist / transition_width, 0, 1)
+            _, face_y, _, face_h = _cv2.boundingRect(face_protect_mask)
+            face_cy = face_y + face_h // 2
+            y_coords = _np.arange(orig_h)[:, None]
+            face_f = _np.where(
+                (face_protect_mask > 0) & (y_coords >= face_cy),
+                face_feather,
+                (face_protect_mask > 0).astype(_np.float32),
+            )
+            face_f = _np.clip(face_f, 0, 1)
+
+            face_blend_mode = getattr(job.request, "face_blend_mode", "laplacian")
+            if face_blend_mode == "laplacian":
+                # Multi-scale Laplacian blend: paste original face into harmonized body
+                composited, face_weight_mask = blend_face_region(
+                    original=orig_img,
+                    generated=harmonized,
+                    face_mask=face_protect_mask,
+                    transition_width=transition_width,
+                    levels=6,
+                )
+            else:
+                # Legacy alpha blend (v23.4)
                 composited = (harmonized.astype(_np.float32) * (1 - face_f[:, :, None]) +
                               orig_img.astype(_np.float32) * face_f[:, :, None])
                 composited = _np.clip(composited, 0, 255).astype(_np.uint8)
+                face_weight_mask = (face_f * 255).astype(_np.uint8)
+
+            # ─── Optional face restoration via SE8 ───
+            # CodeFormer/GFPGAN unifies texture between preserved face and generated body,
+            # reducing the "cutout" look at the cost of slight identity shift.
+            face_restore = getattr(job.request, "face_restore", False)
+            face_restore_model = getattr(job.request, "face_restore_model", "CodeFormer")
+            face_restore_fidelity = getattr(job.request, "face_restore_fidelity", 0.5)
+            restored = None
+            if face_restore:
+                try:
+                    logger.info("Job %s: calling SE8 face restore (%s, fidelity=%.2f)",
+                                job.job_id, face_restore_model, face_restore_fidelity)
+                    _, comp_buf = _cv2.imencode(".png", composited)
+                    comp_b64 = _to_data_uri(base64.b64encode(comp_buf).decode("utf-8"), mime="image/png")
+                    restore_result = await se8.restore_face(
+                        image_b64=comp_b64,
+                        model=face_restore_model,
+                        fidelity=face_restore_fidelity,
+                    )
+                    if restore_result.get("base64"):
+                        restored_bytes = base64.b64decode(restore_result["base64"].split(",")[1])
+                        restored = _cv2.imdecode(
+                            _np.frombuffer(restored_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+                        if restored is not None and restored.shape[:2] == (orig_h, orig_w):
+                            _cv2.imwrite(os.path.join(try_dir, "result_restored.png"), restored)
+                        else:
+                            restored = None
+                            logger.warning("Job %s: SE8 face restore returned mismatched image", job.job_id)
+                except Exception as exc:
+                    logger.warning("Job %s: face restore failed, using blended result: %s", job.job_id, exc)
 
             _cv2.imwrite(os.path.join(try_dir, "result.png"), composited)
             _cv2.imwrite(os.path.join(try_dir, "inpaint_mask.png"), inpaint_mask)
             _cv2.imwrite(os.path.join(try_dir, "head_adjusted.png"), head_adjusted)
             _cv2.imwrite(os.path.join(try_dir, "face_protect_mask.png"), face_protect_mask)
+            _cv2.imwrite(os.path.join(try_dir, "face_weight_mask.png"), face_weight_mask)
+
+            # Use restored image as the candidate if face restoration succeeded
+            if restored is not None:
+                composited = restored
 
             orig_path = os.path.join(output_dir, "00_original.png")
             result_path_try = os.path.join(try_dir, "result.png")

@@ -213,8 +213,8 @@ async def _get_torso_mask(se10: SE10Client, image_bytes: bytes, filename: str, i
         orig_img=np.zeros((person.shape[0], person.shape[1], 3), dtype=np.uint8),
         person_binary=person,
         person_bbox=(0, 0, pw, ph),
-        max_head_pct=0.40,
-        neck_margin_below=0.15,
+        max_head_pct=0.45,
+        neck_margin_below=0.50,
         dilate_kernel_size=15,
         dilate_iterations=2,
     )
