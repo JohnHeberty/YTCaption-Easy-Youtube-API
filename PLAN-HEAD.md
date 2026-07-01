@@ -134,12 +134,12 @@ result.png
 - **Plus aplicado:** erodir `head_mask` antes de criar `body_mask`, deixando uma transition band explícita para SE8 gerar.
 - **Resultado v23.2:** best pose score = 7.4 (melhor que v23.1 = 12.5).
 
-#### A.3 Centrar máscara em landmarks faciais ✅
-- **Problema:** v23.2 usava Haar cascade bbox para posicionar a máscara; o rosto ficou deslocado.
-- **Ação:** substituir `detect_face_only()` por `detect_face_landmark_mask()` usando MediaPipe Face Mesh.
-- **Racional:** landmarks dos olhos e nariz fornecem centro facial confiável, independente da inclinação ou bbox impreciso.
-- **Implementação:** centro = midpoint entre olhos, deslocado 45% para nariz; elipse com scale_width=1.25, scale_height=1.55.
-- **Resultado v23.3:** job `cr_4203b2e571c5`; máscara = 14.8k px (~11.3% da cabeça); best score = 12.0; deslocamento corrigido.
+#### A.3 Preservar face completa com feather direcional ✅
+- **Problema:** v23.2 (máscara pequena, só centro do rosto) gerava queixo/mandíbula novos que ficavam deslocados da face original.
+- **Ação:** usar Haar bbox com margens maiores (`margin_above=0.05`, `margin_below=0.55`, `margin_sides=0.40`) para preservar a FACE COMPLETA.
+- **Racional:** preservar olhos, nariz, boca, queixo e mandíbula originais impede deslocamento. O modelo só precisa gerar o pescoço.
+- **Plus:** feather direcional — bordas superior/laterais duras (alpha=1.0), apenas queixo/pescoço suavizado por distance transform.
+- **Resultado v23.4:** job `cr_4c585ccaada4`; máscara = 38.8k px (~29.6% da cabeça); best score = 11.8; deslocamento corrigido.
 
 #### A.4 Harmonização de cor localizada na borda
 - **Ação:** aplicar color transfer APENAS numa faixa de ~50px ao redor de `face_protect_mask`, não no corpo inteiro.
