@@ -55,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def setup_routers(app: FastAPI) -> None:
     from app.api import (
         admin_routes,
+        face_routes,
         file_routes,
         generate_routes,
         generate_v2_routes,
@@ -72,6 +73,9 @@ def setup_routers(app: FastAPI) -> None:
     )
     app.include_router(
         generate_v2_routes.router, dependencies=[Depends(verify_api_key)]
+    )
+    app.include_router(
+        face_routes.router, dependencies=[Depends(verify_api_key)]
     )
     app.include_router(
         models_routes.router, dependencies=[Depends(verify_api_key)]
