@@ -303,23 +303,29 @@ async def run_nsfw_experimental_v2(
         inpaint_mode = getattr(job.request, "inpaint_mode", "invert_mask")
 
         if inpaint_mode == "invert_mask":
-            # inpaint_mask = clothes region (white = regenerate)
-            inpaint_mask = clothes_combined.copy()
+            # Build body mask: person - head (same as production nsfw pipeline)
+            # This masks the BODY for inpainting, preserving head/face
+            from app.services.head_detector import detect_head_mask
+            contours, _ = _cv2.findContours(person_binary, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                raise ValueError("No contours")
+            largest = max(contours, key=_cv2.contourArea)
+            px, py, pw, ph = _cv2.boundingRect(largest)
+
+            head_mask = detect_head_mask(
+                orig_img=orig_img,
+                person_binary=person_binary,
+                person_bbox=(px, py, pw, ph),
+                max_head_pct=0.40,
+                neck_margin_below=0.15,
+                dilate_kernel_size=15,
+                dilate_iterations=2,
+            )
+            inpaint_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
 
             # Expand to cover edges
             dilate_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
-            inpaint_mask = _cv2.dilate(inpaint_mask, dilate_k, iterations=1)
-
-            # Clean up small noise
-            open_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (3, 3))
-            inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_OPEN, open_k)
-
-            # Close small gaps
-            close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-            inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k, iterations=2)
-
-            # Ensure only within person
-            inpaint_mask = _cv2.bitwise_and(inpaint_mask, person_binary)
+            inpaint_mask = _cv2.dilate(inpaint_mask, dilate_k, iterations=2)
 
         elif inpaint_mode == "clothes_mask":
             inpaint_mask = clothes_combined.copy()
@@ -371,7 +377,7 @@ async def run_nsfw_experimental_v2(
         job.update_stage("inpainting", "processing", progress=50.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        base_strength = getattr(job.request, "test_inpaint_strength", 0.35) or 0.35
+        base_strength = getattr(job.request, "test_inpaint_strength", 0.45) or 0.45
         faceid_weight = getattr(job.request, "faceid_weight", 0.8) or 0.8
         base_model = getattr(job.request, "base_model", "juggernautXL_v8Rundiffusion.safetensors")
         max_attempts = 3

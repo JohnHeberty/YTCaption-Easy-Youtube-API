@@ -327,10 +327,10 @@ async def create_job(
         description="Experimental v2. IP-Adapter FaceID weight (0.7-1.0 recommended).",
     ),
     test_inpaint_strength: float = Form(
-        default=0.35,
+        default=0.45,
         ge=0.0,
         le=1.0,
-        description="Experimental v2. Denoising strength for nsfw_test (0.35 default).",
+        description="Experimental v2. Denoising strength for nsfw_test (0.45 default).",
     ),
     base_model: str = Form(
         default="juggernautXL_v8Rundiffusion.safetensors",

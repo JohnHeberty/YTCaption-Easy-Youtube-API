@@ -235,11 +235,10 @@ class CreateClothesRemovalRequest(BaseModel):
         examples=[0.8],
     )
     test_inpaint_strength: float = Field(
-        default=0.35,
+        default=0.45,
         ge=0.0,
         le=1.0,
-        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.35 is default).",
-        examples=[0.35],
+        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.45 is default).",
     )
     base_model: str = Field(
         default="juggernautXL_v8Rundiffusion.safetensors",
