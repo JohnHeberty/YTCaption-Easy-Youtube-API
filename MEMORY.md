@@ -34,13 +34,15 @@
   - Tensor format: `[B, H, W, C]` — ComfyUI `ControlNetApplyAdvanced` internally moves channel to position 1
   - **E2E validated:** job `cr_b7565e9710cc` completed with OpenPose ControlNet applied
   - **Quality observation:** on the tested 1024×1536 image, OpenPose ControlNet degraded pose scores vs clothes-neutral ref alone (best score 14.6 vs 6.7 without ControlNet). Likely cause: MediaPipe 33-landmark skeleton differs from OpenPose COCO/Body_25 format expected by the ControlNet model.
-- **Face blend improvement (v23.1 → v23.2):**
+- **Face blend improvement (v23.1 → v23.2 → v23.3):**
   - v23.1: Protected region reduced from full head+hair+neck to inner face only (~23% of previous mask)
   - v23.2: Protected region reduced further to central face only (~10.5% of head mask)
   - v23.2: Distance-transform feather substitui Gaussian blur (transição de 1.0 no centro até 0.0 na borda sobre ~40px)
   - v23.2: Eroded head mask cria transition band para SE8 gerar queixo/bochechas
-  - v23.2: Harmonização LAB localizada na faixa de transição + pele exposta
-  - **E2E validated:** job `cr_54e5dff89d04` completed; face_protect_mask = 13.8k px vs head_adjusted = 131.1k px; best score = 7.4
+  - v23.2: Harmonização LAB localizada na faixa de transição + pele exposta original
+  - **v23.3:** Face mask centrada em landmarks do MediaPipe Face Mesh (midpoint entre olhos + nariz) para corrigir deslocamento do rosto
+  - **E2E validated:** job `cr_4203b2e571c5` completed; face_protect_mask = 14.8k px vs head_adjusted = 131.1k px (~11.3%); best score = 12.0
+  - Resultados visuais copiados para `/root/YTCaption-Easy-Youtube-API/show/`
 - **Exploration script:** `exploration/run_mask_pipeline.py` — grid REF A vs REF B
 - **Research doc:** `exploration/UPGRADE.md` — como VTON models (IDM-VTON, OOTDiffusion, Leffa) funcionam
 - **SE8 LoRAs:** NsfwPov(0.6) + offset(0.1) + add-detail(0.7) + Inpaint patch v2.6 (582 keys)
@@ -54,7 +56,8 @@
 |---------|---------|
 | `exploration/UPGRADE.md` | Pesquisa VTON + plano de fases SE10/SE8/SE11 |
 | `exploration/run_mask_pipeline.py` | Opção A: `build_clothes_neutral_ref()` + grid REF A vs REF B |
-| `services/se11-clothes-removal/app/services/pipeline_nsfw.py` | `_build_clothes_neutral_ref()` + IP-Adapter ref neutral + OpenPose ControlNet prompt + inner-face blend + strength 0.86/0.87/0.90 |
+| `services/se11-clothes-removal/app/services/pipeline_nsfw.py` | `_build_clothes_neutral_ref()` + IP-Adapter ref neutral + OpenPose ControlNet prompt + landmark-centered face blend + strength 0.86/0.87/0.90 |
+| `services/se11-clothes-removal/app/services/head_detector.py` | NOVO: `detect_face_landmark_mask()` via MediaPipe Face Mesh |
 | `services/se11-clothes-removal/app/infrastructure/http_client.py` | `SE10Client.segment()` accepts `include_pose` |
 | `services/se11-clothes-removal/app/validators/pose_detector.py` | `render_pose_stick_figure()` + `detect_pose()` aceita ndarray |
 | `services/se11-clothes-removal/requirements.txt` | Adicionado mediapipe |

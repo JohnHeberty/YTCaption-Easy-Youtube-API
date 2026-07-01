@@ -192,3 +192,95 @@ def detect_face_only(
                  fx, fy, fw, fh, int(fw * margin_sides), int(fh * margin_above), int(fh * margin_below))
 
     return face_mask
+
+
+_FACE_MESH = None
+
+
+def _get_face_mesh():
+    global _FACE_MESH
+    if _FACE_MESH is None:
+        import mediapipe as mp
+        _FACE_MESH = mp.solutions.face_mesh.FaceMesh(
+            static_image_mode=True,
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.5,
+        )
+    return _FACE_MESH
+
+
+def detect_face_landmark_mask(
+    orig_img,
+    person_binary,
+    scale_width: float = 1.6,
+    scale_height: float = 2.0,
+):
+    """Create a face mask centered on facial landmarks (eyes/nose bridge).
+
+    Uses MediaPipe Face Mesh to find eye centers and the nose bridge. The mask
+    is an ellipse centered on the midpoint between the eyes, vertically shifted
+    slightly downward to cover the nose and mouth. This guarantees alignment
+    with the actual face features and avoids the displacement caused by Haar
+    bounding-box approximations.
+
+    Args:
+        scale_width: ellipse width relative to inter-eye distance.
+        scale_height: ellipse height relative to inter-eye distance.
+    """
+    import cv2
+    import mediapipe as mp
+    import numpy as np
+
+    h, w = person_binary.shape[:2]
+    face_mask = np.zeros_like(person_binary)
+
+    try:
+        face_mesh = _get_face_mesh()
+        # MediaPipe expects RGB
+        rgb = cv2.cvtColor(orig_img, cv2.COLOR_BGR2RGB)
+        results = face_mesh.process(rgb)
+    except Exception as exc:
+        logger.warning("Face Mesh failed: %s", exc)
+        return face_mask
+
+    if not results or not results.multi_face_landmarks:
+        logger.debug("Face Mesh found no faces")
+        return face_mask
+
+    landmarks = results.multi_face_landmarks[0].landmark
+
+    # Helper to get pixel coords
+    def _pt(idx):
+        lm = landmarks[idx]
+        return int(lm.x * w), int(lm.y * h)
+
+    # Eye centers from MediaPipe canonical landmarks
+    left_eye_pts = np.array([_pt(i) for i in (33, 133, 160, 144)])
+    right_eye_pts = np.array([_pt(i) for i in (362, 263, 387, 373)])
+    left_eye = left_eye_pts.mean(axis=0).astype(int)
+    right_eye = right_eye_pts.mean(axis=0).astype(int)
+
+    # Face center: midpoint between eyes, shifted slightly toward nose bridge
+    face_cx = int((left_eye[0] + right_eye[0]) / 2)
+    face_cy = int((left_eye[1] + right_eye[1]) / 2)
+    # Nose bridge landmark 6 is slightly below eye midpoint; shift center down
+    nose_bridge = _pt(6)
+    face_cy = int(face_cy * 0.55 + nose_bridge[1] * 0.45)
+
+    inter_eye = np.linalg.norm(left_eye - right_eye)
+    e_w = int(inter_eye * scale_width)
+    e_h = int(inter_eye * scale_height)
+
+    cv2.ellipse(face_mask,
+                (face_cx, face_cy),
+                (e_w // 2, e_h // 2),
+                0, 0, 360, 255, -1)
+
+    # Clip to person silhouette
+    face_mask = cv2.bitwise_and(face_mask, person_binary)
+
+    logger.debug("Face landmark mask: center=(%d,%d) size=%dx%d",
+                 face_cx, face_cy, e_w, e_h)
+
+    return face_mask
