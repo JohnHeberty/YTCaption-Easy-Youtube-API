@@ -36,6 +36,8 @@ logger = get_logger(__name__)
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
     "dress, skirt, pattern, floral, textile, garment, "
+    "face on body, extra face, duplicate face, second face, face on chest, "
+    "face on torso, multiple faces, two faces, "
     "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
     "extra limbs, disfigured, poorly drawn face, mutated hands, "
     "bad anatomy, deformed skin, wrinkled, scarred"
