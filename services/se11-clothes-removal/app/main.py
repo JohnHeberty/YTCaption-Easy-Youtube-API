@@ -66,15 +66,19 @@ app = create_service_app(
         "4. Click **Execute** → get `job_id`\n"
         "5. Poll `GET /jobs/{job_id}` until `status: completed`\n"
         "6. Download result via `GET /jobs/{job_id}/download`\n\n"
+        "## Routes\n"
+        "| Route | Description |\n|-------|-------------|\n"
+        "| `POST /jobs` | Production pipeline (nsfw, clothes, person) — fixed quality standards |\n"
+        "| `POST /nsfw-test` | Experimental pipeline (full parameter control for testing) |\n\n"
         "## Modes\n"
         "| Mode | Description |\n|------|-------------|\n"
-        "| `nsfw` ⭐ | Production pipeline (retry + pose validation) — **recommended** |\n"
+        "| `nsfw` ⭐ | Production pipeline (5 attempts + scoring + pose validation) |\n"
         "| `clothes` | Default — removes detected clothing |\n"
         "| `person` | Removes entire torso (head preserved) |\n"
-        "| `nsfw_test` | Alias for nsfw |\n\n"
+        "| `nsfw_test` | Experimental — use `POST /nsfw-test` |\n\n"
         "## Upstream Services\n"
         "- **SE10** (port 8010) — Object detection (GroundingDINO + Florence-2)\n"
-        "- **SE8** (port 8008) — Image inpainting (Fooocus + JuggernautXL + NSFW LoRAs)"
+        "- **SE8** (port 8008) — Image inpainting (Fooocus + LustifyNSFW)"
     ),
     version=settings.app_version,
     settings=settings,
@@ -89,7 +93,9 @@ OPENAPI_TAGS = [
         "name": "Jobs",
         "description": (
             "Create, list, poll, and delete clothes removal jobs.\n\n"
-            "Use `POST /jobs` to start a job, then `GET /jobs/{job_id}` to poll progress.\n"
+            "Use `POST /jobs` to start a production job (nsfw, clothes, person).\n"
+            "Use `POST /nsfw-test` to start an experimental nsfw_test job.\n"
+            "Then `GET /jobs/{job_id}` to poll progress.\n"
             "Job status transitions: `queued` → `detecting` → `inpainting` → `completed` | `failed`."
         ),
     },

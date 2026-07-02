@@ -56,15 +56,15 @@ class StageStatus(str, Enum):
 # =============================================================================
 
 class CreateClothesRemovalRequest(BaseModel):
-    """Request to create a clothes removal job.
+    """Request to create a clothes removal job (production modes: nsfw, clothes, person).
 
     Send an AI-generated image and the pipeline will:
     1. Detect the person (SE10)
     2. Detect clothing items (SE10 + Florence-2)
     3. Generate inpainting mask with adaptive head protection
-    4. Inpaint via SE8 (Fooocus + JuggernautXL)
+    4. Inpaint via SE8 (Fooocus + LustifyNSFW)
     5. Validate pose integrity (MediaPipe)
-    6. Return best result from 3 progressive attempts
+    6. Return best result from 5 progressive attempts
     """
 
     model_config = {
@@ -244,6 +244,131 @@ class CreateClothesRemovalRequest(BaseModel):
         default="lustifySDXLNSFW_v20-inpainting.safetensors",
         description="Base SDXL checkpoint (nsfw_test only). nsfw (production) hardcodes LustifyNSFW. JuggernautXL also available.",
         examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
+    )
+
+
+class CreateClothesRemovalTestRequest(BaseModel):
+    """Request to create an nsfw_test job (experimental pipeline).
+
+    Same as production but with full parameter control for testing:
+    - Custom denoising strength progression
+    - Base model selection (LustifyNSFW / JuggernautXL)
+    - FaceID weight tuning
+    - Inpaint mask strategy
+    - Face blending mode
+    """
+
+    model_config = {
+        "str_strip_whitespace": True,
+        "validate_assignment": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "image": "data:image/png;base64,iVBORw0KGgo...",
+                    "mode": "nsfw_test",
+                    "test_inpaint_strength": 0.86,
+                    "base_model": "lustifySDXLNSFW_v20-inpainting.safetensors",
+                    "use_faceid": True,
+                    "faceid_weight": 0.8,
+                },
+            ]
+        },
+    }
+
+    image: str = Field(
+        ...,
+        description=(
+            "**Image to process.** Accepts three formats:\n"
+            "- `base64` — raw base64-encoded image\n"
+            "- `data URI` — `data:image/png;base64,...`\n"
+            "- `HTTP(S) URL` — direct link to image file\n\n"
+            "Supported formats: PNG, JPEG, WebP."
+        ),
+    )
+    mode: RemovalMode = Field(
+        default=RemovalMode.NSFW_TEST,
+        description="Processing mode. Must be `nsfw_test`.",
+    )
+    classes: str | None = Field(
+        default="spaghetti strap, camisole, top, blouse",
+        description="Clothing classes to detect (comma-separated). Ignored in nsfw_test.",
+    )
+    prompt: str = Field(
+        default="",
+        max_length=2000,
+        description="Inpainting prompt — what the AI generates in the masked area.",
+    )
+    negative_prompt: str = Field(
+        default="",
+        max_length=2000,
+        description="Negative prompt — what the AI should avoid.",
+    )
+    box_threshold: float = Field(
+        default=0.10, ge=0.0, le=1.0,
+        description="SE10 detection confidence threshold.",
+    )
+    text_threshold: float = Field(
+        default=0.10, ge=0.0, le=1.0,
+        description="SE10 text matching threshold.",
+    )
+    inpaint_strength: float = Field(
+        default=1.0, ge=0.0, le=1.0,
+        description="SE8 inpaint denoise strength.",
+    )
+    per_garment: bool = Field(
+        default=False,
+        description="Inpaint each garment separately.",
+    )
+    webhook_url: str | None = Field(
+        default=None,
+        description="Webhook URL for job completion notification.",
+    )
+    detector: DetectorType = Field(
+        default=DetectorType.GROUNDINGDINO,
+        description="Object detection engine.",
+    )
+    inpaint_mode: Literal["body_mask", "clothes_mask", "invert_mask"] = Field(
+        default="invert_mask",
+        description=(
+            "Inpainting mask strategy:\n"
+            "- `body_mask` — inpaint entire body minus head (legacy).\n"
+            "- `clothes_mask` — inpaint only detected clothing regions.\n"
+            "- `invert_mask` — **default.** Keep face/body/background, regenerate only clothing."
+        ),
+    )
+    use_faceid: bool = Field(
+        default=True,
+        description="Enable IP-Adapter FaceID to preserve facial identity.",
+    )
+    faceid_weight: float = Field(
+        default=0.8, ge=0.0, le=1.5,
+        description="IP-Adapter FaceID weight. 0.7-1.0 recommended.",
+        examples=[0.8],
+    )
+    test_inpaint_strength: float = Field(
+        default=0.86, ge=0.0, le=1.0,
+        description="Base denoising strength. Pipeline runs 5 attempts from this value (0.86→0.98).",
+    )
+    base_model: str = Field(
+        default="lustifySDXLNSFW_v20-inpainting.safetensors",
+        description="Base SDXL checkpoint. LustifyNSFW (recommended) or JuggernautXL.",
+        examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
+    )
+    face_blend_mode: Literal["alpha", "laplacian"] = Field(
+        default="laplacian",
+        description="Face-body blending mode: `laplacian` (smoother) or `alpha` (legacy).",
+    )
+    face_restore: bool = Field(
+        default=False,
+        description="Apply face restoration (CodeFormer/GFPGAN) after compositing.",
+    )
+    face_restore_model: Literal["CodeFormer", "GFPGAN"] = Field(
+        default="CodeFormer",
+        description="Face restoration model. CodeFormer preserves identity better; GFPGAN is more smoothing.",
+    )
+    face_restore_fidelity: float = Field(
+        default=0.5, ge=0.0, le=1.0,
+        description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity preservation.",
     )
 
 
