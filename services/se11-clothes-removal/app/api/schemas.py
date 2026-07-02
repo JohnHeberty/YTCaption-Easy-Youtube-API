@@ -216,33 +216,33 @@ class CreateClothesRemovalRequest(BaseModel):
     inpaint_mode: Literal["body_mask", "clothes_mask", "invert_mask"] = Field(
         default="invert_mask",
         description=(
-            "**Experimental v2 — inpainting mask strategy:**\n"
+            "**Inpainting mask strategy (both nsfw and nsfw_test):**\n"
             "- `body_mask` — inpaint entire body minus head (legacy).\n"
             "- `clothes_mask` — inpaint only detected clothing regions.\n"
-            "- `invert_mask` — **default v2.** Keep face/body/background and regenerate only clothing regions via inverted mask."
+            "- `invert_mask` — **default.** Keep face/body/background and regenerate only clothing regions via inverted mask."
         ),
         examples=["invert_mask"],
     )
     use_faceid: bool = Field(
         default=True,
-        description="**Experimental v2.** Enable IP-Adapter FaceID to preserve facial identity during inpainting.",
+        description="Enable IP-Adapter FaceID to preserve facial identity during inpainting (both nsfw and nsfw_test).",
     )
     faceid_weight: float = Field(
         default=0.8,
         ge=0.0,
         le=1.5,
-        description="**Experimental v2.** IP-Adapter FaceID weight. 0.7-1.0 recommended; higher = stronger identity lock.",
+        description="IP-Adapter FaceID weight. 0.7-1.0 recommended; higher = stronger identity lock (nsfw_test only — production uses hardcoded value).",
         examples=[0.8],
     )
     test_inpaint_strength: float = Field(
         default=0.86,
         ge=0.0,
         le=1.0,
-        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.86 is default).",
+        description="Base denoising strength for nsfw_test (0.86 default). nsfw_test runs 5 attempts from this value. nsfw (production) ignores this — strength is hardcoded (0.86→0.98 progression).",
     )
     base_model: str = Field(
         default="lustifySDXLNSFW_v20-inpainting.safetensors",
-        description="**Experimental v2.** Base SDXL checkpoint. LustifyNSFW for NSFW inpainting, JuggernautXL for general.",
+        description="Base SDXL checkpoint (nsfw_test only). nsfw (production) hardcodes LustifyNSFW. JuggernautXL also available.",
         examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
     )
 

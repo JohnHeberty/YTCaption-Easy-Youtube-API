@@ -290,9 +290,9 @@ async def create_job(
     face_blend_mode: str = Form(
         default="laplacian",
         description=(
-            "**Face-body blending mode:**\n"
-            "- `laplacian` (default v24) — Multi-scale pyramid blend, smoother transitions.\n"
-            "- `alpha` — Simple alpha/feather blend (legacy v23.4)."
+            "**Face-body blending mode (nsfw_test only — production uses passthrough):**\n"
+            "- `laplacian` (default) — Multi-scale pyramid blend, smoother transitions.\n"
+            "- `alpha` — Simple alpha/feather blend (legacy)."
         ),
     ),
     face_restore: bool = Form(
@@ -312,29 +312,29 @@ async def create_job(
     inpaint_mode: str = Form(
         default="invert_mask",
         description=(
-            "Experimental v2 mask strategy: `body_mask` (legacy), "
-            "`clothes_mask` (only detected clothing), `invert_mask` (default v2)."
+            "Inpainting mask strategy (both nsfw and nsfw_test): `body_mask` (legacy), "
+            "`clothes_mask` (only detected clothing), `invert_mask` (default)."
         ),
     ),
     use_faceid: bool = Form(
         default=True,
-        description="Experimental v2. Enable IP-Adapter FaceID to preserve facial identity.",
+        description="Enable IP-Adapter FaceID to preserve facial identity during inpainting (both nsfw and nsfw_test).",
     ),
     faceid_weight: float = Form(
         default=0.8,
         ge=0.0,
         le=1.5,
-        description="Experimental v2. IP-Adapter FaceID weight (0.7-1.0 recommended).",
+        description="IP-Adapter FaceID weight (0.7-1.0 recommended). nsfw_test only — production uses hardcoded value.",
     ),
     test_inpaint_strength: float = Form(
         default=0.86,
         ge=0.0,
         le=1.0,
-        description="Experimental v2. Denoising strength for nsfw_test (0.86 default). Lower = more structure preserved.",
+        description="Base denoising strength for nsfw_test (0.86 default). nsfw_test runs 5 attempts from this value. nsfw (production) ignores this — strength is hardcoded (0.86→0.98 progression).",
     ),
     base_model: str = Form(
         default="lustifySDXLNSFW_v20-inpainting.safetensors",
-        description="Experimental v2. Base SDXL checkpoint. LustifyNSFW for NSFW inpainting.",
+        description="Base SDXL checkpoint for nsfw_test only. nsfw (production) hardcodes LustifyNSFW.",
     ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──
