@@ -72,13 +72,16 @@ CLOTHES_CLASSES = (
 
 # ─── Multidimensional Scoring Weights ────────────────────────────────────────
 # Lower score = better. Each metric is normalized to [0, 100] range.
+# skin_ratio:     result_skin_pct / original_skin_pct (>1.0 = more skin exposed = GOOD)
+#                 We use (1 - skin_ratio) so lower = better (more skin = lower score)
 # head_avg:       face landmark drift (lower = face more preserved)
 # clothes_pct:    residual clothing on RESULT (lower = better removal)
 # max_landmark:   worst single landmark drift (lower = more stable pose)
-SCORE_W_HEAD = 0.50       # Face preservation is top priority
-SCORE_W_CLOTHES = 0.30    # Clothing removal quality
-SCORE_W_LANDMARK = 0.20   # Overall pose stability
-SCORE_EARLY_STOP = 0.5    # Stop early if composite score < this
+SCORE_W_SKIN = 0.40        # Skin exposure (primary quality metric)
+SCORE_W_HEAD = 0.30        # Face preservation
+SCORE_W_LANDMARK = 0.20    # Overall pose stability
+SCORE_W_CLOTHES = 0.10     # Clothing residual (low weight — SE10 can be unreliable)
+SCORE_EARLY_STOP = 5.0     # Stop early if composite score < this
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -161,25 +164,59 @@ async def _detect_result_clothes(
         return 0.0
 
 
+def _detect_skin_hsv(img: _np.ndarray) -> float:
+    """Detect skin exposure using HSV color range.
+
+    Returns skin_pct (0.0-100.0) — percentage of image pixels classified as skin.
+    This is a LOCAL, FAST detection (no SE10 call needed).
+
+    HSV range tuned for diverse skin tones:
+      H: 0-30 (warm hues)
+      S: 15-170 (moderate saturation — excludes white/grey)
+      V: 60-255 (excludes very dark shadows)
+    """
+    hsv = _cv2.cvtColor(img, _cv2.COLOR_BGR2HSV)
+    lower_skin = _np.array([0, 15, 60], dtype=_np.uint8)
+    upper_skin = _np.array([30, 170, 255], dtype=_np.uint8)
+    skin_mask = _cv2.inRange(hsv, lower_skin, upper_skin)
+
+    # Clean up noise with morphological operations
+    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_OPEN, kernel, iterations=1)
+    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    return float((skin_mask > 0).sum() / skin_mask.size * 100)
+
+
 def _compute_composite_score(
+    skin_ratio: float,
     head_avg: float,
     clothes_pct: float,
     max_landmark: float,
 ) -> float:
-    """Compute composite score from three metrics (lower = better).
+    """Compute composite score from four metrics (lower = better).
 
-    All inputs are percentage-based. The score is a weighted sum
-    normalized to [0, 100] range.
+    skin_ratio: result_skin_pct / original_skin_pct (>1.0 = more skin = GOOD)
+                We use (1 - skin_ratio) so that more skin → lower score → better.
+    head_avg:   face landmark drift (lower = better)
+    clothes_pct: residual clothing (lower = better)
+    max_landmark: worst landmark drift (lower = better)
     """
-    # Clamp values to reasonable ranges
+    # Skin score: (1 - ratio) so more skin = lower (better)
+    # If ratio=2.0 (2x more skin), skin_score = -1.0 (very good)
+    # If ratio=0.5 (half the skin), skin_score = 0.5 (bad)
+    # If ratio=1.0 (same skin), skin_score = 0.0 (neutral)
+    skin_score = 1.0 - skin_ratio
+
     head_clamped = min(head_avg, 100.0)
     clothes_clamped = min(clothes_pct, 100.0)
     landmark_clamped = min(max_landmark, 100.0)
 
     score = (
+        SCORE_W_SKIN * skin_score +
         SCORE_W_HEAD * head_clamped +
-        SCORE_W_CLOTHES * clothes_clamped +
-        SCORE_W_LANDMARK * landmark_clamped
+        SCORE_W_LANDMARK * landmark_clamped +
+        SCORE_W_CLOTHES * clothes_clamped
     )
     return round(score, 3)
 
@@ -567,6 +604,10 @@ async def run_nsfw_experimental_v2(
         all_attempts_meta = []
         all_poses_changed = True
 
+        # Compute original skin_pct as baseline for skin_ratio scoring
+        original_skin_pct = _detect_skin_hsv(orig_img)
+        logger.info("Job %s: original skin_pct=%.1f%% (HSV baseline)", job.job_id, original_skin_pct)
+
         for attempt in range(1, max_attempts + 1):
             strength = base_strength + 0.03 * (attempt - 1)
             logger.info("Job %s: SE8 attempt %d/%d — strength=%.2f field=0.55 FaceID=%s",
@@ -682,13 +723,19 @@ async def run_nsfw_experimental_v2(
 
             # ─── Result Clothes Detection (for multidimensional scoring) ───
             result_clothes_pct = await _detect_result_clothes(se10, inpainted_img, orig_h, orig_w)
-            logger.info("Job %s: attempt %d result clothes=%.1f%%",
-                        job.job_id, attempt, result_clothes_pct)
+
+            # ─── Result Skin Detection (HSV-based, local & fast) ───
+            result_skin_pct = _detect_skin_hsv(inpainted_img)
+            skin_ratio = result_skin_pct / original_skin_pct if original_skin_pct > 0 else 1.0
+
+            logger.info("Job %s: attempt %d clothes=%.1f%% skin=%.1f%% (ratio=%.2f)",
+                        job.job_id, attempt, result_clothes_pct, result_skin_pct, skin_ratio)
 
             # ─── Composite Score ───
-            # Combines: face preservation (head_avg) + clothing removal (clothes_pct) + pose stability (max_landmark)
-            # Lower score = better. Weights: head=0.5, clothes=0.3, landmark=0.2
+            # 4 metrics: skin_ratio (more=better), head (lower=better), landmark (lower=better), clothes (lower=better)
+            # Weights: skin=0.4, head=0.3, landmark=0.2, clothes=0.1
             composite_score = _compute_composite_score(
+                skin_ratio=skin_ratio,
                 head_avg=head_avg,
                 clothes_pct=result_clothes_pct,
                 max_landmark=max_landmark,
@@ -701,6 +748,8 @@ async def run_nsfw_experimental_v2(
                 "pose_score": float(pose_score),
                 "pose_changed": bool(pose_changed),
                 "result_clothes_pct": round(result_clothes_pct, 3),
+                "result_skin_pct": round(result_skin_pct, 3),
+                "skin_ratio": round(skin_ratio, 3),
                 "composite_score": float(composite_score),
                 **pose_meta,
             }
@@ -791,7 +840,7 @@ async def run_nsfw_experimental_v2(
             )
             _cv2.putText(
                 overlay,
-                f"composite={best_score:.3f} head={best_pose_meta.get('head_pct', 0):.2f}% clothes={best_pose_meta.get('result_clothes_pct', 0):.1f}%",
+                f"composite={best_score:.3f} skin_ratio={best_pose_meta.get('skin_ratio', 0):.2f} head={best_pose_meta.get('head_pct', 0):.2f}%",
                 (10, 55), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
             )
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_debug_overlay.png"), overlay)
@@ -801,19 +850,23 @@ async def run_nsfw_experimental_v2(
         # Metadata
         meta = {
             "mode": "nsfw_test_v2",
-            "scoring": "multidimensional_v1",
+            "scoring": "multidimensional_v2",
             "scoring_weights": {
+                "skin": SCORE_W_SKIN,
                 "head": SCORE_W_HEAD,
-                "clothes": SCORE_W_CLOTHES,
                 "landmark": SCORE_W_LANDMARK,
+                "clothes": SCORE_W_CLOTHES,
             },
             "inpaint_mode": inpaint_mode,
             "strength": float(base_strength),
             "faceid": faceid_embedding is not None,
             "faceid_weight": float(faceid_weight),
             "face_restore": face_restore_enabled,
+            "original_skin_pct": float(round(original_skin_pct, 1)),
             "attempts": len(all_attempts_meta),
             "best_composite_score": float(best_score),
+            "best_skin_ratio": float(best_pose_meta.get("skin_ratio", 0.0)) if best_pose_meta else 0.0,
+            "best_result_skin_pct": float(best_pose_meta.get("result_skin_pct", 0.0)) if best_pose_meta else 0.0,
             "best_head_pct": float(best_pose_meta.get("head_pct", 0.0)) if best_pose_meta else 0.0,
             "best_clothes_pct": float(best_pose_meta.get("result_clothes_pct", 0.0)) if best_pose_meta else 0.0,
             "best_max_landmark_pct": float(best_pose_meta.get("max_landmark_pct", 0.0)) if best_pose_meta else 0.0,
@@ -844,10 +897,10 @@ async def run_nsfw_experimental_v2(
         job.update_stage("inpainting", "completed", progress=100.0)
         job.updated_at = now_brazil()
         store.save_job(job.job_id, job.model_dump(mode="json"))
-        logger.info("Job %s: nsfw_test V2 completed — %s (composite=%.3f, head=%.3f%%, clothes=%.1f%%, attempts=%d)",
+        logger.info("Job %s: nsfw_test V2 completed — %s (composite=%.3f, skin_ratio=%.2f, head=%.3f%%, attempts=%d)",
                      job.job_id, result_path, best_score,
+                     best_pose_meta.get("skin_ratio", 0.0) if best_pose_meta else 0.0,
                      best_pose_meta.get("head_pct", 0.0) if best_pose_meta else 0.0,
-                     best_pose_meta.get("result_clothes_pct", 0.0) if best_pose_meta else 0.0,
                      len(all_attempts_meta))
 
     except Exception as e:
