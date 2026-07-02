@@ -78,8 +78,8 @@ CLOTHES_CLASSES = (
 # clothes_pct:    residual clothing on RESULT (lower = better removal)
 # max_landmark:   worst single landmark drift (lower = more stable pose)
 SCORE_W_SKIN = 0.40        # Skin exposure (primary quality metric)
-SCORE_W_HEAD = 0.30        # Face preservation
-SCORE_W_LANDMARK = 0.20    # Overall pose stability
+SCORE_W_HEAD = 0.20        # Face preservation (Lustify preserves face natively — less weight)
+SCORE_W_LANDMARK = 0.30    # Pose stability (model changes pose more than face — more weight)
 SCORE_W_CLOTHES = 0.10     # Clothing residual (low weight — SE10 can be unreliable)
 SCORE_EARLY_STOP = 5.0     # Stop early if composite score < this
 
