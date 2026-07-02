@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.core.models import ClothesRemovalJob, ClothesRemovalJobStatus
 from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
+from app.validators.pose_detector import detect_pose, compare_poses, render_pose_stick_figure
 
 logger = get_logger(__name__)
 
@@ -285,6 +286,49 @@ async def run_nsfw_experimental_v2(
         _save_debug(2, "clothes_raw", clothes_combined)
         logger.info("Job %s: clothes detected (%.1f%% coverage)", job.job_id, clothes_pct)
 
+        # Save individual garment masks from SE10
+        if clothes_seg.get("detected") and clothes_seg.get("masks"):
+            for gi, (gm_b64, gobj) in enumerate(zip(clothes_seg["masks"], clothes_seg.get("objects", []))):
+                try:
+                    raw_gm = _strip_data_uri(gm_b64)
+                    gm_img = _cv2.imdecode(
+                        _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_gm)), _np.uint8),
+                        _cv2.IMREAD_GRAYSCALE,
+                    )
+                    if gm_img is not None:
+                        if gm_img.shape[:2] != (orig_h, orig_w):
+                            gm_img = _cv2.resize(gm_img, (orig_w, orig_h))
+                        gclass = gobj.get("class_name", f"garment_{gi}")
+                        garea = gobj.get("area_pct", 0)
+                        gm_color = _cv2.cvtColor(gm_img, _cv2.COLOR_GRAY2BGR)
+                        _cv2.putText(gm_color, f"{gclass} ({garea:.1f}%)", (10, 25),
+                                     _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        _save_debug(20 + gi, f"garment_{gi}_{gclass}", gm_color)
+                except Exception:
+                    pass
+
+            # Save SE10 detection metadata
+            try:
+                import json as _json
+                seg_meta = {
+                    "person": {
+                        "detected": bool(person_seg.get("detected")),
+                        "coverage_pct": float(round((person_binary > 0).sum() / person_binary.size * 100, 1)),
+                        "objects": person_seg.get("objects", []),
+                    },
+                    "clothes": {
+                        "detected": bool(clothes_seg.get("detected")),
+                        "coverage_pct": float(round(clothes_pct, 1)),
+                        "num_garments": len(clothes_seg.get("objects", [])),
+                        "objects": clothes_seg.get("objects", []),
+                    },
+                    "image_size": {"width": orig_w, "height": orig_h},
+                }
+                with open(os.path.join(output_dir, "detection_meta.json"), "w") as f:
+                    _json.dump(seg_meta, f, indent=2)
+            except Exception:
+                pass
+
         # ─── Stage 3: InsightFace Embedding ─────────────────────────────
         job.update_stage("detecting", "processing", progress=30.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -305,29 +349,32 @@ async def run_nsfw_experimental_v2(
         inpaint_mode = getattr(job.request, "inpaint_mode", "invert_mask")
 
         if inpaint_mode == "invert_mask":
-            # Build body mask: person - head (same as production nsfw pipeline)
-            # This masks the BODY for inpainting, preserving head/face
+            # ─── SIMPLE CLOTHES MASK: only clothing area + light margin ───
+            # Original plan (UPGRADE.md §4.4): clothes_mask + dilate(15px)
+            # Keeps pose intact because SE8 only regenerates clothing pixels.
+            inpaint_mask = clothes_combined.copy()
+            dilate_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
+            inpaint_mask = _cv2.dilate(inpaint_mask, dilate_k, iterations=1)
+
+            # ─── SUBTRACT HEAD+HAIR REGION to protect face and hair ───
             from app.services.head_detector import detect_head_mask
             contours, _ = _cv2.findContours(person_binary, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
-            if not contours:
-                raise ValueError("No contours")
-            largest = max(contours, key=_cv2.contourArea)
-            px, py, pw, ph = _cv2.boundingRect(largest)
-
-            head_mask = detect_head_mask(
-                orig_img=orig_img,
-                person_binary=person_binary,
-                person_bbox=(px, py, pw, ph),
-                max_head_pct=0.45,
-                neck_margin_below=0.50,
-                dilate_kernel_size=15,
-                dilate_iterations=2,
-            )
-            inpaint_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
-
-            # Expand to cover edges
-            dilate_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
-            inpaint_mask = _cv2.dilate(inpaint_mask, dilate_k, iterations=2)
+            if contours:
+                largest = max(contours, key=_cv2.contourArea)
+                px, py, pw, ph = _cv2.boundingRect(largest)
+                head_mask = detect_head_mask(
+                    orig_img=orig_img,
+                    person_binary=person_binary,
+                    person_bbox=(px, py, pw, ph),
+                    max_head_pct=0.45,
+                    neck_margin_below=0.50,
+                    dilate_kernel_size=25,
+                    dilate_iterations=3,
+                    expand_up=2.5,
+                    expand_w=0.8,
+                )
+                inpaint_mask = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(head_mask))
+                logger.info("Job %s: head+hair mask subtracted from inpaint mask", job.job_id)
 
         elif inpaint_mode == "clothes_mask":
             inpaint_mask = clothes_combined.copy()
@@ -358,7 +405,25 @@ async def run_nsfw_experimental_v2(
 
         inpaint_pct = (inpaint_mask > 0).sum() / inpaint_mask.size * 100
         _save_debug(3, f"inpaint_mask_{inpaint_mode}", inpaint_mask)
-        logger.info("Job %s: inpaint mask mode=%s coverage=%.1f%%", job.job_id, inpaint_mode, inpaint_pct)
+        clothes_orig_pct = (clothes_combined > 0).sum() / clothes_combined.size * 100
+        logger.info("Job %s: mask=%s inpaint=%.1f%% clothes_orig=%.1f%%",
+                     job.job_id, inpaint_mode, inpaint_pct, clothes_orig_pct)
+
+        # Save mask overlay on original for visual debugging
+        try:
+            mask_overlay = orig_img.copy()
+            mask_color = _cv2.cvtColor(inpaint_mask, _cv2.COLOR_GRAY2BGR)
+            mask_color[:, :, 0] = 0   # no blue
+            mask_color[:, :, 2] = 0   # no red → green channel = inpaint region
+            mask_overlay = _cv2.addWeighted(mask_overlay, 0.6, mask_color, 0.4, 0)
+            _cv2.putText(mask_overlay,
+                         f"Inpaint mask: {inpaint_pct:.1f}% | clothes: {clothes_orig_pct:.1f}%",
+                         (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            _cv2.putText(mask_overlay, f"Mode: {inpaint_mode}",
+                         (10, 50), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            _save_debug(30, "mask_overlay", mask_overlay)
+        except Exception:
+            pass
 
         # ─── Stage 5: Build Clothes-Neutral IP-Adapter Ref ──────────────
         job.update_stage("inpainting", "processing", progress=40.0)
@@ -375,27 +440,82 @@ async def run_nsfw_experimental_v2(
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
-        # ─── Stage 6: SE8 Inpaint (Retry Loop) ─────────────────────────
+        # ─── Stage 6: Detect Original Pose (once) ────────────────────────
+        orig_pose = None
+        try:
+            orig_pose = detect_pose(orig_img, min_detection_confidence=0.5)
+            if orig_pose:
+                logger.info("Job %s: original pose detected (%d landmarks)",
+                            job.job_id, len(orig_pose.landmarks))
+                # Save pose landmarks overlay on original
+                try:
+                    pose_overlay = orig_img.copy()
+                    for lm in orig_pose.landmarks:
+                        if lm.visibility > 0.5:
+                            color = (0, 255, 0)
+                            if lm.index in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                                color = (255, 255, 0)  # head = yellow
+                            _cv2.circle(pose_overlay, (int(lm.x), int(lm.y)), 4, color, -1)
+                    # Draw connections
+                    import mediapipe as mp
+                    mp_pose = mp.solutions.pose
+                    for conn in mp_pose.POSE_CONNECTIONS:
+                        lm1 = orig_pose.landmarks[conn[0].value]
+                        lm2 = orig_pose.landmarks[conn[1].value]
+                        if lm1.visibility > 0.5 and lm2.visibility > 0.5:
+                            _cv2.line(pose_overlay, (int(lm1.x), int(lm1.y)),
+                                      (int(lm2.x), int(lm2.y)), (0, 255, 0), 2)
+                    _cv2.putText(pose_overlay, f"Pose: {len(orig_pose.landmarks)} landmarks",
+                                (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    _save_debug(6, "pose_landmarks", pose_overlay)
+                except Exception:
+                    pass
+            else:
+                logger.warning("Job %s: no pose detected in original, pose validation disabled", job.job_id)
+        except Exception as exc:
+            logger.warning("Job %s: pose detection failed: %s — disabling validation", job.job_id, exc)
+
+        # ─── Stage 6b: Build OpenPose Stick Figure ──────────────────────
+        # Generate once before attempt loop (same pose for all attempts)
+        openpose_b64 = None
+        if orig_pose is not None:
+            try:
+                openpose_img = render_pose_stick_figure(orig_pose, thickness=4)
+                _save_debug(5, "openpose", openpose_img)
+                _, op_buf = _cv2.imencode(".png", openpose_img)
+                openpose_b64 = _to_data_uri(base64.b64encode(op_buf).decode("utf-8"), mime="image/png")
+                logger.info("Job %s: OpenPose stick figure generated", job.job_id)
+            except Exception as exc:
+                logger.warning("Job %s: OpenPose generation failed: %s", job.job_id, exc)
+
+        # ─── Stage 7: SE8 Inpaint (5 Attempts + Pose Validation) ────────
         job.update_stage("inpainting", "processing", progress=50.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        base_strength = getattr(job.request, "test_inpaint_strength", 0.45) or 0.45
+        base_strength = getattr(job.request, "test_inpaint_strength", 0.86) or 0.86
         faceid_weight = getattr(job.request, "faceid_weight", 0.8) or 0.8
-        base_model = getattr(job.request, "base_model", "juggernautXL_v8Rundiffusion.safetensors")
-        max_attempts = 3
+        base_model = getattr(job.request, "base_model", "lustifySDXLNSFW_v20-inpainting.safetensors")
+        max_attempts = 5
         best_result = None
         best_score = float("inf")
+        best_pose_meta = None
+        all_attempts_meta = []
+        all_poses_changed = True
 
         for attempt in range(1, max_attempts + 1):
-            strength = base_strength + 0.05 * (attempt - 1)
+            strength = base_strength + 0.03 * (attempt - 1)
             logger.info("Job %s: SE8 attempt %d/%d — strength=%.2f field=0.55 FaceID=%s",
                         job.job_id, attempt, max_attempts, strength,
                         "on" if faceid_embedding else "off")
 
             image_prompts = [
-                # IP-Adapter 1: Clothes-neutral ref (pose/body)
                 {"cn_img": ref_b64, "cn_stop": 0.5, "cn_weight": 0.8, "cn_type": "ImagePrompt"},
             ]
+            # OpenPose ControlNet incompatible with LustifyNSFW (different UNet architecture)
+            if openpose_b64 and "juggernaut" in base_model.lower():
+                image_prompts.append(
+                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.5, "cn_type": "OpenPose"}
+                )
 
             t0 = time.time()
             result = await se8.inpaint(
@@ -417,9 +537,13 @@ async def run_nsfw_experimental_v2(
 
             if not result or not result.get("base64"):
                 logger.warning("Job %s: attempt %d empty (%.1fs)", job.job_id, attempt, elapsed)
+                all_attempts_meta.append({
+                    "attempt": attempt, "strength": strength,
+                    "status": "empty", "pose_score": 999.0,
+                })
                 if attempt < max_attempts:
                     import asyncio
-                    await asyncio.sleep(5 * attempt)
+                    await asyncio.sleep(3 * attempt)
                 continue
 
             inpainted_bytes = base64.b64decode(result["base64"])
@@ -428,28 +552,93 @@ async def run_nsfw_experimental_v2(
             )
             if inpainted_img is None:
                 logger.warning("Job %s: attempt %d bad decode", job.job_id, attempt)
+                all_attempts_meta.append({
+                    "attempt": attempt, "strength": strength,
+                    "status": "bad_decode", "pose_score": 999.0,
+                })
                 continue
 
             if inpainted_img.shape[:2] != (orig_h, orig_w):
                 inpainted_img = _cv2.resize(inpainted_img, (orig_w, orig_h))
 
-            # Score: how much the result deviates from original in non-masked areas
-            non_mask = (inpaint_mask < 127)
-            if non_mask.sum() > 0:
-                diff = _np.abs(orig_img.astype(_np.float32) - inpainted_img.astype(_np.float32))
-                score = float(diff[non_mask].mean())
-            else:
-                score = 0.0
+            # ─── Pose Validation ───
+            # Focus on HEAD stability (face preservation) — limbs WILL change
+            # because we're regenerating the body. Use non-strict mode with
+            # reasonable thresholds: head>3% or torso>8% = pose_changed.
+            pose_score = 999.0
+            pose_changed = True
+            pose_meta = {}
+            if orig_pose is not None:
+                try:
+                    result_pose = detect_pose(inpainted_img, min_detection_confidence=0.5)
+                    if result_pose:
+                        comparison = compare_poses(
+                            orig_pose, result_pose,
+                            strict=False,
+                            head_threshold_pct=3.0,
+                            torso_threshold_pct=8.0,
+                            limbs_threshold_pct=30.0,
+                        )
+                        pose_changed = comparison.pose_changed
 
-            _save_debug(50 + attempt, f"try_{attempt}_s{strength:.2f}_sc{score:.1f}", inpainted_img)
-            logger.info("Job %s: attempt %d done score=%.1f (%.1fs)", job.job_id, attempt, score, elapsed)
+                        head_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "HEAD"]
+                        torso_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "TORSO"]
+                        limb_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "LIMB"]
+
+                        head_avg = float(_np.mean(head_diffs)) if head_diffs else 0.0
+                        torso_avg = float(_np.mean(torso_diffs)) if torso_diffs else 0.0
+                        limbs_avg = float(_np.mean(limb_diffs)) if limb_diffs else 0.0
+
+                        # Score = head change (lower is better, face should stay same)
+                        pose_score = head_avg
+
+                        pose_meta = {
+                            "pose_changed": bool(pose_changed),
+                            "head_pct": round(head_avg, 3),
+                            "torso_pct": round(torso_avg, 3),
+                            "limbs_pct": round(limbs_avg, 3),
+                            "max_landmark_pct": round(float(max(
+                                (d.distance_normalized for d in comparison.diffs), default=0.0
+                            )), 3),
+                        }
+                        if not pose_changed:
+                            all_poses_changed = False
+                        logger.info("Job %s: attempt %d pose — changed=%s head=%.3f%% torso=%.3f%% limbs=%.3f%%",
+                                    job.job_id, attempt, pose_changed, head_avg, torso_avg, limbs_avg)
+                    else:
+                        logger.warning("Job %s: attempt %d no pose detected in result", job.job_id, attempt)
+                except Exception as exc:
+                    logger.warning("Job %s: attempt %d pose validation error: %s", job.job_id, attempt, exc)
+
+            attempt_meta = {
+                "attempt": attempt,
+                "strength": float(strength),
+                "status": "ok",
+                "pose_score": float(pose_score),
+                "pose_changed": bool(pose_changed),
+                **pose_meta,
+            }
+            all_attempts_meta.append(attempt_meta)
+
+            _save_debug(50 + attempt,
+                        f"try_{attempt}_s{strength:.2f}_ps{pose_score:.1f}_{'OK' if not pose_changed else 'CHG'}",
+                        inpainted_img)
+
+            # Score = head change (lower is better, face should stay same)
+            score = pose_score if orig_pose is not None else 999.0
+
+            logger.info("Job %s: attempt %d done head_pct=%.3f pose_changed=%s (%.1fs)",
+                        job.job_id, attempt, score, pose_changed, elapsed)
 
             if score < best_score:
                 best_score = score
                 best_result = inpainted_img.copy()
+                best_pose_meta = attempt_meta.copy()
 
-            if score < 2.0:
-                logger.info("Job %s: score %.1f < 2.0, stopping early", job.job_id, score)
+            # Early stop if head is very stable (face preserved well)
+            if not pose_changed and score < 1.0:
+                logger.info("Job %s: excellent face stability (head_pct=%.3f), stopping early",
+                            job.job_id, score)
                 break
 
         if best_result is None:
@@ -459,18 +648,18 @@ async def run_nsfw_experimental_v2(
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        # ─── Stage 7: Composite ─────────────────────────────────────────
-        job.update_stage("inpainting", "processing", progress=85.0)
-        store.save_job(job.job_id, job.model_dump(mode="json"))
-
         composited = best_result.copy()
 
-        # Optional face restore
+        # ─── Stage 8: Face Restore (on best result only) ─────────────────
+        job.update_stage("inpainting", "processing", progress=80.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
         face_restore_enabled = getattr(job.request, "face_restore", False)
+
         if face_restore_enabled:
             restore_model = getattr(job.request, "face_restore_model", "CodeFormer")
             restore_fidelity = getattr(job.request, "face_restore_fidelity", 0.5)
-            logger.info("Job %s: applying face restore (%s, fidelity=%.2f)",
+            logger.info("Job %s: applying face restore (%s, fidelity=%.2f) on best result",
                         job.job_id, restore_model, restore_fidelity)
             try:
                 _, comp_buf = _cv2.imencode(".png", composited)
@@ -495,7 +684,7 @@ async def run_nsfw_experimental_v2(
             except Exception as exc:
                 logger.warning("Job %s: face restore failed: %s", job.job_id, exc)
 
-        # ─── Stage 8: Save Results ──────────────────────────────────────
+        # ─── Stage 9: Save Results ──────────────────────────────────────
         job.update_stage("inpainting", "processing", progress=95.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
@@ -508,13 +697,19 @@ async def run_nsfw_experimental_v2(
         try:
             overlay = orig_img.copy()
             ov_mask = _cv2.cvtColor(inpaint_mask, _cv2.COLOR_GRAY2BGR)
-            ov_mask[:, :, 0] = 0  # zero blue
-            ov_mask[:, :, 2] = 0  # zero red
+            ov_mask[:, :, 0] = 0
+            ov_mask[:, :, 2] = 0
             overlay = _cv2.addWeighted(overlay, 0.5, ov_mask, 0.5, 0)
+            pose_status = "POSE_OK" if best_pose_meta and not best_pose_meta.get("pose_changed") else "POSE_CHANGED"
             _cv2.putText(
                 overlay,
-                f"V2 invert_mask={inpaint_mode} str={base_strength:.2f} FaceID={'on' if faceid_embedding else 'off'}",
+                f"V2 str={base_strength:.2f} FaceID={'on' if faceid_embedding else 'off'} {pose_status}",
                 (10, 30), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
+            )
+            _cv2.putText(
+                overlay,
+                f"head_pct={best_score:.2f}% attempts={len(all_attempts_meta)}",
+                (10, 55), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
             )
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_debug_overlay.png"), overlay)
         except Exception as exc:
@@ -528,11 +723,14 @@ async def run_nsfw_experimental_v2(
             "faceid": faceid_embedding is not None,
             "faceid_weight": float(faceid_weight),
             "face_restore": face_restore_enabled,
-            "attempts": attempt,
-            "best_score": float(best_score),
+            "attempts": len(all_attempts_meta),
+            "best_pose_score": float(best_score),
+            "best_pose_changed": bool(best_pose_meta.get("pose_changed", True)) if best_pose_meta else True,
+            "all_poses_changed": bool(all_poses_changed),
             "person_coverage": float(round((person_binary > 0).sum() / person_binary.size * 100, 1)),
             "clothes_coverage": float(round(clothes_pct, 1)),
             "inpaint_coverage": float(round(inpaint_pct, 1)),
+            "attempts_detail": all_attempts_meta,
         }
         with open(os.path.join(output_dir, "v2_meta.json"), "w") as ef:
             json.dump(meta, ef, indent=2)
@@ -554,8 +752,8 @@ async def run_nsfw_experimental_v2(
         job.update_stage("inpainting", "completed", progress=100.0)
         job.updated_at = now_brazil()
         store.save_job(job.job_id, job.model_dump(mode="json"))
-        logger.info("Job %s: nsfw_test V2 completed — %s (score=%.1f, attempts=%d)",
-                     job.job_id, result_path, best_score, attempt)
+        logger.info("Job %s: nsfw_test V2 completed — %s (pose_score=%.3f, attempts=%d, all_poses_changed=%s)",
+                     job.job_id, result_path, best_score, len(all_attempts_meta), all_poses_changed)
 
     except Exception as e:
         logger.error("Job %s nsfw_test V2 failed: %s", job.job_id, e, exc_info=True)

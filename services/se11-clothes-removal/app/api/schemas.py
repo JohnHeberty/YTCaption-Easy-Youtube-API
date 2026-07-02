@@ -235,15 +235,15 @@ class CreateClothesRemovalRequest(BaseModel):
         examples=[0.8],
     )
     test_inpaint_strength: float = Field(
-        default=0.45,
+        default=0.86,
         ge=0.0,
         le=1.0,
-        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.45 is default).",
+        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.86 is default).",
     )
     base_model: str = Field(
-        default="juggernautXL_v8Rundiffusion.safetensors",
-        description="**Experimental v2.** Base SDXL checkpoint. Use 'fooocus_inpaint' only if SE8 has Fooocus inpaint checkpoints configured.",
-        examples=["juggernautXL_v8Rundiffusion.safetensors", "fooocus_inpaint"],
+        default="lustifySDXLNSFW_v20-inpainting.safetensors",
+        description="**Experimental v2.** Base SDXL checkpoint. LustifyNSFW for NSFW inpainting, JuggernautXL for general.",
+        examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
     )
 
 

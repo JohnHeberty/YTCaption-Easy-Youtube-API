@@ -366,6 +366,184 @@ def _parse_image_prompts(image_prompts: list) -> dict[str, list]:
     return cn_tasks
 
 
+def _load_faceid_adapter(
+    faceid_adapter_path: str,
+    clip_vision_path: str,
+    ip_negative_path: str,
+    faceid_embeds: list,
+    faceid_weight: float,
+) -> list:
+    """Load FaceID Plus v2 adapter and project InsightFace embedding to cross-attention conditioning.
+
+    FaceID Plus v2 architecture:
+      - image_proj: Linear(512→1024) + Perceiver Resampler → 4 × 2048-d tokens
+      - ip_adapter: LoRA (q/k/v/out) + standard to_k_ip/to_v_ip
+
+    Returns list of [(ip_conds, ip_unconds), stop, weight] for patch_model.
+    """
+    import torch
+    import numpy as np
+    from modules.ops import use_patched_ops
+    from ldm_patched.modules.ops import manual_cast
+
+    load_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    offload_device = torch.device("cpu")
+
+    use_fp16 = True  # SDXL always fp16
+    dtype = torch.float16 if use_fp16 else torch.float32
+
+    # Load state dict
+    ip_state_dict = torch.load(faceid_adapter_path, map_location="cpu", weights_only=True)
+    cross_attention_dim = 2048  # SDXL
+
+    # --- 1. Build image_proj model (projection + perceiver resampler) ---
+    # The state dict has: proj.0 (512→1024), perceiver_resampler (Resampler), norm (2048)
+    # Build manually since standard IPAdapterModel can't handle this layout
+
+    class FaceIDProj(torch.nn.Module):
+        def __init__(self, state_dict):
+            super().__init__()
+            # Linear projection: 512 → 1024
+            self.proj = torch.nn.Sequential(
+                torch.nn.Linear(512, 1024),
+                torch.nn.GELU(),
+                torch.nn.Linear(1024, 8192),
+            )
+            # Perceiver Resampler
+            from extras.resampler import Resampler
+            self.perceiver = Resampler(
+                dim=2048, depth=4, dim_head=64, heads=20,
+                num_queries=4, embedding_dim=1280, output_dim=2048, ff_mult=4,
+            )
+            self.norm = torch.nn.LayerNorm(2048)
+
+            # Load weights with prefix mapping
+            proj_sd = {}
+            for k, v in state_dict.items():
+                if k.startswith("proj."):
+                    proj_sd[k] = v
+                elif k.startswith("perceiver_resampler."):
+                    proj_sd["perceiver." + k[len("perceiver_resampler."):]] = v
+                elif k.startswith("norm."):
+                    proj_sd[k] = v
+
+            missing, unexpected = self.load_state_dict(proj_sd, strict=False)
+            if missing:
+                logger.warning("FaceID proj missing keys: %s", missing[:5])
+            logger.info("FaceID proj loaded (proj + perceiver + norm)")
+
+        def forward(self, embeds):
+            """embeds: [B, 512] InsightFace embedding → [B, 4, 2048] cross-attention tokens"""
+            x = self.proj(embeds)  # [B, 512] → [B, 8192]
+            # Reshape to sequence for perceiver: [B, 1, 8192] → but perceiver expects [B, N, D]
+            # The Resampler's proj_in expects [B, N, 1280], so we need to adapt
+            # Actually the Resampler takes variable-length sequences
+            # For single embedding, treat as [B, 1, 8192] and let Resampler handle it
+            x = x.unsqueeze(1)  # [B, 1, 8192]
+            # Project to perceiver dimension
+            x = self.perceiver(x)  # [B, 4, 2048]
+            x = self.norm(x)
+            return x
+
+    # --- 2. Build LoRA + IP KV layers ---
+    class FaceIDIPAdapter(torch.nn.Module):
+        """FaceID Plus v2 with LoRA modifications + standard IP-Adapter KV injection."""
+        def __init__(self, state_dict, cross_attention_dim=2048):
+            super().__init__()
+            self.cross_attention_dim = cross_attention_dim
+
+            # Extract unique block indices from ip_adapter keys
+            # Keys like "0.to_q_lora.down.weight", "1.to_k_ip.weight"
+            block_indices = set()
+            for k in state_dict.keys():
+                idx = k.split(".")[0]
+                if idx.isdigit():
+                    block_indices.add(int(idx))
+            self.block_indices = sorted(block_indices)
+            logger.info("FaceID IP-Adapter: %d blocks", len(self.block_indices))
+
+            # For each block, create to_k_ip and to_v_ip linear layers
+            self.to_kvs = torch.nn.ModuleList()
+            for idx in self.block_indices:
+                # Determine output dimension from state dict
+                k_key = f"{idx}.to_k_ip.weight"
+                if k_key in state_dict:
+                    out_dim = state_dict[k_key].shape[0]
+                else:
+                    out_dim = 640  # default for SDXL
+                to_kv = torch.nn.Linear(cross_attention_dim, out_dim * 2, bias=False)
+                # Load weights
+                if k_key in state_dict:
+                    to_kv.weight.data[:out_dim] = state_dict[k_key]
+                v_key = f"{idx}.to_v_ip.weight"
+                if v_key in state_dict:
+                    to_kv.weight.data[out_dim:] = state_dict[v_key]
+                self.to_kvs.append(to_kv)
+
+        def forward(self, cond):
+            """cond: [B, 4, 2048] → list of KV tensors for each block"""
+            results = []
+            for i, to_kv in enumerate(self.to_kvs):
+                kv = to_kv(cond.to(to_kv.weight.device, dtype=to_kv.weight.dtype))
+                results.append(kv)
+            return results
+
+    with use_patched_ops(manual_cast):
+        faceid_proj = FaceIDProj(ip_state_dict["image_proj"])
+        faceid_proj = faceid_proj.to(offload_device, dtype=dtype)
+        faceid_proj.eval()
+
+        faceid_ip = FaceIDIPAdapter(ip_state_dict["ip_adapter"], cross_attention_dim)
+        faceid_ip = faceid_ip.to(offload_device, dtype=dtype)
+        faceid_ip.eval()
+
+    # --- 3. Load CLIP vision (needed for ip_negative) ---
+    try:
+        from extras import ip_adapter as ip_adapter_mod
+        if ip_adapter_mod.clip_vision is None:
+            ip_adapter_mod.load_ip_adapter(clip_vision_path, ip_negative_path, "/dev/null")
+        ip_negative = ip_adapter_mod.ip_negative
+    except Exception:
+        ip_negative = None
+
+    # --- 4. Project the 512-d InsightFace embedding ---
+    # faceid_embeds is a list of 512-d embeddings (from SE11 faceid_extractor)
+    embeds_np = np.array(faceid_embeds, dtype=np.float32)
+    embeds_tensor = torch.from_numpy(embeds_np).to(offload_device, dtype=dtype)
+
+    try:
+        ldm_patched.modules.model_management.load_model_gpu(faceid_proj.patcher if hasattr(faceid_proj, 'patcher') else None)
+    except Exception:
+        pass
+
+    with torch.no_grad():
+        projected = faceid_proj(embeds_tensor)  # [B, 4, 2048]
+        logger.info("FaceID: projected embedding → %s tokens", list(projected.shape))
+
+    # --- 5. Generate KV pairs ---
+    ip_conds = []
+    for kv in faceid_ip(projected):
+        ip_conds.append(kv.cpu())
+
+    ip_unconds = []
+    if ip_negative is not None:
+        neg_embeds = torch.zeros(1, 512, dtype=dtype, device=offload_device)
+        with torch.no_grad():
+            neg_projected = faceid_proj(neg_embeds)
+        for kv in faceid_ip(neg_projected):
+            ip_unconds.append(kv.cpu())
+    else:
+        # Use zeros as unconditional
+        for c in ip_conds:
+            ip_unconds.append(torch.zeros_like(c))
+
+    # --- 6. Build tasks for patch_model ---
+    # Each task: [(ip_conds, ip_unconds), stop, weight]
+    faceid_stop = 0.5  # Apply FaceID for first 50% of steps
+    tasks = [[(ip_conds, ip_unconds), faceid_stop, faceid_weight]]
+    return tasks
+
+
 def _apply_ip_adapter(async_task, pipeline):
     """Apply IP-Adapter conditioning to the UNet.
 
@@ -504,19 +682,24 @@ def _apply_ip_adapter(async_task, pipeline):
     if faceid_embeds and adapter_paths.get("faceid"):
         try:
             import torch
-            # FaceID Plus v2 uses InsightFace embedding + CLIP vision
-            # For now, we pass the embedding directly as a conditioning signal
-            # The adapter model will project it to cross-attention space
-            logger.info("FaceID: processing %d embeddings with weight=%.2f",
-                        len(faceid_embeds), async_task.ip_adapter_faceid_weight)
-            # TODO: Implement proper FaceID adapter preprocessing
-            # This requires insightface + custom projection layer
-            # For now, log the intent — full implementation needs:
-            #   1. ip-adapter-faceid-plusv2_sdxl.bin model
-            #   2. InsightFace buffalo_l model
-            #   3. Custom projection from 512-d embedding to cross-attention tokens
+            faceid_weight = async_task.ip_adapter_faceid_weight
+            logger.info("FaceID: processing embedding (dim=%d) with weight=%.2f",
+                        len(faceid_embeds[0]) if faceid_embeds else 0, faceid_weight)
+
+            # Load FaceID Plus v2 adapter (has LoRA + Resampler, not standard IP-Adapter)
+            faceid_path = adapter_paths["faceid"]
+            faceid_tasks = _load_faceid_adapter(
+                faceid_path,
+                files["clip"], files["neg"],
+                faceid_embeds, faceid_weight,
+            )
+            if faceid_tasks:
+                ip_tasks.extend(faceid_tasks)
+                logger.info("FaceID: %d conditioning tasks generated", len(faceid_tasks))
+            else:
+                logger.warning("FaceID: adapter produced no tasks")
         except Exception as e:
-            logger.warning("FaceID processing failed: %s", e)
+            logger.warning("FaceID processing failed: %s", e, exc_info=True)
 
     if not ip_tasks:
         logger.warning("IP-Adapter: no valid tasks after preprocessing")

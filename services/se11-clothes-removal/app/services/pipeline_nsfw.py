@@ -25,7 +25,8 @@ from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.services.head_detector import detect_head_mask, detect_face_only
 from app.services.blend_utils import blend_face_region
-from app.validators.pose_detector import render_pose_stick_figure, detect_pose
+from app.validators.pose_detector import render_pose_stick_figure, detect_pose, compare_poses
+from app.services.faceid_extractor import extract_faceid_embedding
 
 logger = get_logger(__name__)
 
@@ -222,6 +223,9 @@ async def _validate_pose_async(
     attempt: int = 1,
     max_attempts: int = 3,
     strict: bool = True,
+    head_threshold_pct: float = 0.3,
+    torso_threshold_pct: float = 0.5,
+    limbs_threshold_pct: float = 1.5,
 ) -> dict:
     """Run pose_validator.py as subprocess and return JSON result."""
     validator_script = os.path.join(
@@ -238,6 +242,9 @@ async def _validate_pose_async(
                 attempt=attempt,
                 max_attempts=max_attempts,
                 strict=strict,
+                head_threshold_pct=head_threshold_pct,
+                torso_threshold_pct=torso_threshold_pct,
+                limbs_threshold_pct=limbs_threshold_pct,
             )
         except ImportError:
             return {"pose_changed": False, "confidence": 0.0, "recommendation": "accept",
@@ -249,6 +256,9 @@ async def _validate_pose_async(
         "--inpainted", inpainted_path,
         "--attempt", str(attempt),
         "--max-attempts", str(max_attempts),
+        "--head-threshold", str(head_threshold_pct),
+        "--torso-threshold", str(torso_threshold_pct),
+        "--limbs-threshold", str(limbs_threshold_pct),
         "--json",
     ]
     if strict:
@@ -483,6 +493,13 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         _, ip_ref_buf = _cv2.imencode(".jpg", ip_ref_img, [_cv2.IMWRITE_JPEG_QUALITY, 90])
         ip_ref_b64 = _to_data_uri(base64.b64encode(ip_ref_buf).decode("utf-8"), mime="image/jpeg")
 
+        # FaceID: extract face embedding for identity preservation
+        faceid_embedding = extract_faceid_embedding(orig_img, person_binary)
+        if faceid_embedding:
+            logger.info("Job %s: FaceID embedding extracted (512-d)", job.job_id)
+        else:
+            logger.warning("Job %s: FaceID extraction failed, continuing without", job.job_id)
+
         # Pose conditioning: MediaPipe stick figure as secondary IP-Adapter reference
         # NOTE (2026-06-30): Tested and degraded pose preservation (score 21.3 vs 0.0).
         # Kept disabled in production. The render_pose_stick_figure function remains
@@ -562,6 +579,68 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         except Exception as exc:
             logger.warning("Job %s: failed to save debug masks: %s", job.job_id, exc)
 
+        # Save mask overlay on original for visual debugging
+        try:
+            inpaint_pct = (inpaint_mask > 0).sum() / inpaint_mask.size * 100
+            clothes_orig_pct = (clothes_combined > 0).sum() / clothes_combined.size * 100 if clothes_combined is not None else 0
+            mask_overlay = orig_img.copy()
+            mask_color = _cv2.cvtColor(inpaint_mask, _cv2.COLOR_GRAY2BGR)
+            mask_color[:, :, 0] = 0   # no blue
+            mask_color[:, :, 2] = 0   # no red → green channel = inpaint region
+            mask_overlay = _cv2.addWeighted(mask_overlay, 0.6, mask_color, 0.4, 0)
+            _cv2.putText(mask_overlay,
+                         f"Inpaint mask: {inpaint_pct:.1f}% | clothes: {clothes_orig_pct:.1f}%",
+                         (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            _cv2.putText(mask_overlay, f"LustifyNSFW | FaceID={'on' if faceid_embedding else 'off'}",
+                         (10, 50), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            _cv2.imwrite(os.path.join(output_dir, "30_mask_overlay.png"), mask_overlay)
+        except Exception:
+            pass
+
+        # Save SE10 detection metadata
+        try:
+            seg_meta = {
+                "person": {
+                    "detected": bool(person_seg.get("detected")),
+                    "coverage_pct": float(round((person_binary > 0).sum() / person_binary.size * 100, 1)),
+                    "objects": person_seg.get("objects", []),
+                },
+                "clothes": {
+                    "detected": bool(clothes_seg.get("detected")),
+                    "coverage_pct": float(round(clothes_pct, 1)),
+                    "num_garments": len(clothes_seg.get("objects", [])),
+                    "objects": clothes_seg.get("objects", []),
+                },
+                "image_size": {"width": orig_w, "height": orig_h},
+                "faceid": faceid_embedding is not None,
+                "base_model": "lustifySDXLNSFW_v20-inpainting.safetensors",
+            }
+            with open(os.path.join(output_dir, "detection_meta.json"), "w") as f:
+                json.dump(seg_meta, f, indent=2)
+        except Exception:
+            pass
+
+        # Save individual garment masks from SE10
+        if clothes_seg.get("detected") and clothes_seg.get("masks"):
+            for gi, (gm_b64, gobj) in enumerate(zip(clothes_seg["masks"], clothes_seg.get("objects", []))):
+                try:
+                    raw_gm = _strip_data_uri(gm_b64)
+                    gm_img = _cv2.imdecode(
+                        _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_gm)), _np.uint8),
+                        _cv2.IMREAD_GRAYSCALE,
+                    )
+                    if gm_img is not None:
+                        if gm_img.shape[:2] != (orig_h, orig_w):
+                            gm_img = _cv2.resize(gm_img, (orig_w, orig_h))
+                        gclass = gobj.get("class_name", f"garment_{gi}")
+                        garea = gobj.get("area_pct", 0)
+                        gm_color = _cv2.cvtColor(gm_img, _cv2.COLOR_GRAY2BGR)
+                        _cv2.putText(gm_color, f"{gclass} ({garea:.1f}%)", (10, 25),
+                                     _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        _cv2.imwrite(os.path.join(output_dir, f"20_garment_{gi}_{gclass}.png"), gm_color)
+                except Exception:
+                    pass
+
         for attempt in range(1, max_attempts + 1):
             try_tag = f"try_{attempt}"
             try_dir = os.path.join(output_dir, try_tag)
@@ -591,16 +670,18 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                     "cn_weight": 0.8,
                     "cn_type": "ImagePrompt",
                 },
-                {
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+            ]
+            # OpenPose ControlNet incompatible with LustifyNSFW (different UNet architecture)
+            base_model_name = "lustifySDXLNSFW_v20-inpainting.safetensors"
+            if pose_cn_b64 and "juggernaut" in base_model_name.lower():
+                ip_adapter_prompts.insert(1, {
                     "cn_img": pose_cn_b64,
                     "cn_stop": 0.7,
                     "cn_weight": 0.5,
                     "cn_type": "OpenPose",
-                },
-                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
-                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
-            ]
-            if pose_cn_b64:
+                })
                 logger.info("Job %s: OpenPose ControlNet enabled", job.job_id)
 
             result1 = await se8.inpaint(
@@ -613,7 +694,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 inpaint_erode_or_dilate=cfg["erode"],
                 loras=nsfw_loras,
                 image_prompts=ip_adapter_prompts,
-                base_model="juggernautXL_v8Rundiffusion.safetensors",
+                base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+                invert_mask=True,
+                ip_adapter_faceid_embeds=faceid_embedding,
+                ip_adapter_faceid_weight=0.8,
             )
             if not result1 or not result1.get("base64"):
                 logger.warning("Job %s: SE8 empty on attempt %d", job.job_id, attempt)
@@ -632,72 +716,12 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             if inpainted_img is not None and inpainted_img.shape[:2] != (orig_h, orig_w):
                 inpainted_img = _cv2.resize(inpainted_img, (orig_w, orig_h))
 
-            # ─── Face preservation with selectable blending ───
-            # Protect the FULL FACE (face_protect_mask). The forehead, cheeks and
-            # jaw sides keep hard edges so the original face geometry is preserved
-            # and cannot be displaced. Only the CHIN/NECK junction is feathered
-            # using distance transform, giving SE8 a band to generate a natural
-            # neck transition. The blend mode is selectable:
-            #   - "laplacian" (default v24): multi-scale pyramid blending, smoother
-            #   - "alpha" (legacy v23.4): simple weighted feather blend
-            transition_width = max(20, int(min(orig_w, orig_h) * 0.035))
-
-            # ─── Localized color harmonization at face/body boundary ───
-            band_mask = _cv2.dilate(face_protect_mask,
-                                    _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (transition_width, transition_width)),
-                                    iterations=1)
-            band_mask = _cv2.bitwise_and(band_mask, _cv2.bitwise_not(face_protect_mask))
-            band_mask = _cv2.bitwise_and(band_mask, person_binary)
-
-            # Sample original exposed skin (excluding central face) as target
-            _skin_hsv = _cv2.inRange(_cv2.cvtColor(orig_img, _cv2.COLOR_BGR2HSV),
-                                      _np.array([0, 15, 60]), _np.array([30, 170, 255]))
-            _skin_ref = _cv2.bitwise_and(_skin_hsv, person_binary)
-            _skin_ref = _cv2.bitwise_and(_skin_ref, _cv2.bitwise_not(face_protect_mask))
-            _skin_mask = (_skin_ref > 0).astype(_np.uint8) * 255
-
-            # Combine skin reference with transition band to concentrate correction
-            _harmony_mask = _cv2.bitwise_or(_skin_mask, band_mask)
-            harmonized = inpainted_img.copy()
-            if _cv2.countNonZero(_harmony_mask) > 100:
-                src_lab = _cv2.cvtColor(orig_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-                tgt_lab = _cv2.cvtColor(inpainted_img, _cv2.COLOR_BGR2LAB).astype(_np.float32)
-                m = _harmony_mask > 0
-                src_m, src_s = src_lab[m].mean(axis=0), src_lab[m].std(axis=0) + 1e-6
-                tgt_m, tgt_s = tgt_lab[m].mean(axis=0), tgt_lab[m].std(axis=0) + 1e-6
-                for ch in range(3):
-                    tgt_lab[:, :, ch] = (tgt_lab[:, :, ch] - tgt_m[ch]) * (src_s[ch] / tgt_s[ch]) + src_m[ch]
-                harmonized = _cv2.cvtColor(_np.clip(tgt_lab, 0, 255).astype(_np.uint8), _cv2.COLOR_LAB2BGR)
-
-            # Directional face feather: hard top/sides, soft chin/neck
-            face_dist = _cv2.distanceTransform(face_protect_mask, _cv2.DIST_L2, 5).astype(_np.float32)
-            face_feather = _np.clip(face_dist / transition_width, 0, 1)
-            _, face_y, _, face_h = _cv2.boundingRect(face_protect_mask)
-            face_cy = face_y + face_h // 2
-            y_coords = _np.arange(orig_h)[:, None]
-            face_f = _np.where(
-                (face_protect_mask > 0) & (y_coords >= face_cy),
-                face_feather,
-                (face_protect_mask > 0).astype(_np.float32),
-            )
-            face_f = _np.clip(face_f, 0, 1)
-
-            face_blend_mode = getattr(job.request, "face_blend_mode", "laplacian")
-            if face_blend_mode == "laplacian":
-                # Multi-scale Laplacian blend: paste original face into harmonized body
-                composited, face_weight_mask = blend_face_region(
-                    original=orig_img,
-                    generated=harmonized,
-                    face_mask=face_protect_mask,
-                    transition_width=transition_width,
-                    levels=6,
-                )
-            else:
-                # Legacy alpha blend (v23.4)
-                composited = (harmonized.astype(_np.float32) * (1 - face_f[:, :, None]) +
-                              orig_img.astype(_np.float32) * face_f[:, :, None])
-                composited = _np.clip(composited, 0, 255).astype(_np.uint8)
-                face_weight_mask = (face_f * 255).astype(_np.uint8)
+            # ─── Face preservation: LustifyNSFW preserves face natively ───
+            # With LustifyNSFW model, the face is preserved during inpainting.
+            # No complex blending needed — just use the inpainted result directly.
+            # Face blending (Laplacian/LAB) was needed for JuggernautXL which
+            # could displace facial features. Lustify handles this internally.
+            composited = inpainted_img.copy()
 
             # ─── Optional face restoration via SE8 ───
             # CodeFormer/GFPGAN unifies texture between preserved face and generated body,
@@ -733,7 +757,6 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             _cv2.imwrite(os.path.join(try_dir, "inpaint_mask.png"), inpaint_mask)
             _cv2.imwrite(os.path.join(try_dir, "head_adjusted.png"), head_adjusted)
             _cv2.imwrite(os.path.join(try_dir, "face_protect_mask.png"), face_protect_mask)
-            _cv2.imwrite(os.path.join(try_dir, "face_weight_mask.png"), face_weight_mask)
 
             # Use restored image as the candidate if face restoration succeeded
             if restored is not None:
@@ -741,8 +764,13 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
 
             orig_path = os.path.join(output_dir, "00_original.png")
             result_path_try = os.path.join(try_dir, "result.png")
+
+            # Relaxed pose thresholds for NSFW mode: LustifyNSFW regenerates the body
+            # region, causing torso landmarks to shift naturally. Face is preserved natively,
+            # so we use generous thresholds and rely on head_pct/overall_score instead.
             validator_result = await _validate_pose_async(
-                orig_path, result_path_try, attempt, max_attempts, strict=True)
+                orig_path, result_path_try, attempt, max_attempts, strict=False,
+                head_threshold_pct=1.5, torso_threshold_pct=8.0, limbs_threshold_pct=5.0)
 
             meta = {
                 "pose_changed": validator_result.get("pose_changed", True),

@@ -90,6 +90,8 @@ def detect_head_mask(
     neck_margin_below: float = 0.50,
     dilate_kernel_size: int = 15,
     dilate_iterations: int = 2,
+    expand_up: float = 1.5,
+    expand_w: float = 0.5,
 ):
     """Detect head using face detection + elliptical mask clipped to person silhouette.
 
@@ -119,7 +121,7 @@ def detect_head_mask(
         # Create elliptical mask around face
         head_mask = _ellipse_from_face(
             fx, fy, fw, fh, h, w, person_binary,
-                                        expand_w=0.5, expand_up=1.5, expand_down=neck_margin_below,
+                                        expand_w=expand_w, expand_up=expand_up, expand_down=neck_margin_below,
         )
 
         logger.debug("Face (%d,%d,%d,%d) -> elliptical head mask", fx, fy, fw, fh)

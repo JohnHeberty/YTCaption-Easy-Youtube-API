@@ -327,14 +327,14 @@ async def create_job(
         description="Experimental v2. IP-Adapter FaceID weight (0.7-1.0 recommended).",
     ),
     test_inpaint_strength: float = Form(
-        default=0.45,
+        default=0.86,
         ge=0.0,
         le=1.0,
-        description="Experimental v2. Denoising strength for nsfw_test (0.45 default).",
+        description="Experimental v2. Denoising strength for nsfw_test (0.86 default). Lower = more structure preserved.",
     ),
     base_model: str = Form(
-        default="juggernautXL_v8Rundiffusion.safetensors",
-        description="Experimental v2. Base SDXL checkpoint. 'fooocus_inpaint' requires SE8 setup.",
+        default="lustifySDXLNSFW_v20-inpainting.safetensors",
+        description="Experimental v2. Base SDXL checkpoint. LustifyNSFW for NSFW inpainting.",
     ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──
