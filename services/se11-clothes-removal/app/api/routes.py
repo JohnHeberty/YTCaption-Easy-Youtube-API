@@ -330,11 +330,11 @@ async def create_job(
         default=0.86,
         ge=0.0,
         le=1.0,
-        description="Denoising strength for nsfw_test (same as nsfw, 0.86 default). Lower = more structure preserved.",
+        description="Experimental v2. Denoising strength for nsfw_test (0.86 default). Lower = more structure preserved.",
     ),
     base_model: str = Form(
         default="lustifySDXLNSFW_v20-inpainting.safetensors",
-        description="Base SDXL checkpoint for nsfw_test (same as nsfw). LustifyNSFW for NSFW inpainting.",
+        description="Experimental v2. Base SDXL checkpoint. LustifyNSFW for NSFW inpainting.",
     ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──

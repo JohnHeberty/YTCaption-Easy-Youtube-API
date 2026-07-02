@@ -238,11 +238,11 @@ class CreateClothesRemovalRequest(BaseModel):
         default=0.86,
         ge=0.0,
         le=1.0,
-        description="Denoising strength for nsfw_test (same as nsfw). Lower values preserve structure (0.86 is default).",
+        description="**Experimental v2.** Denoising strength for nsfw_test. Lower values preserve structure (0.86 is default).",
     )
     base_model: str = Field(
         default="lustifySDXLNSFW_v20-inpainting.safetensors",
-        description="Base SDXL checkpoint. LustifyNSFW for NSFW inpainting, JuggernautXL for general.",
+        description="**Experimental v2.** Base SDXL checkpoint. LustifyNSFW for NSFW inpainting, JuggernautXL for general.",
         examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
     )
 

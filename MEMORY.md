@@ -2,21 +2,6 @@
 
 ## Última sessão (2026-07-02)
 
-### 🟢 NSFW TEST → PRODUCTION REDIRECT (2026-07-02)
-
-**Ação:** `mode="nsfw_test"` agora redireciona para `pipeline_nsfw.py` (produção). Arquivos experimentais deletados.
-
-**Arquivos alterados:**
-- `pipeline.py`: Dispatcher `nsfw_test` → `run_nsfw()` (production)
-- `schemas.py`: Descriptions removidas "Experimental v2"
-- `routes.py`: Descriptions atualizadas
-
-**Arquivos deletados:**
-- `pipeline_nsfw_experimental_v2.py`
-- `pipeline_nsfw_experimental.py`
-
-**Motivo:** Produção já tem todas as features do V2 (scoring multidimensional, 5 tentativas, skin HSV, SE10 clothes, early stop). Rotas experimentais eram código morto.
-
 ### 🟢 NSFW TEST V2 — SCORING MULTIDIMENSIONAL (Exploratório)
 
 **Resultado E2E validado:** `cr_f7e6ef75b636` — 5 tentativas, scoring multidimensional (head + clothes + landmark).
