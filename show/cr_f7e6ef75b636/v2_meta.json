@@ -1,0 +1,91 @@
+{
+  "mode": "nsfw_test_v2",
+  "scoring": "multidimensional_v1",
+  "scoring_weights": {
+    "head": 0.5,
+    "clothes": 0.3,
+    "landmark": 0.2
+  },
+  "inpaint_mode": "invert_mask",
+  "strength": 0.86,
+  "faceid": true,
+  "faceid_weight": 0.8,
+  "face_restore": false,
+  "attempts": 5,
+  "best_composite_score": 11.361,
+  "best_head_pct": 0.585,
+  "best_clothes_pct": 27.215,
+  "best_max_landmark_pct": 14.521,
+  "best_pose_changed": false,
+  "all_poses_changed": false,
+  "person_coverage": 36.0,
+  "clothes_coverage": 25.1,
+  "inpaint_coverage": 28.6,
+  "attempts_detail": [
+    {
+      "attempt": 1,
+      "strength": 0.86,
+      "status": "ok",
+      "pose_score": 0.5845320949201046,
+      "pose_changed": false,
+      "result_clothes_pct": 27.215,
+      "composite_score": 11.361,
+      "head_pct": 0.585,
+      "torso_pct": 4.605,
+      "limbs_pct": 8.308,
+      "max_landmark_pct": 14.521
+    },
+    {
+      "attempt": 2,
+      "strength": 0.89,
+      "status": "ok",
+      "pose_score": 0.2652952221872897,
+      "pose_changed": false,
+      "result_clothes_pct": 33.894,
+      "composite_score": 11.922,
+      "head_pct": 0.265,
+      "torso_pct": 2.035,
+      "limbs_pct": 3.474,
+      "max_landmark_pct": 8.107
+    },
+    {
+      "attempt": 3,
+      "strength": 0.9199999999999999,
+      "status": "ok",
+      "pose_score": 0.43547541562221925,
+      "pose_changed": false,
+      "result_clothes_pct": 29.108,
+      "composite_score": 11.848,
+      "head_pct": 0.435,
+      "torso_pct": 4.478,
+      "limbs_pct": 5.992,
+      "max_landmark_pct": 14.49
+    },
+    {
+      "attempt": 4,
+      "strength": 0.95,
+      "status": "ok",
+      "pose_score": 0.4056195174164613,
+      "pose_changed": false,
+      "result_clothes_pct": 31.467,
+      "composite_score": 11.733,
+      "head_pct": 0.406,
+      "torso_pct": 3.69,
+      "limbs_pct": 5.57,
+      "max_landmark_pct": 10.45
+    },
+    {
+      "attempt": 5,
+      "strength": 0.98,
+      "status": "ok",
+      "pose_score": 0.6100571727222835,
+      "pose_changed": false,
+      "result_clothes_pct": 43.475,
+      "composite_score": 17.102,
+      "head_pct": 0.61,
+      "torso_pct": 4.017,
+      "limbs_pct": 8.666,
+      "max_landmark_pct": 18.773
+    }
+  ]
+}

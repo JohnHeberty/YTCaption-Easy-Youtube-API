@@ -1,0 +1,74 @@
+{
+  "job_id": "cr_ee73cbd1c611",
+  "scoring": "multidimensional_v2",
+  "scoring_weights": {
+    "skin": 0.4,
+    "head": 0.2,
+    "landmark": 0.3,
+    "clothes": 0.1
+  },
+  "original_skin_pct": 57.0,
+  "total_attempts": 3,
+  "best_try": "try_3",
+  "best_composite_score": 7.21,
+  "best_skin_ratio": 1.191,
+  "best_head_pct": 0.394,
+  "best_max_landmark_pct": 14.464,
+  "best_clothes_pct": 28.679,
+  "tries": {
+    "try_1": {
+      "pose_changed": false,
+      "head_pct": 0.56,
+      "torso_pct": 1.485,
+      "limbs_pct": 4.395,
+      "max_landmark_pct": 13.063,
+      "result_clothes_pct": 33.609,
+      "result_skin_pct": 69.308,
+      "skin_ratio": 1.216,
+      "composite_score": 7.306,
+      "params": {
+        "strength": 0.86,
+        "field": 0.618,
+        "erode": 0,
+        "seed": -1
+      },
+      "result_path": "try_1/result.png"
+    },
+    "try_2": {
+      "pose_changed": false,
+      "head_pct": 0.393,
+      "torso_pct": 2.059,
+      "limbs_pct": 5.178,
+      "max_landmark_pct": 13.66,
+      "result_clothes_pct": 33.498,
+      "result_skin_pct": 68.976,
+      "skin_ratio": 1.21,
+      "composite_score": 7.442,
+      "params": {
+        "strength": 0.87,
+        "field": 0.618,
+        "erode": 0,
+        "seed": 42
+      },
+      "result_path": "try_2/result.png"
+    },
+    "try_3": {
+      "pose_changed": false,
+      "head_pct": 0.394,
+      "torso_pct": 1.755,
+      "limbs_pct": 5.422,
+      "max_landmark_pct": 14.464,
+      "result_clothes_pct": 28.679,
+      "result_skin_pct": 67.88,
+      "skin_ratio": 1.191,
+      "composite_score": 7.21,
+      "params": {
+        "strength": 0.9,
+        "field": 0.618,
+        "erode": 0,
+        "seed": 99
+      },
+      "result_path": "try_3/result.png"
+    }
+  }
+}

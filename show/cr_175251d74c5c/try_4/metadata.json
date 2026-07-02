@@ -1,0 +1,18 @@
+{
+  "pose_changed": false,
+  "head_pct": 0.294,
+  "torso_pct": 1.923,
+  "limbs_pct": 6.937,
+  "max_landmark_pct": 19.206,
+  "result_clothes_pct": 35.171,
+  "result_skin_pct": 68.281,
+  "skin_ratio": 1.198,
+  "composite_score": 9.258,
+  "params": {
+    "strength": 0.95,
+    "field": 0.618,
+    "erode": 0,
+    "seed": -1
+  },
+  "result_path": "try_4/result.png"
+}

@@ -1,0 +1,17 @@
+{
+  "pose_changed": true,
+  "confidence": 0.792,
+  "head_pct": 0.378,
+  "torso_pct": 1.527,
+  "limbs_pct": 4.91,
+  "max_landmark_pct": 18.792,
+  "overall_score": 18.792,
+  "params": {
+    "strength": 0.9,
+    "field": 0.618,
+    "erode": 0,
+    "seed": 99
+  },
+  "result_path": "try_3/result.png",
+  "recommendation": "release_anyway"
+}

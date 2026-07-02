@@ -1,0 +1,110 @@
+{
+  "job_id": "cr_175251d74c5c",
+  "scoring": "multidimensional_v2",
+  "scoring_weights": {
+    "skin": 0.4,
+    "head": 0.2,
+    "landmark": 0.3,
+    "clothes": 0.1
+  },
+  "original_skin_pct": 57.0,
+  "total_attempts": 5,
+  "best_try": "try_1",
+  "best_composite_score": 6.485,
+  "best_skin_ratio": 1.241,
+  "best_head_pct": 0.473,
+  "best_max_landmark_pct": 11.788,
+  "best_clothes_pct": 29.498,
+  "tries": {
+    "try_1": {
+      "pose_changed": false,
+      "head_pct": 0.473,
+      "torso_pct": 3.135,
+      "limbs_pct": 6.72,
+      "max_landmark_pct": 11.788,
+      "result_clothes_pct": 29.498,
+      "result_skin_pct": 70.705,
+      "skin_ratio": 1.241,
+      "composite_score": 6.485,
+      "params": {
+        "strength": 0.86,
+        "field": 0.618,
+        "erode": 0,
+        "seed": -1
+      },
+      "result_path": "try_1/result.png"
+    },
+    "try_2": {
+      "pose_changed": false,
+      "head_pct": 0.585,
+      "torso_pct": 2.665,
+      "limbs_pct": 7.519,
+      "max_landmark_pct": 17.062,
+      "result_clothes_pct": 36.655,
+      "result_skin_pct": 69.352,
+      "skin_ratio": 1.217,
+      "composite_score": 8.814,
+      "params": {
+        "strength": 0.89,
+        "field": 0.618,
+        "erode": 0,
+        "seed": -1
+      },
+      "result_path": "try_2/result.png"
+    },
+    "try_3": {
+      "pose_changed": false,
+      "head_pct": 0.409,
+      "torso_pct": 2.251,
+      "limbs_pct": 6.923,
+      "max_landmark_pct": 21.071,
+      "result_clothes_pct": 37.09,
+      "result_skin_pct": 68.458,
+      "skin_ratio": 1.201,
+      "composite_score": 10.032,
+      "params": {
+        "strength": 0.9199999999999999,
+        "field": 0.618,
+        "erode": 0,
+        "seed": -1
+      },
+      "result_path": "try_3/result.png"
+    },
+    "try_4": {
+      "pose_changed": false,
+      "head_pct": 0.294,
+      "torso_pct": 1.923,
+      "limbs_pct": 6.937,
+      "max_landmark_pct": 19.206,
+      "result_clothes_pct": 35.171,
+      "result_skin_pct": 68.281,
+      "skin_ratio": 1.198,
+      "composite_score": 9.258,
+      "params": {
+        "strength": 0.95,
+        "field": 0.618,
+        "erode": 0,
+        "seed": -1
+      },
+      "result_path": "try_4/result.png"
+    },
+    "try_5": {
+      "pose_changed": false,
+      "head_pct": 0.587,
+      "torso_pct": 1.791,
+      "limbs_pct": 5.042,
+      "max_landmark_pct": 14.898,
+      "result_clothes_pct": 35.444,
+      "result_skin_pct": 67.612,
+      "skin_ratio": 1.186,
+      "composite_score": 8.057,
+      "params": {
+        "strength": 0.98,
+        "field": 0.618,
+        "erode": 0,
+        "seed": -1
+      },
+      "result_path": "try_5/result.png"
+    }
+  }
+}

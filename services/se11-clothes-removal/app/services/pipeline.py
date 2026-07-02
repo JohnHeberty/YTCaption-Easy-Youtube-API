@@ -2,7 +2,7 @@
 
 Routes to independent pipeline files:
   - mode="nsfw" → pipeline_nsfw.py (production: retry + pose validation)
-  - mode="nsfw_test" → pipeline_nsfw_experimental.py (test: debug, no retry)
+  - mode="nsfw_test" → pipeline_nsfw.py (same as nsfw, kept for API compatibility)
   - mode="progressive" → inline (4-pass progressive)
   - mode="clothes"/"person" → inline (single-pass)
 """
@@ -417,17 +417,11 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         await run_nsfw(job, store)
         return
 
-    # ─── NSFW TEST: experimental v2 — invert mask + low denoise + FaceID ───
+    # ─── NSFW TEST: redirects to production NSFW pipeline ───
     if mode == "nsfw_test":
-        use_v2 = getattr(job.request, "use_faceid", True) or getattr(job.request, "inpaint_mode", "invert_mask") == "invert_mask"
-        if use_v2:
-            logger.info("Job %s: using NSFW EXPERIMENTAL V2 pipeline (invert mask + FaceID)", job.job_id)
-            from app.services.pipeline_nsfw_experimental_v2 import run_nsfw_experimental_v2
-            await run_nsfw_experimental_v2(job, store)
-        else:
-            logger.info("Job %s: using NSFW EXPERIMENTAL V1 pipeline (legacy)", job.job_id)
-            from app.services.pipeline_nsfw_experimental import run_nsfw_experimental
-            await run_nsfw_experimental(job, store)
+        logger.info("Job %s: nsfw_test → using production NSFW pipeline", job.job_id)
+        from app.services.pipeline_nsfw import run_nsfw
+        await run_nsfw(job, store)
         return
 
     # ─── Progressive mode ───

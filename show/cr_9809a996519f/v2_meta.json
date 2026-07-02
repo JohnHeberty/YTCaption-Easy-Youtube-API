@@ -1,0 +1,28 @@
+{
+  "mode": "nsfw_test_v2",
+  "inpaint_mode": "invert_mask",
+  "strength": 0.35,
+  "faceid": true,
+  "faceid_weight": 0.8,
+  "face_restore": false,
+  "attempts": 1,
+  "best_pose_score": 0.7644465111761306,
+  "best_pose_changed": false,
+  "all_poses_changed": false,
+  "person_coverage": 36.0,
+  "clothes_coverage": 25.1,
+  "inpaint_coverage": 30.4,
+  "attempts_detail": [
+    {
+      "attempt": 1,
+      "strength": 0.35,
+      "status": "ok",
+      "pose_score": 0.7644465111761306,
+      "pose_changed": false,
+      "head_pct": 0.764,
+      "torso_pct": 1.101,
+      "limbs_pct": 2.116,
+      "max_landmark_pct": 4.341
+    }
+  ]
+}
