@@ -70,6 +70,16 @@ CLOTHES_CLASSES = (
     "coat, hoodie, t-shirt"
 )
 
+# ─── Multidimensional Scoring Weights ────────────────────────────────────────
+# Lower score = better. Each metric is normalized to [0, 100] range.
+# head_avg:       face landmark drift (lower = face more preserved)
+# clothes_pct:    residual clothing on RESULT (lower = better removal)
+# max_landmark:   worst single landmark drift (lower = more stable pose)
+SCORE_W_HEAD = 0.50       # Face preservation is top priority
+SCORE_W_CLOTHES = 0.30    # Clothing removal quality
+SCORE_W_LANDMARK = 0.20   # Overall pose stability
+SCORE_EARLY_STOP = 0.5    # Stop early if composite score < this
+
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -117,6 +127,61 @@ def _combine_masks(masks: list[str], orig_h: int, orig_w: int) -> _np.ndarray | 
         cb = (cm > 127).astype(_np.uint8) * 255
         combined = cb if combined is None else _cv2.bitwise_or(combined, cb)
     return combined
+
+
+async def _detect_result_clothes(
+    se10: SE10Client,
+    inpainted_img: _np.ndarray,
+    orig_h: int,
+    orig_w: int,
+) -> float:
+    """Detect residual clothing on an inpainted result image.
+
+    Returns clothes_pct (0.0 = no clothes detected, higher = more clothes remain).
+    This is used for multidimensional scoring — lower is better.
+    """
+    try:
+        _, result_buf = _cv2.imencode(".jpg", inpainted_img, [_cv2.IMWRITE_JPEG_QUALITY, 90])
+        result_bytes = result_buf.tobytes()
+        result_seg = await se10.segment(
+            image_bytes=result_bytes,
+            filename="result.jpg",
+            classes=CLOTHES_CLASSES,
+            box_threshold=0.06,
+            text_threshold=0.04,
+            mode="clothes",
+        )
+        if result_seg.get("detected") and result_seg.get("masks"):
+            result_mask = _combine_masks(result_seg["masks"], orig_h, orig_w)
+            if result_mask is not None:
+                return float((result_mask > 0).sum() / result_mask.size * 100)
+        return 0.0
+    except Exception as exc:
+        logger.warning("Result clothes detection failed: %s", exc)
+        return 0.0
+
+
+def _compute_composite_score(
+    head_avg: float,
+    clothes_pct: float,
+    max_landmark: float,
+) -> float:
+    """Compute composite score from three metrics (lower = better).
+
+    All inputs are percentage-based. The score is a weighted sum
+    normalized to [0, 100] range.
+    """
+    # Clamp values to reasonable ranges
+    head_clamped = min(head_avg, 100.0)
+    clothes_clamped = min(clothes_pct, 100.0)
+    landmark_clamped = min(max_landmark, 100.0)
+
+    score = (
+        SCORE_W_HEAD * head_clamped +
+        SCORE_W_CLOTHES * clothes_clamped +
+        SCORE_W_LANDMARK * landmark_clamped
+    )
+    return round(score, 3)
 
 
 def _build_clothes_neutral_ref(
@@ -568,6 +633,10 @@ async def run_nsfw_experimental_v2(
             pose_score = 999.0
             pose_changed = True
             pose_meta = {}
+            head_avg = 0.0
+            torso_avg = 0.0
+            limbs_avg = 0.0
+            max_landmark = 0.0
             if orig_pose is not None:
                 try:
                     result_pose = detect_pose(inpainted_img, min_detection_confidence=0.5)
@@ -588,6 +657,9 @@ async def run_nsfw_experimental_v2(
                         head_avg = float(_np.mean(head_diffs)) if head_diffs else 0.0
                         torso_avg = float(_np.mean(torso_diffs)) if torso_diffs else 0.0
                         limbs_avg = float(_np.mean(limb_diffs)) if limb_diffs else 0.0
+                        max_landmark = float(max(
+                            (d.distance_normalized for d in comparison.diffs), default=0.0
+                        ))
 
                         # Score = head change (lower is better, face should stay same)
                         pose_score = head_avg
@@ -597,9 +669,7 @@ async def run_nsfw_experimental_v2(
                             "head_pct": round(head_avg, 3),
                             "torso_pct": round(torso_avg, 3),
                             "limbs_pct": round(limbs_avg, 3),
-                            "max_landmark_pct": round(float(max(
-                                (d.distance_normalized for d in comparison.diffs), default=0.0
-                            )), 3),
+                            "max_landmark_pct": round(max_landmark, 3),
                         }
                         if not pose_changed:
                             all_poses_changed = False
@@ -610,35 +680,48 @@ async def run_nsfw_experimental_v2(
                 except Exception as exc:
                     logger.warning("Job %s: attempt %d pose validation error: %s", job.job_id, attempt, exc)
 
+            # ─── Result Clothes Detection (for multidimensional scoring) ───
+            result_clothes_pct = await _detect_result_clothes(se10, inpainted_img, orig_h, orig_w)
+            logger.info("Job %s: attempt %d result clothes=%.1f%%",
+                        job.job_id, attempt, result_clothes_pct)
+
+            # ─── Composite Score ───
+            # Combines: face preservation (head_avg) + clothing removal (clothes_pct) + pose stability (max_landmark)
+            # Lower score = better. Weights: head=0.5, clothes=0.3, landmark=0.2
+            composite_score = _compute_composite_score(
+                head_avg=head_avg,
+                clothes_pct=result_clothes_pct,
+                max_landmark=max_landmark,
+            )
+
             attempt_meta = {
                 "attempt": attempt,
                 "strength": float(strength),
                 "status": "ok",
                 "pose_score": float(pose_score),
                 "pose_changed": bool(pose_changed),
+                "result_clothes_pct": round(result_clothes_pct, 3),
+                "composite_score": float(composite_score),
                 **pose_meta,
             }
             all_attempts_meta.append(attempt_meta)
 
             _save_debug(50 + attempt,
-                        f"try_{attempt}_s{strength:.2f}_ps{pose_score:.1f}_{'OK' if not pose_changed else 'CHG'}",
+                        f"try_{attempt}_s{strength:.2f}_cs{composite_score:.2f}_cl{result_clothes_pct:.1f}_{'OK' if not pose_changed else 'CHG'}",
                         inpainted_img)
 
-            # Score = head change (lower is better, face should stay same)
-            score = pose_score if orig_pose is not None else 999.0
+            logger.info("Job %s: attempt %d done composite=%.3f head=%.3f clothes=%.1f landmark=%.3f (%.1fs)",
+                        job.job_id, attempt, composite_score, head_avg, result_clothes_pct, max_landmark, elapsed)
 
-            logger.info("Job %s: attempt %d done head_pct=%.3f pose_changed=%s (%.1fs)",
-                        job.job_id, attempt, score, pose_changed, elapsed)
-
-            if score < best_score:
-                best_score = score
+            if composite_score < best_score:
+                best_score = composite_score
                 best_result = inpainted_img.copy()
                 best_pose_meta = attempt_meta.copy()
 
-            # Early stop if head is very stable (face preserved well)
-            if not pose_changed and score < 1.0:
-                logger.info("Job %s: excellent face stability (head_pct=%.3f), stopping early",
-                            job.job_id, score)
+            # Early stop if composite score is excellent (face preserved + clothes removed)
+            if composite_score < SCORE_EARLY_STOP:
+                logger.info("Job %s: excellent composite score (%.3f < %.1f), stopping early",
+                            job.job_id, composite_score, SCORE_EARLY_STOP)
                 break
 
         if best_result is None:
@@ -708,7 +791,7 @@ async def run_nsfw_experimental_v2(
             )
             _cv2.putText(
                 overlay,
-                f"head_pct={best_score:.2f}% attempts={len(all_attempts_meta)}",
+                f"composite={best_score:.3f} head={best_pose_meta.get('head_pct', 0):.2f}% clothes={best_pose_meta.get('result_clothes_pct', 0):.1f}%",
                 (10, 55), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
             )
             _cv2.imwrite(os.path.join(output_dir, f"{job.job_id}_debug_overlay.png"), overlay)
@@ -718,13 +801,22 @@ async def run_nsfw_experimental_v2(
         # Metadata
         meta = {
             "mode": "nsfw_test_v2",
+            "scoring": "multidimensional_v1",
+            "scoring_weights": {
+                "head": SCORE_W_HEAD,
+                "clothes": SCORE_W_CLOTHES,
+                "landmark": SCORE_W_LANDMARK,
+            },
             "inpaint_mode": inpaint_mode,
             "strength": float(base_strength),
             "faceid": faceid_embedding is not None,
             "faceid_weight": float(faceid_weight),
             "face_restore": face_restore_enabled,
             "attempts": len(all_attempts_meta),
-            "best_pose_score": float(best_score),
+            "best_composite_score": float(best_score),
+            "best_head_pct": float(best_pose_meta.get("head_pct", 0.0)) if best_pose_meta else 0.0,
+            "best_clothes_pct": float(best_pose_meta.get("result_clothes_pct", 0.0)) if best_pose_meta else 0.0,
+            "best_max_landmark_pct": float(best_pose_meta.get("max_landmark_pct", 0.0)) if best_pose_meta else 0.0,
             "best_pose_changed": bool(best_pose_meta.get("pose_changed", True)) if best_pose_meta else True,
             "all_poses_changed": bool(all_poses_changed),
             "person_coverage": float(round((person_binary > 0).sum() / person_binary.size * 100, 1)),
@@ -752,8 +844,11 @@ async def run_nsfw_experimental_v2(
         job.update_stage("inpainting", "completed", progress=100.0)
         job.updated_at = now_brazil()
         store.save_job(job.job_id, job.model_dump(mode="json"))
-        logger.info("Job %s: nsfw_test V2 completed — %s (pose_score=%.3f, attempts=%d, all_poses_changed=%s)",
-                     job.job_id, result_path, best_score, len(all_attempts_meta), all_poses_changed)
+        logger.info("Job %s: nsfw_test V2 completed — %s (composite=%.3f, head=%.3f%%, clothes=%.1f%%, attempts=%d)",
+                     job.job_id, result_path, best_score,
+                     best_pose_meta.get("head_pct", 0.0) if best_pose_meta else 0.0,
+                     best_pose_meta.get("result_clothes_pct", 0.0) if best_pose_meta else 0.0,
+                     len(all_attempts_meta))
 
     except Exception as e:
         logger.error("Job %s nsfw_test V2 failed: %s", job.job_id, e, exc_info=True)

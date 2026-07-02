@@ -2,7 +2,25 @@
 
 ## Última sessão (2026-07-02)
 
-### 🟢 NSFW TEST V2 — BREAKTHROUGH: LustifyNSFW Model + Hair Protection + FaceID
+### 🟢 NSFW TEST V2 — SCORING MULTIDIMENSIONAL (Exploratório)
+
+**Resultado E2E validado:** `cr_f7e6ef75b636` — 5 tentativas, scoring multidimensional (head + clothes + landmark).
+
+#### Scoring Multidimensional
+
+Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
+
+| Try | Strength | Head% | Clothes% | MaxLandmark | Composite | Winner? |
+|-----|----------|-------|----------|-------------|-----------|---------|
+| 1 | 0.86 | 0.585 | **27.2** | 14.52 | **11.361** | **YES** |
+| 2 | 0.89 | **0.265** | 33.9 | **8.11** | 11.922 | |
+| 3 | 0.92 | 0.435 | 29.1 | 14.49 | 11.848 | |
+| 4 | 0.95 | 0.406 | 31.5 | 10.45 | 11.733 | |
+| 5 | 0.98 | 0.610 | 43.5 | 18.77 | 17.102 | |
+
+**Conclusão:** Attempt 1 (0.86) vence porque tem MENOS roupa residual (27.2%). O scoring corretamente equilibra preservação facial + remoção de roupa + estabilidade de pose.
+
+### 🟢 PRODUCTION MERGE — LustifyNSFW Pipeline (2026-07-02)
 
 **Resultado E2E validado:** `cr_5c8931461b5b` — LustifyNSFW 0.86, head_pct=0.342%, pose_changed=False, roupa 100% removida, rosto preservado.
 
