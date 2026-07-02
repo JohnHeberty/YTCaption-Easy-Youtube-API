@@ -527,6 +527,9 @@ async def run_nsfw_experimental_v2(
         except Exception:
             pass
 
+        job.update_stage("detecting", "completed", progress=100.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
         # ─── Stage 5: Build Clothes-Neutral IP-Adapter Ref ──────────────
         job.update_stage("inpainting", "processing", progress=40.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))

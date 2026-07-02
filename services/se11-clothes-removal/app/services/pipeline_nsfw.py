@@ -462,9 +462,14 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             person_bbox=(px, py, pw, ph),
             max_head_pct=0.50,
             neck_margin_below=1.8,
-            dilate_kernel_size=15,
-            dilate_iterations=2,
+            dilate_kernel_size=25,
+            dilate_iterations=3,
+            expand_up=2.5,
+            expand_w=0.8,
         )
+
+        # Save RAW head_mask before processing — used for final face protection
+        head_mask_raw = head_mask.copy()
 
         body_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
 
@@ -514,17 +519,24 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         head_mask = (head_f > 0.5).astype(_np.uint8) * 255
         head_mask = _cv2.bitwise_and(head_mask, person_binary)
 
-        # face_protect_mask: Haar-based ellipse covering the FULL FACE
-        # (forehead, eyes, nose, mouth, jaw, chin). Preserving the complete
-        # original face geometry prevents the displacement seen when only the
-        # central face was protected.
-        face_protect_mask = detect_face_only(
+        # face_protect_mask: MediaPipe Face Mesh oval contour for precise face protection
+        # Uses actual facial landmark positions instead of haarcascade bounding box.
+        # Falls back to haarcascade ellipse if MediaPipe fails.
+        from app.services.head_detector import detect_face_oval_mask
+        face_protect_mask = detect_face_oval_mask(
             orig_img=orig_img,
             person_binary=person_binary,
-            margin_above=0.05,
-            margin_below=0.55,
-            margin_sides=0.40,
+            feather_bottom_px=35,
         )
+        if _cv2.countNonZero(face_protect_mask) == 0:
+            logger.warning("Job %s: face_oval_mask empty, falling back to detect_face_only", job.job_id)
+            face_protect_mask = detect_face_only(
+                orig_img=orig_img,
+                person_binary=person_binary,
+                margin_above=0.50,
+                margin_below=0.70,
+                margin_sides=0.40,
+            )
 
         # Shrink the head exclusion slightly so SE8 generates a transition band
         # (jaw, cheeks, temples) between the protected face and the body.
@@ -558,11 +570,26 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
         inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k, iterations=2)
 
+        # CRITICAL: Subtract RAW head_mask from inpaint_mask
+        # The processed head_mask may have holes from clothes subtraction + blur.
+        # The RAW head_mask (before processing) is a solid ellipse covering
+        # face + hair + neck — guarantees the face is never in the inpaint zone.
+        inpaint_mask = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(head_mask_raw))
+        logger.info("Job %s: head_mask_raw subtracted from inpaint_mask (%d px protected)",
+                     job.job_id, _cv2.countNonZero(head_mask_raw))
+
+        # Also subtract face_protect_mask as secondary safety net
+        if _cv2.countNonZero(face_protect_mask) > _cv2.countNonZero(head_mask):
+            inpaint_mask = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(face_protect_mask))
+
         clothes_pct = (inpaint_mask > 0).sum() / inpaint_mask.size * 100
         head_orig_pct = _cv2.countNonZero(head_mask) / head_mask.size * 100
         head_adj_pct = _cv2.countNonZero(head_adjusted) / head_adjusted.size * 100
         logger.info("Job %s: nsfw body=%.1f%% head_orig=%.1f%% head_adj=%.1f%%",
                      job.job_id, clothes_pct, head_orig_pct, head_adj_pct)
+
+        job.update_stage("detecting", "completed", progress=100.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
 
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -694,6 +721,22 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             _cv2.putText(mask_overlay, f"LustifyNSFW | FaceID={'on' if faceid_embedding else 'off'}",
                          (10, 50), _cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             _cv2.imwrite(os.path.join(output_dir, "30_mask_overlay.png"), mask_overlay)
+
+            # Head protection overlay: blue = head_mask_raw, green = inpaint
+            face_overlay = orig_img.copy()
+            hm_color = _cv2.cvtColor(head_mask_raw, _cv2.COLOR_GRAY2BGR)
+            hm_color[:, :, 1] = 0  # no green → blue channel = head protection
+            hm_color[:, :, 2] = 0  # no red
+            face_overlay = _cv2.addWeighted(face_overlay, 0.6, hm_color, 0.4, 0)
+            inp_color = _cv2.cvtColor(inpaint_mask, _cv2.COLOR_GRAY2BGR)
+            inp_color[:, :, 0] = 0  # no blue → green channel = inpaint
+            inp_color[:, :, 2] = 0  # no red
+            face_overlay = _cv2.addWeighted(face_overlay, 0.7, inp_color, 0.3, 0)
+            head_pct = _cv2.countNonZero(head_mask_raw) / head_mask_raw.size * 100
+            _cv2.putText(face_overlay,
+                         f"Head protect: {head_pct:.1f}% | Inpaint: {inpaint_pct:.1f}%",
+                         (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 100, 0), 2)
+            _cv2.imwrite(os.path.join(output_dir, "31_face_protect_overlay.png"), face_overlay)
         except Exception:
             pass
 

@@ -230,6 +230,9 @@ async def run_nsfw_experimental(job: ClothesRemovalJob, store: ClothesRemovalJob
         logger.info("Job %s: nsfw_exp body=%.1f%% head_orig=%.1f%% head_adj=%.1f%%",
                      job.job_id, clothes_pct, head_orig_pct, head_adj_pct)
 
+        job.update_stage("detecting", "completed", progress=100.0)
+        store.save_job(job.job_id, job.model_dump(mode="json"))
+
         job.update_stage("inpainting", "processing", progress=35.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
