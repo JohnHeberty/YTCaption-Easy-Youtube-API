@@ -40,6 +40,20 @@ DEFAULT_CLOTHES_NEGATIVE = (
     "bad anatomy, deformed skin, wrinkled, scarred"
 )
 
+CLOTHES_CLASSES = (
+    "spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, "
+    "clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, "
+    "coat, hoodie, t-shirt"
+)
+
+# ─── Multidimensional Scoring Weights ────────────────────────────────────────
+# Lower score = better. skin_ratio uses (1 - ratio) so more skin = lower score.
+SCORE_W_SKIN = 0.40        # Skin exposure (primary quality metric)
+SCORE_W_HEAD = 0.20        # Face preservation (Lustify preserves face natively)
+SCORE_W_LANDMARK = 0.30    # Pose stability (model changes pose more than face)
+SCORE_W_CLOTHES = 0.10     # Clothing residual (low weight — SE10 can be unreliable)
+SCORE_EARLY_STOP = 5.0     # Stop early if composite score < this
+
 # ─── Helpers (COPIED — zero sharing with pipeline.py) ───────────────────────
 
 def _decode_image(image_input: str) -> bytes:
@@ -70,6 +84,87 @@ def _fix_b64_padding(s: str) -> str:
     if missing:
         s += "=" * (4 - missing)
     return s
+
+
+def _combine_masks(masks: list[str], orig_h: int, orig_w: int):
+    """Combine multiple base64 masks into a single binary mask."""
+    import cv2 as _cv2
+    import numpy as _np
+    combined = None
+    for mb in masks:
+        raw = _strip_data_uri(mb)
+        c_bytes = base64.b64decode(_fix_b64_padding(raw))
+        cm = _cv2.imdecode(_np.frombuffer(c_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
+        if cm is None:
+            continue
+        if cm.shape[:2] != (orig_h, orig_w):
+            cm = _cv2.resize(cm, (orig_w, orig_h))
+        cb = (cm > 127).astype(_np.uint8) * 255
+        combined = cb if combined is None else _cv2.bitwise_or(combined, cb)
+    return combined
+
+
+def _detect_skin_hsv(img) -> float:
+    """Detect skin exposure using HSV color range (local, fast, no SE10)."""
+    import cv2 as _cv2
+    import numpy as _np
+    hsv = _cv2.cvtColor(img, _cv2.COLOR_BGR2HSV)
+    lower_skin = _np.array([0, 15, 60], dtype=_np.uint8)
+    upper_skin = _np.array([30, 170, 255], dtype=_np.uint8)
+    skin_mask = _cv2.inRange(hsv, lower_skin, upper_skin)
+    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_OPEN, kernel, iterations=1)
+    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_CLOSE, kernel, iterations=2)
+    return float((skin_mask > 0).sum() / skin_mask.size * 100)
+
+
+def _compute_composite_score(
+    skin_ratio: float,
+    head_avg: float,
+    clothes_pct: float,
+    max_landmark: float,
+) -> float:
+    """Compute composite score from four metrics (lower = better)."""
+    skin_score = 1.0 - skin_ratio
+    head_clamped = min(head_avg, 100.0)
+    clothes_clamped = min(clothes_pct, 100.0)
+    landmark_clamped = min(max_landmark, 100.0)
+    score = (
+        SCORE_W_SKIN * skin_score +
+        SCORE_W_HEAD * head_clamped +
+        SCORE_W_LANDMARK * landmark_clamped +
+        SCORE_W_CLOTHES * clothes_clamped
+    )
+    return round(score, 3)
+
+
+async def _detect_result_clothes(
+    se10: SE10Client,
+    inpainted_img,
+    orig_h: int,
+    orig_w: int,
+) -> float:
+    """Detect residual clothing on an inpainted result (SE10 call)."""
+    try:
+        import cv2 as _cv2
+        _, result_buf = _cv2.imencode(".jpg", inpainted_img, [_cv2.IMWRITE_JPEG_QUALITY, 90])
+        result_bytes = result_buf.tobytes()
+        result_seg = await se10.segment(
+            image_bytes=result_bytes,
+            filename="result.jpg",
+            classes=CLOTHES_CLASSES,
+            box_threshold=0.06,
+            text_threshold=0.04,
+            mode="clothes",
+        )
+        if result_seg.get("detected") and result_seg.get("masks"):
+            result_mask = _combine_masks(result_seg["masks"], orig_h, orig_w)
+            if result_mask is not None:
+                return float((result_mask > 0).sum() / result_mask.size * 100)
+        return 0.0
+    except Exception as exc:
+        logger.warning("Result clothes detection failed: %s", exc)
+        return 0.0
 
 
 def _build_clothes_neutral_ref(orig_img, clothes_mask, person_mask, head_mask):
@@ -559,6 +654,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         output_dir = os.path.join(settings.output_dir, job.job_id)
         os.makedirs(output_dir, exist_ok=True)
 
+        # Compute original skin_pct as baseline for skin_ratio scoring
+        original_skin_pct = _detect_skin_hsv(orig_img)
+        logger.info("Job %s: original skin_pct=%.1f%% (HSV baseline)", job.job_id, original_skin_pct)
+
         try:
             _cv2.imwrite(os.path.join(output_dir, "00_original.png"), orig_img)
             _cv2.imwrite(os.path.join(output_dir, "01_person.png"), person_binary)
@@ -765,51 +864,107 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             orig_path = os.path.join(output_dir, "00_original.png")
             result_path_try = os.path.join(try_dir, "result.png")
 
-            # Relaxed pose thresholds for NSFW mode: LustifyNSFW regenerates the body
-            # region, causing torso landmarks to shift naturally. Face is preserved natively,
-            # so we use generous thresholds and rely on head_pct/overall_score instead.
-            validator_result = await _validate_pose_async(
-                orig_path, result_path_try, attempt, max_attempts, strict=False,
-                head_threshold_pct=1.5, torso_threshold_pct=8.0, limbs_threshold_pct=5.0)
+            # ─── Pose Validation (in-process) ───
+            pose_score = 999.0
+            pose_changed = True
+            head_avg = 0.0
+            torso_avg = 0.0
+            limbs_avg = 0.0
+            max_landmark = 0.0
+            try:
+                orig_pose = detect_pose(orig_img, min_detection_confidence=0.5)
+                result_pose = detect_pose(composited, min_detection_confidence=0.5)
+                if orig_pose and result_pose:
+                    comparison = compare_poses(
+                        orig_pose, result_pose,
+                        strict=False,
+                        head_threshold_pct=1.5,
+                        torso_threshold_pct=8.0,
+                        limbs_threshold_pct=5.0,
+                    )
+                    pose_changed = comparison.pose_changed
+                    head_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "HEAD"]
+                    torso_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "TORSO"]
+                    limb_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "LIMB"]
+                    head_avg = float(_np.mean(head_diffs)) if head_diffs else 0.0
+                    torso_avg = float(_np.mean(torso_diffs)) if torso_diffs else 0.0
+                    limbs_avg = float(_np.mean(limb_diffs)) if limb_diffs else 0.0
+                    max_landmark = float(max(
+                        (d.distance_normalized for d in comparison.diffs), default=0.0
+                    ))
+                    pose_score = head_avg
+            except Exception as exc:
+                logger.warning("Job %s: attempt %d pose validation error: %s", job.job_id, attempt, exc)
+
+            # ─── Result Clothes Detection (SE10) ───
+            result_clothes_pct = await _detect_result_clothes(se10, composited, orig_h, orig_w)
+
+            # ─── Skin Detection (HSV, local) ───
+            result_skin_pct = _detect_skin_hsv(composited)
+            skin_ratio = result_skin_pct / original_skin_pct if original_skin_pct > 0 else 1.0
+
+            # ─── Composite Score ───
+            composite_score = _compute_composite_score(
+                skin_ratio=skin_ratio,
+                head_avg=head_avg,
+                clothes_pct=result_clothes_pct,
+                max_landmark=max_landmark,
+            )
 
             meta = {
-                "pose_changed": validator_result.get("pose_changed", True),
-                "confidence": validator_result.get("confidence", 0.0),
-                "head_pct": validator_result.get("details", {}).get("head_pct", 0.0),
-                "torso_pct": validator_result.get("details", {}).get("torso_pct", 0.0),
-                "limbs_pct": validator_result.get("details", {}).get("limbs_pct", 0.0),
-                "max_landmark_pct": validator_result.get("details", {}).get("max_landmark_pct", 999.0),
-                "overall_score": validator_result.get("details", {}).get("max_landmark_pct", 999.0),
+                "pose_changed": bool(pose_changed),
+                "head_pct": round(head_avg, 3),
+                "torso_pct": round(torso_avg, 3),
+                "limbs_pct": round(limbs_avg, 3),
+                "max_landmark_pct": round(max_landmark, 3),
+                "result_clothes_pct": round(result_clothes_pct, 3),
+                "result_skin_pct": round(result_skin_pct, 3),
+                "skin_ratio": round(skin_ratio, 3),
+                "composite_score": float(composite_score),
                 "params": cfg,
                 "result_path": f"{try_tag}/result.png",
-                "recommendation": validator_result.get("recommendation", "retry"),
             }
             tries_metadata[try_tag] = meta
 
             with open(os.path.join(try_dir, "metadata.json"), "w") as mf:
                 json.dump(meta, mf, indent=2)
 
-            score = meta["overall_score"]
+            score = meta["composite_score"]
             if score < best_score:
                 best_score = score
                 best_try = try_tag
                 best_composited = composited.copy()
 
-            logger.info("Job %s: %s score=%.3f recommendation=%s",
-                        job.job_id, try_tag, score, meta["recommendation"])
+            logger.info("Job %s: %s composite=%.3f skin_ratio=%.2f head=%.3f landmark=%.3f clothes=%.1f",
+                        job.job_id, try_tag, composite_score, skin_ratio, head_avg, max_landmark, result_clothes_pct)
 
-            # Always run all 3 attempts to maximize quality.
-            # Progressive strength (0.65→0.70→0.75) gives the model
-            # multiple chances to produce the best result.
+            # Early stop if composite score is excellent
+            if composite_score < SCORE_EARLY_STOP:
+                logger.info("Job %s: excellent composite score (%.3f < %.1f), stopping early",
+                            job.job_id, composite_score, SCORE_EARLY_STOP)
+                break
 
         # ─── Finalize ───
         tries_clean = {k: v for k, v in tries_metadata.items() if v is not None}
 
+        best_meta = tries_clean.get(best_try, {}) if best_try else {}
         attempts_summary = {
             "job_id": job.job_id,
+            "scoring": "multidimensional_v2",
+            "scoring_weights": {
+                "skin": SCORE_W_SKIN,
+                "head": SCORE_W_HEAD,
+                "landmark": SCORE_W_LANDMARK,
+                "clothes": SCORE_W_CLOTHES,
+            },
+            "original_skin_pct": float(round(original_skin_pct, 1)),
             "total_attempts": sum(1 for v in tries_clean.values() if v is not None),
             "best_try": best_try,
-            "best_score": best_score if best_score < float("inf") else None,
+            "best_composite_score": best_score if best_score < float("inf") else None,
+            "best_skin_ratio": float(best_meta.get("skin_ratio", 0.0)),
+            "best_head_pct": float(best_meta.get("head_pct", 0.0)),
+            "best_max_landmark_pct": float(best_meta.get("max_landmark_pct", 0.0)),
+            "best_clothes_pct": float(best_meta.get("result_clothes_pct", 0.0)),
             "tries": tries_clean,
         }
         with open(os.path.join(output_dir, "attempts.json"), "w") as af:
