@@ -645,8 +645,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         final_prompt = job.request.prompt or nsfw_prompt
         final_negative = job.request.negative_prompt or nsfw_negative
 
-        # ─── Retry loop with pose validation (max 3 attempts) ───
-        max_attempts = 3
+        # ─── Retry loop with multidimensional scoring (max 5 attempts) ───
+        max_attempts = 5
+        base_strength = 0.86
         tries_metadata: dict[str, dict | None] = {f"try_{i}": None for i in range(1, max_attempts + 1)}
         best_try: str | None = None
         best_composited = None
@@ -750,15 +751,11 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 import asyncio as _asyncio
                 await _asyncio.sleep(10)
 
-            _retry_configs = {
-                1: {"strength": 0.86, "field": 0.618, "erode": 0, "seed": -1},
-                2: {"strength": 0.87, "field": 0.618, "erode": 0, "seed": 42},
-                3: {"strength": 0.90, "field": 0.618, "erode": 0, "seed": 99},
-            }
-            cfg = _retry_configs.get(attempt, _retry_configs[1])
+            strength = base_strength + 0.03 * (attempt - 1)
+            cfg = {"strength": strength, "field": 0.618, "erode": 0, "seed": -1}
 
-            logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f seed=%d",
-                        job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"], cfg["seed"])
+            logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f",
+                        job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"])
 
             # IP-Adapter: clothes-neutralized ref for face/body preservation
             # ControlNet OpenPose: pose stick figure from SE10 for body structure
