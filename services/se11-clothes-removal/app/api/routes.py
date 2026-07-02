@@ -93,27 +93,21 @@ async def list_modes() -> ModesResponse:
         modes=[
             ModeInfo(
                 name="clothes",
-                description="Detects and removes detected clothing items. Best for general use.",
+                description="Detects and removes detected clothing items. Use POST /jobs.",
                 recommended=True,
             ),
             ModeInfo(
                 name="person",
-                description="Removes entire torso region. Head is preserved via adaptive detection.",
+                description="Removes entire torso region. Head preserved. Use POST /jobs.",
             ),
             ModeInfo(
                 name="nsfw",
-                description=(
-                    "Production NSFW pipeline (5 attempts + scoring + pose validation). "
-                    "Fixed quality standards, no parameter tuning. Use POST /jobs."
-                ),
+                description="Production NSFW pipeline (5 attempts + scoring + pose validation). Use POST /jobs/nsfw.",
                 recommended=True,
             ),
             ModeInfo(
                 name="nsfw_test",
-                description=(
-                    "Experimental NSFW pipeline with full parameter control. "
-                    "Use POST /nsfw-test for all experimental parameters."
-                ),
+                description="Experimental NSFW pipeline with full parameter control. Use POST /jobs/nsfw-test.",
             ),
         ],
         default="clothes",
@@ -184,21 +178,14 @@ async def get_config() -> ConfigResponse:
     "/jobs",
     response_model=CreateClothesRemovalResponse,
     status_code=201,
-    summary="Create clothes removal job (production)",
+    summary="Create clothes/person removal job",
     description=(
-        "Upload an AI-generated image and start a **production** clothes removal pipeline.\n\n"
-        "## Workflow\n"
-        "1. **SE10** detects the person and clothing items\n"
-        "2. **Head protection** via adaptive detection\n"
-        "3. **SE8** inpaints the masked region (5 attempts in `nsfw` mode)\n"
-        "4. **Pose validation** ensures the result matches the input pose\n"
-        "5. Returns the best result across all attempts\n\n"
+        "Upload an AI-generated image and start a clothes or person removal pipeline.\n\n"
         "## Modes\n"
         "| Mode | Description |\n|------|-------------|\n"
-        "| `nsfw` ⭐ | Production NSFW pipeline (5 attempts + scoring + pose validation) |\n"
-        "| `clothes` | Removes detected clothing items |\n"
+        "| `clothes` | Default — removes detected clothing |\n"
         "| `person` | Removes entire torso (head preserved) |\n\n"
-        "**Note:** For `nsfw_test` (experimental), use `POST /nsfw-test`."
+        "**NSFW?** Use `POST /jobs/nsfw` (production) or `POST /jobs/nsfw-test` (experimental)."
     ),
     responses={
         201: {"description": "Job created successfully"},
@@ -210,34 +197,23 @@ async def get_config() -> ConfigResponse:
 async def create_job(
     file: UploadFile = File(
         ...,
-        description=(
-            "**AI-generated image file** (PNG, JPEG, WebP).\n\n"
-            "Only AI-generated images are allowed."
-        ),
+        description="AI-generated image file (PNG, JPEG, WebP).",
     ),
     mode: RemovalMode = Form(
-        default=RemovalMode.NSFW,
-        description=(
-            "**Processing mode:**\n"
-            "- `nsfw` ⭐ — Production pipeline (5 attempts, scoring, pose validation).\n"
-            "- `clothes` — Removes detected clothing items.\n"
-            "- `person` — Removes entire torso (head preserved)."
-        ),
+        default=RemovalMode.CLOTHES,
+        description="Processing mode: `clothes` (default) or `person`.",
     ),
     classes: str | None = Form(
         default="spaghetti strap, camisole, top, blouse",
-        description=(
-            "**Clothing classes to detect** (comma-separated).\n"
-            "Only used in `clothes` mode. Ignored in `nsfw` mode."
-        ),
+        description="Clothing classes to detect (comma-separated).",
     ),
     prompt: str = Form(
-        default="NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, detailed breast anatomy, realistic nipples, areola details, natural skin pores, skin texture, skin imperfections, realistic body proportions, maintaining exact same body posture, keeping original body position, not moving, not rotating, same stance, identical pose, skin tone matching the person's arms and face, consistent skin color throughout, seamless skin transition, matching skin tone with surrounding body, photorealistic, professional studio photography, soft lighting, sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd",
-        description="Inpainting prompt. Leave default for best results.",
+        default="bare skin, realistic skin texture, photorealistic",
+        description="Inpainting prompt.",
     ),
     negative_prompt: str = Form(
-        default="(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, mutated hands and fingers, extra fingers, missing fingers, long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, clothes, fabric, bra, straps, underwear, pattern, floral, textile, cartoon, anime, sketch, (changed pose, moved body, different position, rotated torso:1.5), (shifted weight, leaning, tilting, bending, twisting:1.4), (new angle, different posture:1.3)",
-        description="Negative prompt. Leave default for best results.",
+        default="deformed, blurry, cartoon, low quality",
+        description="Negative prompt.",
     ),
     box_threshold: float = Form(
         default=0.10, ge=0.0, le=1.0,
@@ -248,12 +224,12 @@ async def create_job(
         description="SE10 text matching threshold.",
     ),
     inpaint_strength: float = Form(
-        default=0.65, ge=0.0, le=1.0,
-        description="Inpainting strength. In `nsfw` mode, pipeline overrides with retry loop (0.86→0.98).",
+        default=0.70, ge=0.0, le=1.0,
+        description="SE8 inpaint denoise strength.",
     ),
     per_garment: bool = Form(
         default=False,
-        description="Inpaint each garment separately. Only used in `clothes` mode.",
+        description="Inpaint each garment separately.",
     ),
     webhook_url: str | None = Form(
         default=None,
@@ -293,7 +269,9 @@ async def create_job(
     mime = file.content_type or "image/png"
     image_data_uri = f"data:{mime};base64,{image_b64}"
 
-    # ── Build request data (production only — no experimental params) ──
+    # ── Create job ──
+    job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
+
     request_data = {
         "image": image_data_uri,
         "mode": mode.value,
@@ -324,17 +302,133 @@ async def create_job(
     return CreateClothesRemovalResponse(
         job_id=job_id,
         status="queued",
-        message="Clothes removal job started",
+        message="Job started",
+    )
+
+
+# ─── NSFW Production ────────────────────────────────────────────────────────
+
+@router.post(
+    "/jobs/nsfw",
+    response_model=CreateClothesRemovalResponse,
+    status_code=201,
+    summary="Create NSFW production job",
+    description=(
+        "Upload an AI-generated image and start the **production** NSFW pipeline.\n\n"
+        "Fixed quality standards — no parameter tuning:\n"
+        "- 5 attempts with progressive strength (0.86→0.98)\n"
+        "- LustifyNSFW model (NSFW+inpainting specialist)\n"
+        "- Multidimensional scoring (skin + pose + clothes)\n"
+        "- Pose validation (MediaPipe)\n"
+        "- FaceID identity preservation"
+    ),
+    responses={
+        201: {"description": "Job created successfully"},
+        400: {"model": ErrorResponse, "description": "Invalid file type or size"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+)
+async def create_nsfw_job(
+    file: UploadFile = File(
+        ...,
+        description="AI-generated image file (PNG, JPEG, WebP).",
+    ),
+    prompt: str = Form(
+        default="NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, detailed breast anatomy, realistic nipples, areola details, natural skin pores, skin texture, skin imperfections, realistic body proportions, maintaining exact same body posture, keeping original body position, not moving, not rotating, same stance, identical pose, skin tone matching the person's arms and face, consistent skin color throughout, seamless skin transition, matching skin tone with surrounding body, photorealistic, professional studio photography, soft lighting, sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd",
+        description="Inpainting prompt.",
+    ),
+    negative_prompt: str = Form(
+        default="(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, mutated hands and fingers, extra fingers, missing fingers, long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, clothes, fabric, bra, straps, underwear, pattern, floral, textile, cartoon, anime, sketch, (changed pose, moved body, different position, rotated torso:1.5), (shifted weight, leaning, tilting, bending, twisting:1.4), (new angle, different posture:1.3)",
+        description="Negative prompt.",
+    ),
+    box_threshold: float = Form(
+        default=0.10, ge=0.0, le=1.0,
+        description="SE10 detection threshold.",
+    ),
+    text_threshold: float = Form(
+        default=0.10, ge=0.0, le=1.0,
+        description="SE10 text matching threshold.",
+    ),
+    webhook_url: str | None = Form(
+        default=None,
+        description="Webhook URL for completion notification.",
+    ),
+    detector: DetectorType = Form(
+        default=DetectorType.GROUNDINGDINO,
+        description="Detection engine: `groundingdino` (default) or `florence2`.",
+    ),
+    face_restore: bool = Form(
+        default=False,
+        description="Apply face restoration (CodeFormer/GFPGAN) after compositing.",
+    ),
+    face_restore_model: str = Form(
+        default="CodeFormer",
+        description="Face restoration model: `CodeFormer` or `GFPGAN`.",
+    ),
+    face_restore_fidelity: float = Form(
+        default=0.5, ge=0.0, le=1.0,
+        description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity.",
+    ),
+) -> CreateClothesRemovalResponse:
+    # ── Validate file type ──
+    allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
+    if file.content_type and file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid file type: {file.content_type}. Allowed: PNG, JPEG, WebP",
+        )
+
+    # ── Read file → base64 ──
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum: 20MB.")
+
+    image_b64 = base64.b64encode(content).decode("utf-8")
+    mime = file.content_type or "image/png"
+    image_data_uri = f"data:{mime};base64,{image_b64}"
+
+    # ── Create job ──
+    job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
+
+    request_data = {
+        "image": image_data_uri,
+        "mode": "nsfw",
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "box_threshold": box_threshold,
+        "text_threshold": text_threshold,
+        "webhook_url": webhook_url,
+        "detector": detector.value,
+        "face_restore": face_restore,
+        "face_restore_model": face_restore_model,
+        "face_restore_fidelity": face_restore_fidelity,
+    }
+
+    job = ClothesRemovalJob(
+        job_id=job_id,
+        request=request_data,
+    )
+
+    store.save_job(job_id, job.model_dump(mode="json"))
+
+    worker = get_worker()
+    worker.start()
+
+    return CreateClothesRemovalResponse(
+        job_id=job_id,
+        status="queued",
+        message="NSFW job started",
     )
 
 
 # ─── NSFW Test (Experimental) ──────────────────────────────────────────────
 
 @router.post(
-    "/nsfw-test",
+    "/jobs/nsfw-test",
     response_model=CreateClothesRemovalResponse,
     status_code=201,
-    summary="Create nsfw_test job (experimental)",
+    summary="Create NSFW test job (experimental)",
     description=(
         "Upload an AI-generated image and start an **experimental** nsfw_test pipeline.\n\n"
         "Full parameter control for testing and tuning:\n"
@@ -342,9 +436,7 @@ async def create_job(
         "- Base model selection (LustifyNSFW / JuggernautXL)\n"
         "- FaceID weight tuning\n"
         "- Inpaint mask strategy\n"
-        "- Face blending mode\n\n"
-        "## Workflow\n"
-        "Same as `POST /jobs` but with all experimental parameters exposed."
+        "- Face blending mode"
     ),
     responses={
         201: {"description": "Job created successfully"},
