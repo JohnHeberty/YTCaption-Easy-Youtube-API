@@ -153,6 +153,7 @@ async def _detect_result_clothes(
             box_threshold=0.06,
             text_threshold=0.04,
             mode="clothes",
+            detector="ensemble",
         )
         if result_seg.get("detected") and result_seg.get("masks"):
             result_mask = _combine_masks(result_seg["masks"], orig_h, orig_w)
@@ -471,7 +472,7 @@ async def run_nsfw_experimental(
             box_threshold=0.12,
             text_threshold=0.08,
             mode="clothes",
-            detector="florence2",
+            detector="ensemble",
         )
 
         clothes_combined = None

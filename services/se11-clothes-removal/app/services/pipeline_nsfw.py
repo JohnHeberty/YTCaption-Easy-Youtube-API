@@ -156,6 +156,7 @@ async def _detect_result_clothes(
             box_threshold=0.06,
             text_threshold=0.04,
             mode="clothes",
+            detector="ensemble",
         )
         if result_seg.get("detected") and result_seg.get("masks"):
             result_mask = _combine_masks(result_seg["masks"], orig_h, orig_w)
@@ -644,7 +645,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             filename=f"{job.job_id}_clothes_ref.jpg",
             classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt",
             box_threshold=0.12, text_threshold=0.08,
-            mode="clothes", detector="florence2",
+            mode="clothes", detector="ensemble",
         )
 
         clothes_combined = None
