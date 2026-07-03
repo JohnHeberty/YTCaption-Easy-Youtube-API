@@ -21,7 +21,13 @@ def _get_face_cascade():
     global _FACE_CASCADE
     if _FACE_CASCADE is None:
         import cv2
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        # Try local copy first (Docker-safe), then cv2 default
+        local_path = os.path.join(os.path.dirname(__file__), "..", "haarcascade_frontalface_default.xml")
+        local_path = os.path.normpath(local_path)
+        if os.path.exists(local_path):
+            cascade_path = local_path
+        else:
+            cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         _FACE_CASCADE = cv2.CascadeClassifier(cascade_path)
         if _FACE_CASCADE.empty():
             logger.error("Failed to load haarcascade: %s", cascade_path)

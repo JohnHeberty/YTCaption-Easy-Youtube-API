@@ -26,6 +26,7 @@ async def segment_clothes(
     box_threshold: float | None = Form(None, description="Detection confidence threshold"),
     text_threshold: float | None = Form(None, description="Text matching threshold"),
     mode: str = Form("clothes", description="Detection mode: 'clothes' or 'person'"),
+    detector: str = Form("groundingdino", description="Detector: 'groundingdino', 'yolo11', 'ensemble', 'florence2'"),
     include_pose: bool = Form(False, description="Generate OpenPose-style controlnet_image for SE8 ControlNet"),
 ) -> SegmentResponse:
     if not file.filename:
@@ -87,12 +88,13 @@ async def segment_clothes(
         loop = asyncio.get_running_loop()
         result: dict[str, Any] = await loop.run_in_executor(
             executor,
-            lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold, _mode=mode, _ip=include_pose: segmentor.segment(
+            lambda _img=contents, _cls=class_list, _bt=box_threshold, _tt=text_threshold, _mode=mode, _det=detector, _ip=include_pose: segmentor.segment(
                 image_bytes=_img,
                 classes=_cls,
                 box_threshold=_bt,
                 text_threshold=_tt,
                 mode=_mode,
+                detector=_det,
                 include_pose=_ip,
             ),
         )

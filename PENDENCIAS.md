@@ -1,69 +1,93 @@
 # PENDENCIAS.md — Items Pendentes
 
-**Data:** 2026-07-01
-**Última atualização:** NSFW Test V2 E2E Passed
+**Data:** 2026-07-03
+**Última atualização:** TESTE1.jpg face-ellipse fallback E2E success
 
 ---
 
-## NSFW Test V2 (2026-07-01)
+## NSFW Pipeline — Status Atual
 
-### 1. NSFW Test V2 Pipeline — Invert Mask + FaceID
-- **Status:** ✅ IMPLEMENTADO E E2E VALIDADO
-- **Job:** `cr_38362338519e` — completed, FaceID=on, invert_mask=True
-- **Pendência:** Avaliação visual pelo usuário antes de promover a produção
-- **Pendência:** Download `ip-adapter-faceid-plusv2_sdxl.bin` (true FaceID model, currently falls back to face adapter)
+### ✅ RESOLVIDO — Multi-Detector Ensemble (YOLO11-seg + GD) (2026-07-03)
+- **Problema:** GroundingDINO falha em 1.6% coverage para TESTE1.jpg (roupa escura, fundo complexo)
+- **Solução:** YOLO11-seg como detector paralelo + ensemble voting com centroid consensus
+- **Resultado:** YOLO11-seg detecta 53.3% coverage (33x melhor que GD)
+- **Deploy:** SE10: `yolo_detector.py`, `ensemble_detector.py`, `segmentor.py` atualizados. `pip install ultralytics`
+- **Status:** ✅ RESOLVIDO
 
-## NSFW Pipeline
+### ✅ RESOLVIDO — Face-ellipse fallback para detecção de pessoa (2026-07-03)
+- **Problema:** SE10 GroundingDINO falha em imagens com fundo complexo/roupa escura (TESTE1.jpg: 1.6% coverage)
+- **Solução:** Three-level fallback chain: (1) retry lower thresholds → (2) GrabCut from face → (3) face-ellipse 4×8
+- **Resultado:** E2E success job `cr_987fd61e9121`, composite=10.611, face 100% preservada
+- **Status:** ✅ RESOLVIDO
 
-### 1. Haarcascade adaptive head detection
-- **Status:** ✅ IMPLEMENTADO
+### ✅ RESOLVIDO — Florence-2 clothes false positives (2026-07-03)
+- **Problema:** 31 garment detections (spaghetti strap ×15, camisole ×8, hoodie ×7)
+- **Solução:** box_threshold 0.06→0.12, text_threshold 0.04→0.08
+- **Status:** ✅ RESOLVIDO (ainda detecta 14, mas confidences baixas 0.12-0.20, pipeline funciona)
 
-### 2. Face ghost no pescoço (PRÓXIMO)
+### ✅ RESOLVIDO — Docker haarcascade missing (2026-07-03)
+- **Problema:** `opencv-python-headless` não inclui haarcascade XML
+- **Solução:** Cópia local em `app/haarcascade_frontalface_default.xml` + path fallback
+- **Status:** ✅ RESOLVIDO
+
+### ✅ RESOLVIDO — Container crash com 1G memory (2026-07-03)
+- **Problema:** InsightFace ONNX + MediaPipe + SE10 calls > 1G
+- **Solução:** Memory increased 1G → 2G
+- **Status:** ✅ RESOLVIDO
+
+### ✅ RESOLVIDO — Face protection layered mask (2026-07-02)
+- **Problema:** Body-based approach (person − head) criava buracos e comia roupa
+- **Solução:** Layered approach (person − (hair OR face)) profissional
+- **Status:** ✅ RESOLVIDO em produção + experimental
+
+---
+
+## Pendências Ativas
+
+### 1. Face ghost no pescoço
 - **Problema:** SE8 gera segundo rosto onde máscara de roupa encontra face protegida
 - **Causa:** Prompt NSFW força anatomia em regiões de transição
-- **Solução:** Ajustar prompt para ser específico por região, ou usar inpaint em 2 passes (corpo primeiro, depois pele do pescoço com prompt neutro)
+- **Solução candidata:** Ajustar prompt por região ou inpaint em 2 passes
 - **Status:** PENDENTE
 
-### 3. Artefatos de borda (PRÓXIMO)
+### 2. Artefatos de borda
 - **Problema:** Restos de roupa nas laterais quando detecção não cobre 100%
-- **Causa:** Dilatação ainda insuficiente para bordas onde rouca se encontra com background
-- **Solução:** Dilatação adaptativa baseada na complexidade da máscara ou multi-pass mask refinement
+- **Solução candidata:** Dilatação adaptativa ou multi-pass mask refinement
 - **Status:** PENDENTE
 
-### 4. SE8 CUDA assertion com 60 steps (PRÓXIMO)
-- **Problema:** 60 steps x 3 tries causa CUDA assertion na RTX 3090
-- **Causa:** GPU memory overflow com tentativas sequenciais de alta qualidade
-- **Solução:** Reduzir steps para 40 ou adicionar delay/restart entre tries
+### 3. SE8 CUDA assertion com 60 steps
+- **Problema:** 60 steps x 5 tries pode causar CUDA assertion na RTX 3090
+- **Solução candidata:** Reduzir steps para 40 ou adicionar delay entre tries
 - **Status:** PENDENTE
 
-### 5. GFPGAN/CodeFormer face restore
+### 4. GFPGAN/CodeFormer face restore
 - **O que:** Face restore pós-inpainting
 - **Modelos:** Já baixados em `data/models/face_restore/`
 - **Complexidade:** MÉDIA
 - **Status:** PENDENTE
 
-### 6. Pose validation fix
-- **Problema:** pose_validator retorna vazio, todos os scores = 0.0
-- **Causa:** JSON parse error no subprocess
+### 5. OpenPose ControlNet quality tuning
+- **Problema:** MediaPipe 33-landmark stick figure incompatível com OpenPose COCO/Body_25
+- **Solução candidata:** Substituir por preprocessador OpenPose oficial ou mapear landmarks
 - **Status:** PENDENTE
 
-### 7. OpenPose ControlNet quality tuning
-- **Problema:** ControlNet OpenPose degradou pose scores vs clothes-neutral ref sozinho
-- **Causa provável:** MediaPipe 33-landmark stick figure não é compatível com OpenPose COCO/Body_25 esperado pelo modelo SDXL
-- **Solução candidata:** Substituir MediaPipe por preprocessador OpenPose oficial (25 keypoints) ou mapear landmarks MediaPipe → OpenPose
+### 6. Florence-2 ainda detecta muitos garments (14) mesmo com threshold 0.12
+- **Problema:** 14 detecções com confidences baixas (0.12-0.20) — hoodie, camisole, spaghetti strap, blouse
+- **Impacto baixo:** Pipeline funciona, masks de IP-Adapter ref são utilitárias
+- **Solução candidata:** Aumentar threshold ainda mais (0.15?) ou usar NMS para suprimir overlapping boxes
+- **Status:** BAIXA PRIORIDADE
+
+### 7. Old stuck jobs no Redis
+- **Problema:** Jobs antigos ficam com status QUEUED e reprocessam infinitamente
+- **Jobs limpos:** `cr_e5308ec29643`, `cr_64b8c8ada8e6` removidos manualmente
+- **Solução candidata:** TTL no status QUEUED ou limpeza automática no worker
 - **Status:** PENDENTE
 
-### 8. SE8 container GPU mounts
-- **Problema:** Restart perdia acesso a driver NVIDIA; `PermissionError` em `/app/data/wildcards`
-- **Solução aplicada:** Recriar container com binds para libs GPU + dispositivos; criar `data/wildcards` com uid 1000
-- **Status:** ✅ RESOLVIDO (documentar no compose)
-
-### 9. Face blend / anti-recorte
-- **Problema:** Face parecia recorte colado da original + deslocamento do rosto em v23.2
-- **Solução aplicada (v23.4):** Preservar FACE COMPLETA via Haar bbox (margin 5%/55%/40%) + feather direcional só no queixo/pescoço + distance transform + harmonização LAB localizada
-- **Resultado:** job `cr_4c585ccaada4` best score = 11.8; máscara = 38.8k px (~29.6% da cabeça); deslocamento corrigido
-- **Próximos passos:** Se ainda houver colagem/borda visível, aplicar Laplacian pyramid blending ou GFPGAN face restore
-- **Status:** ✅ MELHORADO — aguardar avaliação visual
+### 8. BiRefNet-portrait como detector avançado (Futuro)
+- **O que:** BiRefNet-portrait é SOTA em segmentação de pessoa (melhor que rembg/u2net)
+- **Impacto:** Poderia substituir face-ellipse fallback com máscara de alta qualidade
+- **Complexidade:** MÉDIA — ONNX exportável, ~200MB modelo
+- **Status:** PENDENTE (Fase 2 do plano multi-detector)
 
 ---
 
@@ -89,6 +113,12 @@
 | Swagger: file upload + dropdowns + auth | ✅ |
 | POLITICA-USO.md + README.md | ✅ |
 | SE4 field name fix (transcription bug) | ✅ |
+| Layered mask construction (person − (hair OR face)) | ✅ |
+| Face-ellipse fallback (3-level chain) | ✅ |
+| Florence-2 threshold 0.06→0.12 | ✅ |
+| Docker haarcascade copy + path fallback | ✅ |
+| SE11 memory 1G→2G | ✅ |
+| Per-mask independent debug saves | ✅ |
 
 ---
 

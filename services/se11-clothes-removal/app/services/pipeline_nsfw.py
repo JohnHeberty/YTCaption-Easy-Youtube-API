@@ -402,11 +402,11 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         job.update_stage("detecting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # ─── Stage 1: SE10 Person Detection ───
+        # ─── Stage 1: SE10 Person Detection (ensemble: GD + YOLO11) ───
         person_seg = await se10.segment(
             image_bytes=image_bytes, filename=f"{job.job_id}_person.jpg",
             classes="person, woman, man", box_threshold=0.20, text_threshold=0.15, mode="person",
-            include_pose=True,
+            detector="ensemble", include_pose=True,
         )
         pose_cn_b64 = person_seg.get("controlnet_image")
         if not person_seg.get("detected") or not person_seg.get("masks"):
@@ -445,6 +445,110 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         person_binary = _cv2.bitwise_or(person_binary, _holes)
         logger.info("Job %s: person mask holes filled (%d px closed via multi-seed floodFill)",
                      job.job_id, _np.count_nonzero(_holes))
+
+        # ─── Fallback: Retry with lower thresholds if person mask too small ───
+        person_coverage = (person_binary > 0).sum() / person_binary.size * 100
+        if person_coverage < 10.0:
+            logger.warning("Job %s: person coverage too low (%.1f%% < 10%%), retrying with lower thresholds",
+                           job.job_id, person_coverage)
+            person_seg_retry = await se10.segment(
+                image_bytes=image_bytes, filename=f"{job.job_id}_person_retry.jpg",
+                classes="person, woman, man", box_threshold=0.10, text_threshold=0.08,
+                mode="person", detector="ensemble", include_pose=True,
+            )
+            if person_seg_retry.get("detected") and person_seg_retry.get("masks"):
+                best_idx_r = max(range(len(person_seg_retry["objects"])),
+                                 key=lambda i: person_seg_retry["objects"][i].get("area_pct", 0))
+                raw_pr = _strip_data_uri(person_seg_retry["masks"][best_idx_r])
+                person_mask_r = _cv2.imdecode(
+                    _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_pr)), _np.uint8),
+                    _cv2.IMREAD_GRAYSCALE)
+                if person_mask_r is not None:
+                    if person_mask_r.shape[:2] != (orig_h, orig_w):
+                        person_mask_r = _cv2.resize(person_mask_r, (orig_w, orig_h))
+                    person_binary_r = (person_mask_r > 127).astype(_np.uint8) * 255
+                    retry_coverage = (person_binary_r > 0).sum() / person_binary_r.size * 100
+                    if retry_coverage > person_coverage:
+                        person_binary = person_binary_r
+                        person_seg = person_seg_retry
+                        if person_seg_retry.get("controlnet_image"):
+                            pose_cn_b64 = person_seg_retry["controlnet_image"]
+                        person_coverage = retry_coverage
+                        logger.info("Job %s: retry improved coverage to %.1f%%",
+                                    job.job_id, person_coverage)
+
+        # ─── Fallback 2: GrabCut if still too small ───
+        if person_coverage < 10.0:
+            logger.warning("Job %s: still low coverage (%.1f%%), trying GrabCut fallback",
+                           job.job_id, person_coverage)
+            faces = []
+            try:
+                from app.services.head_detector import _detect_faces
+                faces = _detect_faces(orig_img)
+            except Exception:
+                pass
+            if faces:
+                face = max(faces, key=lambda f: f[2] * f[3])
+                fx, fy, fw, fh = face
+                # Create a generous rectangle around the face for GrabCut seed
+                gc_margin_x = int(fw * 3.0)
+                gc_margin_top = int(fh * 4.0)
+                gc_margin_bot = int(fh * 6.0)
+                gc_x1 = max(0, fx - gc_margin_x)
+                gc_y1 = max(0, fy - gc_margin_top)
+                gc_x2 = min(orig_w, fx + fw + gc_margin_x)
+                gc_y2 = min(orig_h, fy + fh + gc_margin_bot)
+                gc_rect = (gc_x1, gc_y1, gc_x2 - gc_x1, gc_y2 - gc_y1)
+
+                gc_mask_gc = _np.zeros((orig_h, orig_w), _np.uint8)
+                # Mark inside as probable foreground, border strip as probable background
+                gc_mask_gc[:] = _cv2.GC_PR_FGD
+                border = 5
+                gc_mask_gc[:border, :] = _cv2.GC_PR_BGD
+                gc_mask_gc[-border:, :] = _cv2.GC_PR_BGD
+                gc_mask_gc[:, :border] = _cv2.GC_PR_BGD
+                gc_mask_gc[:, -border:] = _cv2.GC_PR_BGD
+
+                bgd_model = _np.zeros((1, 65), _np.float64)
+                fgd_model = _np.zeros((1, 65), _np.float64)
+                try:
+                    _cv2.grabCut(orig_img, gc_mask_gc, gc_rect, bgd_model, fgd_model,
+                                 5, _cv2.GC_INIT_WITH_RECT)
+                    gc_fg = _np.where((gc_mask_gc == _cv2.GC_FGD) | (gc_mask_gc == _cv2.GC_PR_FGD), 255, 0).astype(_np.uint8)
+                    gc_coverage = (gc_fg > 0).sum() / gc_fg.size * 100
+                    if gc_coverage > person_coverage:
+                        person_binary = gc_fg
+                        person_coverage = gc_coverage
+                        logger.info("Job %s: GrabCut improved coverage to %.1f%%",
+                                    job.job_id, person_coverage)
+                except Exception as exc:
+                    logger.warning("Job %s: GrabCut failed: %s", job.job_id, exc)
+
+            # Final fallback: expand face bbox to cover expected body area
+            if person_coverage < 10.0 and faces:
+                face = max(faces, key=lambda f: f[2] * f[3])
+                fx, fy, fw, fh = face
+                body_w = int(fw * 4.0)
+                body_h = int(fh * 8.0)
+                body_cx = fx + fw // 2
+                body_cy = fy + fh + body_h // 2
+                body_x1 = max(0, body_cx - body_w // 2)
+                body_y1 = max(0, fy - int(fh * 1.5))
+                body_x2 = min(orig_w, body_cx + body_w // 2)
+                body_y2 = min(orig_h, body_cy + body_h // 2)
+                body_rect_mask = _np.zeros((orig_h, orig_w), _np.uint8)
+                # Ellipse inside the rectangle
+                ell_cx = (body_x1 + body_x2) // 2
+                ell_cy = (body_y1 + body_y2) // 2
+                ell_w = (body_x2 - body_x1) // 2
+                ell_h = (body_y2 - body_y1) // 2
+                _cv2.ellipse(body_rect_mask, (ell_cx, ell_cy), (ell_w, ell_h), 0, 0, 360, 255, -1)
+                ell_coverage = (body_rect_mask > 0).sum() / body_rect_mask.size * 100
+                if ell_coverage > person_coverage:
+                    person_binary = body_rect_mask
+                    person_coverage = ell_coverage
+                    logger.info("Job %s: face-ellipse fallback coverage=%.1f%%",
+                                job.job_id, person_coverage)
 
         job.update_stage("detecting", "processing", progress=25.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -539,7 +643,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             image_bytes=image_bytes,
             filename=f"{job.job_id}_clothes_ref.jpg",
             classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt",
-            box_threshold=0.06, text_threshold=0.04,
+            box_threshold=0.12, text_threshold=0.08,
             mode="clothes", detector="florence2",
         )
 
@@ -650,25 +754,29 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         original_skin_pct = _detect_skin_hsv(orig_img)
         logger.info("Job %s: original skin_pct=%.1f%% (HSV baseline)", job.job_id, original_skin_pct)
 
-        try:
-            _cv2.imwrite(os.path.join(output_dir, "00_original.png"), orig_img)
-            _cv2.imwrite(os.path.join(output_dir, "01_person.png"), person_binary)
-            _cv2.imwrite(os.path.join(output_dir, "02_head_full.png"), hair_mask)
-            _cv2.imwrite(os.path.join(output_dir, "03_body.png"), body_mask)
-            _cv2.imwrite(os.path.join(output_dir, "03b_face_only.png"), face_mask)
-            if clothes_combined is not None:
-                _cv2.imwrite(os.path.join(output_dir, "04_clothes.png"), clothes_combined)
-            _cv2.imwrite(os.path.join(output_dir, "05_exposed_skin.png"), exposed_skin)
-            _cv2.imwrite(os.path.join(output_dir, "06_inpaint_mask.png"), inpaint_mask)
-            _cv2.imwrite(os.path.join(output_dir, "07_head_adjusted.png"), head_adjusted)
-            if pose_cn_b64 is not None:
+        for _dbg_num, _dbg_name, _dbg_img in [
+            (0, "original", orig_img),
+            (1, "person", person_binary),
+            (2, "head_full", hair_mask),
+            (3, "face_only", face_mask),
+            (4, "clothes", clothes_combined),
+            (5, "inpaint_mask", inpaint_mask),
+            (6, "head_adjusted", head_adjusted),
+        ]:
+            if _dbg_img is not None:
+                try:
+                    _cv2.imwrite(os.path.join(output_dir, f"{_dbg_num:02d}_{_dbg_name}.png"), _dbg_img)
+                except Exception as exc:
+                    logger.warning("Job %s: debug save %s failed: %s", job.job_id, _dbg_name, exc)
+        if pose_cn_b64 is not None:
+            try:
                 pose_bytes = base64.b64decode(pose_cn_b64.split(",")[1])
                 pose_arr = _np.frombuffer(pose_bytes, _np.uint8)
                 pose_decoded = _cv2.imdecode(pose_arr, _cv2.IMREAD_COLOR)
                 if pose_decoded is not None:
                     _cv2.imwrite(os.path.join(output_dir, "08_pose_controlnet.png"), pose_decoded)
-        except Exception as exc:
-            logger.warning("Job %s: failed to save debug masks: %s", job.job_id, exc)
+            except Exception:
+                pass
 
         # Save mask overlay on original for visual debugging
         try:
