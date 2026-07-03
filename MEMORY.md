@@ -40,14 +40,13 @@ Layer 6: Dilate + close para bordas suaves do SE8
 
 ### 🐛 Bug Fix — Stage "detecting" nunca completava
 
-**Problema:** Nos 3 pipelines NSFW (`pipeline_nsfw.py`, `pipeline_nsfw_experimental_v2.py`, `pipeline_nsfw_experimental.py`), o stage "detecting" era marcado como "processing" mas nunca como "completed" antes de transicionar para "inpainting". Isso fazia o progress bar ficar travado em ~70% mesmo com job "completed".
+**Problema:** Nos 2 pipelines NSFW (`pipeline_nsfw.py`, `pipeline_nsfw_experimental_v2.py`), o stage "detecting" era marcado como "processing" mas nunca como "completed" antes de transicionar para "inpainting". Isso fazia o progress bar ficar travado em ~70% mesmo com job "completed".
 
 **Fix:** Adicionado `job.update_stage("detecting", "completed", progress=100.0)` + `store.save_job()` antes da transição para "inpainting" em todos os 3 arquivos.
 
 **Arquivos alterados:**
 - `services/se11-clothes-removal/app/services/pipeline_nsfw.py:567`
 - `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental_v2.py:530`
-- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py:233`
 
 **Deploy:** `docker cp` + `docker restart se11-clothes-removal` — verificado com `grep` no container.
 
