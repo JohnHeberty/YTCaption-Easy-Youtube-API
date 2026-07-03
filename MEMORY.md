@@ -16,16 +16,16 @@
 
 #### Arquitetura Multi-Detector
 ```
-┌──────────────┐  ┌──────────────┐
-│ GroundingDINO │  │  YOLO11-seg  │
-│  (text-prompt)│  │ (COCO person)│
-└──────┬───────┘  └──────┬───────┘
-       │                  │
-       └────────┬─────────┘
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ GroundingDINO │  │  YOLO11-seg  │  │ BiRefNet-port│
+│  (text-prompt)│  │ (COCO person)│  │ (SOTA person) │
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                  │                  │
+       └────────┬─────────┴──────────────────┘
                 ▼
        ┌────────────────┐
        │Consensus Voting│
-       │(centroid+IoU)  │
+       │(coverage+SOTA) │
        └───────┬────────┘
                ▼
        ┌────────────────┐
@@ -36,23 +36,36 @@
        Mask final → SAM2 (se bbox) ou direto (se mask)
 ```
 
+#### Resultados comparativos (TESTE1.jpg)
+| Detector | Coverage | Confiança | Velocidade | Nota |
+|----------|----------|-----------|------------|------|
+| GroundingDINO | 1.6% | — | ~9.4s | FALHOU |
+| YOLO11-seg | 53.3% | 94.3% | ~1.4s | Rápido |
+| **BiRefNet-portrait** | **48.8%** | **99.7%** | **~31s** | **SOTA** |
+| Ensemble (GD+YOLO+BRef) | 48.8% | 99.7% | ~38s | Melhor |
+
 #### Arquivos criados/modificados
 - `services/se10-clothes-segmentation/app/services/yolo_detector.py` — YOLO11-seg wrapper
-- `services/se10-clothes-segmentation/app/services/ensemble_detector.py` — Multi-detector voting
-- `services/se10-clothes-segmentation/app/services/segmentor.py` — Suporte `detector="yolo11"|"ensemble"`
+- `services/se10-clothes-segmentation/app/services/birefnet_detector.py` — BiRefNet-portrait ONNX wrapper
+- `services/se10-clothes-segmentation/app/services/ensemble_detector.py` — Multi-detector voting (GD+YOLO+BiRefNet)
+- `services/se10-clothes-segmentation/app/services/segmentor.py` — Suporte `detector="yolo11"|"birefnet"|"ensemble"`
 - `services/se10-clothes-segmentation/app/api/routes/segment.py` — Param `detector` no form
 - `services/se10-clothes-segmentation/requirements.txt` — Adicionado `ultralytics>=8.4.0`
 - `services/se11-clothes-removal/app/services/pipeline_nsfw.py` — `detector="ensemble"` em person detection
 - `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py` — `detector="ensemble"` em person detection
 
 #### Deploy
-- SE10: `docker cp` de yolo_detector.py, ensemble_detector.py, segmentor.py, segment.py + `pip install ultralytics` + `docker restart`
+- SE10: `docker cp` de yolo_detector.py, birefnet_detector.py, ensemble_detector.py, segmentor.py, segment.py + `pip install ultralytics onnxruntime` + `docker restart`
 - SE11: `docker cp` de pipeline_nsfw.py, pipeline_nsfw_experimental.py + `docker restart`
 - YOLO model: `yolo11m-seg.pt` (43.3MB, download automático na primeira execução)
+- BiRefNet model: `birefnet-portrait.onnx` (928MB, em `/home/appuser/birefnet-portrait.onnx`)
+- ⚠️ onnxruntime pode quebrar protobuf — precisa `pip install protobuf==3.20.3` após onnxruntime
 
 #### Resultados em show/
 - `show/yolo11_final_mask.png` — máscara YOLO11-seg (53.3%)
 - `show/yolo11_final_overlay.png` — overlay verde na pessoa
+- `show/birefnet_mask.png` — máscara BiRefNet-portrait (48.8%)
+- `show/birefnet_overlay.png` — overlay verde BiRefNet
 - `show/yolo11_teste1_mask.png` — teste inicial
 - `show/yolo11_teste1_overlay.png` — overlay teste inicial
 

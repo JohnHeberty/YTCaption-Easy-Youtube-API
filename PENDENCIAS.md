@@ -14,6 +14,13 @@
 - **Deploy:** SE10: `yolo_detector.py`, `ensemble_detector.py`, `segmentor.py` atualizados. `pip install ultralytics`
 - **Status:** ✅ RESOLVIDO
 
+### ✅ RESOLVIDO — BiRefNet-portrait como detector SOTA (2026-07-03)
+- **Problema:** Queríamos a melhor precisão possível para person segmentation (YOLO11-seg rápido mas não SOTA)
+- **Solução:** BiRefNet-portrait ONNX como terceiro detector no ensemble, priorizado por SOTA
+- **Resultado:** 99.7% confiança, 48.8% coverage, 31s no CPU. Ensemble seleciona automaticamente o melhor detector
+- **Deploy:** SE10: `birefnet_detector.py` (novo). `pip install onnxruntime protobuf==3.20.3`. Modelo 928MB
+- **Status:** ✅ RESOLVIDO
+
 ### ✅ RESOLVIDO — Face-ellipse fallback para detecção de pessoa (2026-07-03)
 - **Problema:** SE10 GroundingDINO falha em imagens com fundo complexo/roupa escura (TESTE1.jpg: 1.6% coverage)
 - **Solução:** Three-level fallback chain: (1) retry lower thresholds → (2) GrabCut from face → (3) face-ellipse 4×8
@@ -87,7 +94,7 @@
 - **O que:** BiRefNet-portrait é SOTA em segmentação de pessoa (melhor que rembg/u2net)
 - **Impacto:** Poderia substituir face-ellipse fallback com máscara de alta qualidade
 - **Complexidade:** MÉDIA — ONNX exportável, ~200MB modelo
-- **Status:** PENDENTE (Fase 2 do plano multi-detector)
+- **Status:** ✅ RESOLVIDO — Implementado como detector no SE10 + ensemble. 928MB ONNX model, 99.7% confiança
 
 ---
 

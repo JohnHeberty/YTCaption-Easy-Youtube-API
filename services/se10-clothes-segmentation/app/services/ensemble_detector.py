@@ -25,11 +25,16 @@ class EnsembleDetector:
 
     def __init__(self) -> None:
         self._yolo_detector: Any = None
+        self._birefnet_detector: Any = None
         self._gd_model: Any = None
 
     def set_yolo(self, yolo_detector: Any) -> None:
         """Register YOLO11-seg detector."""
         self._yolo_detector = yolo_detector
+
+    def set_birefnet(self, birefnet_detector: Any) -> None:
+        """Register BiRefNet-portrait detector."""
+        self._birefnet_detector = birefnet_detector
 
     def set_groundingdino(self, gd_model: Any) -> None:
         """Register GroundingDINO model."""
@@ -132,9 +137,36 @@ class EnsembleDetector:
                 results["yolo11"] = {"detected": False, "error": str(e)}
                 logger.warning("YOLO11-seg failed: %s", e)
 
+        # --- Detector 3: BiRefNet-portrait ---
+        birefnet_detections = None
+        if self._birefnet_detector is not None:
+            try:
+                birefnet_det = self._birefnet_detector.predict(
+                    image_bgr, threshold=0.5
+                )
+                if len(birefnet_det) > 0 and birefnet_det.mask is not None:
+                    total_mask_px = sum(m.sum() for m in birefnet_det.mask)
+                    coverage = (total_mask_px / image_area) * 100
+                    results["birefnet"] = {
+                        "detected": True,
+                        "coverage_pct": round(coverage, 1),
+                        "num_objects": len(birefnet_det),
+                        "max_confidence": round(float(birefnet_det.confidence.max()), 3),
+                    }
+                    if coverage >= min_coverage_pct:
+                        birefnet_detections = birefnet_det
+                    else:
+                        results["birefnet"]["filtered"] = True
+                        results["birefnet"]["reason"] = f"coverage {coverage:.1f}% < {min_coverage_pct}%"
+                else:
+                    results["birefnet"] = {"detected": False, "coverage_pct": 0.0}
+            except Exception as e:
+                results["birefnet"] = {"detected": False, "error": str(e)}
+                logger.warning("BiRefNet-portrait failed: %s", e)
+
         # --- Consensus Voting ---
         final_detections, method = self._consensus_vote(
-            gd_detections, yolo_detections, min_coverage_pct
+            gd_detections, yolo_detections, birefnet_detections, min_coverage_pct
         )
 
         final_coverage = 0.0
@@ -167,61 +199,53 @@ class EnsembleDetector:
         self,
         gd_detections: sv.Detections | None,
         yolo_detections: sv.Detections | None,
+        birefnet_detections: sv.Detections | None,
         min_coverage_pct: float = 5.0,
     ) -> tuple[sv.Detections | None, str]:
         """Choose best detections based on consensus logic.
 
         Strategy:
-        1. If both detect → pick higher coverage (or merge if centroids agree)
+        1. If multiple detect → pick highest coverage with masks
         2. If only one detects → use it
-        3. If neither detects → return None
+        3. If none detect → return None
 
         Returns:
             (detections, method_name)
         """
         gd_ok = gd_detections is not None and len(gd_detections) > 0
         yolo_ok = yolo_detections is not None and len(yolo_detections) > 0
+        birefnet_ok = birefnet_detections is not None and len(birefnet_detections) > 0
 
-        if not gd_ok and not yolo_ok:
+        detected: list[tuple[str, sv.Detections]] = []
+        if gd_ok:
+            detected.append(("groundingdino", gd_detections))
+        if yolo_ok:
+            detected.append(("yolo11", yolo_detections))
+        if birefnet_ok:
+            detected.append(("birefnet", birefnet_detections))
+
+        if not detected:
             return None, "none"
 
-        if gd_ok and not yolo_ok:
-            return gd_detections, "groundingdino"
+        if len(detected) == 1:
+            name, det = detected[0]
+            return det, name
 
-        if yolo_ok and not gd_ok:
-            return yolo_detections, "yolo11"
+        # Multiple detectors agree — prefer the one with masks and highest coverage
+        def _coverage(det: sv.Detections) -> float:
+            if det.mask is not None:
+                total_px = sum(m.sum() for m in det.mask)
+                return total_px
+            return sum(
+                (box[2] - box[0]) * (box[3] - box[1]) for box in det.xyxy
+            )
 
-        # Both detected — check centroid agreement
-        gd_centroids = self._compute_centroids(gd_detections)
-        yolo_centroids = self._compute_centroids(yolo_detections)
+        # Sort by coverage (descending), prefer detectors with masks
+        detected.sort(key=lambda x: (_coverage(x[1]), x[1].mask is not None), reverse=True)
+        best_name, best_det = detected[0]
 
-        # Check if any centroids are close (IoU > 0.3 or distance < threshold)
-        has_agreement = False
-        for gc in gd_centroids:
-            for yc in yolo_centroids:
-                dist = np.sqrt((gc[0] - yc[0]) ** 2 + (gc[1] - yc[1]) ** 2)
-                max_dist = max(gd_detections.xyxy[:, 2] - gd_detections.xyxy[:, 0]).mean() * 0.5
-                if dist < max_dist:
-                    has_agreement = True
-                    break
-            if has_agreement:
-                break
+        # If BiRefNet and YOLO both detected, BiRefNet is SOTA — prefer it
+        if birefnet_ok and yolo_ok:
+            return birefnet_detections, "birefnet_preferred_sota"
 
-        if has_agreement:
-            # Centroids agree — use the one with masks (YOLO11 has masks, GD doesn't)
-            if yolo_detections.mask is not None:
-                return yolo_detections, "yolo11_preferred_with_mask"
-            return gd_detections, "groundingdino_preferred"
-        else:
-            # Disagreement — use higher coverage
-            return yolo_detections, "yolo11_higher_coverage"
-
-    @staticmethod
-    def _compute_centroids(detections: sv.Detections) -> list[tuple[float, float]]:
-        """Compute centroid of each detection."""
-        centroids = []
-        for box in detections.xyxy:
-            cx = (box[0] + box[2]) / 2
-            cy = (box[1] + box[3]) / 2
-            centroids.append((cx, cy))
-        return centroids
+        return best_det, f"{best_name}_highest_coverage"

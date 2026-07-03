@@ -61,6 +61,7 @@ class ClothesSegmentor:
         self._gd_model: Any = None
         self._sam2_predictor: Any = None
         self._yolo_detector: Any = None
+        self._birefnet_detector: Any = None
         self._ensemble_detector: Any = None
         self._pose_renderer: PoseRenderer | None = None
         self._load_models()
@@ -137,13 +138,33 @@ class ClothesSegmentor:
             logger.warning("YOLO11-seg not available: %s", e)
             self._yolo_detector = None
 
+        # BiRefNet-portrait (optional — ONNX person segmentation)
+        try:
+            from app.services.birefnet_detector import BiRefNetDetector
+            birefnet_path = os.environ.get(
+                "BIREFNET_MODEL_PATH",
+                "/home/appuser/birefnet-portrait.onnx",
+            )
+            self._birefnet_detector = BiRefNetDetector(model_path=birefnet_path)
+            self._birefnet_detector.load()
+            logger.info("BiRefNet-portrait loaded")
+        except Exception as e:
+            logger.warning("BiRefNet-portrait not available: %s", e)
+            self._birefnet_detector = None
+
         # Ensemble detector (combines all available detectors)
-        if self._yolo_detector is not None:
+        if self._yolo_detector is not None or self._birefnet_detector is not None:
             from app.services.ensemble_detector import EnsembleDetector
             self._ensemble_detector = EnsembleDetector()
-            self._ensemble_detector.set_yolo(self._yolo_detector)
-            self._ensemble_detector.set_groundingdino(self._gd_model)
-            logger.info("Ensemble detector ready (GD + YOLO11)")
+            if self._yolo_detector is not None:
+                self._ensemble_detector.set_yolo(self._yolo_detector)
+            if self._birefnet_detector is not None:
+                self._ensemble_detector.set_birefnet(self._birefnet_detector)
+            if self._gd_model is not None:
+                self._ensemble_detector.set_groundingdino(self._gd_model)
+            logger.info("Ensemble detector ready (GD=%s, YOLO=%s, BiRefNet=%s)",
+                        self._gd_model is not None, self._yolo_detector is not None,
+                        self._birefnet_detector is not None)
 
         # Pose renderer (lazy — only used when include_pose=True)
         self._pose_renderer = PoseRenderer(
@@ -209,7 +230,7 @@ class ClothesSegmentor:
         height, width, _ = original_image.shape
         image_area = height * width
 
-        # 1. Detection — supports groundingdino, florence2, yolo11, ensemble
+        # 1. Detection — supports groundingdino, florence2, yolo11, birefnet, ensemble
         if detector == "ensemble" and self._ensemble_detector is not None:
             # Multi-detector consensus voting
             ensemble_result = self._ensemble_detector.detect_ensemble(
@@ -246,6 +267,19 @@ class ClothesSegmentor:
             # YOLO11-seg direct detection
             detections = self._yolo_detector.predict(
                 original_image, confidence=box_threshold or 0.25, classes=[0]
+            )
+            if len(detections) == 0:
+                return {
+                    "detected": False,
+                    "objects": [],
+                    "mask_image": None,
+                    "processing_time_ms": round((time.time() - t0) * 1000, 1),
+                }
+            has_masks = detections.mask is not None
+        elif detector == "birefnet" and self._birefnet_detector is not None:
+            # BiRefNet-portrait direct detection — outputs binary person mask
+            detections = self._birefnet_detector.predict(
+                original_image, threshold=box_threshold or 0.5
             )
             if len(detections) == 0:
                 return {
@@ -343,6 +377,8 @@ class ClothesSegmentor:
         labels = []
         for cls_id, conf in zip(final_detections.class_id, final_detections.confidence):
             if detector in ("yolo11", "ensemble") and cls_id == 0:
+                labels.append(f"person {conf:.2f}")
+            elif detector == "birefnet" and cls_id == 0:
                 labels.append(f"person {conf:.2f}")
             elif cls_id < len(classes):
                 labels.append(f"{classes[cls_id]} {conf:.2f}")
