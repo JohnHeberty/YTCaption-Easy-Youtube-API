@@ -49,14 +49,16 @@ class BiRefNetDetector:
                 "Download from https://huggingface.co/onnx-community/BiRefNet-portrait-ONNX"
             )
 
-        # Prefer CUDA, fallback to CPU
+        # Respect DEVICE env var (force CPU when SE10 runs alongside SE8 on same GPU)
+        import os
+        device_env = os.environ.get("DEVICE", "auto").lower()
         available = ort.get_available_providers()
-        if "CUDAExecutionProvider" in available:
-            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            logger.info("BiRefNet using CUDA provider")
-        else:
+        if device_env == "cpu" or "CUDAExecutionProvider" not in available:
             providers = ["CPUExecutionProvider"]
-            logger.info("BiRefNet using CPU provider")
+            logger.info("BiRefNet using CPU provider (DEVICE=%s)", device_env)
+        else:
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            logger.info("BiRefNet using CUDA provider (DEVICE=%s)", device_env)
 
         self._session = ort.InferenceSession(
             str(model_path), providers=providers

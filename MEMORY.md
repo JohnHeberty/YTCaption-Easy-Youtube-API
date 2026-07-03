@@ -2,6 +2,49 @@
 
 ## Última sessão (2026-07-03)
 
+### 🟢 Pose-Aware Early Stop + SE10 CPU (2026-07-03)
+
+**Problema 1:** Early stop ativava com `composite < 5.0` mesmo quando `pose_changed=true`. Resultado: apenas 1 tentativa, pose alterada aceita sem retry.
+
+**Problema 2:** SE10 (6GB GPU) + SE8 (17GB GPU) = 23GB/24GB causava corrupção de CUDA handle (`handle_0 INTERNAL ASSERT FAILED`). SE8 retornava HTTP 200 com lista vazia `[]`.
+
+**Fixes:**
+- `pipeline_nsfw.py` early stop: agora requer `composite < 5.0` E `pose_changed=false`. Se pose_changed=true, continua retrying.
+- SE10: `DEVICE=cpu`, `runtime: nvidia` removido. Evita conflito de GPU com SE8.
+
+**Resultado E2E (TESTE1.jpg, cr_cea3e110b398):**
+- `pose_changed: false` ✅ (era true antes)
+- `max_landmark_pct: 10.873%` (era 18.095%)
+- `composite_score: 2.773` (era 4.875)
+- `head_pct: 0.874%` — face preservada
+- 1 tentativa (early stop correto — ambos critérios atendidos)
+
+**Trade-off:** SE10 em CPU = ~30s detecção vs ~1s GPU. Aceitável porque pipeline já leva ~2min.
+
+### 🟢 E2E Ensemble Fix — SE11 pipelines sem detector (2026-07-03)
+
+**Problema:** Pipeline NSFW falhava com `name '_C' is not defined` no SE10. Raiz: duas chamadas SE10 no pipeline não passavam `detector` param, defaultando para GroundingDINO (quebrado).
+
+**Causa raiz investigada:** Debug logging revelou que SE10 recebia `detector=groundingdino` em vez de `detector=ensemble`. Três chamadas SE10 no pipeline:
+1. **Person detection** (line 406): `detector="ensemble"` ✅
+2. **Clothes detection** (line 642): `detector="florence2"` ❌ → Florence2 quebrado (`Florence2LanguageConfig` missing attr)
+3. **Result clothes detection** (line 152): sem `detector` → default `groundingdino` ❌
+
+**Fixes:**
+- `_detect_result_clothes()`: adicionado `detector="ensemble"`
+- Clothes detection: trocado `detector="florence2"` → `detector="ensemble"`
+- Ambos pipelines (production + experimental)
+
+**Resultado E2E (TESTE1.jpg):** Sucesso! Job `cr_dcc0421c5a3a`, 1 tentativa, composite=1.816, person 48.9% coverage, conf=0.9972.
+
+### 🟢 NSFW Prompt Override Fix — /jobs/nsfw sempre usa prompt hardcoded (2026-07-03)
+
+**Problema:** Usuário enviava `prompt=woman in elegant dress` na rota `/jobs/nsfw`. O pipeline usava `job.request.prompt or nsfw_prompt` — como prompt do usuário é não-vazio, sobrescrevia o NSFW prompt. Resultado: vestido gerado em vez de nudez.
+
+**Fix:** `/jobs/nsfw` agora ignora `job.request.prompt` e sempre usa `nsfw_prompt` hardcoded. Log de warning quando prompt do usuário é descartado. Para prompts customizados, usar `/jobs/nsfw-test`.
+
+**Commits:** `c48556e` (NSFW prompt), `5caa896` (ensemble fix)
+
 ### 🟢 YOLO11-seg + Ensemble Voting — Multi-Detector Person Detection (2026-07-03)
 
 **Problema:** SE10 GroundingDINO falha em imagens com fundo complexo/roupa escura (TESTE1.jpg: 1.6% coverage).
