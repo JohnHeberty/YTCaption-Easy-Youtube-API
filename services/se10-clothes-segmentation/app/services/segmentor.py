@@ -129,11 +129,12 @@ class ClothesSegmentor:
         try:
             from app.services.yolo_detector import YOLODetector
             yolo_device = "cuda" if self._device.type == "cuda" else "cpu"
+            yolo_path = os.environ.get("YOLO_MODEL_PATH", "/app/yolo11m-seg.pt")
             self._yolo_detector = YOLODetector(
-                model_path=YOLO_MODEL_PATH, device=yolo_device
+                model_path=yolo_path, device=yolo_device
             )
             self._yolo_detector.load()
-            logger.info("YOLO11-seg loaded")
+            logger.info("YOLO11-seg loaded | device=%s", yolo_device)
         except Exception as e:
             logger.warning("YOLO11-seg not available: %s", e)
             self._yolo_detector = None

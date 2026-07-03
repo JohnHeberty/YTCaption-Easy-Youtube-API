@@ -40,6 +40,17 @@ RUN useradd -m -u 1000 appuser && \
     mkdir -p /app/data/{inputs,outputs,temp} && \
     chown -R appuser:appuser /app/data
 
+# Create symlinks for CUDA libs from pip packages (needed by onnxruntime-gpu)
+RUN ln -sf /usr/local/lib/python3.11/site-packages/nvidia/cu13/lib/libcudart.so.13 /usr/lib/x86_64-linux-gnu/libcudart.so.13 && \
+    ln -sf /usr/local/lib/python3.11/site-packages/nvidia/cublas/lib/libcublas.so.12 /usr/lib/x86_64-linux-gnu/libcublas.so.12 && \
+    ln -sf /usr/local/lib/python3.11/site-packages/nvidia/cublas/lib/libcublasLt.so.12 /usr/lib/x86_64-linux-gnu/libcublasLt.so.12 && \
+    ln -sf /usr/local/lib/python3.11/site-packages/nvidia/cufft/lib/libcufft.so.11 /usr/lib/x86_64-linux-gnu/libcufft.so.11 && \
+    ln -sf /usr/local/lib/python3.11/site-packages/nvidia/cufft/lib/libcufftw.so.11 /usr/lib/x86_64-linux-gnu/libcufftw.so.11 && \
+    for lib in /usr/local/lib/python3.11/site-packages/nvidia/cu13/lib/*.so* /usr/local/lib/python3.11/site-packages/nvidia/cudnn/lib/*.so* /usr/local/lib/python3.11/site-packages/nvidia/cublas/lib/*.so* /usr/local/lib/python3.11/site-packages/nvidia/cuda_runtime/lib/*.so* /usr/local/lib/python3.11/site-packages/nvidia/cufft/lib/*.so*; do \
+      name=$(basename $lib); \
+      [ ! -e /usr/lib/x86_64-linux-gnu/$name ] && ln -sf $lib /usr/lib/x86_64-linux-gnu/$name 2>/dev/null || true; \
+    done && ldconfig
+
 USER appuser
 
 EXPOSE 8010

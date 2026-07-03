@@ -49,15 +49,23 @@ class BiRefNetDetector:
                 "Download from https://huggingface.co/onnx-community/BiRefNet-portrait-ONNX"
             )
 
-        providers = ["CPUExecutionProvider"]
+        # Prefer CUDA, fallback to CPU
+        available = ort.get_available_providers()
+        if "CUDAExecutionProvider" in available:
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            logger.info("BiRefNet using CUDA provider")
+        else:
+            providers = ["CPUExecutionProvider"]
+            logger.info("BiRefNet using CPU provider")
+
         self._session = ort.InferenceSession(
             str(model_path), providers=providers
         )
         self._input_name = self._session.get_inputs()[0].name
 
         logger.info(
-            "BiRefNet-portrait loaded | path=%s time=%.1fs",
-            self._model_path, time.time() - t0,
+            "BiRefNet-portrait loaded | path=%s providers=%s time=%.1fs",
+            self._model_path, self._session.get_providers(), time.time() - t0,
         )
 
     def _preprocess(self, image_bgr: np.ndarray) -> np.ndarray:
