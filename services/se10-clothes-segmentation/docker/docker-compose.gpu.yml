@@ -1,31 +1,42 @@
-version: "3.8"
-
 services:
   se10-clothes-segmentation:
     build:
-      context: ../..
-      dockerfile: services/se10-clothes-segmentation/docker/Dockerfile.gpu
+      context: ../../..
+      dockerfile: services/se10-clothes-segmentation/docker/Dockerfile
       target: api
-    container_name: ytcaption-se10-clothes-segmentation-gpu
+      args:
+        - DEVICE=gpu
+    container_name: ytcaption-se10-clothes-segmentation
     ports:
       - "8010:8010"
     volumes:
-      - ../shared/:/app/common:ro
-      - ../../services/se10-clothes-segmentation/app/:/app/app:rw
-      - ../../services/se10-clothes-segmentation/external/:/app/external:ro
-      - ../../services/se10-clothes-segmentation/checkpoints/:/app/checkpoints:ro
-      - se10-data:/app/data
+      - ../../../shared:/app/common
+      - ../app:/app/app
+      - ../data:/app/data
+      - /root/YTCaption-Easy-Youtube-API/yolo11m-seg.pt:/app/yolo11m-seg.pt:ro
+      - /root/YTCaption-Easy-Youtube-API/birefnet-portrait.onnx:/home/appuser/birefnet-portrait.onnx:ro
+      # GPU device mounts (nvidia-container-toolkit workaround for driver 590)
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1
+      - /usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-cfg.so.1
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
     env_file:
       - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
+      - PYTHONPATH=/app
       - REDIS_URL=redis://host.docker.internal:6379/10
-      - DEVICE=cuda
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
-      interval: 30s
-      timeout: 10s
-      start_period: 120s
-      retries: 3
+      - DEVICE=gpu
+      - YOLO_MODEL_PATH=/app/yolo11m-seg.pt
+      - BIREFNET_MODEL_PATH=/home/appuser/birefnet-portrait.onnx
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
     deploy:
       resources:
         reservations:
@@ -33,12 +44,15 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
     restart: unless-stopped
     networks:
       - ytcaption-network
-
-volumes:
-  se10-data:
 
 networks:
   ytcaption-network:

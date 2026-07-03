@@ -106,6 +106,12 @@ async def segment_clothes(
             error="SEGMENTATION_ERROR",
         )
 
+    # Immediately unload GPU models after detection to free VRAM for SE8
+    try:
+        segmentor.unload_all()
+    except Exception:
+        pass
+
     if not result["detected"]:
         label = "persons" if mode == "person" else "clothing items"
         return SegmentResponse(

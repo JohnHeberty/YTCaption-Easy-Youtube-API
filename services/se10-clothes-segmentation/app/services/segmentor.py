@@ -85,7 +85,10 @@ class ClothesSegmentor:
             if cuda_visible == "" or cuda_visible is None:
                 return torch.device("cpu")
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        return torch.device(device_str)
+        # Map friendly names to torch device types
+        device_map = {"gpu": "cuda", "cuda": "cuda", "cpu": "cpu"}
+        resolved = device_map.get(device_str.lower(), device_str)
+        return torch.device(resolved)
 
     # ------------------------------------------------------------------ #
     #  Model loading

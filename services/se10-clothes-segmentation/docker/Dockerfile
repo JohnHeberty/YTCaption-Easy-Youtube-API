@@ -21,7 +21,7 @@ COPY services/se10-clothes-segmentation/requirements-cpu.txt ./requirements-cpu.
 RUN if [ "$DEVICE" = "cpu" ]; then \
       pip install --no-cache-dir -r requirements-cpu.txt; \
     else \
-      pip install --no-cache-dir -r requirements.txt; \
+      pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu130 -r requirements.txt; \
     fi && \
     chmod -R a+r /usr/local/lib/python3.11/site-packages
 
