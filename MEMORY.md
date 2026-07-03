@@ -2,6 +2,41 @@
 
 ## Última sessão (2026-07-02)
 
+### 🐛 Bug Fix — Face protection: head_mask_raw subtracted from inpaint_mask
+
+**Problema:** Na OK2.png (AI model), o rosto era alterado pelo LustifyNSFW porque a máscara de inpainting cobria a face. Causa raiz dupla:
+
+1. `detect_head_mask()` era chamado SEM `expand_up`/`expand_w` → defaults (1.5/0.5) muito pequenos
+2. O `head_mask` processado (clothes subtraction → distance transform → blur) criava **buracos no centro** onde fica o rosto. A subtração do head_mask processado do inpaint_mask não protegia a face.
+
+**Fix (3 partes):**
+- Parâmetros corrigidos: `expand_up=2.5, expand_w=0.8, dilate_kernel_size=25, dilate_iterations=3`
+- `head_mask_raw` (antes do processamento) salvo com `.copy()` e subtraído do inpaint_mask final
+- `face_protect_mask` trocada para `detect_face_oval_mask()` (MediaPipe Face Mesh) com fallback para `detect_face_only()` (haarcascade)
+- Bug do stage "detecting" nunca completando corrigido nos 3 pipelines NSFW
+
+**Resultados (OK2.png):**
+| Métrica | Antes | Depois |
+|---------|-------|--------|
+| Inpaint mask | 46.5% | 24.8% |
+| Head protect | 0.4% | 26.1% |
+| Face no inpaint | SIM | NÃO |
+
+**Commits:** `038ab64`
+
+**Arquivos alterados:**
+- `services/se11-clothes-removal/app/services/pipeline_nsfw.py` (principal)
+- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental_v2.py`
+- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py`
+
+**Resultados em `show/`:**
+- `show/v3_face_protected_result.png` — resultado final
+- `show/v3_mask_overlay.png` — máscara de inpaint
+- `show/v3_head_protect_overlay.png` — overlay head protect vs inpaint
+- `show/v3_debug_grid.png` — grid de debug 5 tentativas
+
+---
+
 ### 🐛 Bug Fix — Stage "detecting" nunca completava
 
 **Problema:** Nos 3 pipelines NSFW (`pipeline_nsfw.py`, `pipeline_nsfw_experimental_v2.py`, `pipeline_nsfw_experimental.py`), o stage "detecting" era marcado como "processing" mas nunca como "completed" antes de transicionar para "inpainting". Isso fazia o progress bar ficar travado em ~70% mesmo com job "completed".
