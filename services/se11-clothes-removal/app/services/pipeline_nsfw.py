@@ -1056,11 +1056,14 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             logger.info("Job %s: %s composite=%.3f skin_ratio=%.2f head=%.3f landmark=%.3f clothes=%.1f",
                         job.job_id, try_tag, composite_score, skin_ratio, head_avg, max_landmark, result_clothes_pct)
 
-            # Early stop if composite score is excellent
-            if composite_score < SCORE_EARLY_STOP:
-                logger.info("Job %s: excellent composite score (%.3f < %.1f), stopping early",
+            # Early stop if composite score is excellent AND pose is stable
+            if composite_score < SCORE_EARLY_STOP and not pose_changed:
+                logger.info("Job %s: excellent composite score (%.3f < %.1f) with stable pose, stopping early",
                             job.job_id, composite_score, SCORE_EARLY_STOP)
                 break
+            elif composite_score < SCORE_EARLY_STOP and pose_changed:
+                logger.info("Job %s: composite=%.3f but pose_changed=true (landmark=%.1f%%), continuing to try %d",
+                            job.job_id, composite_score, max_landmark, attempt + 1 if attempt < max_attempts else attempt)
 
         # ─── Finalize ───
         tries_clean = {k: v for k, v in tries_metadata.items() if v is not None}
