@@ -271,7 +271,7 @@ def _build_clothes_neutral_ref(
 
 # ─── Main Entry Point ────────────────────────────────────────────────────────
 
-async def run_nsfw_experimental_v2(
+async def run_nsfw_experimental(
     job: ClothesRemovalJob,
     store: ClothesRemovalJobStore,
 ) -> None:

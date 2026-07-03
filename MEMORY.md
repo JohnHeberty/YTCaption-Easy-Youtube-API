@@ -40,13 +40,13 @@ Layer 6: Dilate + close para bordas suaves do SE8
 
 ### 🐛 Bug Fix — Stage "detecting" nunca completava
 
-**Problema:** Nos 2 pipelines NSFW (`pipeline_nsfw.py`, `pipeline_nsfw_experimental_v2.py`), o stage "detecting" era marcado como "processing" mas nunca como "completed" antes de transicionar para "inpainting". Isso fazia o progress bar ficar travado em ~70% mesmo com job "completed".
+**Problema:** Nos 2 pipelines NSFW (`pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`), o stage "detecting" era marcado como "processing" mas nunca como "completed" antes de transicionar para "inpainting". Isso fazia o progress bar ficar travado em ~70% mesmo com job "completed".
 
 **Fix:** Adicionado `job.update_stage("detecting", "completed", progress=100.0)` + `store.save_job()` antes da transição para "inpainting" em todos os 3 arquivos.
 
 **Arquivos alterados:**
 - `services/se11-clothes-removal/app/services/pipeline_nsfw.py:567`
-- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental_v2.py:530`
+- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py:530`
 
 **Deploy:** `docker cp` + `docker restart se11-clothes-removal` — verificado com `grep` no container.
 
@@ -101,7 +101,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 - **Hair bleed:** clothes_mask + dilate(15px) bleeds into hair → head subtraction with larger ellipse
 
 #### Arquivos alterados:
-- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental_v2.py` — LustifyNSFW, head_subtract, OpenPose conditional
+- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py` — LustifyNSFW, head_subtract, OpenPose conditional
 - `services/se11-clothes-removal/app/services/head_detector.py` — expand_up, expand_w params
 - `services/se11-clothes-removal/app/api/routes.py` — default strength 0.86, default model LustifyNSFW
 - `services/se11-clothes-removal/app/api/schemas.py` — default strength 0.86, default model LustifyNSFW
