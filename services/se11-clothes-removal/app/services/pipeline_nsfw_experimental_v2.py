@@ -451,32 +451,43 @@ async def run_nsfw_experimental_v2(
         inpaint_mode = getattr(job.request, "inpaint_mode", "invert_mask")
 
         if inpaint_mode == "invert_mask":
-            # ─── SIMPLE CLOTHES MASK: only clothing area + light margin ───
-            # Original plan (UPGRADE.md §4.4): clothes_mask + dilate(15px)
-            # Keeps pose intact because SE8 only regenerates clothing pixels.
+            # ─── LAYERED MASK (same as production pipeline_nsfw.py) ───
+            from app.services.head_detector import detect_head_mask, detect_face_oval_mask
             inpaint_mask = clothes_combined.copy()
             dilate_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
             inpaint_mask = _cv2.dilate(inpaint_mask, dilate_k, iterations=1)
 
-            # ─── SUBTRACT HEAD+HAIR REGION to protect face and hair ───
-            from app.services.head_detector import detect_head_mask
             contours, _ = _cv2.findContours(person_binary, _cv2.RETR_EXTERNAL, _cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 largest = max(contours, key=_cv2.contourArea)
                 px, py, pw, ph = _cv2.boundingRect(largest)
-                head_mask = detect_head_mask(
+
+                hair_mask = detect_head_mask(
                     orig_img=orig_img,
                     person_binary=person_binary,
                     person_bbox=(px, py, pw, ph),
-                    max_head_pct=0.45,
-                    neck_margin_below=0.50,
+                    max_head_pct=0.50,
+                    neck_margin_below=0.3,
                     dilate_kernel_size=25,
                     dilate_iterations=3,
                     expand_up=2.5,
-                    expand_w=0.8,
+                    expand_w=0.5,
                 )
-                inpaint_mask = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(head_mask))
-                logger.info("Job %s: head+hair mask subtracted from inpaint mask", job.job_id)
+                face_mask = detect_face_oval_mask(
+                    orig_img=orig_img,
+                    person_binary=person_binary,
+                    feather_bottom_px=25,
+                )
+                if _cv2.countNonZero(face_mask) == 0:
+                    from app.services.head_detector import detect_face_only
+                    face_mask = detect_face_only(
+                        orig_img=orig_img, person_binary=person_binary,
+                        margin_above=0.50, margin_below=0.70, margin_sides=0.40,
+                    )
+                protection_mask = _cv2.bitwise_or(hair_mask, face_mask)
+                inpaint_mask = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(protection_mask))
+                logger.info("Job %s: layered protection applied (hair=%d face=%d)",
+                             job.job_id, _cv2.countNonZero(hair_mask), _cv2.countNonZero(face_mask))
 
         elif inpaint_mode == "clothes_mask":
             inpaint_mask = clothes_combined.copy()

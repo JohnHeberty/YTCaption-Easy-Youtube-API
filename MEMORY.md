@@ -2,38 +2,39 @@
 
 ## Última sessão (2026-07-02)
 
-### 🐛 Bug Fix — Face protection: head_mask_raw subtracted from inpaint_mask
+### 🐛 Bug Fix — Face protection: layered mask construction
 
-**Problema:** Na OK2.png (AI model), o rosto era alterado pelo LustifyNSFW porque a máscara de inpainting cobria a face. Causa raiz dupla:
+**Problema:** Na OK2.png (AI model), o rosto era alterado pelo LustifyNSFW e a roupa nem sempre era removida. A abordagem body-based (person − head) com head_mask processado criava buracos e comia área de roupa.
 
-1. `detect_head_mask()` era chamado SEM `expand_up`/`expand_w` → defaults (1.5/0.5) muito pequenos
-2. O `head_mask` processado (clothes subtraction → distance transform → blur) criava **buracos no centro** onde fica o rosto. A subtração do head_mask processado do inpaint_mask não protegia a face.
+**Solução:** Reescrita completa da construção da máscara com abordagem em camadas profissional:
 
-**Fix (3 partes):**
-- Parâmetros corrigidos: `expand_up=2.5, expand_w=0.8, dilate_kernel_size=25, dilate_iterations=3`
-- `head_mask_raw` (antes do processamento) salvo com `.copy()` e subtraído do inpaint_mask final
-- `face_protect_mask` trocada para `detect_face_oval_mask()` (MediaPipe Face Mesh) com fallback para `detect_face_only()` (haarcascade)
-- Bug do stage "detecting" nunca completando corrigido nos 3 pipelines NSFW
+```
+Layer 1: Person silhouette (SE10) — fundo removido
+Layer 2: Hair protection — head_mask (expand_up=2.5, neck_margin=0.3)
+Layer 3: Face protection — face_oval_mask (MediaPipe Face Mesh)
+Layer 4: Combined protection = hair OR face
+Layer 5: Inpaint = person − protection (roupa + pele exposta)
+Layer 6: Dilate + close para bordas suaves do SE8
+```
 
-**Resultados (OK2.png):**
-| Métrica | Antes | Depois |
-|---------|-------|--------|
-| Inpaint mask | 46.5% | 24.8% |
-| Head protect | 0.4% | 26.1% |
-| Face no inpaint | SIM | NÃO |
+**Resultado (OK2.png):**
+| Métrica | v1 (bugado) | v4 (final) |
+|---------|-------------|------------|
+| Inpaint mask | 46.5% | 40.9% |
+| Head protect | 0.4% | 9.3% |
+| Face preservada | NÃO | SIM |
+| Roupa removida | NÃO | SIM |
 
-**Commits:** `038ab64`
+**Commits:** `038ab64`, `391af29`
 
 **Arquivos alterados:**
 - `services/se11-clothes-removal/app/services/pipeline_nsfw.py` (principal)
-- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental_v2.py`
-- `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py`
 
 **Resultados em `show/`:**
-- `show/v3_face_protected_result.png` — resultado final
-- `show/v3_mask_overlay.png` — máscara de inpaint
-- `show/v3_head_protect_overlay.png` — overlay head protect vs inpaint
-- `show/v3_debug_grid.png` — grid de debug 5 tentativas
+- `show/v4_layered_result.png` — resultado final
+- `show/v4_mask_overlay.png` — máscara de inpaint
+- `show/v4_head_protect_overlay.png` — overlay head protect vs inpaint
+- `show/v4_debug_grid.png` — grid de debug 5 tentativas
 
 ---
 
