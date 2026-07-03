@@ -15,10 +15,10 @@
 - **Status:** ✅ RESOLVIDO
 
 ### ✅ RESOLVIDO — BiRefNet-portrait como detector SOTA (2026-07-03)
-- **Problema:** Queríamos a melhor precisão possível para person segmentation (YOLO11-seg rápido mas não SOTA)
-- **Solução:** BiRefNet-portrait ONNX como terceiro detector no ensemble, priorizado por SOTA
-- **Resultado:** 99.7% confiança, 48.8% coverage, 31s no CPU. Ensemble seleciona automaticamente o melhor detector
-- **Deploy:** SE10: `birefnet_detector.py` (novo). `pip install onnxruntime protobuf==3.20.3`. Modelo 928MB
+- **Problema:** Queríamos a melhor precisão possível para person segmentation
+- **Solução:** BiRefNet-portrait ONNX como terceiro detector no ensemble, GPU via RTX 3090
+- **Resultado:** 98.9% confiança, 49.4% coverage, **0.8s no GPU** (vs 31s CPU = 39x speedup)
+- **Deploy:** SE10: `birefnet_detector.py` + Dockerfile CUDA symlinks + docker-compose GPU runtime
 - **Status:** ✅ RESOLVIDO
 
 ### ✅ RESOLVIDO — Face-ellipse fallback para detecção de pessoa (2026-07-03)

@@ -40,9 +40,9 @@
 | Detector | Coverage | Confiança | Velocidade | Nota |
 |----------|----------|-----------|------------|------|
 | GroundingDINO | 1.6% | — | ~9.4s | FALHOU |
-| YOLO11-seg | 53.3% | 94.3% | ~1.4s | Rápido |
-| **BiRefNet-portrait** | **48.8%** | **99.7%** | **~31s** | **SOTA** |
-| Ensemble (GD+YOLO+BRef) | 48.8% | 99.7% | ~38s | Melhor |
+| YOLO11-seg (CPU) | 53.3% | 94.3% | ~1.4s | Rápido |
+| **BiRefNet-portrait (GPU)** | **49.4%** | **98.9%** | **~0.8s** | **SOTA + GPU** |
+| Ensemble (GD+YOLO+BRef) | 48.8% | 99.7% | ~1.2s | Melhor |
 
 #### Arquivos criados/modificados
 - `services/se10-clothes-segmentation/app/services/yolo_detector.py` — YOLO11-seg wrapper
@@ -55,19 +55,17 @@
 - `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py` — `detector="ensemble"` em person detection
 
 #### Deploy
-- SE10: `docker cp` de yolo_detector.py, birefnet_detector.py, ensemble_detector.py, segmentor.py, segment.py + `pip install ultralytics onnxruntime` + `docker restart`
+- SE10: Dockerfile com CUDA lib symlinks, `requirements.txt` com `onnxruntime-gpu`, `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, `nvidia-cufft-cu12`
+- SE10: `docker-compose.yml` com `runtime: nvidia`, volume mounts para modelos
+- SE10: Modelos via volume: `yolo11m-seg.pt` (43MB) e `birefnet-portrait.onnx` (928MB)
 - SE11: `docker cp` de pipeline_nsfw.py, pipeline_nsfw_experimental.py + `docker restart`
-- YOLO model: `yolo11m-seg.pt` (43.3MB, download automático na primeira execução)
-- BiRefNet model: `birefnet-portrait.onnx` (928MB, em `/home/appuser/birefnet-portrait.onnx`)
-- ⚠️ onnxruntime pode quebrar protobuf — precisa `pip install protobuf==3.20.3` após onnxruntime
+- ⚠️ `protobuf==3.20.3` obrigatório (quebra com protobuf 7.x)
 
 #### Resultados em show/
 - `show/yolo11_final_mask.png` — máscara YOLO11-seg (53.3%)
 - `show/yolo11_final_overlay.png` — overlay verde na pessoa
-- `show/birefnet_mask.png` — máscara BiRefNet-portrait (48.8%)
+- `show/birefnet_mask.png` — máscara BiRefNet-portrait (49.4%)
 - `show/birefnet_overlay.png` — overlay verde BiRefNet
-- `show/yolo11_teste1_mask.png` — teste inicial
-- `show/yolo11_teste1_overlay.png` — overlay teste inicial
 
 ### 🟢 TESTE1.jpg — Face-ellipse fallback pipeline E2E SUCCESS
 
