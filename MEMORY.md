@@ -2,6 +2,25 @@
 
 ## Última sessão (2026-07-03)
 
+### 🟢 SE10 GPU Migration — 51x faster detection (2026-07-03)
+
+**Objetivo:** Reverter SE10 de CPU para GPU para detecção muito mais rápida.
+
+**Problemas encontrados e resolvidos:**
+1. **PyTorch CPU-only**: `requirements.txt` instalava `torch==2.12.0` (CPU default). Fix: `--extra-index-url https://download.pytorch.org/whl/cu130` no Dockerfile
+2. **DEVICE=gpu → RuntimeError**: `_resolve_device()` passava `"gpu"` diretamente para `torch.device()` que espera `"cuda"`. Fix: device_map `{"gpu": "cuda", "cuda": "cuda", "cpu": "cpu"}`
+3. **VRAM overlap SE10+SE8**: SE10 mantinha modelos carregados 120s (idle timer), overlap com SE8. Fix: `unload_all()` imediatamente após cada request no route handler
+4. **Docker compose cache**: compose re-usava imagem CPU antiga. Fix: `--force-recreate` + `--build`
+
+**Resultado E2E (TESTE1.jpg, job `cr_ddaa29841838`):**
+- Ensemble detection: **583ms** (vs ~30s CPU = **51x mais rápido**)
+- VRAM pico job: 10267 MiB (SE10+SE8 sequential, sem overlap)
+- VRAM pós-request: **12 MiB** (unload imediato)
+- RAM idle: 8.4GB
+- Job: completed, 3 attempts, composite=4.408, try_3 best (pose_changed=false)
+
+**Commits:** `48afe531` (feat), `16b1c80` (unload_all_models), `494a64d` (gitignore large files)
+
 ### 🟢 RAM Optimization — unload_all_models + app volume mount (2026-07-03)
 
 **Problema:** RAM idle ficava em 39.73GB (99.8%) após jobs. SE8 mantinha 17.47GB RAM + 7.6GB VRAM após completar job (models unloaded do model_management mas Python RSS retention + SE8 usando `soft_empty_cache()` que NÃO descarrega modelos).
@@ -503,7 +522,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 | se7-audio-generation | 8007 | — | ✅ Healthy | TTS Chatterbox (GPU) |
 | se8-image-generation | 8008 | image-engine | ✅ Healthy | Fooocus SDXL (GPU), **inpainting functional** |
 | se9-make-video-img | 8009 | se9-make-video-img | ✅ Healthy | Ken Burns video builder |
-| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | Ensemble detector (GD+YOLO11+BiRefNet), **CPU mode**, idle unload 120s |
+| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | Ensemble detector (GD+YOLO11+BiRefNet), **GPU mode** (51x faster), immediate unload_all() post-request |
 | se11-clothes-removal | 8011 | se11-clothes-removal | ✅ E2E validated | SE10→SE8 inpaint pipeline, OpenPose ControlNet integrated |
 
 ## SE11 — Clothes Removal Service
