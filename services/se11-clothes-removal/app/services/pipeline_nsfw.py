@@ -737,9 +737,14 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             "asymmetric nipples, mismatched skin tone, color banding"
         )
 
-        # Use user-provided prompt if non-empty, otherwise fallback to optimized defaults
-        final_prompt = job.request.prompt or nsfw_prompt
-        final_negative = job.request.negative_prompt or nsfw_negative
+        # /jobs/nsfw always uses hardcoded NSFW prompt — ignores user prompt.
+        # User prompt overrides were causing non-NSFW results (e.g. "elegant dress"
+        # bypassed the NSFW generation). For custom prompts, use /jobs/nsfw-test.
+        if job.request.prompt:
+            logger.info("Job %s: ignoring user prompt on /jobs/nsfw route, using hardcoded NSFW prompt",
+                        job.job_id)
+        final_prompt = nsfw_prompt
+        final_negative = nsfw_negative
 
         # ─── Retry loop with multidimensional scoring (max 5 attempts) ───
         max_attempts = 5
