@@ -52,6 +52,8 @@ class ClothesSegmentor:
         self._device = self._resolve_device(settings.device)
         self._checkpoints_dir = Path(settings.checkpoint_dir).resolve()
         self._external_dir = Path(settings.external_dir).resolve()
+        self._last_used = time.time()
+        self._idle_timeout = int(os.environ.get("SE10_IDLE_TIMEOUT", "120"))
 
         logger.info(
             "Initializing segmentor | device=%s checkpoints=%s",
@@ -78,6 +80,10 @@ class ClothesSegmentor:
     @staticmethod
     def _resolve_device(device_str: str) -> torch.device:
         if device_str == "auto":
+            # Check CUDA_VISIBLE_DEVICES — if empty, force CPU
+            cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+            if cuda_visible == "" or cuda_visible is None:
+                return torch.device("cpu")
             return torch.device("cuda" if torch.cuda.is_available() else "cpu")
         return torch.device(device_str)
 
@@ -167,13 +173,40 @@ class ClothesSegmentor:
                         self._gd_model is not None, self._yolo_detector is not None,
                         self._birefnet_detector is not None)
 
-        # Pose renderer (lazy — only used when include_pose=True)
-        self._pose_renderer = PoseRenderer(
-            min_detection_confidence=self.settings.pose_min_confidence
-        )
-        logger.info("Pose renderer ready")
+        # Pose renderer — lazy loaded (only when include_pose=True)
+        self._pose_renderer: PoseRenderer | None = None
 
         logger.info("All models loaded in %.1fs", time.time() - t0)
+
+    # ------------------------------------------------------------------ #
+    #  Model lifecycle — unload to free RAM
+    # ------------------------------------------------------------------ #
+
+    def unload_all(self) -> None:
+        """Unload all models to free CPU/GPU memory."""
+        self._gd_model = None
+        self._sam2_predictor = None
+        self._yolo_detector = None
+        self._birefnet_detector = None
+        self._ensemble_detector = None
+        self._pose_renderer = None
+        import gc
+        gc.collect()
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
+        logger.info("All models unloaded")
+
+    def _check_idle_unload(self) -> None:
+        """Unload models if idle for too long."""
+        if self._idle_timeout <= 0:
+            return
+        elapsed = time.time() - self._last_used
+        if elapsed > self._idle_timeout:
+            logger.info("Idle for %.0fs (timeout=%ds), unloading models", elapsed, self._idle_timeout)
+            self.unload_all()
 
     # ------------------------------------------------------------------ #
     #  Geometry helpers
@@ -215,6 +248,12 @@ class ClothesSegmentor:
                             pose_landmarks, processing_time_ms
         """
         t0 = time.time()
+
+        # Check if models need to be reloaded after idle timeout
+        if self._gd_model is None and self._yolo_detector is None and self._birefnet_detector is None:
+            logger.info("Models unloaded due to idle, reloading...")
+            self._load_models()
+
         if mode == "person":
             classes = classes or PERSON_CLASSES
             max_area_pct = max_area_pct or DEFAULT_MAX_AREA_PCT_PERSON
@@ -429,7 +468,12 @@ class ClothesSegmentor:
         # 8. Optional pose control image
         controlnet_image: str | None = None
         pose_landmarks: list[dict[str, Any]] = []
-        if include_pose and self._pose_renderer is not None:
+        if include_pose:
+            # Lazy-init PoseRenderer on first use
+            if self._pose_renderer is None:
+                self._pose_renderer = PoseRenderer(
+                    min_detection_confidence=self.settings.pose_min_confidence
+                )
             try:
                 rgb_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
                 landmarks = self._pose_renderer.detect(rgb_image)
@@ -453,6 +497,16 @@ class ClothesSegmentor:
             "Segmentation complete | objects=%d time=%.1fms",
             len(detected_objects), processing_ms,
         )
+
+        # Release intermediate tensors and force OS to reclaim memory
+        self._last_used = time.time()
+        import gc
+        gc.collect()
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
         return {
             "detected": True,

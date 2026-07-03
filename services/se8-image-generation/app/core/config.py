@@ -22,7 +22,7 @@ class ImageEngineSettings(BaseServiceSettings):
     gpu_mode: str = Field(default="lazy", env="GPU_MODE")  # lazy | eager | auto
     gpu_device_id: int | None = Field(default=None, env="GPU_DEVICE_ID")
     max_vram_mb: int = Field(default=0, env="MAX_VRAM_MB")  # 0 = auto-detect
-    model_idle_timeout: int = Field(default=300, env="MODEL_IDLE_TIMEOUT")  # seconds
+    model_idle_timeout: int = Field(default=60, env="MODEL_IDLE_TIMEOUT")  # seconds
 
     # Paths
     output_dir: str = Field(default="./data/outputs", env="OUTPUT_DIR")

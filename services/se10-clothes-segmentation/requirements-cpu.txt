@@ -1,0 +1,39 @@
+# === CORE WEB FRAMEWORK ===
+fastapi==0.120.0
+uvicorn[standard]==0.38.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+python-multipart==0.0.6
+
+# === COMMON LIBRARY ===
+# Installed separately in Dockerfile: pip install ./common
+
+# === REDIS ===
+redis==5.0.1
+
+# === DEEP LEARNING (CPU-only) ===
+# CPU-only torch — no CUDA context, no nvidia-* packages
+torch==2.12.0+cpu
+torchvision==0.27.0+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+timm==1.0.27
+ultralytics>=8.4.0
+# CPU-only onnxruntime — no CUDA/TensorRT EP libs loaded
+onnxruntime>=1.17.0
+protobuf>=3.20,<4
+
+# === COMPUTER VISION ===
+opencv-python==4.11.0.86
+supervision==0.28.0
+pillow==12.2.0
+mediapipe==0.10.8
+
+# === DATA / CONFIG ===
+numpy==1.26.4
+
+# === ML DEPENDENCIES (required by external repos) ===
+hydra-core>=1.3.0
+omegaconf>=2.3.0
+transformers>=4.35.0
+addict>=2.2.1
+yapf>=0.32.0

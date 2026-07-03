@@ -426,6 +426,15 @@ def load_checkpoint_guess_config(
     if len(left_over) > 0:
         logger.info("Leftover keys: %s", left_over)
 
+    # Release state dict from CPU RAM immediately (~6GB freed)
+    del sd
+    if 'vae_sd' in dir():
+        del vae_sd
+    if 'sd_processed' in dir():
+        del sd_processed
+    import gc
+    gc.collect()
+
     if output_model:
         model_patcher = ldm["model_patcher"].ModelPatcher(
             model, load_device=load_device,

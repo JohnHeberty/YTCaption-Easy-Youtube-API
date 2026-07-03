@@ -990,6 +990,9 @@ def _apply_inpaint(async_task: AsyncTask, tasks: list, pipeline: Any = None) -> 
                                 logger.warning("Inpaint patch LoRA: 0 keys matched for UNet")
                         else:
                             logger.warning("Inpaint patch: UNet not available")
+                        # Release inpaint patch from CPU RAM (~1.3GB freed)
+                        del lora_data
+                        import gc; gc.collect()
                     except Exception as lora_err:
                         logger.warning("Failed to load inpaint patch LoRA: %s", lora_err)
                 else:
@@ -1403,6 +1406,27 @@ def process_generate(async_job: QueueTask) -> None:
             import modules.inpaint_worker
             modules.inpaint_worker.current_task = None
         except (ImportError, AttributeError):
+            pass
+        # Offload GPU models to free VRAM after job completion
+        try:
+            import ldm_patched.modules.model_management as model_management
+            model_management.soft_empty_cache()
+        except Exception:
+            pass
+        import gc
+        gc.collect()
+        # Force glibc to release freed memory pages back to OS
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+        except Exception:
             pass
         if worker_queue:
             worker_queue.finish_task(async_job.job_id)
