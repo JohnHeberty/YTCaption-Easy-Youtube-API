@@ -114,3 +114,8 @@ services/se10-clothes-segmentation/checkpoints/*.pth
 exploration/data/
 Fooocus
 OK.jpg
+
+# Large model files
+*.onnx
+*.safetensors
+checkpoints/
