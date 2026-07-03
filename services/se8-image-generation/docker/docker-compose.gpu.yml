@@ -7,6 +7,7 @@ services:
     ports:
       - "8008:8008"
     volumes:
+      - /root/YTCaption-Easy-Youtube-API/services/se8-image-generation/app:/app/app:ro
       - /root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models:/app/data/models:ro
       - /root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/outputs:/app/data/outputs:rw
       - /root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/temp:/app/data/temp:rw

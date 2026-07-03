@@ -2,6 +2,34 @@
 
 ## Última sessão (2026-07-03)
 
+### 🟢 RAM Optimization — unload_all_models + app volume mount (2026-07-03)
+
+**Problema:** RAM idle ficava em 39.73GB (99.8%) após jobs. SE8 mantinha 17.47GB RAM + 7.6GB VRAM após completar job (models unloaded do model_management mas Python RSS retention + SE8 usando `soft_empty_cache()` que NÃO descarrega modelos).
+
+**Fixes:**
+1. **SE8 `worker.py` finally block**: Trocado `soft_empty_cache()` por `unload_all_models()` + `soft_empty_cache()` — `unload_all_models()` realmente descarrega pesos do VRAM, `soft_empty_cache()` só limpa cache do allocator
+2. **SE8 `.env` MODEL_IDLE_TIMEOUT**: 300→60s (descarrega modelos após 60s idle)
+3. **SE8 app volume mount**: Adicionado `/root/.../se8-image-generation/app:/app/app:ro` no `docker-compose.gpu.yml` — código Python agora é live-mounted, elimina necessidade de `docker cp` + rebuild
+4. **Todos os arquivos SE8 re-deployed**: `task_models.py`, `worker.py`, `checkpoint.py`, `config.py` — container foi recriado via `--force-recreate` e destruiu docker cp anteriores
+
+**Resultado E2E (TESTE1.jpg, cr_f515cca4758d):**
+
+| Métrica | Baseline (antes) | Pico Job | Pós-Job (180s) | Ganho |
+|---------|-------------------|----------|----------------|-------|
+| RAM idle | 39.73GB (99.8%) | — | 10GB (25%) | **-75%** |
+| GPU idle | 7616MiB | 8158MiB | 12MiB | **-99.8%** |
+| SE10 idle | 20.11GB | ~3GB | 688MB | **-97%** |
+| SE8 idle | 17.47GB | ~13.6GB | 13.64GB* | -22% |
+| RAM pico job | — | 33.8GB | — | -15% vs 39.73GB |
+
+*SE8 13.64GB é Python RSS retention — modelos descarregados de VRAM mas memory pages não retornadas ao OS pelo allocator. Para liberar precisaria de `madvise(MADV_DONTNEED)` ou restart do processo.
+
+**Job scoring:**
+- try_1: composite=6.491, pose_changed=true, landmark=23.21% → continuar (early stop não ativa)
+- try_2: composite=2.489, pose_changed=false, landmark=10.47% → early stop correto (ambos critérios)
+
+**Commits:** `e9101cf` (PLAN.md update), `3d21953` (RAM optimization)
+
 ### 🟢 Pose-Aware Early Stop + SE10 CPU (2026-07-03)
 
 **Problema 1:** Early stop ativava com `composite < 5.0` mesmo quando `pose_changed=true`. Resultado: apenas 1 tentativa, pose alterada aceita sem retry.
@@ -401,7 +429,9 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
   - `/usr/lib/x86_64-linux-gnu/libcuda.so.1`
   - `/usr/lib/x86_64-linux-gnu/libnvidia-ml.so`
   - `/dev/nvidia0`, `/dev/nvidiactl`, `/dev/nvidia-uvm`, `/dev/nvidia-uvm-tools`, `/dev/nvidia-modeset`
+- **app volume mount**: `/root/.../se8-image-generation/app:/app/app:ro` — código Python live-mounted, sem necessidade de `docker cp`
 - Criado `/app/data/wildcards` com ownership `1000:1000` para evitar `PermissionError` no startup
+- **Memory management**: `unload_all_models()` no finally block libera VRAM; `MODEL_IDLE_TIMEOUT=60` descarrega após idle; `del sd` em checkpoint.py libera RAM
 - Para atualizar: restart container (código via bind mount); recriar se precisar adicionar mounts GPU
 
 ## Sessão anterior (2026-06-26)
@@ -473,7 +503,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 | se7-audio-generation | 8007 | — | ✅ Healthy | TTS Chatterbox (GPU) |
 | se8-image-generation | 8008 | image-engine | ✅ Healthy | Fooocus SDXL (GPU), **inpainting functional** |
 | se9-make-video-img | 8009 | se9-make-video-img | ✅ Healthy | Ken Burns video builder |
-| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | GroundingDINO+SAM2 (CPU) |
+| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | Ensemble detector (GD+YOLO11+BiRefNet), **CPU mode**, idle unload 120s |
 | se11-clothes-removal | 8011 | se11-clothes-removal | ✅ E2E validated | SE10→SE8 inpaint pipeline, OpenPose ControlNet integrated |
 
 ## SE11 — Clothes Removal Service

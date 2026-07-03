@@ -1410,6 +1410,7 @@ def process_generate(async_job: QueueTask) -> None:
         # Offload GPU models to free VRAM after job completion
         try:
             import ldm_patched.modules.model_management as model_management
+            model_management.unload_all_models()
             model_management.soft_empty_cache()
         except Exception:
             pass
