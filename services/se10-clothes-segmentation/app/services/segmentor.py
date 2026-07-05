@@ -1,10 +1,7 @@
-"""ClothesSegmentor — GroundingDINO + SAM2 clothing detection and segmentation.
+"""ClothesSegmentor — SegFormer B2 pixel-level clothing detection.
 
-Refactored from the original clothes-segmentation prototype.
-- Removed sys.path hacks (uses editable installs instead)
-- SAM2 image set once per request, all boxes predicted in batch
-- Structured logging, GPU auto-detect, error handling
-- Added YOLO11-seg and ensemble voting as alternative detectors
+Primary detector: SegFormer B2 (18 clothing classes, pixel-level masks)
+Optional: YOLO11-seg (person detection), ensemble voting
 """
 from __future__ import annotations
 
@@ -32,10 +29,6 @@ from app.core.constants import (
     DEFAULT_MAX_AREA_PCT,
     DEFAULT_MAX_AREA_PCT_PERSON,
     DEFAULT_MAX_OBJECTS,
-    CHECKPOINT_GROUNDINGDINO,
-    CHECKPOINT_SAM2_TINY,
-    GD_CONFIG_SwinT,
-    SAM2_CONFIG_TINY,
 )
 
 logger = get_logger(__name__)
@@ -45,13 +38,12 @@ YOLO_MODEL_PATH = os.environ.get("YOLO_MODEL_PATH", "yolo11m-seg.pt")
 
 
 class ClothesSegmentor:
-    """GroundingDINO + SAM2 pipeline for clothing segmentation."""
+    """SegFormer B2 pixel-level clothing segmentation."""
 
     def __init__(self, settings: ClothesSegSettings) -> None:
         self.settings = settings
         self._device = self._resolve_device(settings.device)
         self._checkpoints_dir = Path(settings.checkpoint_dir).resolve()
-        self._external_dir = Path(settings.external_dir).resolve()
         self._last_used = time.time()
         self._idle_timeout = int(os.environ.get("SE10_IDLE_TIMEOUT", "120"))
 
@@ -60,10 +52,7 @@ class ClothesSegmentor:
             self._device, self._checkpoints_dir,
         )
 
-        self._gd_model: Any = None
-        self._sam2_predictor: Any = None
         self._yolo_detector: Any = None
-        self._birefnet_detector: Any = None
         self._segformer_detector: Any = None
         self._ensemble_detector: Any = None
         self._pose_renderer: PoseRenderer | None = None
@@ -109,21 +98,17 @@ class ClothesSegmentor:
             logger.warning("SegFormer B2 not available: %s", e)
             self._segformer_detector = None
 
-        # Ensemble detector (combines all available detectors)
-        if self._yolo_detector is not None or self._birefnet_detector is not None or self._segformer_detector is not None:
+        # Ensemble detector (SegFormer PRIMARY + YOLO11 secondary)
+        if self._yolo_detector is not None or self._segformer_detector is not None:
             from app.services.ensemble_detector import EnsembleDetector
             self._ensemble_detector = EnsembleDetector()
             if self._yolo_detector is not None:
                 self._ensemble_detector.set_yolo(self._yolo_detector)
-            if self._birefnet_detector is not None:
-                self._ensemble_detector.set_birefnet(self._birefnet_detector)
-            if self._gd_model is not None:
-                self._ensemble_detector.set_groundingdino(self._gd_model)
             if self._segformer_detector is not None:
                 self._ensemble_detector.set_segformer(self._segformer_detector)
-            logger.info("Ensemble detector ready (GD=%s, SegFormer=%s, YOLO=%s, BiRefNet=%s)",
-                        self._gd_model is not None, self._segformer_detector is not None,
-                        self._yolo_detector is not None, self._birefnet_detector is not None)
+            logger.info("Ensemble detector ready (SegFormer=%s, YOLO=%s)",
+                        self._segformer_detector is not None,
+                        self._yolo_detector is not None)
 
         # Pose renderer — lazy loaded (only when include_pose=True)
         self._pose_renderer: PoseRenderer | None = None
@@ -133,42 +118,9 @@ class ClothesSegmentor:
     def _load_gpu_models(self) -> None:
         t0 = time.time()
 
-        # GroundingDINO
-        gd_repo = self._external_dir / "GroundingDINO"
-        gd_config = gd_repo / GD_CONFIG_SwinT
-        gd_checkpoint = self._checkpoints_dir / CHECKPOINT_GROUNDINGDINO
-
-        if not gd_checkpoint.exists():
-            raise FileNotFoundError(
-                f"GroundingDINO checkpoint not found: {gd_checkpoint}"
-            )
-
-        from groundingdino.util.inference import Model as GDModel
-
-        self._gd_model = GDModel(
-            model_config_path=str(gd_config),
-            model_checkpoint_path=str(gd_checkpoint),
-            device=str(self._device),
-        )
-        logger.info("GroundingDINO loaded")
-
-        # SAM2 — config name must be relative to the sam2 package for Hydra
-        sam2_checkpoint = self._checkpoints_dir / CHECKPOINT_SAM2_TINY
-
-        if not sam2_checkpoint.exists():
-            raise FileNotFoundError(f"SAM2 checkpoint not found: {sam2_checkpoint}")
-
-        from sam2.build_sam import build_sam2
-        from sam2.sam2_image_predictor import SAM2ImagePredictor
-
-        sam2_model = build_sam2(
-            SAM2_CONFIG_TINY,
-            str(sam2_checkpoint),
-            device=self._device,
-            apply_postprocessing=False,
-        )
-        self._sam2_predictor = SAM2ImagePredictor(sam2_model)
-        logger.info("SAM2 loaded")
+        # GroundingDINO + SAM2 + BiRefNet: DISABLED — replaced by SegFormer B2.
+        # These models either fail to load or are never used in the pipeline.
+        # See LIÇÕES.md for details.
 
         # YOLO11-seg (optional — loaded if model file exists or downloadable)
         try:
@@ -184,20 +136,6 @@ class ClothesSegmentor:
             logger.warning("YOLO11-seg not available: %s", e)
             self._yolo_detector = None
 
-        # BiRefNet-portrait (optional — ONNX person segmentation)
-        try:
-            from app.services.birefnet_detector import BiRefNetDetector
-            birefnet_path = os.environ.get(
-                "BIREFNET_MODEL_PATH",
-                "/home/appuser/birefnet-portrait.onnx",
-            )
-            self._birefnet_detector = BiRefNetDetector(model_path=birefnet_path)
-            self._birefnet_detector.load()
-            logger.info("BiRefNet-portrait loaded")
-        except Exception as e:
-            logger.warning("BiRefNet-portrait not available: %s", e)
-            self._birefnet_detector = None
-
         logger.info("GPU models loaded in %.1fs", time.time() - t0)
 
     # ------------------------------------------------------------------ #
@@ -206,10 +144,7 @@ class ClothesSegmentor:
 
     def unload_all(self) -> None:
         """Unload ALL models."""
-        self._gd_model = None
-        self._sam2_predictor = None
         self._yolo_detector = None
-        self._birefnet_detector = None
         self._segformer_detector = None
         self._ensemble_detector = None
         self._pose_renderer = None
@@ -223,13 +158,10 @@ class ClothesSegmentor:
         logger.info("All models unloaded")
 
     def unload_gpu_models(self) -> None:
-        """Unload only GPU models to free VRAM for SE8.
-        Keeps SegFormer (CPU-only) loaded to avoid reload penalty.
+        """Unload GPU models (YOLO) to free VRAM for SE8.
+        Keeps SegFormer loaded to avoid reload penalty.
         """
-        self._gd_model = None
-        self._sam2_predictor = None
         self._yolo_detector = None
-        self._birefnet_detector = None
         self._ensemble_detector = None
         self._pose_renderer = None
         import gc
@@ -279,7 +211,7 @@ class ClothesSegmentor:
         max_area_pct: float | None = None,
         max_objects: int | None = None,
         mode: str = "clothes",
-        detector: str = "groundingdino",
+        detector: str = "segformer",
         include_pose: bool = False,
     ) -> dict[str, Any]:
         """Run full segmentation pipeline on image bytes.
@@ -287,7 +219,7 @@ class ClothesSegmentor:
         Args:
             mode: "clothes" for clothing detection, "person" for person detection.
                   When "person", defaults to PERSON_CLASSES and relaxes area filter to 80%.
-            detector: "groundingdino" (default), "segformer" (pixel-level), or "ensemble" (multi-detector).
+            detector: "segformer" (default, pixel-level), "yolo11", or "ensemble" (multi-detector).
             include_pose: If True, also generate an OpenPose-style control image
                           from MediaPipe Pose landmarks.
 
@@ -298,12 +230,12 @@ class ClothesSegmentor:
         t0 = time.time()
 
         # Check if models need to be reloaded after idle timeout
-        if self._gd_model is None and self._yolo_detector is None and self._birefnet_detector is None and self._segformer_detector is None:
+        if self._yolo_detector is None and self._segformer_detector is None:
             logger.info("Models unloaded due to idle, reloading...")
             self._load_models()
-        elif self._sam2_predictor is None and self._segformer_detector is not None:
-            # GPU models were unloaded (unload_gpu_models) but SegFormer stays on CPU.
-            # Reload GPU models (SAM2, YOLO, BiRefNet) — SegFormer stays.
+        elif self._yolo_detector is None and self._segformer_detector is not None:
+            # GPU models were unloaded (unload_gpu_models) but SegFormer stays.
+            # Reload GPU models (YOLO) — SegFormer stays.
             logger.info("GPU models were unloaded, reloading (SegFormer kept)...")
             self._load_gpu_models()
             # Rebuild ensemble with reloaded GPU detectors + existing SegFormer
@@ -311,10 +243,6 @@ class ClothesSegmentor:
             self._ensemble_detector = EnsembleDetector()
             if self._yolo_detector is not None:
                 self._ensemble_detector.set_yolo(self._yolo_detector)
-            if self._birefnet_detector is not None:
-                self._ensemble_detector.set_birefnet(self._birefnet_detector)
-            if self._gd_model is not None:
-                self._ensemble_detector.set_groundingdino(self._gd_model)
             if self._segformer_detector is not None:
                 self._ensemble_detector.set_segformer(self._segformer_detector)
 
@@ -338,7 +266,7 @@ class ClothesSegmentor:
         height, width, _ = original_image.shape
         image_area = height * width
 
-        # 1. Detection — supports groundingdino, segformer, yolo11, birefnet, ensemble
+        # 1. Detection — supports segformer, yolo11, ensemble
         if detector == "ensemble" and self._ensemble_detector is not None:
             # Multi-detector consensus voting
             ensemble_result = self._ensemble_detector.detect_ensemble(
@@ -366,7 +294,7 @@ class ClothesSegmentor:
                 ensemble_result["method"],
                 ensemble_result["coverage_pct"],
             )
-            # If YOLO already gave us masks, skip SAM2
+            # If YOLO already gave us masks, use them directly
             if detections.mask is not None:
                 # Skip to step 5 (annotate) — masks already available
                 has_masks = True
@@ -385,31 +313,13 @@ class ClothesSegmentor:
                     "processing_time_ms": round((time.time() - t0) * 1000, 1),
                 }
             has_masks = detections.mask is not None
-        elif detector == "birefnet" and self._birefnet_detector is not None:
-            # BiRefNet-portrait direct detection — outputs binary person mask
-            detections = self._birefnet_detector.predict(
-                original_image, threshold=box_threshold or 0.5
-            )
-            if len(detections) == 0:
-                return {
-                    "detected": False,
-                    "objects": [],
-                    "mask_image": None,
-                    "processing_time_ms": round((time.time() - t0) * 1000, 1),
-                }
-            has_masks = detections.mask is not None
         elif detector == "segformer" and self._segformer_detector is not None:
             detections = self._segformer_detector.segment_to_sv_detections(original_image)
             has_masks = detections.mask is not None
         else:
-            # Default: GroundingDINO
-            detections = self._gd_model.predict_with_classes(
-                image=original_image,
-                classes=classes,
-                box_threshold=box_threshold,
-                text_threshold=text_threshold,
-            )
-            has_masks = False
+            # Default: SegFormer
+            detections = self._segformer_detector.segment_to_sv_detections(original_image)
+            has_masks = detections.mask is not None
 
         # 2. Area filtering
         area_filtered = detections[(detections.area / image_area) < max_area_pct]
@@ -463,24 +373,8 @@ class ClothesSegmentor:
                 "processing_time_ms": round((time.time() - t0) * 1000, 1),
             }
 
-        # 4. SAM2 segmentation — skip if masks already available (YOLO11-seg)
-        if not has_masks:
-            rgb_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
-            self._sam2_predictor.set_image(rgb_image)
-
-            result_masks: list[Any] = []
-            for box in final_detections.xyxy:
-                masks, scores, _ = self._sam2_predictor.predict(
-                    point_coords=None,
-                    point_labels=None,
-                    box=box[None, :],
-                    multimask_output=True,
-                )
-                result_masks.append(masks[np.argmax(scores)])
-
-            final_detections.mask = np.array(result_masks)
-        else:
-            logger.info("Skipping SAM2 — masks already provided by detector")
+        # 4. Masks — SegFormer and YOLO11-seg already provide masks
+        # SAM2 removed — SegFormer returns pixel-level masks directly
 
         # 5. Annotate
         mask_annotator = sv.MaskAnnotator()
@@ -489,8 +383,6 @@ class ClothesSegmentor:
         labels = []
         for cls_id, conf in zip(final_detections.class_id, final_detections.confidence):
             if detector in ("yolo11", "ensemble") and cls_id == 0:
-                labels.append(f"person {conf:.2f}")
-            elif detector == "birefnet" and cls_id == 0:
                 labels.append(f"person {conf:.2f}")
             elif detector in ("segformer",) or (detector == "ensemble" and cls_id in (4, 5, 6, 7)):
                 from app.services.segformer_detector import LABELS as SEGLABELS

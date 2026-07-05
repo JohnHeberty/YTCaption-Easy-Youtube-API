@@ -28,22 +28,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.services.segmentor import ClothesSegmentor
 
     checkpoints_dir = Path(settings.checkpoint_dir).resolve()
-    gd_ckpt = checkpoints_dir / "groundingdino_swint_ogc.pth"
-    sam2_ckpt = checkpoints_dir / "sam2_hiera_tiny.pt"
 
-    if not gd_ckpt.exists() or not sam2_ckpt.exists():
-        logger.warning(
-            "Checkpoints not found in %s — running in degraded mode (segmentation disabled)",
-            checkpoints_dir,
-        )
-    else:
-        try:
-            t0 = time.time()
-            seg = ClothesSegmentor(settings=settings)
-            set_segmentor(seg)
-            logger.info("Models loaded in %.1fs", time.time() - t0)
-        except Exception:
-            logger.exception("Failed to load models — running in degraded mode")
+    # GroundingDINO + SAM2 DISABLED — replaced by SegFormer B2.
+    # No longer required at startup.
+    try:
+        t0 = time.time()
+        seg = ClothesSegmentor(settings=settings)
+        set_segmentor(seg)
+        logger.info("Models loaded in %.1fs", time.time() - t0)
+    except Exception:
+        logger.exception("Failed to load models — running in degraded mode")
 
     yield
 
@@ -62,7 +56,7 @@ def setup_routers(app: FastAPI) -> None:
 app = create_service_app(
     service_name="clothes-segmentation",
     title=settings.app_name,
-    description="SE10 Clothes Segmentation — GroundingDINO + SAM2 clothing detection and segmentation",
+    description="SE10 Clothes Segmentation — SegFormer B2 pixel-level clothing detection",
     version=settings.version,
     settings=settings,
     lifespan=lifespan,
