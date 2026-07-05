@@ -31,7 +31,8 @@ class RemovalMode(str, Enum):
 class DetectorType(str, Enum):
     """Object detection engine used by SE10."""
     GROUNDINGDINO = "groundingdino"
-    FLORENCE2 = "florence2"
+    SEGFORMER = "segformer"
+    ENSEMBLE = "ensemble"
 
 
 class ClothesRemovalJobStatus(str, Enum):
@@ -60,7 +61,7 @@ class CreateClothesRemovalRequest(BaseModel):
 
     Send an AI-generated image and the pipeline will:
     1. Detect the person (SE10)
-    2. Detect clothing items (SE10 + Florence-2)
+    2. Detect clothing items (SE10 + SegFormer B2)
     3. Generate inpainting mask with adaptive head protection
     4. Inpaint via SE8 (Fooocus + LustifyNSFW)
     5. Validate pose integrity (MediaPipe)
@@ -87,7 +88,7 @@ class CreateClothesRemovalRequest(BaseModel):
                 {
                     "image": "https://example.com/model-photo.jpg",
                     "mode": "clothes",
-                    "detector": "florence2",
+                    "detector": "segformer",
                 },
             ]
         },
@@ -153,7 +154,7 @@ class CreateClothesRemovalRequest(BaseModel):
         default=0.10,
         ge=0.0,
         le=1.0,
-        description="**SE10 text matching threshold** (used with Florence-2). Higher = stricter class matching.",
+        description="**SE10 text matching threshold** (used with GroundingDINO). Higher = stricter class matching.",
         examples=[0.10],
     )
     inpaint_strength: float = Field(
@@ -183,8 +184,9 @@ class CreateClothesRemovalRequest(BaseModel):
         default=DetectorType.GROUNDINGDINO,
         description=(
             "**Object detection engine:**\n"
-            "- `groundingdino` — Default. Best overall accuracy.\n"
-            "- `florence2` — Alternative detector. Good for fine-grained classes."
+            "- `groundingdino` — Default. Text-prompt detection.\n"
+            "- `segformer` — Pixel-level clothing segmentation (18 classes). Recommended for clothes mode.\n"
+            "- `ensemble` — Multi-detector consensus (GD+YOLO+BiRefNet+SegFormer). Best accuracy."
         ),
         examples=["groundingdino"],
     )

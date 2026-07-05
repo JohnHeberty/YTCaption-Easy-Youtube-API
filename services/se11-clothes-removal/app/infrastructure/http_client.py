@@ -90,7 +90,7 @@ class SE10Client(ServiceClient):
 
         Args:
             mode: "clothes" for clothing detection, "person" for person detection.
-            detector: "groundingdino" (default) or "florence2" for alternative detector.
+            detector: "groundingdino" (default), "segformer" (pixel-level), or "ensemble" (multi-detector).
             include_pose: If True, request OpenPose control image from SE10.
 
         Returns dict with keys: detected, objects, masks, mask_image,
@@ -214,7 +214,7 @@ class SE8Client(ServiceClient):
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
-                "overwrite_step": 40,
+                "overwrite_step": 50,
                 "overwrite_switch": 1.0,
                 "adaptive_cfg": 7.0,
                 "sampler_name": "dpmpp_2m_sde_gpu",
@@ -345,6 +345,51 @@ class SE8Client(ServiceClient):
 
         return result
 
+    async def upscale(
+        self,
+        image_b64: str,
+        scale: float = 2.0,
+    ) -> dict[str, Any]:
+        """Upscale image via SE8 pure ESRGAN endpoint (4x-UltraSharp).
+
+        Uses /v1/tools/upscale-esrgan which bypasses SDXL diffusion entirely.
+        No color distortion — pure super-resolution.
+
+        Args:
+            image_b64: Base64 image string (with or without data URI prefix).
+            scale: Output scale factor (1.0-4.0). Default 2.0.
+
+        Returns dict with keys: success, base64, width, height
+        """
+        import io as _io
+
+        # Decode base64 to bytes for file upload
+        raw_b64 = image_b64
+        if "," in raw_b64 and raw_b64.startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[1]
+        raw_b64 = raw_b64.rstrip("=")
+        pad = len(raw_b64) % 4
+        if pad:
+            raw_b64 += "=" * (4 - pad)
+        img_bytes = base64.b64decode(raw_b64)
+
+        try:
+            response = await self._request_with_retry(
+                "POST",
+                "/v1/tools/upscale-esrgan",
+                files={"file": ("upscale.png", img_bytes, "image/png")},
+                data={"scale": str(scale)},
+            )
+            result = response.json()
+
+            logger.info("SE8 ESRGAN upscale: success=%s base64_len=%d",
+                        result.get("success"), len(result.get("base64", "")))
+            return result
+
+        except Exception as e:
+            logger.warning("SE8 ESRGAN upscale failed: %s — returning original", e)
+            return {"success": False, "base64": image_b64, "error": str(e)}
+
     async def enhance(
         self,
         image_b64: str,
@@ -392,66 +437,6 @@ class SE8Client(ServiceClient):
 
         if not isinstance(item, dict):
             raise Exception(f"SE8 enhance returned: {type(item).__name__}")
-
-        url_val = item.get("url", "")
-        if url_val and not url_val.startswith("data:"):
-            try:
-                dl_resp = await self._request_with_retry("GET", url_val)
-                item["base64"] = base64.b64encode(dl_resp.content).decode("utf-8")
-            except Exception:
-                pass
-
-        if not item.get("base64") and item.get("url"):
-            url_val = item["url"]
-            data_idx = url_val.find("data:image")
-            if data_idx >= 0:
-                item["base64"] = url_val[data_idx:]
-
-        return item
-
-    async def upscale(
-        self,
-        image_b64: str,
-        scale: float = 2.0,
-    ) -> dict[str, Any]:
-        """Upscale image via SE8."""
-        payload: dict[str, Any] = {
-            "prompt": "",
-            "negative_prompt": "",
-            "style_selections": [],
-            "performance_selection": "Speed",
-            "aspect_ratios_selection": "1152*896",
-            "image_number": 1,
-            "image_seed": -1,
-            "sharpness": 2.0,
-            "guidance_scale": 4.0,
-            "base_model_name": "juggernautXL_v8Rundiffusion.safetensors",
-            "loras": [
-                {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
-                {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
-            ],
-            "input_image": image_b64,
-            "uov_method": "Upscale (2x)",
-            "upscale_value": scale,
-            "async_process": False,
-            "require_base64": False,
-            "current_tab": "uov",
-            "image_prompts": [],
-        }
-
-        response = await self._request_with_retry(
-            "POST", "/v1/generation/image-upscale-vary", json=payload,
-        )
-        result = response.json()
-        item = result
-        while isinstance(item, list) and len(item) > 0:
-            item = item[0]
-
-        if not isinstance(item, dict):
-            raise Exception(f"SE8 upscale returned: {type(item).__name__}")
 
         url_val = item.get("url", "")
         if url_val and not url_val.startswith("data:"):

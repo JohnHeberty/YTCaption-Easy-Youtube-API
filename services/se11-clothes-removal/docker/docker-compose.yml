@@ -23,7 +23,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 4G
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${CONTAINER_PORT:-8011}/health"]
       interval: 30s

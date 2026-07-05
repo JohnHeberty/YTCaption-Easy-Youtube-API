@@ -23,6 +23,7 @@ RUN if [ "$DEVICE" = "cpu" ]; then \
     else \
       pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cu130 -r requirements.txt; \
     fi && \
+    pip install --no-cache-dir "transformers==4.48.3" && \
     chmod -R a+r /usr/local/lib/python3.11/site-packages
 
 # =============================================================================

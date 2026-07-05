@@ -261,17 +261,17 @@ def filter_clothing_objects(objects: list[dict], masks: list[str], min_area: flo
 # ─── Progressive Mode ────────────────────────────────────────────────────────
 
 PROGRESSIVE_PASSES = [
-    {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "florence2", "name": "straps", "se_mode": "clothes"},
-    {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "florence2", "name": "top", "se_mode": "clothes"},
-    {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "florence2", "name": "full", "se_mode": "clothes"},
-    {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.50, "detector": "florence2", "name": "cleanup", "se_mode": "clothes"},
+    {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
+    {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "segformer", "name": "top", "se_mode": "clothes"},
+    {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "segformer", "name": "full", "se_mode": "clothes"},
+    {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.50, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
 ]
 
 PROGRESSIVE_PASSES_PERSON = [
-    {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.70, "detector": "florence2", "name": "straps", "se_mode": "clothes"},
-    {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.65, "detector": "florence2", "name": "top", "se_mode": "clothes"},
-    {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "florence2", "name": "full", "se_mode": "clothes"},
-    {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.55, "detector": "florence2", "name": "cleanup", "se_mode": "clothes"},
+    {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.70, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
+    {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.65, "detector": "segformer", "name": "top", "se_mode": "clothes"},
+    {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "segformer", "name": "full", "se_mode": "clothes"},
+    {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.55, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
 ]
 
 

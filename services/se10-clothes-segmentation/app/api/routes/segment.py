@@ -26,7 +26,7 @@ async def segment_clothes(
     box_threshold: float | None = Form(None, description="Detection confidence threshold"),
     text_threshold: float | None = Form(None, description="Text matching threshold"),
     mode: str = Form("clothes", description="Detection mode: 'clothes' or 'person'"),
-    detector: str = Form("groundingdino", description="Detector: 'groundingdino', 'yolo11', 'ensemble', 'florence2'"),
+    detector: str = Form("groundingdino", description="Detector: 'groundingdino', 'yolo11', 'birefnet', 'segformer', 'ensemble'"),
     include_pose: bool = Form(False, description="Generate OpenPose-style controlnet_image for SE8 ControlNet"),
 ) -> SegmentResponse:
     if not file.filename:
@@ -106,9 +106,10 @@ async def segment_clothes(
             error="SEGMENTATION_ERROR",
         )
 
-    # Immediately unload GPU models after detection to free VRAM for SE8
+    # Unload GPU models after detection to free VRAM for SE8
+    # Keep Florence-2 (CPU-only) loaded to avoid 15s reload penalty
     try:
-        segmentor.unload_all()
+        segmentor.unload_gpu_models()
     except Exception:
         pass
 

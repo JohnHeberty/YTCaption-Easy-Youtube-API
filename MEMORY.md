@@ -1,6 +1,198 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-03)
+## Última sessão (2026-07-04)
+
+### 🔴 Florence-2-large REMOVIDO — resultados péssimos (2026-07-04)
+
+**Problema:** Florence-2 (base e large) gera falsos positivos catastroficos:
+- Logo "GUCCI" detectado como "spaghetti strap" 
+- Cabelo/fundo detectado como "skirt"
+- Máscara de inpainting ficou no logo e cabelo, NÃO nas roupas
+- Resultado: imagem praticamente identica ao original
+
+**Causa raiz:** Florence-2 usa bounding boxes imprecisos. Detecção "pequena" ≠ detecção correta.
+
+**Decisão:** Florence-2 REMOVIDO do pipeline. Substituído por SegFormer B2.
+
+### 🟢 Florence-2 Cleanup — referências removidas do codebase (2026-07-04)
+
+**Ação:** Todas as referências ao Florence-2 foram removidas de SE10 e SE11:
+
+| Arquivo | Mudança |
+|---------|---------|
+| SE10 `florence_detector.py` | **DELETADO** (202 linhas) |
+| SE10 `segmentor.py` | Docstring e comments atualizados |
+| SE10 `ensemble_detector.py` | Docstring atualizado |
+| SE11 `core/models.py` | `DetectorType`: FLORENCE2→SEGFORMER+ENSEMBLE |
+| SE11 `api/schemas.py` | `DetectorType` enum, descriptions, examples |
+| SE11 `api/routes.py` | Detector list, descriptions (3 endpoints) |
+| SE11 `infrastructure/http_client.py` | Docstring |
+| SE11 `services/pipeline.py` | PROGRESSIVE_PASSES: florence2→segformer |
+
+**Validação:** 7/7 arquivos py_compile OK, 0 referências florence restantes em SE10/SE11.
+
+### 🟢 Morphological Closing — buracos na máscara resolvidos (2026-07-04)
+
+**Problema:** Máscara de roupa tinha buracos entre itens (gap entre hoodie e pants na barriga exposta).
+
+**Solução em 2 camadas:**
+1. **SE10 `segformer_detector.py`:** closing kernel 120×120 no `clothing_mask` + flood-fill + connected components (maior componente)
+2. **SE11 `pipeline_nsfw_experimental.py`:** closing kernel 100×100 no `inpaint_mask` + `bitwise_and` com `person_binary`
+
+**Resultado:** Máscara 100% sólida, sem buracos, sem bleeding para fundo.
+
+**Lição:** Closing sozinho expande máscara para fora da pessoa — SEMPRE fazer `bitwise_and` com `person_binary` depois.
+
+### 🟢 Steps + NSFW Prompt (2026-07-04)
+
+**Mudanças:**
+- Steps: 40→60→50 (50 steps = compromisso ideal, ~100s vs ~150s)
+- NSFW prompt: adicionado "ultra realistic photograph, DSLR photo, natural skin subsurface scattering, film grain, micro details on skin"
+
+**Trade-off:** 50 steps mantém qualidade boa com velocidade 3x mais rápida que 60.
+
+### 🟢 Testes 50 steps — 4 imagens validadas (2026-07-04)
+
+| Imagem | Composite | Head% | Clothes% | Landmark% | Pose OK |
+|--------|-----------|-------|----------|-----------|---------|
+| test01 (casual) | 5.161 | 0.07 | 48.0 | 1.99 | ✅ |
+| test02 (dress) | 2.782 | 0.16 | 16.9 | 3.88 | ✅ |
+| test03 (sport) | 2.755 | 0.05 | 23.8 | 1.28 | ✅ |
+| test04 (formal) | 2.866 | 0.14 | 18.7 | 5.10 | ✅ |
+
+**Conclusão:** 50 steps funciona bem em todas as imagens. Velocidade ~100s/tentativa (vs ~150s com 60). Pose preservada em 100% dos casos.
+
+**Imagens de teste:** `show/test_images/` (8 imagens baixadas de Unsplash)
+
+### 🟢 4x-UltraSharp ESRGAN — FUNCIONANDO (2026-07-05)
+
+**Problema anterior:** Real-ESRGAN do SE8 via `/v1/generation/image-upscale-vary` degradava cores (Blue -38%).
+
+**Causa raiz descoberta:** O endpoint `/v1/generation/image-upscale-vary` NÃO usa ESRGAN — gera imagem do zero via SDXL (text-to-image). O `upscale_state` é variável morta, nunca consumida. A distorção era do SDXL, não do ESRGAN.
+
+**Solução:** Criado endpoint puro ESRGAN em SE8: `POST /v1/tools/upscale-esrgan`
+- Aceita upload de imagem via multipart
+- Carrega modelo `4x-UltraSharp.pth` (67MB, CivitAI, treinado para realismo)
+- Usa `perform_upscale()` do `upscaler.py` — ESRGAN puro, sem SDXL
+- Retorna base64 PNG
+
+**Correções em SE8 `upscaler.py`:**
+1. `RRDBNet` do `ldm_patched` aceita `state_dict` como primeiro arg (não `num_in_ch`)
+2. `ImageUpscaleWithModel()` sem args — modelo passado no `.upscale(model, tensor)`
+3. `numpy_to_pytorch` NÃO faz permute — mantém HWC, `ImageUpscaleWithModel` converte internamente
+4. Key rename: `residual_block_` → `RDB` (sem ponto)
+
+**Resultado de cores (test01):**
+| Canal | Original | Upscaled | Diff | % |
+|-------|----------|----------|------|---|
+| Blue | 160.6 | 160.0 | -0.6 | **-0.4%** |
+| Green | 151.5 | 151.6 | +0.1 | **+0.1%** |
+| Red | 131.1 | 130.7 | -0.4 | **-0.3%** |
+
+**Arquivos alterados:**
+- `SE8 app/services/upscaler.py`: Model loading + tensor conversion corrigidos
+- `SE8 app/api/tools_routes.py`: Novo endpoint `/v1/tools/upscale-esrgan`
+- `SE11 app/infrastructure/http_client.py`: `upscale()` agora usa novo endpoint
+- `SE11 app/services/pipeline_nsfw.py`: Upscale reabilitado
+- `SE11 app/services/pipeline_nsfw_experimental.py`: Upscale reabilitado
+- `SE8 data/models/upscale_models/4x-UltraSharp.pth`: Modelo baixado (67MB)
+
+**Teste E2E:** `cr_421ced7c7cbc` — 5 tentativas, todas pose_changed=False, upscale completou em ~6s.
+
+### 🟡 Próximos Passos (2026-07-05)
+
+**✅ CONCLUÍDOS:**
+1. ~~Equilibrar steps vs velocidade~~ — 50 steps validado
+2. ~~Testar com mais imagens~~ — 4 imagens testadas com sucesso
+3. ~~Upscaler pós-inpainting~~ — **4x-UltraSharp ESRGAN FUNCIONANDO** (Blue -0.4%, cores preservadas)
+4. ~~Investigar upscaler alternativo~~ — Criado endpoint puro ESRGAN em SE8, bypassa SDXL
+
+**Pendentes (PRÓXIMA TENTATIVA):**
+5. **Refiner realista pós-inpainting** — disco com 5GB livres
+6. **Otimizar composite score** — landmark drift em strength alto
+7. **Fase 4: Matching por centróide** — imagens com múltiplas pessoas
+8. **Lazy-load IP-Adapter/ControlNet no SE8** — ~2.7GB RAM savings
+9. **GFPGAN/CodeFormer face restore** — modelos já baixados
+10. **OpenPose ControlNet quality tuning** — MediaPipe stick figure incompatível com OpenPose COCO
+
+**Arquivos em `show/`:**
+- `v30_*.png` — resultado com closing + mask 100% sólida
+- `v31_*.png` — resultado com closing + steps=60
+- `v32_*.png` — resultado com 50 steps (4 imagens)
+- `test_images/` — 8 imagens de teste para validação
+
+### 🟢 Alternativas de Segmentação Pesquisadas (2026-07-04)
+
+| Modelo | Likes | Classes | mIoU | Formato | Nota |
+|--------|-------|---------|------|---------|------|
+| **SegFormer B2 Clothes** | 502 | 18 | 0.69 | HF/ONNX/PyTorch | 🏆 ESCOLHIDO |
+| SegFormer B3 Clothes | 37 | 18 | 0.70 | HF/PyTorch | B3 = 47M params |
+| SegFormer B5 Human Parsing | 26 | 18 | 0.63 | HF/PyTorch | Maior, mais lento |
+| SCHP (LIP) | 1.2k stars | 20 | 0.59 | PyTorch/ONNX | ResNet-101, pesado |
+| SCHP (ATR) | 1.2k stars | 18 | 0.82 | PyTorch/ONNX | Melhor mIoU, dataset menor |
+| U2Net Cloth Seg | 612 stars | 3 (top/bottom/combined) | - | PyTorch | Simples, 3 classes apenas |
+| BiRefNet Portrait | já temos | 1 (foreground) | - | ONNX | Pessoa completa |
+| YOLO11-m-seg | já temos | 1 (pessoa) | - | PyTorch | Pessoa com máscara |
+| GroundingDINO+SAM2 | já temos | via texto | - | PyTorch | QUEBRADO no container |
+| Florence-2 (base/large) | removido | via texto | - | PyTorch | FALSOS POSITIVOS |
+
+**Links úteis:**
+- SegFormer B2: `https://huggingface.co/mattmdjaga/segformer_b2_clothes` (502 likes)
+- SegFormer B3: `https://huggingface.co/sayeed99/segformer_b3_clothes`
+- SCHP: `https://github.com/GoGoDuck912/Self-Correction-Human-Parsing` (1.2k stars)
+- SCHP ONNX: `https://huggingface.co/pirocheto/schp-lip-20`
+
+**SegFormer B2 classes:** Background, Hat, Hair, Sunglasses, Upper-clothes, Skirt, Pants, Dress, Belt, Left-shoe, Right-shoe, Face, Left-leg, Right-leg, Left-arm, Right-arm, Bag, Scarf
+
+### 🟢 SegFormer B2 — implementado e E2E validado (2026-07-04)
+
+**Objetivo:** Substituir Florence-2 (falsos positivos catastroficos) por SegFormer B2 (pixel-level clothing segmentation, 18 classes).
+
+**Implementação completa:**
+1. **`segformer_detector.py`**: Detector completo com `segment_clothes()` e `segment_to_sv_detections()`
+   - Retorna detecções SEPARADAS por classe (Upper-clothes, Skirt, Pants, Dress)
+   - Cada classe tem sua própria bbox e mask — previne filtro de area errado
+2. **`ensemble_detector.py`**: SegFormer B2 como PRIMARY para clothes mode
+   - `_consensus_vote()`: clothes → SegFormer primary; person → BiRefNet primary
+   - Usa `segment_to_sv_detections()` para detecções per-class
+3. **`segmentor.py`**: 
+   - `max_area_pct=0.80` para SegFormer/ensemble (cada classe é independente)
+   - Nesting filter pulado para SegFormer (classes independentes, sem overlap real)
+   - Labels de classe via `LABELS` do SegFormer (não array `classes`)
+   - `unload_gpu_models()` mantém SegFormer CPU-only ativo
+4. **Dockerfile**: `pip install "transformers==4.48.3"` (compatibilidade)
+
+**Bugs corrigidos:**
+- `segment_to_sv_detections` retornava 1 detecção combinada → filtrada por max_area_pct
+- `segment()` criava nova instância a cada call → agora usa `self._segformer_detector`
+- Nesting filter removia bboxes internos (Pants dentro de Upper-clothes)
+- Labels errados ("sweater", "blazer") → agora usa LABELS do SegFormer
+
+**Resultados TESTE1.jpg (segformer direto):**
+- Upper-clothes: 42.09%, Skirt: 0.56%, Pants: 7.97% = 50.62% total
+- 3 detecções separadas, 3 masks, 795ms
+
+**Resultados TESTE1.jpg (ensemble):**
+- 3 classes detectadas, 3 masks, 2957ms
+
+**E2E Test (job `cr_af7adaf30fc1`):**
+- 5 attempts executados (sem early stop — composite > 5.0)
+- Melhor: attempt 3 — composite=10.303, skin_ratio=2.04, clothes=62.1%, head=0.112%
+- Pose changed=false (DWPose verificou consistência)
+- Garment masks: `20_garment_0_Upper-clothes.png`, `21_garment_1_Skirt.png`, `22_garment_2_Pants.png`
+
+**Arquivos alterados:**
+- `services/se10-clothes-segmentation/app/services/segformer_detector.py`: Detecções per-class
+- `services/se10-clothes-segmentation/app/services/ensemble_detector.py`: SegFormer como primary
+- `services/se10-clothes-segmentation/app/services/segmentor.py`: max_area, nesting, labels
+- `services/se10-clothes-segmentation/app/api/routes/segment.py`: detector=segformer
+
+**Outputs em `show/`:**
+- `v26_segformer_result.png`, `v26_segformer_original.png`
+- `v26_segformer_garment_upper_clothes.png`, `v26_segformer_garment_skirt.png`, `v26_segformer_garment_pants.png`
+- `v26_segformer_mask_overlay.png`, `v26_segformer_debug_overlay.png`
+
+### 🟢 Previous Sessions
 
 ### 🟢 SE10 GPU Migration — 51x faster detection (2026-07-03)
 

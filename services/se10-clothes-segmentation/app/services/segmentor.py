@@ -64,6 +64,7 @@ class ClothesSegmentor:
         self._sam2_predictor: Any = None
         self._yolo_detector: Any = None
         self._birefnet_detector: Any = None
+        self._segformer_detector: Any = None
         self._ensemble_detector: Any = None
         self._pose_renderer: PoseRenderer | None = None
         self._load_models()
@@ -95,6 +96,41 @@ class ClothesSegmentor:
     # ------------------------------------------------------------------ #
 
     def _load_models(self) -> None:
+        t0 = time.time()
+        self._load_gpu_models()
+
+        # SegFormer B2 (pixel-level clothing segmentation)
+        try:
+            from app.services.segformer_detector import SegFormerDetector
+            segformer_device = "cuda" if self._device.type == "cuda" else "cpu"
+            self._segformer_detector = SegFormerDetector(device=segformer_device)
+            logger.info("SegFormer B2 loaded | device=%s", segformer_device)
+        except Exception as e:
+            logger.warning("SegFormer B2 not available: %s", e)
+            self._segformer_detector = None
+
+        # Ensemble detector (combines all available detectors)
+        if self._yolo_detector is not None or self._birefnet_detector is not None or self._segformer_detector is not None:
+            from app.services.ensemble_detector import EnsembleDetector
+            self._ensemble_detector = EnsembleDetector()
+            if self._yolo_detector is not None:
+                self._ensemble_detector.set_yolo(self._yolo_detector)
+            if self._birefnet_detector is not None:
+                self._ensemble_detector.set_birefnet(self._birefnet_detector)
+            if self._gd_model is not None:
+                self._ensemble_detector.set_groundingdino(self._gd_model)
+            if self._segformer_detector is not None:
+                self._ensemble_detector.set_segformer(self._segformer_detector)
+            logger.info("Ensemble detector ready (GD=%s, SegFormer=%s, YOLO=%s, BiRefNet=%s)",
+                        self._gd_model is not None, self._segformer_detector is not None,
+                        self._yolo_detector is not None, self._birefnet_detector is not None)
+
+        # Pose renderer — lazy loaded (only when include_pose=True)
+        self._pose_renderer: PoseRenderer | None = None
+
+        logger.info("All models loaded in %.1fs", time.time() - t0)
+
+    def _load_gpu_models(self) -> None:
         t0 = time.time()
 
         # GroundingDINO
@@ -162,35 +198,19 @@ class ClothesSegmentor:
             logger.warning("BiRefNet-portrait not available: %s", e)
             self._birefnet_detector = None
 
-        # Ensemble detector (combines all available detectors)
-        if self._yolo_detector is not None or self._birefnet_detector is not None:
-            from app.services.ensemble_detector import EnsembleDetector
-            self._ensemble_detector = EnsembleDetector()
-            if self._yolo_detector is not None:
-                self._ensemble_detector.set_yolo(self._yolo_detector)
-            if self._birefnet_detector is not None:
-                self._ensemble_detector.set_birefnet(self._birefnet_detector)
-            if self._gd_model is not None:
-                self._ensemble_detector.set_groundingdino(self._gd_model)
-            logger.info("Ensemble detector ready (GD=%s, YOLO=%s, BiRefNet=%s)",
-                        self._gd_model is not None, self._yolo_detector is not None,
-                        self._birefnet_detector is not None)
-
-        # Pose renderer — lazy loaded (only when include_pose=True)
-        self._pose_renderer: PoseRenderer | None = None
-
-        logger.info("All models loaded in %.1fs", time.time() - t0)
+        logger.info("GPU models loaded in %.1fs", time.time() - t0)
 
     # ------------------------------------------------------------------ #
     #  Model lifecycle — unload to free RAM
     # ------------------------------------------------------------------ #
 
     def unload_all(self) -> None:
-        """Unload all models to free CPU/GPU memory."""
+        """Unload ALL models."""
         self._gd_model = None
         self._sam2_predictor = None
         self._yolo_detector = None
         self._birefnet_detector = None
+        self._segformer_detector = None
         self._ensemble_detector = None
         self._pose_renderer = None
         import gc
@@ -201,6 +221,31 @@ class ClothesSegmentor:
         except Exception:
             pass
         logger.info("All models unloaded")
+
+    def unload_gpu_models(self) -> None:
+        """Unload only GPU models to free VRAM for SE8.
+        Keeps SegFormer (CPU-only) loaded to avoid reload penalty.
+        """
+        self._gd_model = None
+        self._sam2_predictor = None
+        self._yolo_detector = None
+        self._birefnet_detector = None
+        self._ensemble_detector = None
+        self._pose_renderer = None
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
+        logger.info("GPU models unloaded (SegFormer kept)")
 
     def _check_idle_unload(self) -> None:
         """Unload models if idle for too long."""
@@ -242,7 +287,7 @@ class ClothesSegmentor:
         Args:
             mode: "clothes" for clothing detection, "person" for person detection.
                   When "person", defaults to PERSON_CLASSES and relaxes area filter to 80%.
-            detector: "groundingdino" (default) or "florence2" for alternative detector.
+            detector: "groundingdino" (default), "segformer" (pixel-level), or "ensemble" (multi-detector).
             include_pose: If True, also generate an OpenPose-style control image
                           from MediaPipe Pose landmarks.
 
@@ -253,9 +298,25 @@ class ClothesSegmentor:
         t0 = time.time()
 
         # Check if models need to be reloaded after idle timeout
-        if self._gd_model is None and self._yolo_detector is None and self._birefnet_detector is None:
+        if self._gd_model is None and self._yolo_detector is None and self._birefnet_detector is None and self._segformer_detector is None:
             logger.info("Models unloaded due to idle, reloading...")
             self._load_models()
+        elif self._sam2_predictor is None and self._segformer_detector is not None:
+            # GPU models were unloaded (unload_gpu_models) but SegFormer stays on CPU.
+            # Reload GPU models (SAM2, YOLO, BiRefNet) — SegFormer stays.
+            logger.info("GPU models were unloaded, reloading (SegFormer kept)...")
+            self._load_gpu_models()
+            # Rebuild ensemble with reloaded GPU detectors + existing SegFormer
+            from app.services.ensemble_detector import EnsembleDetector
+            self._ensemble_detector = EnsembleDetector()
+            if self._yolo_detector is not None:
+                self._ensemble_detector.set_yolo(self._yolo_detector)
+            if self._birefnet_detector is not None:
+                self._ensemble_detector.set_birefnet(self._birefnet_detector)
+            if self._gd_model is not None:
+                self._ensemble_detector.set_groundingdino(self._gd_model)
+            if self._segformer_detector is not None:
+                self._ensemble_detector.set_segformer(self._segformer_detector)
 
         if mode == "person":
             classes = classes or PERSON_CLASSES
@@ -263,6 +324,10 @@ class ClothesSegmentor:
         else:
             classes = classes or CLOTHING_CLASSES
             max_area_pct = max_area_pct or self.settings.max_area_pct
+            # SegFormer per-class masks are naturally bounded — increase max_area_pct
+            # A hoodie can cover 40%+ of the image, which is valid per-class
+            if (detector == "segformer" or detector == "ensemble") and max_area_pct < 0.80:
+                max_area_pct = 0.80
         box_threshold = box_threshold or self.settings.box_threshold
         text_threshold = text_threshold or self.settings.text_threshold
         max_objects = max_objects or self.settings.max_objects
@@ -273,7 +338,7 @@ class ClothesSegmentor:
         height, width, _ = original_image.shape
         image_area = height * width
 
-        # 1. Detection — supports groundingdino, florence2, yolo11, birefnet, ensemble
+        # 1. Detection — supports groundingdino, segformer, yolo11, birefnet, ensemble
         if detector == "ensemble" and self._ensemble_detector is not None:
             # Multi-detector consensus voting
             ensemble_result = self._ensemble_detector.detect_ensemble(
@@ -281,6 +346,7 @@ class ClothesSegmentor:
                 classes=classes,
                 box_threshold=box_threshold,
                 text_threshold=text_threshold,
+                mode=mode,
             )
             detections = ensemble_result["detections"]
             if detections is None or len(detections) == 0:
@@ -332,16 +398,9 @@ class ClothesSegmentor:
                     "processing_time_ms": round((time.time() - t0) * 1000, 1),
                 }
             has_masks = detections.mask is not None
-        elif detector == "florence2":
-            from app.services.florence_detector import FlorenceDetector
-            florence = FlorenceDetector(device=str(self._device))
-            detections = florence.predict_with_classes(
-                image=original_image,
-                classes=classes,
-                box_threshold=box_threshold,
-                text_threshold=text_threshold,
-            )
-            has_masks = False
+        elif detector == "segformer" and self._segformer_detector is not None:
+            detections = self._segformer_detector.segment_to_sv_detections(original_image)
+            has_masks = detections.mask is not None
         else:
             # Default: GroundingDINO
             detections = self._gd_model.predict_with_classes(
@@ -356,23 +415,33 @@ class ClothesSegmentor:
         area_filtered = detections[(detections.area / image_area) < max_area_pct]
 
         # 3. Nesting filtering (remove boxes inside other boxes)
+        # Skip for SegFormer — per-class masks are independent and valid even if bboxes overlap
         filtered_boxes: list[Any] = []
         filtered_confidences: list[Any] = []
         filtered_class_ids: list[Any] = []
         filtered_masks: list[Any] = []
         has_mask_data = area_filtered.mask is not None
-        for i, box1 in enumerate(area_filtered.xyxy):
-            is_inside = False
-            for j, box2 in enumerate(area_filtered.xyxy):
-                if i != j and self._is_inside(box1, box2):
-                    is_inside = True
-                    break
-            if not is_inside:
-                filtered_boxes.append(box1)
+
+        if (detector == "segformer" or (detector == "ensemble" and has_mask_data and len(area_filtered) > 0 and area_filtered.class_id[0] in (4, 5, 6, 7))) and has_mask_data:
+            # SegFormer: skip nesting filter — each class is independent
+            for i in range(len(area_filtered)):
+                filtered_boxes.append(area_filtered.xyxy[i])
                 filtered_confidences.append(area_filtered.confidence[i])
                 filtered_class_ids.append(area_filtered.class_id[i])
-                if has_mask_data:
-                    filtered_masks.append(area_filtered.mask[i])
+                filtered_masks.append(area_filtered.mask[i])
+        else:
+            for i, box1 in enumerate(area_filtered.xyxy):
+                is_inside = False
+                for j, box2 in enumerate(area_filtered.xyxy):
+                    if i != j and self._is_inside(box1, box2):
+                        is_inside = True
+                        break
+                if not is_inside:
+                    filtered_boxes.append(box1)
+                    filtered_confidences.append(area_filtered.confidence[i])
+                    filtered_class_ids.append(area_filtered.class_id[i])
+                    if has_mask_data:
+                        filtered_masks.append(area_filtered.mask[i])
 
         final_detections = sv.Detections(
             xyxy=np.array(filtered_boxes) if filtered_boxes else np.empty((0, 4)),
@@ -423,6 +492,10 @@ class ClothesSegmentor:
                 labels.append(f"person {conf:.2f}")
             elif detector == "birefnet" and cls_id == 0:
                 labels.append(f"person {conf:.2f}")
+            elif detector in ("segformer",) or (detector == "ensemble" and cls_id in (4, 5, 6, 7)):
+                from app.services.segformer_detector import LABELS as SEGLABELS
+                label = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
+                labels.append(f"{label} {conf:.2f}")
             elif cls_id < len(classes):
                 labels.append(f"{classes[cls_id]} {conf:.2f}")
             else:
@@ -451,19 +524,26 @@ class ClothesSegmentor:
 
         # 7. Build response
         areas = final_detections.area if len(final_detections) > 0 else np.array([])
-        detected_objects: list[dict[str, Any]] = [
-            {
-                "class_name": classes[cls_id],
+        detected_objects: list[dict[str, Any]] = []
+        for i, (cls_id, conf, xyxy) in enumerate(zip(
+            final_detections.class_id,
+            final_detections.confidence,
+            final_detections.xyxy,
+        )):
+            if detector == "segformer" or (detector == "ensemble" and cls_id in (4, 5, 6, 7)):
+                from app.services.segformer_detector import LABELS as SEGLABELS
+                class_name = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
+            elif cls_id < len(classes):
+                class_name = classes[cls_id]
+            else:
+                class_name = f"class_{cls_id}"
+
+            detected_objects.append({
+                "class_name": class_name,
                 "confidence": round(float(conf), 4),
                 "bbox": [int(b) for b in xyxy],
                 "area_pct": round(float(areas[i] / image_area) * 100, 2),
-            }
-            for i, (cls_id, conf, xyxy) in enumerate(zip(
-                final_detections.class_id,
-                final_detections.confidence,
-                final_detections.xyxy,
-            ))
-        ]
+            })
 
         _, buffer = cv2.imencode(".jpg", annotated)
         mask_b64 = f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"

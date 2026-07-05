@@ -42,7 +42,8 @@ class RemovalMode(str, Enum):
 
 class DetectorType(str, Enum):
     GROUNDINGDINO = "groundingdino"
-    FLORENCE2 = "florence2"
+    SEGFORMER = "segformer"
+    ENSEMBLE = "ensemble"
 
 
 # =============================================================================

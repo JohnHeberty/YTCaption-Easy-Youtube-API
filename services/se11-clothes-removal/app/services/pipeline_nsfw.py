@@ -982,12 +982,13 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             orig_path = os.path.join(output_dir, "00_original.png")
             result_path_try = os.path.join(try_dir, "result.png")
 
-            # ─── Pose Validation (in-process) ───
+            # ─── Pose Validation (DWPose — 130 keypoints) ───
             pose_score = 999.0
             pose_changed = True
             head_avg = 0.0
             torso_avg = 0.0
             limbs_avg = 0.0
+            hands_avg = 0.0
             max_landmark = 0.0
             try:
                 orig_pose = detect_pose(orig_img, min_detection_confidence=0.5)
@@ -999,14 +1000,17 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                         head_threshold_pct=1.5,
                         torso_threshold_pct=8.0,
                         limbs_threshold_pct=5.0,
+                        hands_threshold_pct=5.0,
                     )
                     pose_changed = comparison.pose_changed
                     head_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "HEAD"]
                     torso_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "TORSO"]
                     limb_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "LIMB"]
+                    hand_diffs = [d.distance_normalized for d in comparison.diffs if d.group in ("HAND_LEFT", "HAND_RIGHT")]
                     head_avg = float(_np.mean(head_diffs)) if head_diffs else 0.0
                     torso_avg = float(_np.mean(torso_diffs)) if torso_diffs else 0.0
                     limbs_avg = float(_np.mean(limb_diffs)) if limb_diffs else 0.0
+                    hands_avg = float(_np.mean(hand_diffs)) if hand_diffs else 0.0
                     max_landmark = float(max(
                         (d.distance_normalized for d in comparison.diffs), default=0.0
                     ))
@@ -1034,6 +1038,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 "head_pct": round(head_avg, 3),
                 "torso_pct": round(torso_avg, 3),
                 "limbs_pct": round(limbs_avg, 3),
+                "hands_pct": round(hands_avg, 3),
                 "max_landmark_pct": round(max_landmark, 3),
                 "result_clothes_pct": round(result_clothes_pct, 3),
                 "result_skin_pct": round(result_skin_pct, 3),
@@ -1100,6 +1105,32 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             job.error = "All attempts failed"
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
+
+        # ─── Upscale via 4x-UltraSharp ───
+        try:
+            logger.info("Job %s: upscaling via 4x-UltraSharp", job.job_id)
+            _, upscale_buf = _cv2.imencode(".png", best_composited)
+            upscale_b64 = _to_data_uri(base64.b64encode(upscale_buf).decode("utf-8"), mime="image/png")
+            upscale_result = await se8.upscale(image_b64=upscale_b64, scale=2.0)
+            if upscale_result and upscale_result.get("base64"):
+                upscaled_b64 = upscale_result["base64"]
+                if "," in upscaled_b64 and upscaled_b64.startswith("data:"):
+                    upscaled_b64 = upscaled_b64.split(",", 1)[1]
+                upscaled_b64 = _fix_b64_padding(upscaled_b64)
+                upscaled_bytes = base64.b64decode(upscaled_b64)
+                upscaled_img = _cv2.imdecode(
+                    _np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+                if upscaled_img is not None and upscaled_img.shape[:2] != (orig_h, orig_w):
+                    upscaled_img = _cv2.resize(upscaled_img, (orig_w, orig_h))
+                if upscaled_img is not None:
+                    best_composited = upscaled_img
+                    logger.info("Job %s: upscale completed (%dx%d)", job.job_id, orig_w, orig_h)
+                else:
+                    logger.warning("Job %s: upscale decode failed, using original", job.job_id)
+            else:
+                logger.warning("Job %s: upscale returned no base64, using original", job.job_id)
+        except Exception as exc:
+            logger.warning("Job %s: upscale failed (%s), using original", job.job_id, exc)
 
         _, fb = _cv2.imencode(".png", best_composited)
 

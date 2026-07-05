@@ -52,8 +52,10 @@ NSFW_PROMPT = (
     "keeping original body position, not moving, not rotating, same stance, identical pose, "
     "skin tone matching the person's arms and face, consistent skin color throughout, "
     "seamless skin transition, matching skin tone with surrounding body, "
-    "photorealistic, professional studio photography, soft lighting, "
-    "sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd"
+    "ultra realistic photograph, DSLR photo, natural skin subsurface scattering, "
+    "studio lighting, soft shadows, film grain, 8k uhd, "
+    "sharp focus on body, high resolution, professional photography, "
+    "skin pores visible, micro details on skin, lifelike skin translucency"
 )
 
 NSFW_LORAS = [
@@ -554,6 +556,15 @@ async def run_nsfw_experimental(
             # ─── LAYERED MASK (same as production pipeline_nsfw.py) ───
             from app.services.head_detector import detect_head_mask, detect_face_oval_mask
             inpaint_mask = clothes_combined.copy()
+
+            # Close gaps between clothing items (e.g. hoodie→pants gap on exposed belly)
+            close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (100, 100))
+            inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k)
+
+            # Constrain mask to person silhouette — prevents closing from bleeding
+            # into background (building corners, walls, etc.)
+            inpaint_mask = _cv2.bitwise_and(inpaint_mask, person_binary)
+
             dilate_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
             inpaint_mask = _cv2.dilate(inpaint_mask, dilate_k, iterations=1)
 
@@ -666,22 +677,27 @@ async def run_nsfw_experimental(
                 # Save pose landmarks overlay on original
                 try:
                     pose_overlay = orig_img.copy()
+                    h, w = pose_overlay.shape[:2]
+                    sx = w / orig_pose.image_width
+                    sy = h / orig_pose.image_height
                     for lm in orig_pose.landmarks:
-                        if lm.visibility > 0.5:
+                        if lm.visibility > 0.3:
                             color = (0, 255, 0)
-                            if lm.index in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:
+                            if lm.group == "HEAD":
                                 color = (255, 255, 0)  # head = yellow
-                            _cv2.circle(pose_overlay, (int(lm.x), int(lm.y)), 4, color, -1)
-                    # Draw connections
-                    import mediapipe as mp
-                    mp_pose = mp.solutions.pose
-                    for conn in mp_pose.POSE_CONNECTIONS:
-                        lm1 = orig_pose.landmarks[conn[0].value]
-                        lm2 = orig_pose.landmarks[conn[1].value]
-                        if lm1.visibility > 0.5 and lm2.visibility > 0.5:
-                            _cv2.line(pose_overlay, (int(lm1.x), int(lm1.y)),
-                                      (int(lm2.x), int(lm2.y)), (0, 255, 0), 2)
-                    _cv2.putText(pose_overlay, f"Pose: {len(orig_pose.landmarks)} landmarks",
+                            _cv2.circle(pose_overlay, (int(lm.x * sx), int(lm.y * sy)), 4, color, -1)
+                    # Draw body connections (DWPose OpenPose format)
+                    body_conns = [(0,1),(1,2),(1,5),(2,3),(3,4),(5,6),(6,7),(1,8),(1,11),(8,9),(9,10),(11,12),(12,13)]
+                    body_px = {}
+                    for lm in orig_pose.landmarks:
+                        if lm.visibility > 0.3:
+                            body_px[lm.index] = (int(lm.x * sx), int(lm.y * sy))
+                    for i, j in body_conns:
+                        p1, p2 = body_px.get(i), body_px.get(j)
+                        if p1 and p2:
+                            _cv2.line(pose_overlay, p1, p2, (0, 255, 0), 2)
+                    total = len(orig_pose.landmarks) + len(orig_pose.hand_left_landmarks) + len(orig_pose.hand_right_landmarks)
+                    _cv2.putText(pose_overlay, f"Pose: {total} keypoints (body+hands)",
                                 (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                     _save_debug(6, "pose_landmarks", pose_overlay)
                 except Exception:
@@ -781,16 +797,14 @@ async def run_nsfw_experimental(
             if inpainted_img.shape[:2] != (orig_h, orig_w):
                 inpainted_img = _cv2.resize(inpainted_img, (orig_w, orig_h))
 
-            # ─── Pose Validation ───
-            # Focus on HEAD stability (face preservation) — limbs WILL change
-            # because we're regenerating the body. Use non-strict mode with
-            # reasonable thresholds: head>3% or torso>8% = pose_changed.
+            # ─── Pose Validation (DWPose — 130 keypoints) ───
             pose_score = 999.0
             pose_changed = True
             pose_meta = {}
             head_avg = 0.0
             torso_avg = 0.0
             limbs_avg = 0.0
+            hands_avg = 0.0
             max_landmark = 0.0
             if orig_pose is not None:
                 try:
@@ -802,21 +816,23 @@ async def run_nsfw_experimental(
                             head_threshold_pct=3.0,
                             torso_threshold_pct=8.0,
                             limbs_threshold_pct=30.0,
+                            hands_threshold_pct=30.0,
                         )
                         pose_changed = comparison.pose_changed
 
                         head_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "HEAD"]
                         torso_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "TORSO"]
                         limb_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "LIMB"]
+                        hand_diffs = [d.distance_normalized for d in comparison.diffs if d.group in ("HAND_LEFT", "HAND_RIGHT")]
 
                         head_avg = float(_np.mean(head_diffs)) if head_diffs else 0.0
                         torso_avg = float(_np.mean(torso_diffs)) if torso_diffs else 0.0
                         limbs_avg = float(_np.mean(limb_diffs)) if limb_diffs else 0.0
+                        hands_avg = float(_np.mean(hand_diffs)) if hand_diffs else 0.0
                         max_landmark = float(max(
                             (d.distance_normalized for d in comparison.diffs), default=0.0
                         ))
 
-                        # Score = head change (lower is better, face should stay same)
                         pose_score = head_avg
 
                         pose_meta = {
@@ -824,12 +840,13 @@ async def run_nsfw_experimental(
                             "head_pct": round(head_avg, 3),
                             "torso_pct": round(torso_avg, 3),
                             "limbs_pct": round(limbs_avg, 3),
+                            "hands_pct": round(hands_avg, 3),
                             "max_landmark_pct": round(max_landmark, 3),
                         }
                         if not pose_changed:
                             all_poses_changed = False
-                        logger.info("Job %s: attempt %d pose — changed=%s head=%.3f%% torso=%.3f%% limbs=%.3f%%",
-                                    job.job_id, attempt, pose_changed, head_avg, torso_avg, limbs_avg)
+                        logger.info("Job %s: attempt %d pose — changed=%s head=%.3f%% torso=%.3f%% limbs=%.3f%% hands=%.3f%%",
+                                    job.job_id, attempt, pose_changed, head_avg, torso_avg, limbs_avg, hands_avg)
                     else:
                         logger.warning("Job %s: attempt %d no pose detected in result", job.job_id, attempt)
                 except Exception as exc:
@@ -929,6 +946,32 @@ async def run_nsfw_experimental(
                                     job.job_id, restore_result.get("faces_detected", "?"))
             except Exception as exc:
                 logger.warning("Job %s: face restore failed: %s", job.job_id, exc)
+
+        # ─── Stage 8b: Upscale via 4x-UltraSharp ───────────────────────────
+        try:
+            logger.info("Job %s: upscaling via 4x-UltraSharp", job.job_id)
+            _, upscale_buf = _cv2.imencode(".png", composited)
+            upscale_b64 = _to_data_uri(base64.b64encode(upscale_buf).decode("utf-8"), mime="image/png")
+            upscale_result = await se8.upscale(image_b64=upscale_b64, scale=2.0)
+            if upscale_result and upscale_result.get("base64"):
+                upscaled_b64 = upscale_result["base64"]
+                if "," in upscaled_b64 and upscaled_b64.startswith("data:"):
+                    upscaled_b64 = upscaled_b64.split(",", 1)[1]
+                upscaled_b64 = _fix_b64_padding(upscaled_b64)
+                upscaled_bytes = base64.b64decode(upscaled_b64)
+                upscaled_img = _cv2.imdecode(
+                    _np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+                if upscaled_img is not None and upscaled_img.shape[:2] != (orig_h, orig_w):
+                    upscaled_img = _cv2.resize(upscaled_img, (orig_w, orig_h))
+                if upscaled_img is not None:
+                    composited = upscaled_img
+                    logger.info("Job %s: upscale completed (%dx%d)", job.job_id, orig_w, orig_h)
+                else:
+                    logger.warning("Job %s: upscale decode failed, using original", job.job_id)
+            else:
+                logger.warning("Job %s: upscale returned no base64, using original", job.job_id)
+        except Exception as exc:
+            logger.warning("Job %s: upscale failed (%s), using original", job.job_id, exc)
 
         # ─── Stage 9: Save Results ──────────────────────────────────────
         job.update_stage("inpainting", "processing", progress=95.0)

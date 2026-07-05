@@ -135,8 +135,12 @@ async def list_detectors() -> DetectorsResponse:
                 recommended=True,
             ),
             DetectorInfo(
-                name="florence2",
-                description="Alternative engine. Good for fine-grained clothing class matching.",
+                name="segformer",
+                description="Pixel-level clothing segmentation (18 classes). Recommended for clothes mode.",
+            ),
+            DetectorInfo(
+                name="ensemble",
+                description="Multi-detector consensus (GD+YOLO+BiRefNet+SegFormer). Best accuracy.",
             ),
         ],
         default="groundingdino",
@@ -160,7 +164,7 @@ async def get_config() -> ConfigResponse:
     return ConfigResponse(
         output_dir=settings.output_dir,
         supported_modes=["clothes", "person", "nsfw", "nsfw_test"],
-        supported_detectors=["groundingdino", "florence2"],
+        supported_detectors=["groundingdino", "segformer", "ensemble"],
         endpoints={
             "jobs": "POST /jobs — production (nsfw, clothes, person)",
             "nsfw_test": "POST /nsfw-test — experimental (full parameter control)",
@@ -237,7 +241,7 @@ async def create_job(
     ),
     detector: DetectorType = Form(
         default=DetectorType.GROUNDINGDINO,
-        description="Detection engine: `groundingdino` (default) or `florence2`.",
+        description="Detection engine: `groundingdino` (default), `segformer`, or `ensemble`.",
     ),
     face_restore: bool = Form(
         default=False,
@@ -356,7 +360,7 @@ async def create_nsfw_job(
     ),
     detector: DetectorType = Form(
         default=DetectorType.GROUNDINGDINO,
-        description="Detection engine: `groundingdino` (default) or `florence2`.",
+        description="Detection engine: `groundingdino` (default), `segformer`, or `ensemble`.",
     ),
     face_restore: bool = Form(
         default=False,
@@ -484,7 +488,7 @@ async def create_nsfw_test_job(
     ),
     detector: DetectorType = Form(
         default=DetectorType.GROUNDINGDINO,
-        description="Detection engine: `groundingdino` (default) or `florence2`.",
+        description="Detection engine: `groundingdino` (default), `segformer`, or `ensemble`.",
     ),
     inpaint_mode: str = Form(
         default="invert_mask",

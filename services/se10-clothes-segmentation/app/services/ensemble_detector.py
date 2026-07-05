@@ -27,6 +27,7 @@ class EnsembleDetector:
         self._yolo_detector: Any = None
         self._birefnet_detector: Any = None
         self._gd_model: Any = None
+        self._segformer_detector: Any = None
 
     def set_yolo(self, yolo_detector: Any) -> None:
         """Register YOLO11-seg detector."""
@@ -40,6 +41,10 @@ class EnsembleDetector:
         """Register GroundingDINO model."""
         self._gd_model = gd_model
 
+    def set_segformer(self, segformer_detector: Any) -> None:
+        """Register SegFormer B2 detector."""
+        self._segformer_detector = segformer_detector
+
     def detect_ensemble(
         self,
         image_bgr: np.ndarray,
@@ -47,15 +52,18 @@ class EnsembleDetector:
         box_threshold: float = 0.10,
         text_threshold: float = 0.10,
         min_coverage_pct: float = 5.0,
+        mode: str = "person",
     ) -> dict[str, Any]:
         """Run multiple detectors and merge results via consensus.
 
         Args:
             image_bgr: OpenCV BGR image.
-            classes: Text classes for GroundingDINO (e.g. ["person", "woman", "man"]).
+            classes: Text classes for detection (e.g. ["person", "woman", "man"] for person,
+                     or ["hoodie", "t-shirt"] for clothes).
             box_threshold: GroundingDINO box threshold.
             text_threshold: GroundingDINO text threshold.
-            min_coverage_pct: Minimum person coverage % to consider detection valid.
+            min_coverage_pct: Minimum coverage % to consider detection valid.
+            mode: "person" for person detection, "clothes" for clothing detection.
 
         Returns:
             dict with keys: detections, method, coverage_pct, detector_results
@@ -99,7 +107,34 @@ class EnsembleDetector:
                 results["groundingdino"] = {"detected": False, "error": str(e)}
                 logger.warning("GroundingDINO failed: %s", e)
 
-        # --- Detector 2: YOLO11-seg ---
+        # --- Detector 2: SegFormer B2 (pixel-level clothing segmentation) ---
+        segformer_detections = None
+        if self._segformer_detector is not None:
+            try:
+                segformer_result = self._segformer_detector.segment_clothes(image_bgr)
+                clothing_mask = segformer_result["clothing_mask"]
+                if clothing_mask.any():
+                    coverage = segformer_result["total_clothing_pct"]
+                    detected = segformer_result["detected_classes"]
+                    results["segformer"] = {
+                        "detected": True,
+                        "coverage_pct": round(coverage, 1),
+                        "num_classes": len(detected),
+                        "classes": [(cls_id, name, round(area, 1)) for cls_id, name, area in detected],
+                    }
+                    if coverage >= min_coverage_pct:
+                        # Use per-class detections (separate bbox per clothing class)
+                        segformer_detections = self._segformer_detector.segment_to_sv_detections(image_bgr)
+                    else:
+                        results["segformer"]["filtered"] = True
+                        results["segformer"]["reason"] = f"coverage {coverage:.1f}% < {min_coverage_pct}%"
+                else:
+                    results["segformer"] = {"detected": False, "coverage_pct": 0.0}
+            except Exception as e:
+                results["segformer"] = {"detected": False, "error": str(e)}
+                logger.warning("SegFormer B2 failed: %s", e)
+
+        # --- Detector 3: YOLO11-seg ---
         yolo_detections = None
         if self._yolo_detector is not None:
             try:
@@ -137,7 +172,7 @@ class EnsembleDetector:
                 results["yolo11"] = {"detected": False, "error": str(e)}
                 logger.warning("YOLO11-seg failed: %s", e)
 
-        # --- Detector 3: BiRefNet-portrait ---
+        # --- Detector 4: BiRefNet-portrait ---
         birefnet_detections = None
         if self._birefnet_detector is not None:
             try:
@@ -166,7 +201,8 @@ class EnsembleDetector:
 
         # --- Consensus Voting ---
         final_detections, method = self._consensus_vote(
-            gd_detections, yolo_detections, birefnet_detections, min_coverage_pct
+            gd_detections, segformer_detections, yolo_detections, birefnet_detections,
+            min_coverage_pct, mode, image_area,
         )
 
         final_coverage = 0.0
@@ -198,27 +234,35 @@ class EnsembleDetector:
     def _consensus_vote(
         self,
         gd_detections: sv.Detections | None,
+        segformer_detections: sv.Detections | None,
         yolo_detections: sv.Detections | None,
         birefnet_detections: sv.Detections | None,
         min_coverage_pct: float = 5.0,
+        mode: str = "person",
+        image_area: int = 1,
     ) -> tuple[sv.Detections | None, str]:
         """Choose best detections based on consensus logic.
 
         Strategy:
-        1. If multiple detect → pick highest coverage with masks
-        2. If only one detects → use it
-        3. If none detect → return None
+        - Clothes mode: SegFormer B2 is PRIMARY (pixel-level clothing segmentation)
+        - Person mode: BiRefNet > YOLO11 > SegFormer > GD
+        - Multiple detectors agree → pick best by mode priority
+        - Single detector → use it
+        - None → return None
 
         Returns:
             (detections, method_name)
         """
         gd_ok = gd_detections is not None and len(gd_detections) > 0
+        segformer_ok = segformer_detections is not None and len(segformer_detections) > 0
         yolo_ok = yolo_detections is not None and len(yolo_detections) > 0
         birefnet_ok = birefnet_detections is not None and len(birefnet_detections) > 0
 
         detected: list[tuple[str, sv.Detections]] = []
         if gd_ok:
             detected.append(("groundingdino", gd_detections))
+        if segformer_ok:
+            detected.append(("segformer", segformer_detections))
         if yolo_ok:
             detected.append(("yolo11", yolo_detections))
         if birefnet_ok:
@@ -231,21 +275,32 @@ class EnsembleDetector:
             name, det = detected[0]
             return det, name
 
-        # Multiple detectors agree — prefer the one with masks and highest coverage
-        def _coverage(det: sv.Detections) -> float:
-            if det.mask is not None:
-                total_px = sum(m.sum() for m in det.mask)
-                return total_px
-            return sum(
-                (box[2] - box[0]) * (box[3] - box[1]) for box in det.xyxy
-            )
+        # --- Mode-based priority ---
+        if mode == "clothes":
+            # Clothes mode: SegFormer B2 PRIMARY (pixel-level clothing segmentation)
+            # SegFormer directly segments each clothing item at pixel level
+            # No false positives (SegFormer is pixel-level, not text-prompt)
+            if segformer_ok:
+                return segformer_detections, "segformer_clothes_primary"
+            # Fallback to GD if available
+            if gd_ok:
+                return gd_detections, "groundingdino_clothes_fallback"
+            # YOLO/BiRefNet only detect person, not clothes — use with caution
+            if yolo_ok:
+                return yolo_detections, "yolo11_clothes_fallback_person_only"
+            if birefnet_ok:
+                return birefnet_detections, "birefnet_clothes_fallback_person_only"
 
-        # Sort by coverage (descending), prefer detectors with masks
-        detected.sort(key=lambda x: (_coverage(x[1]), x[1].mask is not None), reverse=True)
-        best_name, best_det = detected[0]
+        # Person mode: BiRefNet (SOTA) > YOLO11 > SegFormer > GD
+        if birefnet_ok:
+            return birefnet_detections, "birefnet_person_primary"
+        if yolo_ok:
+            return yolo_detections, "yolo11_person_primary"
+        if segformer_ok:
+            return segformer_detections, "segformer_person_fallback"
+        if gd_ok:
+            return gd_detections, "groundingdino_person_fallback"
 
-        # If BiRefNet and YOLO both detected, BiRefNet is SOTA — prefer it
-        if birefnet_ok and yolo_ok:
-            return birefnet_detections, "birefnet_preferred_sota"
-
-        return best_det, f"{best_name}_highest_coverage"
+        # Should not reach here, but just in case
+        name, det = detected[0]
+        return det, f"{name}_first_available"

@@ -353,3 +353,304 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 **Status:** Melhoria aplicada e validada. Face restoration (GFPGAN) e Laplacian blending ficam como próximas iterações.
 
+---
+
+## 18. Florence-2 REMOVIDO — falsos positivos catastroficos (2026-07-04)
+
+**Problema:** Florence-2 (base e large) gera falsos positivos absurdos:
+- Logo "GUCCI" detectado como "spaghetti strap" 
+- Cabelo/fundo detectado como "skirt"
+- Máscara de inpainting ficou no logo e cabelo, NÃO nas roupas
+- Resultado: imagem praticamente idêntica ao original
+
+**Causa raiz:** Florence-2 usa bounding boxes imprecisos. Detecção "pequena" ≠ detecção correta. O modelo foi treinado para detecção genérica, não para segmentação de roupa pixel-level.
+
+**Decisão:** Florence-2彻底 REMOVIDO do pipeline. Código deletado (`florence_detector.py`, 202 linhas). Todas as referências removidas de SE10 e SE11.
+
+**Lição:** 
+- **NUNCA usar modelos de detecção por texto (GroundingDINO, Florence-2) para segmentação de roupa** — eles geram bounding boxes, não masks pixel-level
+- **Prefira modelos de segmentação treinados para a tarefa específica** (SegFormer B2, U2Net, SCHP)
+- **Validar detecção olhando a imagem**, não apenas os números — 31 detecções "baixas" pareciam ok no log mas eram catastroficas na imagem
+- **Falsos positivos em segmentação são piores que falsos negativos** — uma máscara errada destrói a imagem, uma máscara faltante pode ser compensada
+
+---
+
+## 19. SegFormer B2 — segmentação pixel-level para roupa (2026-07-04)
+
+**Solução:** SegFormer B2 (mattmdjaga/segformer_b2_clothes, 502 likes) com 18 classes de roupa.
+
+**Arquitetura:**
+- Input: imagem RGB → modelo gera mask por pixel para cada classe
+- Output: 18 masks binárias (Background, Hat, Hair, Sunglasses, Upper-clothes, Skirt, Pants, Dress, Belt, Left-shoe, Right-shoe, Face, Left-leg, Right-leg, Left-arm, Right-arm, Bag, Scarf)
+- Velocidade: ~800ms GPU, ~2s CPU
+
+**Lições de implementação:**
+1. **Detecções SEPARADAS por classe** (não combinadas) — se combinar tudo em 1 detecção, o filtro `max_area_pct` rejeita a máscara inteira quando uma classe é grande
+2. **`max_area_pct=0.80` para SegFormer** — cada classe é independente, um Upper-clothes pode cobrir 40% da imagem validamente
+3. **Nesting filter PULADO para SegFormer** — bboxes de classes diferentes se sobrepõem naturalmente (Pants dentro de Upper-clothes bbox)
+4. **Labels via `LABELS[cls_id]`** — não usar array hardcoded, pois os IDs do SegFormer são específicos do modelo
+5. **Morphological closing k=100-120** — necessário para fechar gaps entre itens de roupa (ex: gap entre hoodie e pants na barriga exposta)
+
+**Resultado:** 3 detecções separadas (Upper-clothes 42%, Skirt 0.6%, Pants 8%) = 50.6% total. Sem falsos positivos.
+
+---
+
+## 20. Morphological closing — fechar buracos na máscara (2026-07-04)
+
+**Problema:** máscara de roupa tinha buracos entre itens (ex: gap entre hoodie e pants na barriga exposta). Buracos = inpainting não atinge aquela área = roupa visível no resultado.
+
+**Solução em 2 camadas:**
+1. **SE10 (segformer_detector.py):** closing kernel 120×120 no `clothing_mask` + flood-fill para preencher buracos internos + connected components para manter só a maior componente
+2. **SE11 (pipeline_nsfw_experimental.py):** closing kernel 100×100 no `inpaint_mask` + `bitwise_and` com `person_binary` para evitar bleeding
+
+**Lição:**
+- **Closing sozinho expande a máscara para fora da pessoa** — SEMPRE fazer `bitwise_and` com `person_binary` depois
+- **Filtros morfológicos grandes (k>50) só fazem sentido em imagens grandes** — em imagens pequenas (300px) um kernel de 100px é 33% da imagem
+- **Connected components após closing** — o closing pode conectar regiões não-conectadas, gerando uma máscara gigante. Manter só a maior componente evita isso
+- **Fechar buracos entre itens de roupa é ESSENCIAL** — sem isso, o modelo vê "ilhas" de roupa e pode gerar artefatos
+
+---
+
+## 21. Steps vs Qualidade vs Velocidade (2026-07-04)
+
+**Teste:** Aumentar steps de 40 para 60 para melhorar qualidade do inpainting.
+
+**Resultado:**
+| Steps | Velocidade | Qualidade | Landmark drift |
+|-------|-----------|-----------|----------------|
+| 40 | ~20s/tentativa | Boa | Baixo |
+| 60 | ~150s/tentativa | Melhor | Às vezes alto (49.7%) |
+
+**Lição:**
+- **60 steps melhora textura mas pode causar landmark drift** — o modelo "cria demais" e desloca a pose
+- **Velocidade 7x mais lenta** (20s → 150s) pode não justificar a melhoria
+- **Early stop ajuda** — se composite < 5.0 e pose_changed=false, parar antes (min 2 tentativas)
+- **Steps ideais provavelmente são 50** — compromisso entre qualidade e velocidade
+
+---
+
+## 22. Ensamble multi-detector — arquitetura e lições (2026-07-04)
+
+**Arquitetura final:**
+```
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ GroundingDINO │  │  YOLO11-seg  │  │ BiRefNet-port│  │ SegFormer B2 │
+│  (text-prompt)│  │ (COCO person)│  │ (SOTA person) │  │ (18 classes)  │
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                  │                  │                  │
+       └────────┬─────────┴──────────────────┴──────────────────┘
+                ▼
+       ┌────────────────┐
+       │Consensus Voting│
+       │(coverage+SOTA) │
+       └───────┬────────┘
+               ▼
+       ┌────────────────┐
+       │ Quality Gate   │
+       │(coverage > 10%)│
+       └───────┬────────┘
+               ▼
+       Mask final → SAM2 (se bbox) ou direto (se mask)
+```
+
+**Lições:**
+- **SegFormer é PRIMARY para clothes** — pixel-level, 18 classes, sem falsos positivos
+- **BiRefNet é PRIMARY para person** — treinado em DIS benchmark, melhor que GD para pessoa
+- **YOLO11 é fallback rápido** — 1.4s CPU, 94% confiança, mas só 1 classe (pessoa)
+- **GroundingDINO é fallback de texto** — útil quando usuário especifica classes específicas
+- **Consensus voting evita falsos positivos** — se 2+ detectores concordam, é mais provável ser real
+
+---
+
+## 23. GPU memory management — SE10+SE8 (2026-07-04)
+
+**Problema:** SE10 mantinha modelos carregados 120s (idle timer), overlap com SE8 causava CUDA corruption.
+
+**Solução:**
+- SE10: `unload_all_models()` imediatamente após cada request no route handler
+- SE8: `del sd` em checkpoint.py libera ~6GB RAM; `unload_all_models()` no finally block
+- SE8: `MODEL_IDLE_TIMEOUT=60` descarga modelos após 60s idle
+
+**Lições:**
+- **`torch.cuda.empty_cache()` NÃO funciona para liberar VRAM** — só limpa cache do allocator, não descarrega pesos
+- **`unload_all_models()` do model_management é o correto** — descarrega pesos do VRAM
+- **`del sd` + `del model` + `gc.collect()`** libera RAM do Python, mas o memory allocator pode não retornar ao OS
+- **VRAM overlap entre containers é silenciosamente destrutivo** — CUDA handle corrompido, retorno HTTP 200 com lista vazia
+- **SE10 idle deve ser ZERO** — não há razão para manter modelos carregados entre requests
+
+---
+
+## 24. DWPose vs MediaPipe (2026-07-04)
+
+**Problema:** MediaPipe Pose Detection (33 landmarks) era impreciso para validação de pose.
+
+**Solução:** DWPose (YOLOX + DWPose transformer, 126 keypoints) via ONNX.
+
+**Lições:**
+- **126 keypoints vs 33** — diferença massiva na precisão da validação
+- **~1.7s CPU** — aceitável para pipeline que já leva ~2min
+- **Modelos ONNX** — sem dependência de PyTorch, mais leve
+- **DWPose é o novo SOTA** — substitui MediaPipe para pose estimation em produção
+
+---
+
+## 25. NSFW Prompt — ultra-realistic (2026-07-04)
+
+**Prompt aprimorado:**
+```
+ultra realistic photograph, DSLR photo, natural skin subsurface scattering, 
+film grain, micro details on skin, lifelike skin translucency, 
+NSFW, NSFW, NSFW, NSFW, NSFW, solo, same body position, 
+unchanged pose, skin tone matching arms/face, 8k uhd
+```
+
+**Lição:**
+- **"subsurface scattering"** — efeito de luz penetrando na pele (realismo)
+- **"film grain"** — ruído de filme evita pele "plástica"
+- **"micro details on skin"** — poros, textura, pequenas imperfeições
+- **5x NSFW** — reforço para modelo não gerar roupa leve
+- **NSFW prompt SEMPRE hardcoded** — `/jobs/nsfw` ignora prompt do usuário
+
+---
+
+## 26. Referências atualizadas
+
+| Arquivo | Caminho |
+|---------|---------|
+| Pipeline principal | `services/se11-clothes-removal/app/services/pipeline.py` |
+| Pipeline NSFW | `services/se11-clothes-removal/app/services/pipeline_nsfw.py` |
+| Pipeline NSFW experimental | `services/se11-clothes-removal/app/services/pipeline_nsfw_experimental.py` |
+| HTTP Client | `services/se11-clothes-removal/app/infrastructure/http_client.py` |
+| Models | `services/se11-clothes-removal/app/core/models.py` |
+| SegFormer detector | `services/se10-clothes-segmentation/app/services/segformer_detector.py` |
+| Ensemble detector | `services/se10-clothes-segmentation/app/services/ensemble_detector.py` |
+| YOLO detector | `services/se10-clothes-segmentation/app/services/yolo_detector.py` |
+| BiRefNet detector | `services/se10-clothes-segmentation/app/services/birefnet_detector.py` |
+| Segmentor | `services/se10-clothes-segmentation/app/services/segmentor.py` |
+| DWPose detector | `services/se11-clothes-removal/app/validators/pose_detector.py` |
+| Head detector | `services/se11-clothes-removal/app/services/head_detector.py` |
+| Exploration script | `exploration/run_mask_pipeline.py` |
+| Pesquisa VTON | `exploration/UPGRADE.md` |
+
+## 27. Real-ESRGAN Upscaler — DESABILITADO por distorção de cores (2026-07-04)
+
+**Problema original:** Resultados de inpainting tinham detalhes embaçados.
+
+**Implementação tentada:** Upscale 2x via Real-ESRGAN como etapa pós-processamento.
+
+| Componente | Implementação |
+|-----------|---------------|
+| `http_client.py` | Método `upscale()` → SE8 `/v1/generation/image-upscale-vary` |
+| `pipeline_nsfw_experimental.py` | Etapa `8b` (DESABILITADA) |
+| `pipeline_nsfw.py` | Etapa upscale (DESABILITADA) |
+| Modelo SE8 | `fooocus_upscaler_s409985e5.bin` (Real-ESRGAN 4x, 32MB) |
+
+**Resultado — FALHOU:**
+- Canal Blue: 160→90 (38% mais escuro)
+- Histograma pico: 255→92 (imagem muito mais escura)
+- Std deviation: 74→23 (perda massiva de contraste)
+- **O Real-ESRGAN do SE8 degrada严重mente a distribuição de cores**
+
+**Causa raiz:** Real-ESRGAN 4x foi treinado em imagens gerais (landscape, objects). Não preserva distribuição de cores em fotos de pessoas/pele.
+
+**Estado atual:** Upscaler DESABILITADO nos dois pipelines. `upscale()` mantido em `http_client.py` para uso futuro.
+
+**Próximo:** Investigar alternativas (Lanczos, Real-ESRGAN 2x, waifu2x).
+
+---
+
+## 28. Método duplicado em Python — bug silencioso (2026-07-04)
+
+**Problema:** `http_client.py` tinha DOIS métodos `upscale()` na mesma classe (linhas 348 e 482).
+
+**Comportamento Python:** Usa o **último** método definido — silenciosamente sobrescreve o anterior.
+
+**Consequência:** O método ativo (linha 482) tinha:
+- LoRAs NSFW habilitados (NsfwPovAllInOne 0.5, add-detail 0.8)
+- Endpoint `/v1/` em vez de `/v2/`
+- `current_tab: "uov"` em vez de `"upscaling"`
+
+**Resultado:** SE8 não apenas ampliava — **regenerava a imagem com LoRAs NSFW**, distorcendo completamente o resultado.
+
+**Lição:** SEMPRE verificar se há métodos com o mesmo nome em uma classe. Python não avisa sobre sobrescrita silenciosa.
+
+---
+
+## 29. Formato de URL do SE8 — varia entre endpoints (2026-07-04)
+
+**Observação:** O SE8 retorna URLs em formatos diferentes conforme o endpoint:
+
+| Endpoint | `require_base64` | Formato da URL |
+|----------|-------------------|----------------|
+| `/v1/` | `False` | `/files/2026-07-05/xxx.png` (arquivo real) |
+| `/v2/` | `False` | `/files/../../data:image/png;base64,...` (data URI embutido) |
+| `/v2/` | `True` | `base64` vazio, `url` contém data URI |
+
+**Problema:** URLs `/files/../../data:image/...` não são HTTP nem data URI padrão.
+
+**Solução:** Extrair base64 buscando `base64,` na string, independentemente do prefixo.
+
+**Lição:** Não assumir formato de URL — sempre fazer fallback para extração de base64 quando a URL não é HTTP.
+
+---
+
+## 30. Base64 padding — rstrip antes de verificar (2026-07-04)
+
+**Problema:** Extração de base64 de data URIs do SE8 resultava em strings com tamanho ≡ 1 (mod 4).
+
+**Causa:** O `url_val` já continha `=` no final. Adicionar padding sem remover causava padding duplo.
+
+**Solução:** `raw_b64.rstrip("=")` antes de calcular e adicionar padding correto.
+
+**Lição:** Base64 de fontes externas pode ter padding inconsistente — SEMPRE limpar e re-adicionar.
+
+---
+
+## 31. cv2.imdecode vs cv2.imread — fallback para arquivos (2026-07-04)
+
+**Problema:** `cv2.imdecode(buffer)` retornava None para PNGs válidos (magic bytes `89504e47` corretos).
+
+**Causa:** Provavelmente buffer corrompido ou formato ligeiramente inválido para o decoder interno do OpenCV.
+
+**Solução:** Salvar bytes em arquivo temporário e usar `cv2.imread()` como fallback.
+
+**Resultado:** Mesmo com fallback, imagem ficava com cores distorcidas — problema era do modelo, não do decoder.
+
+**Lição:** `cv2.imdecode` e `cv2.imread` podem falhar em casos diferentes — ter ambos como fallback.
+
+---
+
+## 32. SE8 v2 endpoint retorna data URI corrompido (2026-07-04)
+
+**Problema:** Endpoint `/v2/generation/image-upscale-vary` retorna URL no formato:
+```
+/files/../../data:image/png;base64,<dados corrompidos>
+```
+
+**Causa:** O SE8v2 não suporta `require_base64=True` corretamente — retorna data URI embutido em path relativo.
+
+**Solução:** Usar endpoint `/v1/generation/image-upscale-vary` com `require_base64=False` — retorna URL de arquivo real (`/files/2026-07-05/xxx.png`).
+
+**Lição:** Endpoint v1 é mais estável para upscale. v2 tem bugs de serialização de URL.
+
+---
+
+## 33. Real-ESRGAN 4x Fooocus — distorção de cores em fotos de pessoas (2026-07-04)
+
+**Problema:** Modelo `fooocus_upscaler_s409985e5.bin` (Real-ESRGAN 4x) degrada严重mente cores:
+- Canal Blue: 160→90 (38% mais escuro)
+- Histograma pico: 255→92
+- Std deviation: 74→23 (perda massiva de contraste)
+
+**Causa raiz (investigação):**
+1. Real-ESRGAN foi treinado em imagens gerais (landscape, objects, anime)
+2. Modelo Real-ESRGAN_x4plus (15.9M params) é otimizado para **restauração de degradação** (blur, noise, JPEG artifacts), não para **preservação de cores**
+3. O discriminador GAN pode estar incentivando distribuição de cores "média" do treino
+4. Fooocus pode estar aplicando processamento adicional (denoise strength) que distorce cores
+
+**Possíveis soluções:**
+- **Lanczos (OpenCV)**: `cv2.resize(img, (w*2, h*2), interpolation=cv2.INTER_LANCZOS4)` — sem ML, preserva cores 100%
+- **Real-ESRGAN 2x** (menos agressivo que 4x): modelo `RealESRGAN_x2plus`
+- **Correção de pós-cor**: aplicar histogram matching após upscale
+- **Verificar denoise strength**: SE8 pode estar aplicando denoise durante upscale
+
