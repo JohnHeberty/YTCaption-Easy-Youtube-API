@@ -750,7 +750,7 @@ async def run_nsfw_experimental(
             # OpenPose ControlNet — works with any SDXL model via ControlNet Union SDXL
             if openpose_b64:
                 image_prompts.append(
-                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.5, "cn_type": "OpenPose"}
+                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.3, "cn_type": "OpenPose"}
                 )
 
             t0 = time.time()
