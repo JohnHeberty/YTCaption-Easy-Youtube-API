@@ -747,10 +747,10 @@ async def run_nsfw_experimental(
             image_prompts = [
                 {"cn_img": ref_b64, "cn_stop": 0.5, "cn_weight": 0.8, "cn_type": "ImagePrompt"},
             ]
-            # OpenPose ControlNet incompatible with LustifyNSFW (different UNet architecture)
-            if openpose_b64 and "juggernaut" in base_model.lower():
+            # OpenPose ControlNet — works with any SDXL model (LustifyNSFW, JuggernautXL, etc.)
+            if openpose_b64:
                 image_prompts.append(
-                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.5, "cn_type": "OpenPose"}
+                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.4, "cn_type": "OpenPose"}
                 )
 
             t0 = time.time()

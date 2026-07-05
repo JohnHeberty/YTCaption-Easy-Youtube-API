@@ -890,13 +890,12 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
                 {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             ]
-            # OpenPose ControlNet incompatible with LustifyNSFW (different UNet architecture)
-            base_model_name = "lustifySDXLNSFW_v20-inpainting.safetensors"
-            if pose_cn_b64 and "juggernaut" in base_model_name.lower():
+            # OpenPose ControlNet — works with any SDXL model (LustifyNSFW, JuggernautXL, etc.)
+            if pose_cn_b64:
                 ip_adapter_prompts.insert(1, {
                     "cn_img": pose_cn_b64,
                     "cn_stop": 0.7,
-                    "cn_weight": 0.5,
+                    "cn_weight": 0.4,
                     "cn_type": "OpenPose",
                 })
                 logger.info("Job %s: OpenPose ControlNet enabled", job.job_id)
