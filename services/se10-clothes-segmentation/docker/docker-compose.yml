@@ -14,8 +14,6 @@ services:
       - ../app:/app/app
       - ../data:/app/data
       - /root/YTCaption-Easy-Youtube-API/yolo11m-seg.pt:/app/yolo11m-seg.pt:ro
-      # BiRefNet disabled — replaced by SegFormer B2
-      # - /root/YTCaption-Easy-Youtube-API/birefnet-portrait.onnx:/home/appuser/birefnet-portrait.onnx:ro
     env_file:
       - ../.env
     extra_hosts:
@@ -25,8 +23,6 @@ services:
       - REDIS_URL=redis://host.docker.internal:6379/10
       - DEVICE=cpu
       - YOLO_MODEL_PATH=/app/yolo11m-seg.pt
-      # BIREFNET disabled — replaced by SegFormer B2
-      # - BIREFNET_MODEL_PATH=/home/appuser/birefnet-portrait.onnx
       # Force CPU — no GPU access, prevents CUDA context allocation
       - CUDA_VISIBLE_DEVICES=
       - DISABLE_CUDA=1

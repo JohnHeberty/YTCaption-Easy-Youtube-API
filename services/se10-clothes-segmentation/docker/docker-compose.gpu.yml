@@ -14,9 +14,6 @@ services:
       - ../app:/app/app
       - ../data:/app/data
       - /root/YTCaption-Easy-Youtube-API/yolo11m-seg.pt:/app/yolo11m-seg.pt:ro
-      # GroundingDINO + SAM2 + BiRefNet DISABLED — replaced by SegFormer B2
-      # Kept commented for reference if needed in the future
-      # - /root/YTCaption-Easy-Youtube-API/birefnet-portrait.onnx:/home/appuser/birefnet-portrait.onnx:ro
       # GPU device mounts (nvidia-container-toolkit workaround for driver 590)
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
       - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1
@@ -36,8 +33,6 @@ services:
       - REDIS_URL=redis://host.docker.internal:6379/10
       - DEVICE=gpu
       - YOLO_MODEL_PATH=/app/yolo11m-seg.pt
-      # BIREFNET disabled — replaced by SegFormer B2
-      # - BIREFNET_MODEL_PATH=/home/appuser/birefnet-portrait.onnx
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     deploy:

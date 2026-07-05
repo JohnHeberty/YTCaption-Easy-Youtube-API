@@ -1,7 +1,6 @@
 """YOLO11-seg detector — fast person segmentation with masks.
 
 YOLO11-seg provides:
-- 94% confidence on images where GroundingDINO fails (dark clothes, complex backgrounds)
 - Pixel-level masks (not just bboxes)
 - ~500ms inference on CPU, ~30ms on GPU
 - Trained on COCO with 80 classes including "person" (class 0)

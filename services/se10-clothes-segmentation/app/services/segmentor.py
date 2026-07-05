@@ -118,10 +118,6 @@ class ClothesSegmentor:
     def _load_gpu_models(self) -> None:
         t0 = time.time()
 
-        # GroundingDINO + SAM2 + BiRefNet: DISABLED — replaced by SegFormer B2.
-        # These models either fail to load or are never used in the pipeline.
-        # See LIÇÕES.md for details.
-
         # YOLO11-seg (optional — loaded if model file exists or downloadable)
         try:
             from app.services.yolo_detector import YOLODetector
@@ -374,7 +370,6 @@ class ClothesSegmentor:
             }
 
         # 4. Masks — SegFormer and YOLO11-seg already provide masks
-        # SAM2 removed — SegFormer returns pixel-level masks directly
 
         # 5. Annotate
         mask_annotator = sv.MaskAnnotator()

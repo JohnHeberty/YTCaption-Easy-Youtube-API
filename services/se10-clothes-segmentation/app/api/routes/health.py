@@ -45,11 +45,10 @@ async def health() -> HealthResponse:
 async def health_deep() -> DeepHealthResponse:
     settings = get_settings()
     seg = get_segmentor()
-    checkpoints_dir = Path(settings.checkpoint_dir).resolve()
 
     checkpoint_status: dict[str, dict[str, object]] = {}
-    for name in ["groundingdino_swint_ogc.pth", "sam2_hiera_tiny.pt", "sam2_hiera_large.pt"]:
-        fpath = checkpoints_dir / name
+    for name in ["yolo11m-seg.pt"]:
+        fpath = Path(name)
         if fpath.exists():
             checkpoint_status[name] = {"exists": True, "size_mb": round(fpath.stat().st_size / 1024 / 1024, 1)}
         else:

@@ -23,14 +23,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting %s v%s", settings.app_name, settings.version)
 
     import time
-    from pathlib import Path
-
     from app.services.segmentor import ClothesSegmentor
 
-    checkpoints_dir = Path(settings.checkpoint_dir).resolve()
-
-    # GroundingDINO + SAM2 DISABLED — replaced by SegFormer B2.
-    # No longer required at startup.
     try:
         t0 = time.time()
         seg = ClothesSegmentor(settings=settings)
