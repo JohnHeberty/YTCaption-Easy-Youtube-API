@@ -1122,11 +1122,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                     upscaled_bytes = base64.b64decode(upscaled_b64)
                     upscaled_img = _cv2.imdecode(
                         _np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
-                    if upscaled_img is not None and upscaled_img.shape[:2] != (orig_h, orig_w):
-                        upscaled_img = _cv2.resize(upscaled_img, (orig_w, orig_h))
                     if upscaled_img is not None:
                         best_composited = upscaled_img
-                        logger.info("Job %s: upscale completed (%dx%d)", job.job_id, orig_w, orig_h)
+                        uh, uw = upscaled_img.shape[:2]
+                        logger.info("Job %s: upscale completed (%dx%d)", job.job_id, uw, uh)
                     else:
                         logger.warning("Job %s: upscale decode failed, using original", job.job_id)
                 else:
