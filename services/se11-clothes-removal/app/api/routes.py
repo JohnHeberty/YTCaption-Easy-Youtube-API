@@ -189,7 +189,8 @@ async def get_config() -> ConfigResponse:
         "| Mode | Description |\n|------|-------------|\n"
         "| `clothes` | Default — removes detected clothing |\n"
         "| `person` | Removes entire torso (head preserved) |\n\n"
-        "**NSFW?** Use `POST /jobs/nsfw` (production) or `POST /jobs/nsfw-test` (experimental)."
+        "**NSFW?** Use `POST /jobs/nsfw` (production) or `POST /jobs/nsfw-test` (experimental).\n\n"
+        "**Upscale?** `upscale=true` (default) applies 4x-UltraSharp ESRGAN after inpainting. `upscale=false` returns original resolution."
     ),
     responses={
         201: {"description": "Job created successfully"},
@@ -255,6 +256,10 @@ async def create_job(
         default=0.5, ge=0.0, le=1.0,
         description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity.",
     ),
+    upscale: bool = Form(
+        default=True,
+        description="Apply 4x-UltraSharp ESRGAN upscale after inpainting. Default: true.",
+    ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
@@ -288,6 +293,7 @@ async def create_job(
         "per_garment": per_garment,
         "webhook_url": webhook_url,
         "detector": detector.value,
+        "upscale": upscale,
         "face_restore": face_restore,
         "face_restore_model": face_restore_model,
         "face_restore_fidelity": face_restore_fidelity,
@@ -324,7 +330,8 @@ async def create_job(
         "- LustifyNSFW model (NSFW+inpainting specialist)\n"
         "- Multidimensional scoring (skin + pose + clothes)\n"
         "- Pose validation (MediaPipe)\n"
-        "- FaceID identity preservation"
+        "- FaceID identity preservation\n"
+        "- 4x-UltraSharp ESRGAN upscale (`upscale=false` to skip)"
     ),
     responses={
         201: {"description": "Job created successfully"},
@@ -374,6 +381,10 @@ async def create_nsfw_job(
         default=0.5, ge=0.0, le=1.0,
         description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity.",
     ),
+    upscale: bool = Form(
+        default=True,
+        description="Apply 4x-UltraSharp ESRGAN upscale after inpainting. Default: true.",
+    ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
@@ -404,6 +415,7 @@ async def create_nsfw_job(
         "text_threshold": text_threshold,
         "webhook_url": webhook_url,
         "detector": detector.value,
+        "upscale": upscale,
         "face_restore": face_restore,
         "face_restore_model": face_restore_model,
         "face_restore_fidelity": face_restore_fidelity,
@@ -440,7 +452,8 @@ async def create_nsfw_job(
         "- Base model selection (LustifyNSFW / JuggernautXL)\n"
         "- FaceID weight tuning\n"
         "- Inpaint mask strategy\n"
-        "- Face blending mode"
+        "- Face blending mode\n"
+        "- 4x-UltraSharp ESRGAN upscale (`upscale=false` to skip)"
     ),
     responses={
         201: {"description": "Job created successfully"},
@@ -526,6 +539,10 @@ async def create_nsfw_test_job(
         default=0.5, ge=0.0, le=1.0,
         description="CodeFormer fidelity: 0.0 = more restoration, 1.0 = more identity.",
     ),
+    upscale: bool = Form(
+        default=True,
+        description="Apply 4x-UltraSharp ESRGAN upscale after inpainting. Default: true.",
+    ),
 ) -> CreateClothesRemovalResponse:
     # ── Validate file type ──
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
@@ -565,6 +582,7 @@ async def create_nsfw_test_job(
         "test_inpaint_strength": test_inpaint_strength,
         "base_model": base_model,
         "face_blend_mode": face_blend_mode,
+        "upscale": upscale,
         "face_restore": face_restore,
         "face_restore_model": face_restore_model,
         "face_restore_fidelity": face_restore_fidelity,

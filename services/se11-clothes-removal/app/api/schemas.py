@@ -199,6 +199,15 @@ class CreateClothesRemovalRequest(BaseModel):
         ),
         examples=["laplacian"],
     )
+    upscale: bool = Field(
+        default=True,
+        description=(
+            "**Apply 4x-UltraSharp ESRGAN upscale** after inpainting.\n"
+            "- `true` — **Default.** Upscales result 2x via pure ESRGAN (no SDXL generation).\n"
+            "- `false` — Skip upscale, return result at original resolution."
+        ),
+        examples=[True],
+    )
     face_restore: bool = Field(
         default=False,
         description="Apply face restoration (CodeFormer/GFPGAN) after compositing to unify texture.",
@@ -359,6 +368,14 @@ class CreateClothesRemovalTestRequest(BaseModel):
     face_blend_mode: Literal["alpha", "laplacian"] = Field(
         default="laplacian",
         description="Face-body blending mode: `laplacian` (smoother) or `alpha` (legacy).",
+    )
+    upscale: bool = Field(
+        default=True,
+        description=(
+            "Apply 4x-UltraSharp ESRGAN upscale after inpainting.\n"
+            "- `true` — **Default.** Upscales result 2x via pure ESRGAN.\n"
+            "- `false` — Skip upscale, return result at original resolution."
+        ),
     )
     face_restore: bool = Field(
         default=False,

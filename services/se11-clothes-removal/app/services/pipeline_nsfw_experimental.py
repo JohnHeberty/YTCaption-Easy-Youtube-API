@@ -948,30 +948,34 @@ async def run_nsfw_experimental(
                 logger.warning("Job %s: face restore failed: %s", job.job_id, exc)
 
         # ─── Stage 8b: Upscale via 4x-UltraSharp ───────────────────────────
-        try:
-            logger.info("Job %s: upscaling via 4x-UltraSharp", job.job_id)
-            _, upscale_buf = _cv2.imencode(".png", composited)
-            upscale_b64 = _to_data_uri(base64.b64encode(upscale_buf).decode("utf-8"), mime="image/png")
-            upscale_result = await se8.upscale(image_b64=upscale_b64, scale=2.0)
-            if upscale_result and upscale_result.get("base64"):
-                upscaled_b64 = upscale_result["base64"]
-                if "," in upscaled_b64 and upscaled_b64.startswith("data:"):
-                    upscaled_b64 = upscaled_b64.split(",", 1)[1]
-                upscaled_b64 = _fix_b64_padding(upscaled_b64)
-                upscaled_bytes = base64.b64decode(upscaled_b64)
-                upscaled_img = _cv2.imdecode(
-                    _np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
-                if upscaled_img is not None and upscaled_img.shape[:2] != (orig_h, orig_w):
-                    upscaled_img = _cv2.resize(upscaled_img, (orig_w, orig_h))
-                if upscaled_img is not None:
-                    composited = upscaled_img
-                    logger.info("Job %s: upscale completed (%dx%d)", job.job_id, orig_w, orig_h)
+        upscale_enabled = getattr(job.request, "upscale", True) if hasattr(job, "request") else True
+        if upscale_enabled:
+            try:
+                logger.info("Job %s: upscaling via 4x-UltraSharp", job.job_id)
+                _, upscale_buf = _cv2.imencode(".png", composited)
+                upscale_b64 = _to_data_uri(base64.b64encode(upscale_buf).decode("utf-8"), mime="image/png")
+                upscale_result = await se8.upscale(image_b64=upscale_b64, scale=2.0)
+                if upscale_result and upscale_result.get("base64"):
+                    upscaled_b64 = upscale_result["base64"]
+                    if "," in upscaled_b64 and upscaled_b64.startswith("data:"):
+                        upscaled_b64 = upscaled_b64.split(",", 1)[1]
+                    upscaled_b64 = _fix_b64_padding(upscaled_b64)
+                    upscaled_bytes = base64.b64decode(upscaled_b64)
+                    upscaled_img = _cv2.imdecode(
+                        _np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+                    if upscaled_img is not None and upscaled_img.shape[:2] != (orig_h, orig_w):
+                        upscaled_img = _cv2.resize(upscaled_img, (orig_w, orig_h))
+                    if upscaled_img is not None:
+                        composited = upscaled_img
+                        logger.info("Job %s: upscale completed (%dx%d)", job.job_id, orig_w, orig_h)
+                    else:
+                        logger.warning("Job %s: upscale decode failed, using original", job.job_id)
                 else:
-                    logger.warning("Job %s: upscale decode failed, using original", job.job_id)
-            else:
-                logger.warning("Job %s: upscale returned no base64, using original", job.job_id)
-        except Exception as exc:
-            logger.warning("Job %s: upscale failed (%s), using original", job.job_id, exc)
+                    logger.warning("Job %s: upscale returned no base64, using original", job.job_id)
+            except Exception as exc:
+                logger.warning("Job %s: upscale failed (%s), using original", job.job_id, exc)
+        else:
+            logger.info("Job %s: upscale disabled by request", job.job_id)
 
         # ─── Stage 9: Save Results ──────────────────────────────────────
         job.update_stage("inpainting", "processing", progress=95.0)
