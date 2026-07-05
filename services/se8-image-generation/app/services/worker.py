@@ -1407,7 +1407,23 @@ def process_generate(async_job: QueueTask) -> None:
             modules.inpaint_worker.current_task = None
         except (ImportError, AttributeError):
             pass
-        # Offload GPU models to free VRAM after job completion
+
+        # Clear pipeline caches (ControlNet, CLIP encode)
+        try:
+            _p = get_pipeline()
+            _p.loaded_controlnets.clear()
+            _p._clip_cond_cache.clear()
+        except Exception:
+            pass
+
+        # Unload SE8 model_manager (CLIP, Expansion, IP-Adapter, etc.)
+        try:
+            from app.services.model_manager import get_model_manager
+            get_model_manager().unload_all()
+        except Exception:
+            pass
+
+        # Offload GPU models to free VRAM after job completion (ComfyUI UNet/VAE/ControlNet)
         try:
             import ldm_patched.modules.model_management as model_management
             model_management.unload_all_models()
