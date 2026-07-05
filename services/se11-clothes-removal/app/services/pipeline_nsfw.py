@@ -895,7 +895,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 ip_adapter_prompts.insert(1, {
                     "cn_img": pose_cn_b64,
                     "cn_stop": 0.7,
-                    "cn_weight": 0.5,
+                    "cn_weight": 0.3,
                     "cn_type": "OpenPose",
                 })
                 logger.info("Job %s: OpenPose ControlNet enabled", job.job_id)
