@@ -113,7 +113,7 @@
 7. **Fase 4: Matching por centróide** — imagens com múltiplas pessoas
 8. **Lazy-load IP-Adapter/ControlNet no SE8** — ~2.7GB RAM savings
 9. **GFPGAN/CodeFormer face restore** — modelos já baixados
-10. **OpenPose ControlNet quality tuning** — MediaPipe stick figure incompatível com OpenPose COCO
+10. ~~OpenPose ControlNet quality tuning~~ — **INCOMPATÍVEL com modelos inpainting** (LustifyNSFW tem 9 canais, ControlNet espera 4 canais)
 
 **Arquivos em `show/`:**
 - `v30_*.png` — resultado com closing + mask 100% sólida
@@ -501,7 +501,11 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 | 5. OpenPose condicional | pipeline_v2 | Só para Juggernaut (Lustify incompatível) |
 
 #### Bugs corrigidos:
-- **OpenPose RuntimeError:** Lustify UNet architecture incompatible with ControlNet — fixed by making OpenPose conditional
+- **OpenPose RuntimeError:** ~~Lustify UNet architecture incompatible with ControlNet~~ **SOLVED** — switched to ControlNet Union SDXL (standard, not LoRA). Commit `3906bb9a`.
+- **OpenPose CRASH with exit code 137 (OOM):** ~~Loading OpenPose ControlNet + LustifyNSFW inpainting model together exceeds VRAM → SE8 killed~~ **SOLVED** — ControlNet Union SDXL is lighter and compatible. Commit `3906bb9a`.
+- **OpenPose ControlNet CONCLUSION (2026-07-05):** LoRA-based ControlNets (`control-lora-openposeXL2-rank256`) are INCOMPATIBLE with SDXL inpainting models (9-channel UNet). **Solution: `xinsir/controlnet-union-sdxl-1.0`** (standard ControlNet, 2.4GB) works perfectly. Commit `3906bb9a`. E2E validated: `cr_aa5a54e9da76`, all 5 attempts pose_changed=False.
+- **ControlNet Union weight optimization (2026-07-05):** Tested w=0.3, 0.5, 0.7 on TESTE1.jpg. Best: **w=0.3 → composite=5.17** (vs 8.76 without ControlNet). Commit `35be6b24`.
+- **SDXL Refiner INCOMPATIBLE (2026-07-05):** Tested `sd_xl_refiner_1.0.safetensors`. RAM peak: 34.5GB (93.9% of 32GB), ALL 5 attempts pose_changed=True (refiner destroys pose), best composite=13.91 (vs 5.17 without). Deleted model, reverted. Commit `76095eaa`.
 - **Hair bleed:** clothes_mask + dilate(15px) bleeds into hair → head subtraction with larger ellipse
 
 #### Arquivos alterados:
@@ -584,13 +588,13 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
   - **Razão:** IP-Adapter/CLIP codifica stick figure sintético como "desenho abstrato", não como estrutura corporal
   - **Status:** desativado em produção, código mantido para futuras experiências
 - **SE11 Docker:** rebuild com mediapipe + libs gráficas (libxcb). Imagem funcional.
-- **OpenPose ControlNet integration (v23):**
-  - SE10 `/v1/segment` now accepts `include_pose=true` and returns `controlnet_image` (MediaPipe stick figure)
+- **OpenPose ControlNet integration (v23 → v26):**
+  - SE10 `/v1/segment` now accepts `include_pose=true` and returns `controlnet_image` (DWPose stick figure)
   - SE11 requests pose control image during person detection and passes it to SE8 as `OpenPose` image prompt
-  - SE8 `_apply_controlnet()` loads `controlnet-openpose-sdxl.safetensors` and applies it during diffusion
+  - SE8 `_apply_controlnet()` loads `controlnet-union-sdxl-1.0.safetensors` and applies it during diffusion
+  - **v26: Switched from LoRA to Standard ControlNet** — `control-lora-openposeXL2-rank256` incompatible with inpainting (9ch UNet), `xinsir/controlnet-union-sdxl-1.0` works perfectly
   - Tensor format: `[B, H, W, C]` — ComfyUI `ControlNetApplyAdvanced` internally moves channel to position 1
-  - **E2E validated:** job `cr_b7565e9710cc` completed with OpenPose ControlNet applied
-  - **Quality observation:** on the tested 1024×1536 image, OpenPose ControlNet degraded pose scores vs clothes-neutral ref alone (best score 14.6 vs 6.7 without ControlNet). Likely cause: MediaPipe 33-landmark skeleton differs from OpenPose COCO/Body_25 format expected by the ControlNet model.
+  - **E2E validated:** job `cr_aa5a54e9da76` completed with Union ControlNet applied, all 5 attempts pose_changed=False
 - **Face blend improvement (v23.1 → v23.2 → v23.3 → v23.4):**
   - v23.1: Protected region reduced from full head+hair+neck to inner face only (~23% of previous mask)
   - v23.2: Protected region reduced further to central face only (~10.5% of head mask)

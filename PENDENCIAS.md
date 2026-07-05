@@ -1,7 +1,7 @@
 # PENDENCIAS.md — Items Pendentes
 
-**Data:** 2026-07-04
-**Última atualização:** Florence-2 cleanup + SegFormer B2 fully integrated
+**Data:** 2026-07-05
+**Última atualização:** ControlNet Union SDXL integrated and weight-optimized
 
 ---
 
@@ -61,12 +61,10 @@
 
 ## Pendências Ativas
 
-### 1. Equilibrar steps vs velocidade (PRIORIDADE ALTA)
-- **Problema:** 60 steps = ~150s/tentativa, 5 tentativas = ~12.5min total
-- **Trade-off:** 60 steps melhora textura mas causa landmark drift (49.7%)
-- **Solução candidata:** Testar 50 steps como compromisso
-- **Impacto:** Velocidade 3-4x mais rápida, qualidade possivelmente equivalente
-- **Status:** PENDENTE
+### ✅ RESOLVIDO — Steps 60→50 (2026-07-05)
+- **Problema:** 60 steps = ~150s/tentativa
+- **Solução:** Reduzido para 50 steps (~100s/tentativa)
+- **Status:** ✅ RESOLVIDO
 
 ### 2. Testar com mais imagens (PRIORIDADE ALTA)
 - **Problema:** Só testamos com TESTE1.jpg (mulher, fundo gaming)
@@ -100,9 +98,17 @@
 - **Problema:** Restos de roupa nas laterais quando detecção não cobre 100%
 - **Status:** PENDENTE
 
-### 8. OpenPose ControlNet quality tuning
-- **Problema:** MediaPipe stick figure incompatível com OpenPose COCO/Body_25
-- **Status:** PENDENTE
+### ✅ RESOLVIDO — OpenPose ControlNet Union SDXL (2026-07-05)
+- **Problema:** LoRA-based ControlNet incompatible with SDXL inpainting (9-channel UNet)
+- **Solução:** `xinsir/controlnet-union-sdxl-1.0` (standard ControlNet, 2.4GB)
+- **Otimização:** weight=0.3, stop=0.6 → composite=5.17 (vs 8.76 sem ControlNet)
+- **Status:** ✅ RESOLVIDO
+
+### ✅ RESOLVIDO — SDXL Refiner testado e rejeitado (2026-07-05)
+- **Problema:** SDXL Refiner destrói pose (5/5 attempts pose_changed=True)
+- **Causa:** Joint denoising do refiner sobrescreve pose do base+ControlNet
+- **RAM:** Pico 34.5GB (93.9%) — quase 100%
+- **Status:** ✅ RESOLVIDO — Refiner removido, pipeline sem refiner
 
 ### 9. GFPGAN/CodeFormer face restore
 - **Status:** PENDENTE
@@ -112,7 +118,7 @@
 
 ---
 
-## ✅ Implementados nesta sessão (2026-07-04)
+## ✅ Implementados nesta sessão (2026-07-04/05)
 
 | Item | Status |
 |------|--------|
@@ -123,11 +129,15 @@
 | Labels via LABELS[cls_id] | ✅ |
 | Morphological closing k=100-120 | ✅ |
 | bitwise_and(person_binary) anti-bleeding | ✅ |
-| Steps 40→60 | ✅ |
+| Steps 60→50 | ✅ |
 | NSFW prompt ultra-realistic | ✅ |
 | Florence-2 REMOVIDO (código + referências) | ✅ |
 | DetectorType enum: SEGFORMER + ENSEMBLE | ✅ |
 | PROGRESSIVE_PASSES: florence2→segformer | ✅ |
+| ControlNet Union SDXL (xinsir/controlnet-union-sdxl-1.0) | ✅ |
+| ControlNet weight optimization (w=0.3 optimal) | ✅ |
+| ESRGAN 4x-UltraSharp pure upscaler | ✅ |
+| `/v1/tools/upscale-esrgan` endpoint | ✅ |
 
 ---
 

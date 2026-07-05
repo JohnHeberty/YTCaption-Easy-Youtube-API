@@ -314,6 +314,10 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 **Status:** Código integrado e funcional. Ajuste fino de pose renderer/weight fica como próxima iteração.
 
+**⚠️ CONCLUSÃO FINAL (2026-07-05):** 
+- **LoRA-based ControlNets** (`control-lora-openposeXL2-rank256`) são **INCOMPATÍVEIS** com modelos inpainting SDL. Causa: ControlLora copia pesos do UNet inpainting (9 canais) e sobrepõe pesos LoRA (4 canais) → shape mismatch.
+- **Solução: `xinsir/controlnet-union-sdxl-1.0`** (ControlNet padrão, 2.4GB) funciona perfeitamente com LustifyNSFW inpainting. Commit `3906bb9a`. E2E validado: `cr_aa5a54e9da76`, todos os 5 attempts pose_changed=False.
+
 
 ## 17. Face blending: proteger só o centro do rosto evita efeito recorte (2026-06-30)
 
@@ -653,4 +657,58 @@ unchanged pose, skin tone matching arms/face, 8k uhd
 - **Real-ESRGAN 2x** (menos agressivo que 4x): modelo `RealESRGAN_x2plus`
 - **Correção de pós-cor**: aplicar histogram matching após upscale
 - **Verificar denoise strength**: SE8 pode estar aplicando denoise durante upscale
+
+
+## 34. ControlNet LoRA vs Standard com modelos inpainting (2026-07-05)
+
+**Problema:** Tentamos habilitar OpenPose ControlNet para LustifyNSFW inpainting. LoRA-based ControlNet crashou, Standard ControlNet funcionou.
+
+**Causa raiz (investigação técnica):**
+1. **LoRA-based ControlNet** (`control-lora-openposeXL2-rank256`): Tem chave `lora_controlnet`. Durante `pre_run()`, copia pesos do UNet inpainting (9 canais) para o ControlNet, depois sobrepõe pesos LoRA (4 canais) → `RuntimeError: shape '[320, 9, 3, 3]' invalid for input of size 11520`
+2. **Standard ControlNet** (`xinsir/controlnet-union-sdxl-1.0`): NÃO tem chave `lora_controlnet`. Arquitetura independente, não copia pesos do UNet → funciona normalmente
+
+**Diferença fundamental:**
+| Tipo | Chave `lora_controlnet` | Copia pesos UNet | Compatível com inpainting |
+|------|------------------------|------------------|--------------------------|
+| LoRA ControlNet | ✅ Sim | ✅ Sim (9 canais) | ❌ Não |
+| Standard ControlNet | ❌ Não | ❌ Não | ✅ Sim |
+
+**Solução:** Usar `xinsir/controlnet-union-sdxl-1.0` (2.4GB, standard ControlNet) em vez de `control-lora-openposeXL2-rank256` (739MB, LoRA).
+
+**Lição:**
+- O tamanho do modelo NÃO indica compatibilidade — o LoRA (739MB) é menor mas incompatível
+- A arquitetura importa: LoRA precisa copiar pesos do UNet, Standard não
+- `controlnet-union-sdxl-1.0` suporta 10+ tipos de controle (OpenPose, Canny, Depth, etc.) em um único modelo
+- Funciona com QUALQUER modelo SDXL, incluindo inpainting (9 canais)
+
+**Validação E2E:** Job `cr_aa5a54e9da76` — 5 attempts, todos pose_changed=False, composite=10.18 (best)
+
+**Otimização de peso (2026-07-05):**
+| Peso | Best Composite | Observação |
+|------|---------------|------------|
+| 0.3 | **5.17** | Melhor — sutil, não sobrepõe inpainting |
+| 0.5 | 10.18 | Médio |
+| 0.7 | 8.35 | Segundo melhor — mais forte, menos flexível |
+
+**Conclusão:** weight=0.3 é ideal para LustifyNSFW + ControlNet Union. O peso baixo dá guidance sutil de pose sem competir com o processo de inpainting. Commit `35be6b24`.
+
+## 35. SDXL Refiner é INCOMPATÍVEL com pipeline NSFW (2026-07-05)
+
+**Problema:** Testamos `sd_xl_refiner_1.0.safetensors` para melhorar textura/detalhes.
+
+**Resultados:**
+| Métrica | Sem Refiner | Com Refiner |
+|---------|-------------|-------------|
+| RAM pico | 20GB (61%) | **34.5GB (93.9%)** |
+| Pose changed | 0/5 | **5/5 (100%)** |
+| Melhor composite | **5.17** | 13.91 |
+| Landmark drift | 12-17% | **35-61%** |
+
+**Causa:** O SDXL Refiner usa `joint denoising` — ele denoisa juntamente com o base model, mas o refiner foi treinado em dados diferentes e altera a pose completamente. Mesmo com `refiner_switch=0.5` (muda na metade dos steps), o refiner sobrescreve a pose estabelecida pelo base+ControlNet.
+
+**Lição:**
+- SDXL Refiner NÃO melhora qualidade em pipelines de inpainting com pose control
+- O refiner causa: (1) RAM +75%, (2) pose_changed=100%, (3) composite 2.7x pior
+- Para melhorar textura/detalhes, usar LoRAs (add-detail-xl) ou ESRGAN pós-processamento
+- Refiner é útil apenas para text-to-image puro, não para inpainting com restrições de pose
 
