@@ -1092,7 +1092,7 @@ def _apply_controlnet(
     import torch
     import modules.core as core
 
-    openpose_path = os.path.join(path_controlnet, "controlnet-openpose-sdxl.safetensors")
+    openpose_path = os.path.join(path_controlnet, "controlnet-union-sdxl-1.0.safetensors")
     if not os.path.exists(openpose_path):
         logger.warning("OpenPose ControlNet model not found: %s", openpose_path)
         return positive_cond, negative_cond
