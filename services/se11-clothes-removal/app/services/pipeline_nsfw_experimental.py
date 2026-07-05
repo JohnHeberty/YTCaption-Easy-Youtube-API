@@ -747,10 +747,12 @@ async def run_nsfw_experimental(
             image_prompts = [
                 {"cn_img": ref_b64, "cn_stop": 0.5, "cn_weight": 0.8, "cn_type": "ImagePrompt"},
             ]
-            # OpenPose ControlNet — works with any SDXL model (LustifyNSFW, JuggernautXL, etc.)
-            if openpose_b64:
+            # OpenPose ControlNet — requires non-inpainting SDXL model
+            # (inpainting models like LustifyNSFW have 9-channel UNet input,
+            #  but OpenPose ControlNet is trained for 4-channel input)
+            if openpose_b64 and "juggernaut" in base_model.lower():
                 image_prompts.append(
-                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.4, "cn_type": "OpenPose"}
+                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.5, "cn_type": "OpenPose"}
                 )
 
             t0 = time.time()
