@@ -202,6 +202,8 @@ class SE8Client(ServiceClient):
             "sharpness": 2.0,
             "guidance_scale": 7.0,
             "base_model_name": base_model,
+            "refiner_model_name": "",
+            "refiner_switch": 0.5,
             "loras": loras,
             "input_image": image_b64,
             "input_mask": mask_b64,
