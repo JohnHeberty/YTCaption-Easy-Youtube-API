@@ -1,17 +1,29 @@
 # PENDENCIAS.md — Items Pendentes
 
 **Data:** 2026-07-05
-**Última atualização:** ControlNet Union SDXL integrated and weight-optimized
+**Última atualização:** SE10 dead code cleanup — GD/SAM2/BiRefNet fully removed
 
 ---
 
 ## NSFW Pipeline — Status Atual
 
+### ✅ RESOLVIDO — GroundingDINO + SAM2 + BiRefNet removidos do SE10 (2026-07-05)
+- **Problema:** SE10 carregava 4 detectores, apenas 2 funcionavam (GD sempre falhava, SAM2 sempre pulado, BiRefNet OOM)
+- **Solução:** Remoção completa de TODO o código morto (ensemble reescrito, birefnet_detector.py deletado)
+- **Resultado:** RAM idle 1.9GB→1.0GB, zero erros startup
+- **Status:** ✅ RESOLVIDO
+
+### ✅ RESOLVIDO — SE8 GPU/RAM memory leak fix (2026-07-05)
+- **Problema:** Após job, GPU 6469 MiB e RAM 32GB retidos
+- **Solução:** Dual model_manager cleanup (SE8 + ComfyUI) no finally block
+- **Resultado:** GPU 576 MiB, RAM 431 MB (SE8)
+- **Status:** ✅ RESOLVIDO
+
 ### ✅ RESOLVIDO — Multi-Detector Ensemble (YOLO11-seg + GD + BiRefNet) (2026-07-03)
 - **Problema:** GroundingDINO falha em 1.6% coverage para TESTE1.jpg (roupa escura, fundo complexo)
 - **Solução:** YOLO11-seg + BiRefNet-portrait + ensemble voting
 - **Resultado:** 99.7% confiança, 48.8% coverage, ~1.2s
-- **Status:** ✅ RESOLVIDO
+- **Status:** ✅ RESOLVIDO (GD e BiRefNet depois removidos, YOLO mantido)
 
 ### ✅ RESOLVIDO — Face-ellipse fallback (2026-07-03)
 - **Problema:** SE10 GroundingDINO falha em imagens com fundo complexo
@@ -98,6 +110,12 @@
 - **Problema:** Restos de roupa nas laterais quando detecção não cobre 100%
 - **Status:** PENDENTE
 
+### 8. show/ Permission Denied (PRIORIDADE BAIXA)
+- **Problema:** SE11 (container Docker) não consegue copiar resultado para `/root/YTCaption-Easy-Youtube-API/show/` — container não monta host path como volume
+- **Solução:** Montar `show/` como volume no docker-compose do SE11, ou usar bind mount
+- **Complexidade:** BAIXA
+- **Status:** PENDENTE
+
 ### ✅ RESOLVIDO — OpenPose ControlNet Union SDXL (2026-07-05)
 - **Problema:** LoRA-based ControlNet incompatible with SDXL inpainting (9-channel UNet)
 - **Solução:** `xinsir/controlnet-union-sdxl-1.0` (standard ControlNet, 2.4GB)
@@ -123,7 +141,7 @@
 | Item | Status |
 |------|--------|
 | SegFormer B2 detector (18 classes, per-class masks) | ✅ |
-| Ensemble: SegFormer PRIMARY clothes, BiRefNet PRIMARY person | ✅ |
+| Ensemble: SegFormer PRIMARY clothes, YOLO11 PRIMARY person | ✅ |
 | max_area_pct=0.80 para SegFormer | ✅ |
 | Nesting filter pulado para SegFormer | ✅ |
 | Labels via LABELS[cls_id] | ✅ |
@@ -132,12 +150,15 @@
 | Steps 60→50 | ✅ |
 | NSFW prompt ultra-realistic | ✅ |
 | Florence-2 REMOVIDO (código + referências) | ✅ |
+| GroundingDINO + SAM2 + BiRefNet REMOVIDOS (código + referências) | ✅ |
+| birefnet_detector.py DELETADO | ✅ |
 | DetectorType enum: SEGFORMER + ENSEMBLE | ✅ |
 | PROGRESSIVE_PASSES: florence2→segformer | ✅ |
 | ControlNet Union SDXL (xinsir/controlnet-union-sdxl-1.0) | ✅ |
 | ControlNet weight optimization (w=0.3 optimal) | ✅ |
 | ESRGAN 4x-UltraSharp pure upscaler | ✅ |
 | `/v1/tools/upscale-esrgan` endpoint | ✅ |
+| SE8 GPU/RAM memory leak fix (dual model_manager) | ✅ |
 
 ---
 

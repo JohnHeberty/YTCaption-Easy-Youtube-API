@@ -1,6 +1,52 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-04)
+## Última sessão (2026-07-05)
+
+### 🟢 SE8 Memory Leak Fix — GPU/RAM cleanup after job (2026-07-05)
+
+**Problema:** Após job, GPU ficava com 6469 MiB e RAM 32GB. Duas sessões de model management (ComfyUI + SE8 model_manager), worker só limpava ComfyUI.
+
+**Solução:** Worker finally block agora faz:
+1. Pipeline cache cleanup (loaded_controlnets, clip_cond_cache)
+2. SE8 model_manager.unload_all() (CLIP, Expansion, IP-Adapter)
+3. ComfyUI unload_all_models() (UNet, VAE, ControlNet)
+4. gc.collect() + malloc_trim() + torch.cuda.empty_cache()
+
+**Resultado:** GPU idle 17507→576 MiB, RAM 964→431 MB (SE8). Commit `5d01b1aa`.
+
+### 🟢 GroundingDINO + SAM2 + BiRefNet REMOVIDOS — substituídos por SegFormer B2 (2026-07-05)
+
+**Problema:** SE10 carregava 4 detectores na startup, apenas 2 funcionavam:
+- **GroundingDINO**: CUDA custom ops (`_C`) quebradas → falha toda request
+- **SAM2**: sempre pulado (SegFormer já retorna masks pixel-level)
+- **BiRefNet**: CUDNN OOM no init (822MB buffer não cabe)
+- **YOLO11-seg**: funciona, mantido
+- **SegFormer B2**: funciona, PRIMARY detector
+
+**Ação:** Remoção completa de TODO o código morto:
+| Arquivo | Mudança |
+|---------|---------|
+| `ensemble_detector.py` | **Reescrito do zero** — só SegFormer + YOLO |
+| `birefnet_detector.py` | **DELETADO** (arquivo inteiro morto) |
+| `segmentor.py` | Sem GD/SAM2/BiRefNet em nenhum code path |
+| `constants.py` | Constantes de checkpoint removidas |
+| `health.py` | Refs a checkpoints GD/SAM2 removidas |
+| `yolo_detector.py` | Docstring atualizado |
+| `main.py` | Startup limpo |
+| `docker-compose.gpu.yml` | Mounts BiRefNet removidos |
+| `docker-compose.yml` | Mounts BiRefNet removidos |
+
+**Resultado:**
+- RAM SE10 idle: **1.9GB → 1.0GB** (economia ~900MB)
+- Startup sem erros (antes: ~50 linhas warnings/errors)
+- Ensemble/SegFormer funcionam normalmente
+- Zero referências a GD/SAM2/BiRefNet em código executável
+
+**Commits:** `965088b0` (skip loading), `cc729234` (remove dead code)
+
+**Lição:** Quando um detector é claramente superior e os outros falham/são ignorados, remover carregamento reduz memória, startup time e complexidade. Manter checkpoints no disco para reativação futura.
+
+### 🟢 Previous Sessions
 
 ### 🔴 Florence-2-large REMOVIDO — resultados péssimos (2026-07-04)
 
@@ -114,6 +160,8 @@
 8. **Lazy-load IP-Adapter/ControlNet no SE8** — ~2.7GB RAM savings
 9. **GFPGAN/CodeFormer face restore** — modelos já baixados
 10. ~~OpenPose ControlNet quality tuning~~ — **INCOMPATÍVEL com modelos inpainting** (LustifyNSFW tem 9 canais, ControlNet espera 4 canais)
+11. **Fix show/ permission denied** — SE11 não consegue copiar resultado para `/root/YTCaption-Easy-Youtube-API/show/` (PermissionError, container não monta host path)
+12. **Lazy-load ControlNet Union no SE8** — modelo é carregado toda request, pode ser lazy (~2.4GB economia)
 
 **Arquivos em `show/`:**
 - `v30_*.png` — resultado com closing + mask 100% sólida
@@ -718,7 +766,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 | se7-audio-generation | 8007 | — | ✅ Healthy | TTS Chatterbox (GPU) |
 | se8-image-generation | 8008 | image-engine | ✅ Healthy | Fooocus SDXL (GPU), **inpainting functional** |
 | se9-make-video-img | 8009 | se9-make-video-img | ✅ Healthy | Ken Burns video builder |
-| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | Ensemble detector (GD+YOLO11+BiRefNet), **GPU mode** (51x faster), immediate unload_all() post-request |
+| se10-clothes-segmentation | 8010 | ytcaption-se10-clothes-segmentation | ✅ Healthy | SegFormer B2 + YOLO11-seg (GPU mode, 51x faster), immediate unload_all() post-request. GroundingDINO/SAM2/BiRefNet REMOVED. |
 | se11-clothes-removal | 8011 | se11-clothes-removal | ✅ E2E validated | SE10→SE8 inpaint pipeline, OpenPose ControlNet integrated |
 
 ## SE11 — Clothes Removal Service
@@ -783,6 +831,13 @@ Fluxo v23 (experimental): imagem → SE10 (person `include_pose=true`) → SE8 i
 
 ## SE10 — Clothes Segmentation
 
+### Detectores (2026-07-05)
+- **SegFormer B2** (PRIMARY): 18 classes, pixel-level masks, ~1.7s GPU
+- **YOLO11-seg** (secondary): person detection, ~30ms GPU
+- ~~GroundingDINO~~ REMOVIDO — CUDA ops quebradas
+- ~~SAM2~~ REMOVIDO — sempre pulado por SegFormer masks
+- ~~BiRefNet~~ REMOVIDO — CUDNN OOM
+
 ### Person Mode (2026-06-20)
 - `POST /v1/segment` aceita `mode="person"` (default: `"clothes"`)
 - `PERSON_CLASSES = ["person", "woman", "man"]` — joinhado como `"person. woman. man."`
@@ -801,12 +856,13 @@ Fluxo v23 (experimental): imagem → SE10 (person `include_pose=true`) → SE8 i
 3. **Detections.area** — `segmentor.py:246-260`: pre-compute `areas` ao invés de iterar Detections (yield tuples)
 
 ### Checkpoints
-- `groundingdino_swint_ogc.pth` (662MB) em `checkpoints/`
-- `sam2_hiera_tiny.pt` (149MB) em `checkpoints/`
+- `yolo11m-seg.pt` (~50MB) em volume mount
+- ~~`groundingdino_swint_ogc.pth`~~ — removido do pipeline (mantido no disco)
+- ~~`sam2_hiera_tiny.pt`~~ — removido do pipeline (mantido no disco)
 
 ### External deps
-- `external/GroundingDINO/` ← IDEA-Research/GroundingDINO (depth 1)
-- `external/segment-anything-2/` ← facebookresearch/sam2 (depth 1)
+- `external/GroundingDINO/` — mantido no disco, não mais carregado
+- `external/segment-anything-2/` — mantido no disco, não mais carregado
 - Bertwarper patchado para transformers>=5.0
 
 ## SE8 — Image Engine

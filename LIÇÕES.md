@@ -752,12 +752,64 @@ Quando um detector é claramente superior e os outros falham/são ignorados, **r
 
 ### Arquivos modificados
 - `services/se10-clothes-segmentation/app/services/segmentor.py`
+- `services/se10-clothes-segmentation/app/services/ensemble_detector.py` (reescrito do zero)
+- `services/se10-clothes-segmentation/app/services/birefnet_detector.py` (DELETADO)
 - `services/se10-clothes-segmentation/app/core/constants.py`
 - `services/se10-clothes-segmentation/app/main.py`
 - `services/se10-clothes-segmentation/app/api/routes/segment.py`
+- `services/se10-clothes-segmentation/app/api/routes/health.py`
+- `services/se10-clothes-segmentation/app/services/yolo_detector.py`
 - `services/se10-clothes-segmentation/docker/docker-compose.gpu.yml`
 - `services/se10-clothes-segmentation/docker/docker-compose.yml`
 
 ### NÃO remover
 - Checkpoints `.pth` do disco (podem ser úteis se container for reconstruído com CUDA ops corretos)
-- Código do ensemble_detector para GD/BiRefNet (mantido como fallback comentado)
+
+---
+
+## 37. SE8 Memory Leak — Duas sessões de model management precisam de cleanup duplo
+
+**Data:** 2026-07-05
+**Serviço:** SE8 (image-generation)
+
+### Problema
+Após job completar, SE8 retinha ~6.5GB GPU e ~32GB RAM. Investigação revelou DUAS sessões independentes de model management:
+1. **ComfyUI** (`ldm_patched.modules.model_management.current_loaded_models`) — gerencia UNet, VAE, ControlNet
+2. **SE8 custom** (`app.services.model_manager.ModelManager._loaded_models`) — gerencia CLIP, Expansion, IP-Adapter
+
+O worker finally block SÓ chamava `unload_all_models()` do ComfyUI. O SE8 model_manager nunca era limpo.
+
+### Solução
+Worker finally block agora faz cleanup completo:
+```python
+# 1. Pipeline cache cleanup
+pipeline.loaded_controlnets.clear()
+pipeline.clip_cond_cache.clear()
+
+# 2. SE8 model_manager (CLIP, Expansion, IP-Adapter)
+from app.services.model_manager import get_model_manager
+mgr = get_model_manager()
+mgr.unload_all()
+
+# 3. ComfyUI (UNet, VAE, ControlNet)
+from ldm_patched.modules.model_management import unload_all_models
+unload_all_models()
+
+# 4. System cleanup
+gc.collect()
+ctypes.CDLL("libc.so.6").malloc_trim(0)
+torch.cuda.empty_cache()
+```
+
+### Resultado
+- GPU: 6469→576 MiB (pós-job, ~2min delay para CUDA release)
+- RAM SE8: 32GB→431 MB
+
+### Lição
+Quando um sistema usa frameworks diferentes para gerenciar modelos (ComfyUI + custom), SEMPRE limpar ambos no cleanup. Um sem o outro = memory leak.
+
+### Referências
+- ComfyUI: `ldm_patched/modules/model_management.py` — `current_loaded_models` list, `unload_all_models()`
+- SE8: `app/services/model_manager.py` — `_loaded_models` list, `unload_all()`
+- Worker: `app/services/worker.py` — finally block
+
