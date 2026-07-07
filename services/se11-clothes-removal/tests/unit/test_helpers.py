@@ -19,6 +19,7 @@ from app.services._helpers import (
     detect_person_with_fallbacks,
     detect_skin_hsv,
     fix_b64_padding,
+    get_nsfw_config,
     restore_face,
     strip_data_uri,
     to_data_uri,
@@ -336,3 +337,78 @@ class TestRestoreFace:
 
         result = await restore_face(se8, img)
         assert result is None
+
+
+# ─── NSFW Config Loader ─────────────────────────────────────────────────────
+
+class TestNSFWConfigLoader:
+    """Tests for get_nsfw_config() YAML config loader."""
+
+    def test_production_config_from_yaml(self):
+        """Production config loads from YAML file."""
+        cfg = get_nsfw_config("production")
+        assert cfg.prompt  # non-empty
+        assert cfg.negative  # non-empty
+        assert len(cfg.loras) == 5
+        assert cfg.loras[0]["model_name"] == "NsfwPovAllInOneLoraSdxl-000009.safetensors"
+        assert cfg.loras[0]["weight"] == 0.6
+        assert cfg.loras[2]["model_name"] == "add-detail-xl.safetensors"
+        assert cfg.loras[2]["weight"] == 0.7
+
+    def test_experimental_config_from_yaml(self):
+        """Experimental config loads from YAML with different LoRA weights."""
+        cfg = get_nsfw_config("experimental")
+        assert cfg.prompt
+        assert cfg.negative
+        assert len(cfg.loras) == 5
+        assert cfg.loras[0]["weight"] == 0.3  # lower NsfwPov
+        assert cfg.loras[2]["weight"] == 1.0  # higher detail
+
+    def test_fallback_for_missing_profile(self):
+        """Unknown profile falls back to production defaults."""
+        cfg = get_nsfw_config("nonexistent")
+        assert cfg.prompt
+        assert cfg.negative
+        assert len(cfg.loras) == 5
+        assert cfg.loras[0]["weight"] == 0.6  # production default
+
+    def test_config_is_frozen(self):
+        """NSFWConfig is frozen dataclass (immutable)."""
+        cfg = get_nsfw_config("production")
+        assert hasattr(cfg, "__dataclass_params__")
+
+    def test_lora_entries_have_enabled_field(self):
+        """All LoRA entries have 'enabled' field."""
+        cfg = get_nsfw_config("production")
+        for lora in cfg.loras:
+            assert "enabled" in lora
+            assert "model_name" in lora
+            assert "weight" in lora
+
+    def test_fallback_when_yaml_missing(self, tmp_path):
+        """Falls back to hardcoded defaults when YAML file doesn't exist."""
+        import app.services._helpers as h
+        original = h._CONFIGS_DIR
+        try:
+            h._CONFIGS_DIR = tmp_path  # non-existent configs dir
+            cfg = get_nsfw_config("production")
+            assert cfg.prompt
+            assert len(cfg.loras) == 5
+            assert cfg.loras[0]["weight"] == 0.6
+        finally:
+            h._CONFIGS_DIR = original
+
+    def test_fallback_when_yaml_malformed(self, tmp_path):
+        """Falls back to hardcoded defaults when YAML is malformed."""
+        import app.services._helpers as h
+        original = h._CONFIGS_DIR
+        try:
+            configs = tmp_path / "configs"
+            configs.mkdir()
+            (configs / "nsfw_production.yaml").write_text(": invalid: yaml: {{{")
+            h._CONFIGS_DIR = configs
+            cfg = get_nsfw_config("production")
+            assert cfg.prompt
+            assert len(cfg.loras) == 5
+        finally:
+            h._CONFIGS_DIR = original

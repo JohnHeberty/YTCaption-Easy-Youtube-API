@@ -3,13 +3,59 @@ from __future__ import annotations
 
 import base64
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import numpy as _np
 
 logger = logging.getLogger(__name__)
+
+# ─── YAML Config Loader ─────────────────────────────────────────────────────
+
+_CONFIGS_DIR = Path(__file__).resolve().parent.parent.parent / "configs"
+
+
+@dataclass(frozen=True)
+class NSFWConfig:
+    """Immutable NSFW pipeline configuration loaded from YAML."""
+    prompt: str
+    negative: str
+    loras: list[dict]
+
+
+def _load_nsfw_config(profile: str) -> NSFWConfig:
+    """Load NSFW config from YAML file with hardcoded fallback.
+
+    Args:
+        profile: Config profile name ("production" or "experimental").
+
+    Returns:
+        NSFWConfig with prompt, negative, and loras loaded from YAML.
+    """
+    yaml_path = _CONFIGS_DIR / f"nsfw_{profile}.yaml"
+    if not yaml_path.exists():
+        logger.warning("Config file not found: %s, using hardcoded defaults", yaml_path)
+        return _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
+
+    try:
+        import yaml
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception as exc:
+        logger.warning("Failed to load %s: %s, using hardcoded defaults", yaml_path, exc)
+        return _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
+
+    nsfw = data.get("nsfw", {})
+    loras_raw = data.get("loras", [])
+    loras = [_make_lora(l["model"], l["weight"], l.get("enabled", True)) for l in loras_raw]
+
+    return NSFWConfig(
+        prompt=nsfw.get("prompt", _HARDCODED_DEFAULTS[profile].prompt).strip(),
+        negative=nsfw.get("negative", _HARDCODED_DEFAULTS[profile].negative).strip(),
+        loras=loras or _HARDCODED_DEFAULTS[profile].loras,
+    )
 
 
 # ─── Shared Constants ────────────────────────────────────────────────────────
@@ -64,28 +110,41 @@ NSFW_NEGATIVE = (
 
 # ─── LoRA Configurations ─────────────────────────────────────────────────────
 
-def _make_lora(model: str, weight: float) -> dict:
+def _make_lora(model: str, weight: float, enabled: bool = True) -> dict:
     """Create a LoRA entry dict."""
-    return {"enabled": True, "model_name": model, "weight": weight}
+    return {"enabled": enabled, "model_name": model, "weight": weight}
 
 
-# Production LoRA weights (higher NsfwPov for stronger skin generation)
-LORAS_PRODUCTION = [
-    _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.6),
-    _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
-    _make_lora("add-detail-xl.safetensors", 0.7),
-    _make_lora("None", 1.0),
-    _make_lora("None", 1.0),
-]
+# Hardcoded defaults — used when YAML config files are missing.
+_HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
+    "production": NSFWConfig(
+        prompt=NSFW_PROMPT,
+        negative=NSFW_NEGATIVE,
+        loras=[
+            _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.6),
+            _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
+            _make_lora("add-detail-xl.safetensors", 0.7),
+            _make_lora("None", 1.0),
+            _make_lora("None", 1.0),
+        ],
+    ),
+    "experimental": NSFWConfig(
+        prompt=NSFW_PROMPT,
+        negative=NSFW_NEGATIVE,
+        loras=[
+            _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.3),
+            _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
+            _make_lora("add-detail-xl.safetensors", 1.0),
+            _make_lora("None", 1.0),
+            _make_lora("None", 1.0),
+        ],
+    ),
+}
 
-# Experimental LoRA weights (lower NsfwPov, higher detail for testing)
-LORAS_EXPERIMENTAL = [
-    _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.3),
-    _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
-    _make_lora("add-detail-xl.safetensors", 1.0),
-    _make_lora("None", 1.0),
-    _make_lora("None", 1.0),
-]
+
+def get_nsfw_config(profile: str) -> NSFWConfig:
+    """Get NSFW config for given profile. Loads from YAML, falls back to hardcoded."""
+    return _load_nsfw_config(profile)
 
 
 # ─── Scoring Weights ─────────────────────────────────────────────────────────

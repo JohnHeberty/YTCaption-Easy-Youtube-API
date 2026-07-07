@@ -13,6 +13,7 @@ services:
     volumes:
       - ../../../shared:/app/common
       - ../app:/app/app
+      - ../configs:/app/configs
       - ../data/outputs:/app/data/outputs
       - ../data/logs:/app/data/logs
     extra_hosts:

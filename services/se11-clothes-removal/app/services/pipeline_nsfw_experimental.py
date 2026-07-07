@@ -30,7 +30,7 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.validators.pose_detector import detect_pose, compare_poses, render_pose_stick_figure
 from app.services._helpers import (
     CLOTHES_CLASSES, DEFAULT_CLOTHES_NEGATIVE, SCORING,
-    NSFW_PROMPT, LORAS_EXPERIMENTAL,
+    get_nsfw_config,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -458,6 +458,8 @@ async def run_nsfw_experimental(
         job.update_stage("inpainting", "processing", progress=50.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
+        _nsfw_cfg = get_nsfw_config("experimental")
+
         base_strength = getattr(job.request, "test_inpaint_strength", 0.86) or 0.86
         faceid_weight = getattr(job.request, "faceid_weight", 0.8) or 0.8
         base_model = getattr(job.request, "base_model", "lustifySDXLNSFW_v20-inpainting.safetensors")
@@ -491,12 +493,12 @@ async def run_nsfw_experimental(
             result = await se8.inpaint(
                 image_b64=image_b64,
                 mask_b64=mask_b64,
-                prompt=NSFW_PROMPT,
+                prompt=_nsfw_cfg.prompt,
                 negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
                 inpaint_strength=strength,
                 inpaint_respective_field=0.55,
                 inpaint_erode_or_dilate=0,
-                loras=LORAS_EXPERIMENTAL,
+                loras=_nsfw_cfg.loras,
                 image_prompts=image_prompts,
                 base_model=base_model,
                 invert_mask=True,

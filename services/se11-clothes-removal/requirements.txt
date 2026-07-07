@@ -25,5 +25,8 @@ onnxruntime-gpu>=1.16.0
 
 python-multipart>=0.0.18
 
+# YAML config loading
+pyyaml>=6.0
+
 # Common library (installed separately in Dockerfile: pip install -e /app/shared)
 # For local dev: pip install -e ../shared

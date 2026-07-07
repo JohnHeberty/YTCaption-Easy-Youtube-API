@@ -28,7 +28,7 @@ from app.validators.pose_detector import render_pose_stick_figure, detect_pose, 
 from app.services.faceid_extractor import extract_faceid_embedding
 from app.services._helpers import (
     CLOTHES_CLASSES, DEFAULT_CLOTHES_NEGATIVE, SCORING,
-    NSFW_PROMPT, NSFW_NEGATIVE, LORAS_PRODUCTION,
+    NSFW_PROMPT, NSFW_NEGATIVE, get_nsfw_config,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -443,7 +443,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
-        nsfw_loras = LORAS_PRODUCTION
+        _nsfw_cfg = get_nsfw_config("production")
+        nsfw_loras = _nsfw_cfg.loras
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
@@ -480,14 +481,14 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # except Exception as exc:
         #     logger.warning("Job %s: failed to generate pose stick figure: %s", job.job_id, exc)
 
-        # /jobs/nsfw always uses hardcoded NSFW prompt — ignores user prompt.
+        # /jobs/nsfw always uses NSFW prompt from config — ignores user prompt.
         # User prompt overrides were causing non-NSFW results (e.g. "elegant dress"
         # bypassed the NSFW generation). For custom prompts, use /jobs/nsfw-test.
         if job.request.prompt:
-            logger.info("Job %s: ignoring user prompt on /jobs/nsfw route, using hardcoded NSFW prompt",
+            logger.info("Job %s: ignoring user prompt on /jobs/nsfw route, using config NSFW prompt",
                         job.job_id)
-        final_prompt = NSFW_PROMPT
-        final_negative = NSFW_NEGATIVE
+        final_prompt = _nsfw_cfg.prompt
+        final_negative = _nsfw_cfg.negative
 
         # ─── Retry loop with multidimensional scoring (max 5 attempts) ───
         max_attempts = 5

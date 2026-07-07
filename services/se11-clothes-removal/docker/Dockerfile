@@ -22,6 +22,7 @@ RUN mkdir -p /app/data/{outputs,logs,temp} /usr/local/lib/python3.11/site-packag
     && chown -R appuser:appuser /usr/local/lib/python3.11/site-packages/dwpose/ckpts
 
 COPY services/se11-clothes-removal/app/ ./app/
+COPY services/se11-clothes-removal/configs/ ./configs/
 COPY services/se11-clothes-removal/run.py .
 
 RUN chown -R appuser:appuser /app
