@@ -17,11 +17,19 @@ Pipeline funcional: SE10 (SegFormer B2 + YOLO11) → SE11 (head mask, body mask,
 - **Necessário:** Diversos poses, camadas de roupa, ângulos, iluminação
 - **Status:** PENDENTE
 
-### 2. Face ghost no pescoço
+### 2. Detecção Real vs IA (Anti-Fotos Reais)
+- **Problema:** Precisamos impedir que fotos de pessoas reais entrem na pipeline NSFW
+- **Solução:** Bombek1/ai-image-detector-siglip-dinov2 (99.1% acurácia, SDXL/MJ/DALL-E/Flux)
+- **Ação:** Rejeitar com erro 400 antes de qualquer processamento
+- **Onde:** Todas as rotas NSFW (`/jobs/nsfw`, `/jobs/nsfw-test`)
+- **Plano detalhado:** `services/se11-clothes-removal/docs/plans/PLAN-AI-DETECT.md`
+- **Status:** PLANEJADO
+
+### 3. Face ghost no pescoço
 - **Problema:** SE8 gera segundo rosto onde máscara de roupa encontra face protegida
 - **Status:** PENDENTE
 
-### 3. Artefatos de borda
+### 4. Artefatos de borda
 - **Problema:** Restos de roupa nas laterais quando detecção não cobre 100%
 - **Status:** PENDENTE
 
@@ -29,25 +37,25 @@ Pipeline funcional: SE10 (SegFormer B2 + YOLO11) → SE11 (head mask, body mask,
 
 ## 🟡 Prioridade MÉDIA
 
-### 4. Otimizar composite score — landmark drift
+### 5. Otimizar composite score — landmark drift
 - **Problema:** strength=0.92 algumas vezes causa pose_changed=true
 - **Causa provável:** DWPose landmarks muito sensíveis a micro-mudanças
 - **Solução candidata:** Ajustar thresholds ou usar métrica diferente
 - **Status:** PENDENTE
 
-### 5. Fase 4: Centroid-based person matching — multi-person
+### 6. Fase 4: Centroid-based person matching — multi-person
 - **Problema:** Pipeline assume 1 pessoa por imagem
 - **Solução:** Centroid-based person matching para múltiplas pessoas
 - **Complexidade:** ALTA
 - **Status:** PENDENTE
 
-### 6. Face Restoration (GFPGAN/CodeFormer)
+### 7. Face Restoration (GFPGAN/CodeFormer)
 - **Ação:** após o blend final, aplicar GFPGAN ou CodeFormer na região facial
 - **Modelos já baixados:** `data/models/face_restore/GFPGANv1.4.pth` + CodeFormer
 - **Plano:** Fase C do PLAN-HEAD.md
 - **Status:** PENDENTE
 
-### 7. Advanced Blending (Poisson Editing)
+### 8. Advanced Blending (Poisson Editing)
 - **Ação:** tentar `cv2.seamlessClone` com NORMAL_CLONE apenas na região de transição
 - **Plano:** Fase B do PLAN-HEAD.md
 - **Status:** PENDENTE
@@ -56,24 +64,24 @@ Pipeline funcional: SE10 (SegFormer B2 + YOLO11) → SE11 (head mask, body mask,
 
 ## 🔵 Prioridade BAIXA
 
-### 8. Lazy-load IP-Adapter/ControlNet no SE8
+### 9. Lazy-load IP-Adapter/ControlNet no SE8
 - **Problema:** IP-Adapter e ControlNet carregados na memória mesmo sem uso
 - **Economia:** ~2.7GB RAM
 - **Complexidade:** MÉDIA
 - **Status:** PENDENTE
 
-### 9. Lazy-load ControlNet Union no SE8
+### 10. Lazy-load ControlNet Union no SE8
 - **Problema:** Modelo é carregado toda request
 - **Economia:** ~2.4GB
 - **Status:** PENDENTE
 
-### 10. show/ Permission Denied
+### 11. show/ Permission Denied
 - **Problema:** SE11 (container Docker) não consegue copiar resultado para `/root/YTCaption-Easy-Youtube-API/show/`
 - **Solução:** Montar `show/` como volume no docker-compose do SE11
 - **Complexidade:** BAIXA
 - **Status:** PENDENTE
 
-### 11. Old stuck jobs no Redis
+### 12. Old stuck jobs no Redis
 - **Status:** PENDENTE
 
 ---
