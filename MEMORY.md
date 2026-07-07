@@ -14,6 +14,13 @@
 **Resultado:** -99 linhas líquidas, 4 arquivos, todos os testes passando (SE11: 11, SE10: 46).
 **Commit:** `182cefa5`.
 
+### 🟢 SOLID Testes — Cobertura para Phase 1+2 (2026-07-07)
+
+**Novos testes criados:**
+- `services/se11-clothes-removal/tests/unit/test_helpers.py` — 40 testes para `_helpers.py`
+- `services/se10-clothes-segmentation/tests/unit/test_segmentor_methods.py` — 17 testes para sub-métodos de `segmentor.py`
+**Total:** 113 testes passando (51 SE11 + 62 SE10). Commit `a5b2b99a`.
+
 ### SOLID Phase 1 — Quick Wins concluído (2026-07-07)
 
 **Tarefas executadas:**
