@@ -30,6 +30,13 @@ nsfw:
     (new angle, different posture:1.3),
     asymmetric nipples, mismatched skin tone, color banding
 
+inpaint:
+  max_attempts: 5
+  base_strength: 0.86
+  inpaint_respective_field: 0.618
+  ip_adapter_faceid_weight: 0.8
+  base_model: "lustifySDXLNSFW_v20-inpainting.safetensors"
+
 loras:
   - model: "NsfwPovAllInOneLoraSdxl-000009.safetensors"
     weight: 0.6

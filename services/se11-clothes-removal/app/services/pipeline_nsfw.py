@@ -491,8 +491,8 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         final_negative = _nsfw_cfg.negative
 
         # ─── Retry loop with multidimensional scoring (max 5 attempts) ───
-        max_attempts = 5
-        base_strength = 0.86
+        max_attempts = _nsfw_cfg.max_attempts
+        base_strength = _nsfw_cfg.base_strength
         tries_metadata: dict[str, dict | None] = {f"try_{i}": None for i in range(1, max_attempts + 1)}
         best_try: str | None = None
         best_composited = None
@@ -578,7 +578,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 },
                 "image_size": {"width": orig_w, "height": orig_h},
                 "faceid": faceid_embedding is not None,
-                "base_model": "lustifySDXLNSFW_v20-inpainting.safetensors",
+                "base_model": _nsfw_cfg.base_model,
             }
             with open(os.path.join(output_dir, "detection_meta.json"), "w") as f:
                 json.dump(seg_meta, f, indent=2)
@@ -617,7 +617,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 await _asyncio.sleep(10)
 
             strength = base_strength + 0.03 * (attempt - 1)
-            cfg = {"strength": strength, "field": 0.618, "erode": 0, "seed": -1}
+            cfg = {"strength": strength, "field": _nsfw_cfg.inpaint_respective_field, "erode": 0, "seed": -1}
 
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f",
                         job.job_id, attempt, max_attempts, cfg["strength"], cfg["field"])
@@ -654,10 +654,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 inpaint_erode_or_dilate=cfg["erode"],
                 loras=nsfw_loras,
                 image_prompts=ip_adapter_prompts,
-                base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+                base_model=_nsfw_cfg.base_model,
                 invert_mask=True,
                 ip_adapter_faceid_embeds=faceid_embedding,
-                ip_adapter_faceid_weight=0.8,
+                ip_adapter_faceid_weight=_nsfw_cfg.ip_adapter_faceid_weight,
             )
             if not result1 or not result1.get("base64"):
                 logger.warning("Job %s: SE8 empty on attempt %d", job.job_id, attempt)

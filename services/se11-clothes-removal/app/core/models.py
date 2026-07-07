@@ -109,7 +109,7 @@ class CreateClothesRemovalRequest(BaseModel):
     use_faceid: bool = True
     faceid_weight: float = 0.8
     test_inpaint_strength: float = 0.35
-    base_model: str = "juggernautXL_v8Rundiffusion.safetensors"
+    base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors"
 
 
 # =============================================================================

@@ -460,10 +460,10 @@ async def run_nsfw_experimental(
 
         _nsfw_cfg = get_nsfw_config("experimental")
 
-        base_strength = getattr(job.request, "test_inpaint_strength", 0.86) or 0.86
-        faceid_weight = getattr(job.request, "faceid_weight", 0.8) or 0.8
-        base_model = getattr(job.request, "base_model", "lustifySDXLNSFW_v20-inpainting.safetensors")
-        max_attempts = 5
+        base_strength = getattr(job.request, "test_inpaint_strength", _nsfw_cfg.base_strength) or _nsfw_cfg.base_strength
+        faceid_weight = getattr(job.request, "faceid_weight", _nsfw_cfg.ip_adapter_faceid_weight) or _nsfw_cfg.ip_adapter_faceid_weight
+        base_model = getattr(job.request, "base_model", _nsfw_cfg.base_model)
+        max_attempts = _nsfw_cfg.max_attempts
         best_result = None
         best_score = float("inf")
         best_pose_meta = None
@@ -496,7 +496,7 @@ async def run_nsfw_experimental(
                 prompt=_nsfw_cfg.prompt,
                 negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
                 inpaint_strength=strength,
-                inpaint_respective_field=0.55,
+                inpaint_respective_field=_nsfw_cfg.inpaint_respective_field,
                 inpaint_erode_or_dilate=0,
                 loras=_nsfw_cfg.loras,
                 image_prompts=image_prompts,

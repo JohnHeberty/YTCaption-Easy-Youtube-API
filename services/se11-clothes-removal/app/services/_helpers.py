@@ -23,6 +23,11 @@ class NSFWConfig:
     prompt: str
     negative: str
     loras: list[dict]
+    max_attempts: int = 5
+    base_strength: float = 0.86
+    inpaint_respective_field: float = 0.618
+    ip_adapter_faceid_weight: float = 0.8
+    base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors"
 
 
 def _load_nsfw_config(profile: str) -> NSFWConfig:
@@ -48,13 +53,20 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         return _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
 
     nsfw = data.get("nsfw", {})
+    inpaint = data.get("inpaint", {})
     loras_raw = data.get("loras", [])
     loras = [_make_lora(l["model"], l["weight"], l.get("enabled", True)) for l in loras_raw]
+    defaults = _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
 
     return NSFWConfig(
-        prompt=nsfw.get("prompt", _HARDCODED_DEFAULTS[profile].prompt).strip(),
-        negative=nsfw.get("negative", _HARDCODED_DEFAULTS[profile].negative).strip(),
-        loras=loras or _HARDCODED_DEFAULTS[profile].loras,
+        prompt=nsfw.get("prompt", defaults.prompt).strip(),
+        negative=nsfw.get("negative", defaults.negative).strip(),
+        loras=loras or defaults.loras,
+        max_attempts=inpaint.get("max_attempts", defaults.max_attempts),
+        base_strength=inpaint.get("base_strength", defaults.base_strength),
+        inpaint_respective_field=inpaint.get("inpaint_respective_field", defaults.inpaint_respective_field),
+        ip_adapter_faceid_weight=inpaint.get("ip_adapter_faceid_weight", defaults.ip_adapter_faceid_weight),
+        base_model=inpaint.get("base_model", defaults.base_model),
     )
 
 
@@ -127,6 +139,11 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
             _make_lora("None", 1.0),
             _make_lora("None", 1.0),
         ],
+        max_attempts=5,
+        base_strength=0.86,
+        inpaint_respective_field=0.618,
+        ip_adapter_faceid_weight=0.8,
+        base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
     ),
     "experimental": NSFWConfig(
         prompt=NSFW_PROMPT,
@@ -138,6 +155,11 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
             _make_lora("None", 1.0),
             _make_lora("None", 1.0),
         ],
+        max_attempts=5,
+        base_strength=0.86,
+        inpaint_respective_field=0.55,
+        ip_adapter_faceid_weight=0.8,
+        base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
     ),
 }
 

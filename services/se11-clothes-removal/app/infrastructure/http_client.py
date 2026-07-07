@@ -150,7 +150,7 @@ class SE8Client(ServiceClient):
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
         image_prompts: list[dict[str, Any]] | None = None,
-        base_model: str = "juggernautXL_v8Rundiffusion.safetensors",
+        base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors",
         invert_mask: bool = False,
         ip_adapter_faceid_embeds: list[list[float]] | None = None,
         ip_adapter_faceid_weight: float = 0.8,
@@ -400,7 +400,7 @@ class SE8Client(ServiceClient):
             "image_seed": -1,
             "sharpness": 2.0,
             "guidance_scale": 4.0,
-            "base_model_name": "juggernautXL_v8Rundiffusion.safetensors",
+            "base_model_name": "lustifySDXLNSFW_v20-inpainting.safetensors",
             "loras": [
                 {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
                 {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
