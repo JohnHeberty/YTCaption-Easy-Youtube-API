@@ -2,6 +2,18 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SOLID Phase 3 — Interfaces e DIP concluído (2026-07-07)
+
+**Tarefas executadas:**
+3.1 `shared/protocols.py` criado com 10 Protocol classes: DetectorProtocol, SegmentorProtocol, InpaintClientProtocol, UpscaleClientProtocol, FaceRestoreClientProtocol, SE8ClientProtocol, SE10ClientProtocol, JobStoreProtocol, PoseDetectorProtocol, FaceDetectorProtocol, ServiceClientProtocol.
+3.2 SE8ClientProtocol combina Inpaint/Upscale/FaceRestore — consumers podem depender só da capability necessária.
+3.3 ClothesRemovalJobStore conforma a JobStoreProtocol (duck typing estrutural).
+3.4 EnsembleDetector usa DetectorProtocol para type hints.
+
+**Arquivos alterados:** `shared/protocols.py` (novo, 221 linhas), `ensemble_detector.py`, `http_client.py`, `redis_store.py`.
+**Resultado:** +236 linhas, 4 arquivos, todos os testes passando (SE11: 51, SE10: 62).
+**Commit:** `30c190bf`.
+
 ### 🟢 SOLID Phase 2 — Decompose God Functions concluído (2026-07-07)
 
 **Tarefas executadas:**
