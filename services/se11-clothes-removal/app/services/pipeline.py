@@ -25,6 +25,7 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.services.head_detector import detect_head_mask
 from app.services._helpers import (
     DEFAULT_CLOTHES_NEGATIVE,
+    LORAS_CLOTHES,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -338,6 +339,7 @@ async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore
                 inpaint_strength=pass_config["inpaint_strength"],
                 inpaint_respective_field=0.85,
                 inpaint_erode_or_dilate=-10,
+                loras=LORAS_CLOTHES,
             )
 
             if result and result.get("base64"):
@@ -590,6 +592,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
                     prompt=prompt, negative_prompt=negative_prompt,
                     inpaint_strength=inpaint_strength, inpaint_respective_field=inpaint_respective_field,
                     inpaint_erode_or_dilate=erode_or_dilate,
+                    loras=LORAS_CLOTHES,
                 )
                 if isinstance(single_result, list) and len(single_result) > 0:
                     single_result = single_result[0]
@@ -604,6 +607,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
                 prompt=prompt, negative_prompt=negative_prompt,
                 inpaint_strength=inpaint_strength, inpaint_respective_field=inpaint_respective_field,
                 inpaint_erode_or_dilate=erode_or_dilate,
+                loras=LORAS_CLOTHES,
             )
             if isinstance(inpaint_result, list) and len(inpaint_result) > 0:
                 inpaint_result = inpaint_result[0]

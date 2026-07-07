@@ -141,6 +141,15 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
     ),
 }
 
+# Clothes removal LoRAs — lighter NSFW effect for /jobs route (non-NSFW).
+LORAS_CLOTHES = [
+    _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.2),
+    _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
+    _make_lora("add-detail-xl.safetensors", 0.8),
+    _make_lora("None", 1.0),
+    _make_lora("None", 1.0),
+]
+
 
 def get_nsfw_config(profile: str) -> NSFWConfig:
     """Get NSFW config for given profile. Loads from YAML, falls back to hardcoded."""

@@ -165,7 +165,7 @@ class SE8Client(ServiceClient):
             inpaint_strength: Strength of inpainting (0.0-1.0)
             inpaint_respective_field: Crop area fraction (0.0-1.0)
             style: Style selection
-            loras: Optional LoRA overrides
+            loras: LoRA list (required — use LORAS_CLOTHES or get_nsfw_config().loras)
 
         Returns dict with keys: base64, url, seed, finish_reason
         """
@@ -180,15 +180,8 @@ class SE8Client(ServiceClient):
                 "bad proportions, mutated hands, extra fingers"
             )
 
-        # LoRAs: NsfwPov (skin) + offset (quality) + detail (texture)
         if loras is None:
-            loras = [
-                {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.2},
-                {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-                {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
-                {"enabled": True, "model_name": "None", "weight": 1.0},
-            ]
+            raise ValueError("loras parameter is required — pass LORAS_CLOTHES or get_nsfw_config().loras")
 
         payload: dict[str, Any] = {
             "prompt": prompt,
