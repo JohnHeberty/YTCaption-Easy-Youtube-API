@@ -2,7 +2,21 @@
 
 ## Última sessão (2026-07-07)
 
-### 🟢 SOLID Refactoring Plan — 96 violações documentadas (2026-07-07)
+### 🟢 SOLID Phase 1 — Quick Wins concluído (2026-07-07)
+
+**Tarefas executadas:**
+1.1 `_helpers.py` expandido: funções duplicadas (`decode_image`, `to_data_uri`, `strip_data_uri`, `fix_b64_padding`, `combine_masks`, `detect_skin_hsv`, `compute_composite_score`) + `ScoringWeights` dataclass + constantes `CLOTHES_CLASSES`, `DEFAULT_CLOTHES_NEGATIVE`.
+1.2 Magic numbers `{4,5,6,7}` → `CLOTHING_IDS` (3 ocorrências em segmentor.py).
+1.3 Scoring weights → `ScoringWeights` frozen dataclass em `_helpers.py`.
+1.4 `gc.collect()+malloc_trim()` → `_cleanup_memory()` static method (3 blocos duplicados).
+1.5 `BODY_IDS` deletado (IDs 18-19 fora de range, unused).
+
+**Arquivos alterados:** `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `pipeline.py`, `http_client.py`, `segmentor.py`, `segformer_detector.py`, + 2 test fixes.
+**Resultado:** -157 linhas líquidas, 9 arquivos, todos os testes passando (SE11: 11, SE10: 46).
+**Commit:** `81832da1`.
+**Nota:** SE10 precisa de rebuild (não volume-mounted). SE11 já está live.
+
+### SOLID Refactoring Plan — 96 violações documentadas (2026-07-07)
 
 **Investigação:** Varredura SOLID completa em SE8, SE10, SE11, Shared lib.
 **Resultado:** 96 violações (31 HIGH, 49 MEDIUM, 16 LOW). Top: SE8 37, SE11 23, SE10 23, Shared 13.
