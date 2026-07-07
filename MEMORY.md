@@ -2,6 +2,17 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SOLID Phase 4 — Config Extensível concluído (2026-07-07)
+
+**Tarefas executadas:**
+4.1 LoRA weights e NSFW prompt movidos para `_helpers.py`: `NSFW_PROMPT`, `NSFW_NEGATIVE`, `LORAS_PRODUCTION`, `LORAS_EXPERIMENTAL`, `_make_lora()`.
+4.2 Registry pattern SE8 worker — DEFERRED (fora do escopo).
+4.3 `segformer_detector.py`: `close_kernel_size` parametrizável (default=120).
+
+**Arquivos alterados:** `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `segformer_detector.py`.
+**Resultado:** +6 linhas, 4 arquivos, todos os testes passando (SE11: 51, SE10: 62).
+**Commit:** `489efd84`.
+
 ### 🟢 SOLID Phase 3 — Interfaces e DIP concluído (2026-07-07)
 
 **Tarefas executadas:**
