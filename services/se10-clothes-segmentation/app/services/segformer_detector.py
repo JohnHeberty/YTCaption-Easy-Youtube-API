@@ -75,6 +75,7 @@ class SegFormerDetector:
         self,
         image_bgr: np.ndarray,
         clothing_ids: set[int] | None = None,
+        close_kernel_size: int = 120,
     ) -> dict[str, Any]:
         """Run SegFormer segmentation and extract clothing masks.
 
@@ -82,6 +83,8 @@ class SegFormerDetector:
             image_bgr: BGR image as numpy array (H, W, 3)
             clothing_ids: Set of class IDs to treat as clothing.
                          Default: {4, 5, 6, 7} (Upper-clothes, Skirt, Pants, Dress)
+            close_kernel_size: Morphological closing kernel size (px).
+                         Default: 120. Larger values bridge bigger gaps between clothing items.
 
         Returns:
             dict with keys:
@@ -134,7 +137,7 @@ class SegFormerDetector:
 
         # Close gaps between clothing items (e.g. hoodie→pants gap on exposed belly)
         # Large kernel bridges the gap between separate clothing detections
-        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (120, 120))
+        close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_kernel_size, close_kernel_size))
         clothing_mask_closed = cv2.morphologyEx(
             clothing_mask.astype(np.uint8) * 255, cv2.MORPH_CLOSE, close_kernel
         )

@@ -30,6 +30,7 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.validators.pose_detector import detect_pose, compare_poses, render_pose_stick_figure
 from app.services._helpers import (
     CLOTHES_CLASSES, DEFAULT_CLOTHES_NEGATIVE, SCORING,
+    NSFW_PROMPT, LORAS_EXPERIMENTAL,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -43,30 +44,6 @@ from app.services._helpers import (
 )
 
 logger = get_logger(__name__)
-
-# ─── Constants ───────────────────────────────────────────────────────────────
-
-NSFW_PROMPT = (
-    "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
-    "detailed breast anatomy, realistic nipples, areola details, "
-    "natural skin pores, skin texture, skin imperfections, "
-    "realistic body proportions, maintaining exact same body posture, "
-    "keeping original body position, not moving, not rotating, same stance, identical pose, "
-    "skin tone matching the person's arms and face, consistent skin color throughout, "
-    "seamless skin transition, matching skin tone with surrounding body, "
-    "ultra realistic photograph, DSLR photo, natural skin subsurface scattering, "
-    "studio lighting, soft shadows, film grain, 8k uhd, "
-    "sharp focus on body, high resolution, professional photography, "
-    "skin pores visible, micro details on skin, lifelike skin translucency"
-)
-
-NSFW_LORAS = [
-    {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.3},
-    {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-    {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 1.0},
-    {"enabled": True, "model_name": "None", "weight": 1.0},
-    {"enabled": True, "model_name": "None", "weight": 1.0},
-]
 
 # ─── Scoring aliases (backward compat) ──────────────────────────────────────
 SCORE_W_SKIN = SCORING.skin
@@ -519,7 +496,7 @@ async def run_nsfw_experimental(
                 inpaint_strength=strength,
                 inpaint_respective_field=0.55,
                 inpaint_erode_or_dilate=0,
-                loras=NSFW_LORAS,
+                loras=LORAS_EXPERIMENTAL,
                 image_prompts=image_prompts,
                 base_model=base_model,
                 invert_mask=True,

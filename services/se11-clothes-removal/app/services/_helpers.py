@@ -29,6 +29,65 @@ DEFAULT_CLOTHES_NEGATIVE = (
 )
 
 
+# ─── NSFW Prompt ─────────────────────────────────────────────────────────────
+
+NSFW_PROMPT = (
+    "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
+    "detailed breast anatomy, realistic nipples, areola details, "
+    "natural skin pores, skin texture, skin imperfections, "
+    "realistic body proportions, maintaining exact same body posture, "
+    "keeping original body position, not moving, not rotating, same stance, identical pose, "
+    "skin tone matching the person's arms and face, consistent skin color throughout, "
+    "seamless skin transition, matching skin tone with surrounding body, "
+    "ultra realistic photograph, DSLR photo, natural skin subsurface scattering, "
+    "studio lighting, soft shadows, film grain, 8k uhd, "
+    "sharp focus on body, high resolution, professional photography, "
+    "skin pores visible, micro details on skin, lifelike skin translucency"
+)
+
+NSFW_NEGATIVE = (
+    "(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, "
+    "wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, "
+    "(mutated hands and fingers, extra fingers, missing fingers, webbed fingers:1.4), "
+    "(bad hands, poorly drawn hands, fused fingers, too many fingers:1.3), "
+    "(extra face, second face, face on body, face on chest, face below neck:1.8), "
+    "(facial features on torso, eyes on chest, mouth on body:1.6), "
+    "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
+    "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
+    "cartoon, anime, sketch, "
+    "(changed pose, moved body, different position, rotated torso:1.5), "
+    "(shifted weight, leaning, tilting, bending, twisting:1.4), "
+    "(new angle, different posture:1.3), "
+    "asymmetric nipples, mismatched skin tone, color banding"
+)
+
+
+# ─── LoRA Configurations ─────────────────────────────────────────────────────
+
+def _make_lora(model: str, weight: float) -> dict:
+    """Create a LoRA entry dict."""
+    return {"enabled": True, "model_name": model, "weight": weight}
+
+
+# Production LoRA weights (higher NsfwPov for stronger skin generation)
+LORAS_PRODUCTION = [
+    _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.6),
+    _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
+    _make_lora("add-detail-xl.safetensors", 0.7),
+    _make_lora("None", 1.0),
+    _make_lora("None", 1.0),
+]
+
+# Experimental LoRA weights (lower NsfwPov, higher detail for testing)
+LORAS_EXPERIMENTAL = [
+    _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.3),
+    _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
+    _make_lora("add-detail-xl.safetensors", 1.0),
+    _make_lora("None", 1.0),
+    _make_lora("None", 1.0),
+]
+
+
 # ─── Scoring Weights ─────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)

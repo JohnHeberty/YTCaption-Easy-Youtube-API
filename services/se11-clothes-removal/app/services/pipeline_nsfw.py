@@ -28,6 +28,7 @@ from app.validators.pose_detector import render_pose_stick_figure, detect_pose, 
 from app.services.faceid_extractor import extract_faceid_embedding
 from app.services._helpers import (
     CLOTHES_CLASSES, DEFAULT_CLOTHES_NEGATIVE, SCORING,
+    NSFW_PROMPT, NSFW_NEGATIVE, LORAS_PRODUCTION,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -442,13 +443,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         _, mask_buf = _cv2.imencode(".png", inpaint_mask)
         mask_b64 = _to_data_uri(base64.b64encode(mask_buf).decode("utf-8"), mime="image/png")
 
-        nsfw_loras = [
-            {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.6},
-            {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-            {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.7},
-            {"enabled": True, "model_name": "None", "weight": 1.0},
-            {"enabled": True, "model_name": "None", "weight": 1.0},
-        ]
+        nsfw_loras = LORAS_PRODUCTION
 
         image_b64 = _to_data_uri(base64.b64encode(image_bytes).decode("utf-8"), mime="image/jpeg")
 
@@ -485,42 +480,14 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # except Exception as exc:
         #     logger.warning("Job %s: failed to generate pose stick figure: %s", job.job_id, exc)
 
-        nsfw_prompt = (
-            "NSFW, NSFW, NSFW, NSFW, NSFW, solo, bare skin, no clothing, naked body, "
-            "detailed breast anatomy, realistic nipples, areola details, "
-            "natural skin pores, skin texture, skin imperfections, "
-            "realistic body proportions, maintaining exact same body posture, "
-            "keeping original body position, not moving, not rotating, same stance, identical pose, "
-            "skin tone matching the person's arms and face, consistent skin color throughout, "
-            "seamless skin transition, matching skin tone with surrounding body, "
-            "photorealistic, professional studio photography, soft lighting, "
-            "sharp focus, raw photo, highly detailed, hyperrealistic, 8k uhd"
-        )
-
-        nsfw_negative = (
-            "(deformed, distorted, disfigured:1.3), poorly drawn, bad anatomy, "
-            "wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs, "
-            "(mutated hands and fingers, extra fingers, missing fingers, webbed fingers:1.4), "
-            "(bad hands, poorly drawn hands, fused fingers, too many fingers:1.3), "
-            "(extra face, second face, face on body, face on chest, face below neck:1.8), "
-            "(facial features on torso, eyes on chest, mouth on body:1.6), "
-            "long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render, "
-            "clothes, fabric, bra, straps, underwear, pattern, floral, textile, "
-            "cartoon, anime, sketch, "
-            "(changed pose, moved body, different position, rotated torso:1.5), "
-            "(shifted weight, leaning, tilting, bending, twisting:1.4), "
-            "(new angle, different posture:1.3), "
-            "asymmetric nipples, mismatched skin tone, color banding"
-        )
-
         # /jobs/nsfw always uses hardcoded NSFW prompt — ignores user prompt.
         # User prompt overrides were causing non-NSFW results (e.g. "elegant dress"
         # bypassed the NSFW generation). For custom prompts, use /jobs/nsfw-test.
         if job.request.prompt:
             logger.info("Job %s: ignoring user prompt on /jobs/nsfw route, using hardcoded NSFW prompt",
                         job.job_id)
-        final_prompt = nsfw_prompt
-        final_negative = nsfw_negative
+        final_prompt = NSFW_PROMPT
+        final_negative = NSFW_NEGATIVE
 
         # ─── Retry loop with multidimensional scoring (max 5 attempts) ───
         max_attempts = 5
