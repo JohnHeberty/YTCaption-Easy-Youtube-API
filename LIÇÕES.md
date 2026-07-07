@@ -245,7 +245,7 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 **Causa raiz (diagnosticada via pesquisa VTON):** O IP-Adapter recebia a imagem original VESTIDA como referência. O encoder CLIP extraía features de roupa junto com pose/rosto/corpo. Essa atenção vazando para a região errada é EXATAMENTE o que a Leffa (CVPR 2025) descreve como "inadequate attention to corresponding regions in the reference image" → distorção de textura.
 
-**Solução (Opção A do UPGRADE.md):** `_build_clothes_neutral_ref()` — antes de passar a imagem ao IP-Adapter, preencher a região de roupa com tom de pele médio (amostrado da pele exposta da própria pessoa) + ruído sutil + blur. O encoder então só vê pose/rosto/formato-do-corpo, sem acesso à textura da roupa.
+**Solução (Opção A do `services/se11-clothes-removal/docs/plans/UPGRADE-V2.md`):** `_build_clothes_neutral_ref()` — antes de passar a imagem ao IP-Adapter, preencher a região de roupa com tom de pele médio (amostrado da pele exposta da própria pessoa) + ruído sutil + blur. O encoder então só vê pose/rosto/formato-do-corpo, sem acesso à textura da roupa.
 
 **Resultado:** Suéter residual desapareceu. Config vencedora: B_neu_s086 (ref neutra + strength=0.86). Pose: head=0.0%, torso=2.0%, limbs=4.1% (baseline era limbs=10.0%). Speed: 16s/try (era 46s).
 
@@ -284,7 +284,7 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 
 ## 16. OpenPose ControlNet integrado, mas qualidade precisa de ajuste (2026-06-30)
 
-**Objetivo:** Adicionar condicionamento estrutural de pose ao pipeline NSFW via ControlNet OpenPose, conforme fase 2 do `UPGRADE.md`.
+**Objetivo:** Adicionar condicionamento estrutural de pose ao pipeline NSFW via ControlNet OpenPose, conforme fase 2 do `services/se11-clothes-removal/docs/plans/UPGRADE-V2.md`.
 
 **Implementação:**
 - SE10: novo `pose_renderer.py` gera stick figure a partir de landmarks MediaPipe Pose; endpoint `/v1/segment` aceita `include_pose=true`

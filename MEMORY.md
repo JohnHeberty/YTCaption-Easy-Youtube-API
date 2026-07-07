@@ -614,7 +614,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 ### 🟢 NSFW v22/v23 — PRODUCTION (Leffa-style clothes-neutralized IP-Adapter ref + OpenPose ControlNet)
 - **Rota oficial:** `POST /jobs` (file upload) `mode="nsfw"`
 - **Pipeline:** `pipeline_nsfw.py` (v22 — clothes-neutralized IP-Adapter reference)
-- **BREAKTHROUGH (2026-06-30):** Suéter residual RESOLVIDO via Opção A do UPGRADE.md
+- **BREAKTHROUGH (2026-06-30):** Suéter residual RESOLVIDO via Opção A do `services/se11-clothes-removal/docs/plans/UPGRADE-V2.md`
   - **Causa raiz:** IP-Adapter usava imagem original vestida → encoder extraía features de roupa → vazava para o resultado (exatamente a distorção que Leffa CVPR2025 descreve: "inadequate attention to corresponding regions")
   - **Solução:** `_build_clothes_neutral_ref()` — preenche região de roupa com tom de pele médio + ruído sutil antes de codificar. Encoder vê pose/rosto/corpo mas NÃO vê textura da roupa.
 - **Config vencedora (B_neu_s086 — validada visualmente pelo usuário):**
