@@ -2,7 +2,19 @@
 
 ## Última sessão (2026-07-07)
 
-### 🟢 SOLID Phase 1 — Quick Wins concluído (2026-07-07)
+### 🟢 SOLID Phase 2 — Decompose God Functions concluído (2026-07-07)
+
+**Tarefas executadas:**
+2.1 `detect_person_with_fallbacks()` extraído para `_helpers.py` — 3 fallback strategies (retry→GrabCut→face-ellipse), ~170 linhas duplicadas → função async compartilhada.
+2.2 `upscale_result()` + `restore_face()` extraídos para `_helpers.py` — lógica SE8 compartilhada.
+2.3 `segment()` decomposto em 5 sub-métodos: `_empty_result()`, `_detect()`, `_filter_detections()`, `_annotate()`, `_build_objects()`.
+2.4 SE8 inner classes (FaceIDProj/FaceIDIPAdapter) — DEFERRED (menor prioridade, maior risco).
+
+**Arquivos alterados:** `_helpers.py` (+242), `pipeline_nsfw.py` (-173), `pipeline_nsfw_experimental.py` (-196), `segmentor.py` (refactored).
+**Resultado:** -99 linhas líquidas, 4 arquivos, todos os testes passando (SE11: 11, SE10: 46).
+**Commit:** `182cefa5`.
+
+### SOLID Phase 1 — Quick Wins concluído (2026-07-07)
 
 **Tarefas executadas:**
 1.1 `_helpers.py` expandido: funções duplicadas (`decode_image`, `to_data_uri`, `strip_data_uri`, `fix_b64_padding`, `combine_masks`, `detect_skin_hsv`, `compute_composite_score`) + `ScoringWeights` dataclass + constantes `CLOTHES_CLASSES`, `DEFAULT_CLOTHES_NEGATIVE`.
