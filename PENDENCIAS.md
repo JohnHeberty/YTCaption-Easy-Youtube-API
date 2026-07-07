@@ -73,66 +73,8 @@
 
 ## Pendências Ativas
 
-### ✅ RESOLVIDO — Steps 60→50 (2026-07-05)
-- **Problema:** 60 steps = ~150s/tentativa
-- **Solução:** Reduzido para 50 steps (~100s/tentativa)
-- **Status:** ✅ RESOLVIDO
-
-### 2. Testar com mais imagens (PRIORIDADE ALTA)
-- **Problema:** Só testamos com TESTE1.jpg (mulher, fundo gaming)
-- **Necessário:** Diversos poses, camadas de roupa, ângulos, iluminação
-- **Status:** PENDENTE
-
-### 3. Otimizar composite score — landmark drift (PRIORIDADE MÉDIA)
-- **Problema:** strength=0.92 algumas vezes causa pose_changed=true
-- **Causa provável:** DWPose landmarks muito sensíveis a micro-mudanças
-- **Solução candidata:** Ajustar thresholds ou usar métrica diferente
-- **Status:** PENDENTE
-
-### 4. Fase 4: Matching por centróide — multi-person (PRIORIDADE MÉDIA)
-- **Problema:** Pipeline assumes 1 pessoa por imagem
-- **Solução:** Centroid-based person matching para múltiplas pessoas
-- **Complexidade:** ALTA
-- **Status:** PENDENTE
-
-### 5. Lazy-load IP-Adapter/ControlNet no SE8 (PRIORIDADE BAIXA)
-- **Problema:** IP-Adapter e ControlNet carregados na memória mesmo sem uso
-- **Solução:** Lazy-load sob demanda
-- **Economia:** ~2.7GB RAM
-- **Complexidade:** MÉDIA
-- **Status:** PENDENTE
-
-### 6. Face ghost no pescoço
-- **Problema:** SE8 gera segundo rosto onde máscara de roupa encontra face protegida
-- **Status:** PENDENTE
-
-### 7. Artefatos de borda
-- **Problema:** Restos de roupa nas laterais quando detecção não cobre 100%
-- **Status:** PENDENTE
-
-### 8. show/ Permission Denied (PRIORIDADE BAIXA)
-- **Problema:** SE11 (container Docker) não consegue copiar resultado para `/root/YTCaption-Easy-Youtube-API/show/` — container não monta host path como volume
-- **Solução:** Montar `show/` como volume no docker-compose do SE11, ou usar bind mount
-- **Complexidade:** BAIXA
-- **Status:** PENDENTE
-
-### ✅ RESOLVIDO — OpenPose ControlNet Union SDXL (2026-07-05)
-- **Problema:** LoRA-based ControlNet incompatible with SDXL inpainting (9-channel UNet)
-- **Solução:** `xinsir/controlnet-union-sdxl-1.0` (standard ControlNet, 2.4GB)
-- **Otimização:** weight=0.3, stop=0.6 → composite=5.17 (vs 8.76 sem ControlNet)
-- **Status:** ✅ RESOLVIDO
-
-### ✅ RESOLVIDO — SDXL Refiner testado e rejeitado (2026-07-05)
-- **Problema:** SDXL Refiner destrói pose (5/5 attempts pose_changed=True)
-- **Causa:** Joint denoising do refiner sobrescreve pose do base+ControlNet
-- **RAM:** Pico 34.5GB (93.9%) — quase 100%
-- **Status:** ✅ RESOLVIDO — Refiner removido, pipeline sem refiner
-
-### 9. GFPGAN/CodeFormer face restore
-- **Status:** PENDENTE
-
-### 10. Old stuck jobs no Redis
-- **Status:** PENDENTE
+### NSFW Pipeline (SE11)
+→ Ver `services/se11-clothes-removal/docs/ROADMAP.md` para roadmap completo.
 
 ---
 

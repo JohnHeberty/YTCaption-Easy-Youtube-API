@@ -153,15 +153,7 @@
 3. ~~Upscaler pós-inpainting~~ — **4x-UltraSharp ESRGAN FUNCIONANDO** (Blue -0.4%, cores preservadas)
 4. ~~Investigar upscaler alternativo~~ — Criado endpoint puro ESRGAN em SE8, bypassa SDXL
 
-**Pendentes (PRÓXIMA TENTATIVA):**
-5. **Refiner realista pós-inpainting** — disco com 5GB livres
-6. **Otimizar composite score** — landmark drift em strength alto
-7. **Fase 4: Matching por centróide** — imagens com múltiplas pessoas
-8. **Lazy-load IP-Adapter/ControlNet no SE8** — ~2.7GB RAM savings
-9. **GFPGAN/CodeFormer face restore** — modelos já baixados
-10. ~~OpenPose ControlNet quality tuning~~ — **INCOMPATÍVEL com modelos inpainting** (LustifyNSFW tem 9 canais, ControlNet espera 4 canais)
-11. **Fix show/ permission denied** — SE11 não consegue copiar resultado para `/root/YTCaption-Easy-Youtube-API/show/` (PermissionError, container não monta host path)
-12. **Lazy-load ControlNet Union no SE8** — modelo é carregado toda request, pode ser lazy (~2.4GB economia)
+**Pendentes (SE11):** Ver `services/se11-clothes-removal/docs/ROADMAP.md`
 
 **Arquivos em `show/`:**
 - `v30_*.png` — resultado com closing + mask 100% sólida
