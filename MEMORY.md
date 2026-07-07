@@ -5,13 +5,19 @@
 ### 🟢 SOLID Phase 4 — Config Extensível concluído (2026-07-07)
 
 **Tarefas executadas:**
-4.1 LoRA weights e NSFW prompt movidos para `_helpers.py`: `NSFW_PROMPT`, `NSFW_NEGATIVE`, `LORAS_PRODUCTION`, `LORAS_EXPERIMENTAL`, `_make_lora()`.
+4.1 LoRA weights e NSFW prompt configuráveis via YAML:
+  - `configs/nsfw_production.yaml` e `configs/nsfw_experimental.yaml` criados
+  - `NSFWConfig` frozen dataclass e `get_nsfw_config()` loader em `_helpers.py`
+  - Loader lê YAML com fallback hardcoded quando arquivo ausente ou malformado
+  - Ambos pipelines usam `get_nsfw_config(profile)` em vez de constantes hardcoded
+  - `pyyaml>=6.0` adicionado ao `requirements.txt`
+  - Dockerfile copia `configs/`; docker-compose monta para dev iteration
 4.2 Registry pattern SE8 worker — DEFERRED (fora do escopo).
 4.3 `segformer_detector.py`: `close_kernel_size` parametrizável (default=120).
 
-**Arquivos alterados:** `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `segformer_detector.py`.
-**Resultado:** +6 linhas, 4 arquivos, todos os testes passando (SE11: 51, SE10: 62).
-**Commit:** `489efd84`.
+**Arquivos alterados:** `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `segformer_detector.py`, `configs/nsfw_production.yaml` (novo), `configs/nsfw_experimental.yaml` (novo), `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `test_helpers.py`.
+**Resultado:** +271 linhas, 9 arquivos, todos os testes passando (SE11: 58, SE10: 62).
+**Commits:** `489efd84` (fase 4 inicial), `d9bc28b7` (YAML config refactor).
 
 ### 🟢 SOLID Phase 3 — Interfaces e DIP concluído (2026-07-07)
 
