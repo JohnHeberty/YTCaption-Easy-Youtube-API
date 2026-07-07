@@ -34,6 +34,22 @@
 
 **Arquivos:** `http_client.py`, `_helpers.py`, `pipeline.py`. Commit: `70aa132f`.
 
+### 🟢 Hardcoded values cleanup (2026-07-07)
+
+**Problema:** 28 hardcoded high-severity values encontrados no scan. Principais:
+- `inpaint_respective_field`: 3 valores diferentes (0.85, 0.618, 0.55)
+- Upload size: 20MB em routes.py vs 50MB em constants.py
+- `base_model`: juggernautXL em models.py/http_client.py vs lustify nos pipelines
+- `max_attempts`, `base_strength`, `faceid_weight`: hardcoded em ambos pipelines
+
+**Solução:**
+1. `inpaint_respective_field`: adicionado ao YAML config + NSFWConfig (prod=0.618, exp=0.55)
+2. Upload size: routes.py agora usa `MAX_FILE_SIZE_MB` de constants.py (50MB)
+3. `base_model`: unificado para `lustifySDXLNSFW_v20-inpainting.safetensors` em todos os lugares
+4. `max_attempts`, `base_strength`, `faceid_weight`: movidos para YAML config
+
+**Arquivos:** `routes.py`, `models.py`, `http_client.py`, `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `nsfw_production.yaml`, `nsfw_experimental.yaml`. Commit: `6ace3f3b`.
+
 ### 🟢 SOLID Phase 3 — Interfaces e DIP concluído (2026-07-07)
 
 **Tarefas executadas:**
