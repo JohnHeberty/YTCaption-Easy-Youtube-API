@@ -19,8 +19,5 @@ STATUS_FAILED = "failed"
 # Allowed image extensions
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
-# Max file size (MB)
-MAX_FILE_SIZE_MB = 50
-
 # Supported SE8 inpainting style
 INPAINT_STYLE = "Fooocus Inpaint"

@@ -163,6 +163,87 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
     )
 
 
+# ─── Clothes Config Loader ────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class ClothesConfig:
+    """Immutable clothes removal pipeline configuration loaded from YAML."""
+    clothes_prompt: str
+    person_prompt: str
+    clothes_negative: str
+
+
+_CLOTHES_DEFAULTS: dict[str, ClothesConfig] = {
+    "production": ClothesConfig(
+        clothes_prompt=(
+            "NSFW, NSFW, NSFW, NSFW, NSFW, "
+            "bare skin, smooth skin surface, realistic skin texture, "
+            "detailed breast anatomy, realistic nipples, natural skin pores, "
+            "seamless skin transition, consistent skin tone with surrounding body, "
+            "photorealistic, professional photography, studio lighting, "
+            "high resolution, sharp focus on skin detail, 8k uhd, "
+            "hyperrealistic, detailed skin rendering, natural body proportions"
+        ),
+        person_prompt=(
+            "natural skin texture matching surrounding skin tone, seamless blend, "
+            "preserve original body shape and features, realistic skin, soft lighting"
+        ),
+        clothes_negative=(
+            "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
+            "dress, skirt, pattern, floral, textile, garment, "
+            "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
+            "extra limbs, disfigured, poorly drawn face, mutated hands, "
+            "bad anatomy, deformed skin, wrinkled, scarred"
+        ),
+    ),
+}
+_CLOTHES_DEFAULTS["experimental"] = _CLOTHES_DEFAULTS["production"]
+
+
+def _load_clothes_config(profile: str) -> ClothesConfig:
+    """Load clothes config from YAML file with hardcoded fallback.
+
+    Args:
+        profile: Config profile name ("production" or "experimental").
+
+    Returns:
+        ClothesConfig with prompts loaded from YAML.
+    """
+    yaml_path = _CONFIGS_DIR / f"nsfw_{profile}.yaml"
+    if not yaml_path.exists():
+        logger.warning("Clothes config file not found: %s, using hardcoded defaults", yaml_path)
+        return _CLOTHES_DEFAULTS.get(profile, _CLOTHES_DEFAULTS["production"])
+
+    try:
+        import yaml
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except Exception as exc:
+        logger.warning("Failed to load %s: %s, using hardcoded defaults", yaml_path, exc)
+        return _CLOTHES_DEFAULTS.get(profile, _CLOTHES_DEFAULTS["production"])
+
+    clothes = data.get("clothes", {})
+    defaults = _CLOTHES_DEFAULTS.get(profile, _CLOTHES_DEFAULTS["production"])
+
+    return ClothesConfig(
+        clothes_prompt=clothes.get("clothes_prompt", defaults.clothes_prompt).strip(),
+        person_prompt=clothes.get("person_prompt", defaults.person_prompt).strip(),
+        clothes_negative=clothes.get("clothes_negative", defaults.clothes_negative).strip(),
+    )
+
+
+def get_clothes_config(profile: str = "production") -> ClothesConfig:
+    """Get clothes removal pipeline configuration.
+
+    Args:
+        profile: Config profile name ("production" or "experimental").
+
+    Returns:
+        ClothesConfig with loaded or hardcoded values.
+    """
+    return _load_clothes_config(profile)
+
+
 # ─── Shared Constants ────────────────────────────────────────────────────────
 
 CLOTHES_CLASSES = (

@@ -98,3 +98,22 @@ enhance:
   performance_selection: "Speed"
   guidance_scale: 4.0
   aspect_ratios_selection: "1152*896"
+
+clothes:
+  clothes_prompt: >
+    NSFW, NSFW, NSFW, NSFW, NSFW,
+    bare skin, smooth skin surface, realistic skin texture,
+    detailed breast anatomy, realistic nipples, natural skin pores,
+    seamless skin transition, consistent skin tone with surrounding body,
+    photorealistic, professional photography, studio lighting,
+    high resolution, sharp focus on skin detail, 8k uhd,
+    hyperrealistic, detailed skin rendering, natural body proportions
+  person_prompt: >
+    natural skin texture matching surrounding skin tone, seamless blend,
+    preserve original body shape and features, realistic skin, soft lighting
+  clothes_negative: >
+    clothes, fabric, bra, straps, underwear, top, blouse, shirt,
+    dress, skirt, pattern, floral, textile, garment,
+    text, watermark, deformed, blurry, cartoon, anime, painting, CGI,
+    extra limbs, disfigured, poorly drawn face, mutated hands,
+    bad anatomy, deformed skin, wrinkled, scarred

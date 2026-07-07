@@ -26,6 +26,7 @@ from app.services.head_detector import detect_head_mask
 from app.services._helpers import (
     DEFAULT_CLOTHES_NEGATIVE,
     LORAS_CLOTHES,
+    get_clothes_config,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -40,19 +41,12 @@ BEST_CLOTHING_CLASSES = (
     "spaghetti strap, camisole, top, blouse"
 )
 
-DEFAULT_CLOTHES_PROMPT = (
-    "NSFW, NSFW, NSFW, NSFW, NSFW, "
-    "bare skin, smooth skin surface, realistic skin texture, "
-    "detailed breast anatomy, realistic nipples, natural skin pores, "
-    "seamless skin transition, consistent skin tone with surrounding body, "
-    "photorealistic, professional photography, studio lighting, "
-    "high resolution, sharp focus on skin detail, 8k uhd, "
-    "hyperrealistic, detailed skin rendering, natural body proportions"
-)
-DEFAULT_PERSON_PROMPT = (
-    "natural skin texture matching surrounding skin tone, seamless blend, "
-    "preserve original body shape and features, realistic skin, soft lighting"
-)
+# Load clothes config from YAML (with hardcoded fallback)
+_clothes_cfg = get_clothes_config("production")
+
+DEFAULT_CLOTHES_PROMPT = _clothes_cfg.clothes_prompt
+DEFAULT_PERSON_PROMPT = _clothes_cfg.person_prompt
+DEFAULT_CLOTHES_NEGATIVE = _clothes_cfg.clothes_negative
 
 # ─── Helper Functions ────────────────────────────────────────────────────────
 

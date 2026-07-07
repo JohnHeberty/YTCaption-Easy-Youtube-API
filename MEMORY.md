@@ -2,6 +2,26 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 Config Coherence Cleanup — .env vs YAML separation (2026-07-07)
+
+**Problema:** Mistura de configuração entre `.env` e YAML. Valores mortos em `.env` e `config.py` nunca usados. `MAX_FILE_SIZE_MB` duplicado.
+
+**Correções:**
+1. **Remove dead .env values:** `DEFAULT_PROMPT`, `DEFAULT_NEGATIVE_PROMPT`, `DEFAULT_INPAINT_STRENGTH`, `DEFAULT_BOX_THRESHOLD`, `DEFAULT_TEXT_THRESHOLD` — nunca usados por nenhum código
+2. **Remove dead config.py fields:** `default_prompt`, `default_negative_prompt`, `default_inpaint_strength`, `default_box_threshold`, `default_text_threshold` — campos Pydantic mortos
+3. **Update .env.example:** Removidas variáveis mortas
+4. **Pipeline prompts → YAML:** `DEFAULT_CLOTHES_PROMPT`, `DEFAULT_PERSON_PROMPT`, `DEFAULT_CLOTHES_NEGATIVE` movidos de `_helpers.py` e `pipeline.py` para YAML config (`clothes` section)
+5. **ClothesConfig dataclass:** Nova classe frozen em `_helpers.py` com `clothes_prompt`, `person_prompt`, `clothes_negative`
+6. **MAX_FILE_SIZE_MB unification:** `routes.py` agora usa `settings.max_file_size_mb` de `.env` em vez de `constants.py`
+
+**Regra de coerência:**
+- `.env` = infraestrutura/ambiente (Redis, portas, URLs, API keys, timeouts)
+- YAML = parâmetros de pipeline/modelo (prompts, LoRAs, thresholds, SE8 params)
+- `constants.py` = constantes de código (status, prefixes, schemas)
+
+**Arquivos alterados:** `.env`, `.env.example`, `config.py`, `_helpers.py`, `pipeline.py`, `routes.py`, `constants.py`, `nsfw_production.yaml`, `nsfw_experimental.yaml`.
+**Resultado:** Todos os 120 testes passando (SE11: 58, SE10: 62).
+
 ### 🟢 SOLID Phase 4 — Config Extensível concluído (2026-07-07)
 
 **Tarefas executadas:**

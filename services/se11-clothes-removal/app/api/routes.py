@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 
 from app.core.config import settings
-from app.core.constants import JOB_ID_PREFIX, MAX_FILE_SIZE_MB
+from app.core.constants import JOB_ID_PREFIX
 from app.core.models import ClothesRemovalJob
 from app.api.schemas import (
     ClothesRemovalJobStatus,
@@ -271,8 +271,8 @@ async def create_job(
 
     # ── Read file → base64 ──
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE_MB * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {MAX_FILE_SIZE_MB}MB.")
+    if len(content) > settings.max_file_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
     image_b64 = base64.b64encode(content).decode("utf-8")
     mime = file.content_type or "image/png"
@@ -396,8 +396,8 @@ async def create_nsfw_job(
 
     # ── Read file → base64 ──
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE_MB * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {MAX_FILE_SIZE_MB}MB.")
+    if len(content) > settings.max_file_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
     image_b64 = base64.b64encode(content).decode("utf-8")
     mime = file.content_type or "image/png"
@@ -554,8 +554,8 @@ async def create_nsfw_test_job(
 
     # ── Read file → base64 ──
     content = await file.read()
-    if len(content) > MAX_FILE_SIZE_MB * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {MAX_FILE_SIZE_MB}MB.")
+    if len(content) > settings.max_file_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
     image_b64 = base64.b64encode(content).decode("utf-8")
     mime = file.content_type or "image/png"
