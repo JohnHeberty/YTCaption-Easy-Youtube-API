@@ -35,6 +35,8 @@ from app.services._helpers import (
     combine_masks as _combine_masks,
     detect_skin_hsv as _detect_skin_hsv,
     compute_composite_score as _compute_composite_score,
+    detect_person_with_fallbacks,
+    upscale_result as _upscale_result,
 )
 
 logger = get_logger(__name__)
@@ -312,153 +314,18 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         job.update_stage("detecting", "processing", progress=10.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
 
-        # ─── Stage 1: SE10 Person Detection (ensemble: GD + YOLO11) ───
-        person_seg = await se10.segment(
-            image_bytes=image_bytes, filename=f"{job.job_id}_person.jpg",
-            classes="person, woman, man", box_threshold=0.20, text_threshold=0.15, mode="person",
-            detector="ensemble", include_pose=True,
+        # ─── Stage 1: SE10 Person Detection (with fallbacks) ─────────────
+        person_binary, person_seg, pose_cn_b64 = await detect_person_with_fallbacks(
+            se10, image_bytes, job.job_id, orig_h, orig_w, include_pose=True,
         )
-        pose_cn_b64 = person_seg.get("controlnet_image")
-        if not person_seg.get("detected") or not person_seg.get("masks"):
+        if person_binary is None:
             job.status = ClothesRemovalJobStatus.COMPLETED
             job.error = "No person detected"
             job.progress = 100.0
             store.save_job(job.job_id, job.model_dump(mode="json"))
             return
 
-        best_idx = max(range(len(person_seg["objects"])), key=lambda i: person_seg["objects"][i].get("area_pct", 0))
-        raw_p = _strip_data_uri(person_seg["masks"][best_idx])
-        person_mask = _cv2.imdecode(
-            _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_p)), _np.uint8), _cv2.IMREAD_GRAYSCALE)
-        if person_mask is None:
-            raise ValueError("Bad person mask")
-        if person_mask.shape[:2] != (orig_h, orig_w):
-            person_mask = _cv2.resize(person_mask, (orig_w, orig_h))
-        person_binary = (person_mask > 127).astype(_np.uint8) * 255
-
-        # Fill ALL internal holes in the person mask — multi-step approach
-        # Step 1: Morphological closing to fill small gaps in the mask
-        _close_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
-        person_binary = _cv2.morphologyEx(person_binary, _cv2.MORPH_CLOSE, _close_kernel, iterations=3)
-
-        # Step 2: FloodFill from ALL 4 corners + midpoints to catch background pockets
-        _h, _w = person_binary.shape
-        _flood = person_binary.copy()
-        _flood_mask = _np.zeros((_h + 2, _w + 2), _np.uint8)
-        seeds = [(0, 0), (_w - 1, 0), (0, _h - 1), (_w - 1, _h - 1),
-                 (_w // 2, 0), (_w // 2, _h - 1), (0, _h // 2), (_w - 1, _h // 2)]
-        for seed in seeds:
-            sx, sy = seed
-            if 0 <= sx < _w and 0 <= sy < _h and _flood[sy, sx] == 0:
-                _cv2.floodFill(_flood, _flood_mask, (sx, sy), 255)
-        _holes = _cv2.bitwise_not(_flood)
-        person_binary = _cv2.bitwise_or(person_binary, _holes)
-        logger.info("Job %s: person mask holes filled (%d px closed via multi-seed floodFill)",
-                     job.job_id, _np.count_nonzero(_holes))
-
-        # ─── Fallback: Retry with lower thresholds if person mask too small ───
         person_coverage = (person_binary > 0).sum() / person_binary.size * 100
-        if person_coverage < 10.0:
-            logger.warning("Job %s: person coverage too low (%.1f%% < 10%%), retrying with lower thresholds",
-                           job.job_id, person_coverage)
-            person_seg_retry = await se10.segment(
-                image_bytes=image_bytes, filename=f"{job.job_id}_person_retry.jpg",
-                classes="person, woman, man", box_threshold=0.10, text_threshold=0.08,
-                mode="person", detector="ensemble", include_pose=True,
-            )
-            if person_seg_retry.get("detected") and person_seg_retry.get("masks"):
-                best_idx_r = max(range(len(person_seg_retry["objects"])),
-                                 key=lambda i: person_seg_retry["objects"][i].get("area_pct", 0))
-                raw_pr = _strip_data_uri(person_seg_retry["masks"][best_idx_r])
-                person_mask_r = _cv2.imdecode(
-                    _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_pr)), _np.uint8),
-                    _cv2.IMREAD_GRAYSCALE)
-                if person_mask_r is not None:
-                    if person_mask_r.shape[:2] != (orig_h, orig_w):
-                        person_mask_r = _cv2.resize(person_mask_r, (orig_w, orig_h))
-                    person_binary_r = (person_mask_r > 127).astype(_np.uint8) * 255
-                    retry_coverage = (person_binary_r > 0).sum() / person_binary_r.size * 100
-                    if retry_coverage > person_coverage:
-                        person_binary = person_binary_r
-                        person_seg = person_seg_retry
-                        if person_seg_retry.get("controlnet_image"):
-                            pose_cn_b64 = person_seg_retry["controlnet_image"]
-                        person_coverage = retry_coverage
-                        logger.info("Job %s: retry improved coverage to %.1f%%",
-                                    job.job_id, person_coverage)
-
-        # ─── Fallback 2: GrabCut if still too small ───
-        if person_coverage < 10.0:
-            logger.warning("Job %s: still low coverage (%.1f%%), trying GrabCut fallback",
-                           job.job_id, person_coverage)
-            faces = []
-            try:
-                from app.services.head_detector import _detect_faces
-                faces = _detect_faces(orig_img)
-            except Exception:
-                pass
-            if faces:
-                face = max(faces, key=lambda f: f[2] * f[3])
-                fx, fy, fw, fh = face
-                # Create a generous rectangle around the face for GrabCut seed
-                gc_margin_x = int(fw * 3.0)
-                gc_margin_top = int(fh * 4.0)
-                gc_margin_bot = int(fh * 6.0)
-                gc_x1 = max(0, fx - gc_margin_x)
-                gc_y1 = max(0, fy - gc_margin_top)
-                gc_x2 = min(orig_w, fx + fw + gc_margin_x)
-                gc_y2 = min(orig_h, fy + fh + gc_margin_bot)
-                gc_rect = (gc_x1, gc_y1, gc_x2 - gc_x1, gc_y2 - gc_y1)
-
-                gc_mask_gc = _np.zeros((orig_h, orig_w), _np.uint8)
-                # Mark inside as probable foreground, border strip as probable background
-                gc_mask_gc[:] = _cv2.GC_PR_FGD
-                border = 5
-                gc_mask_gc[:border, :] = _cv2.GC_PR_BGD
-                gc_mask_gc[-border:, :] = _cv2.GC_PR_BGD
-                gc_mask_gc[:, :border] = _cv2.GC_PR_BGD
-                gc_mask_gc[:, -border:] = _cv2.GC_PR_BGD
-
-                bgd_model = _np.zeros((1, 65), _np.float64)
-                fgd_model = _np.zeros((1, 65), _np.float64)
-                try:
-                    _cv2.grabCut(orig_img, gc_mask_gc, gc_rect, bgd_model, fgd_model,
-                                 5, _cv2.GC_INIT_WITH_RECT)
-                    gc_fg = _np.where((gc_mask_gc == _cv2.GC_FGD) | (gc_mask_gc == _cv2.GC_PR_FGD), 255, 0).astype(_np.uint8)
-                    gc_coverage = (gc_fg > 0).sum() / gc_fg.size * 100
-                    if gc_coverage > person_coverage:
-                        person_binary = gc_fg
-                        person_coverage = gc_coverage
-                        logger.info("Job %s: GrabCut improved coverage to %.1f%%",
-                                    job.job_id, person_coverage)
-                except Exception as exc:
-                    logger.warning("Job %s: GrabCut failed: %s", job.job_id, exc)
-
-            # Final fallback: expand face bbox to cover expected body area
-            if person_coverage < 10.0 and faces:
-                face = max(faces, key=lambda f: f[2] * f[3])
-                fx, fy, fw, fh = face
-                body_w = int(fw * 4.0)
-                body_h = int(fh * 8.0)
-                body_cx = fx + fw // 2
-                body_cy = fy + fh + body_h // 2
-                body_x1 = max(0, body_cx - body_w // 2)
-                body_y1 = max(0, fy - int(fh * 1.5))
-                body_x2 = min(orig_w, body_cx + body_w // 2)
-                body_y2 = min(orig_h, body_cy + body_h // 2)
-                body_rect_mask = _np.zeros((orig_h, orig_w), _np.uint8)
-                # Ellipse inside the rectangle
-                ell_cx = (body_x1 + body_x2) // 2
-                ell_cy = (body_y1 + body_y2) // 2
-                ell_w = (body_x2 - body_x1) // 2
-                ell_h = (body_y2 - body_y1) // 2
-                _cv2.ellipse(body_rect_mask, (ell_cx, ell_cy), (ell_w, ell_h), 0, 0, 360, 255, -1)
-                ell_coverage = (body_rect_mask > 0).sum() / body_rect_mask.size * 100
-                if ell_coverage > person_coverage:
-                    person_binary = body_rect_mask
-                    person_coverage = ell_coverage
-                    logger.info("Job %s: face-ellipse fallback coverage=%.1f%%",
-                                job.job_id, person_coverage)
 
         job.update_stage("detecting", "processing", progress=25.0)
         store.save_job(job.job_id, job.model_dump(mode="json"))
@@ -1017,29 +884,11 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         # ─── Upscale via 4x-UltraSharp ───
         upscale_enabled = getattr(job.request, "upscale", True) if hasattr(job, "request") else True
         if upscale_enabled:
-            try:
-                logger.info("Job %s: upscaling via 4x-UltraSharp", job.job_id)
-                _, upscale_buf = _cv2.imencode(".png", best_composited)
-                upscale_b64 = _to_data_uri(base64.b64encode(upscale_buf).decode("utf-8"), mime="image/png")
-                upscale_result = await se8.upscale(image_b64=upscale_b64, scale=2.0)
-                if upscale_result and upscale_result.get("base64"):
-                    upscaled_b64 = upscale_result["base64"]
-                    if "," in upscaled_b64 and upscaled_b64.startswith("data:"):
-                        upscaled_b64 = upscaled_b64.split(",", 1)[1]
-                    upscaled_b64 = _fix_b64_padding(upscaled_b64)
-                    upscaled_bytes = base64.b64decode(upscaled_b64)
-                    upscaled_img = _cv2.imdecode(
-                        _np.frombuffer(upscaled_bytes, _np.uint8), _cv2.IMREAD_COLOR)
-                    if upscaled_img is not None:
-                        best_composited = upscaled_img
-                        uh, uw = upscaled_img.shape[:2]
-                        logger.info("Job %s: upscale completed (%dx%d)", job.job_id, uw, uh)
-                    else:
-                        logger.warning("Job %s: upscale decode failed, using original", job.job_id)
-                else:
-                    logger.warning("Job %s: upscale returned no base64, using original", job.job_id)
-            except Exception as exc:
-                logger.warning("Job %s: upscale failed (%s), using original", job.job_id, exc)
+            upscaled = await _upscale_result(se8, best_composited, logger)
+            if upscaled is not None:
+                best_composited = upscaled
+                uh, uw = upscaled.shape[:2]
+                logger.info("Job %s: upscale completed (%dx%d)", job.job_id, uw, uh)
         else:
             logger.info("Job %s: upscale disabled by request", job.job_id)
 

@@ -200,6 +200,139 @@ class ClothesSegmentor:
     #  Core segmentation
     # ------------------------------------------------------------------ #
 
+    def _empty_result(self, t0: float) -> dict[str, Any]:
+        """Standard empty result when no detections found."""
+        return {
+            "detected": False,
+            "objects": [],
+            "mask_image": None,
+            "processing_time_ms": round((time.time() - t0) * 1000, 1),
+        }
+
+    def _detect(self, original_image: np.ndarray, detector: str, mode: str,
+                classes: list[str], box_threshold: float, text_threshold: float):
+        """Run detection with the specified detector. Returns (detections, has_masks)."""
+        if detector == "ensemble" and self._ensemble_detector is not None:
+            ensemble_result = self._ensemble_detector.detect_ensemble(
+                image_bgr=original_image, classes=classes,
+                box_threshold=box_threshold, text_threshold=text_threshold, mode=mode,
+            )
+            detections = ensemble_result["detections"]
+            if detections is None or len(detections) == 0:
+                logger.info("Ensemble: no detection | method=%s results=%s",
+                            ensemble_result["method"], ensemble_result["detector_results"])
+                return None, False
+            logger.info("Ensemble: detected | method=%s coverage=%.1f%%",
+                        ensemble_result["method"], ensemble_result["coverage_pct"])
+            has_masks = detections.mask is not None if detections.mask is not None else False
+            return detections, has_masks
+        elif detector == "yolo11" and self._yolo_detector is not None:
+            detections = self._yolo_detector.predict(
+                original_image, confidence=box_threshold or 0.25, classes=[0])
+            if len(detections) == 0:
+                return None, False
+            return detections, detections.mask is not None
+        else:
+            detections = self._segformer_detector.segment_to_sv_detections(original_image)
+            return detections, detections.mask is not None
+
+    def _filter_detections(self, detections, detector: str, max_area_pct: float,
+                           image_area: int, max_objects: int, has_masks: bool):
+        """Filter by area, nesting, and cap to max_objects."""
+        area_filtered = detections[(detections.area / image_area) < max_area_pct]
+
+        filtered_boxes: list[Any] = []
+        filtered_confidences: list[Any] = []
+        filtered_class_ids: list[Any] = []
+        filtered_masks: list[Any] = []
+        has_mask_data = area_filtered.mask is not None
+
+        if (detector == "segformer" or (detector == "ensemble" and has_mask_data and
+                len(area_filtered) > 0 and area_filtered.class_id[0] in CLOTHING_IDS)) and has_mask_data:
+            for i in range(len(area_filtered)):
+                filtered_boxes.append(area_filtered.xyxy[i])
+                filtered_confidences.append(area_filtered.confidence[i])
+                filtered_class_ids.append(area_filtered.class_id[i])
+                filtered_masks.append(area_filtered.mask[i])
+        else:
+            for i, box1 in enumerate(area_filtered.xyxy):
+                is_inside = False
+                for j, box2 in enumerate(area_filtered.xyxy):
+                    if i != j and self._is_inside(box1, box2):
+                        is_inside = True
+                        break
+                if not is_inside:
+                    filtered_boxes.append(box1)
+                    filtered_confidences.append(area_filtered.confidence[i])
+                    filtered_class_ids.append(area_filtered.class_id[i])
+                    if has_mask_data:
+                        filtered_masks.append(area_filtered.mask[i])
+
+        final = sv.Detections(
+            xyxy=np.array(filtered_boxes) if filtered_boxes else np.empty((0, 4)),
+            confidence=np.array(filtered_confidences),
+            class_id=np.array(filtered_class_ids),
+            mask=np.array(filtered_masks) if filtered_masks else None,
+        )
+        if len(final) > max_objects:
+            top_idx = np.argsort(-final.confidence)[:max_objects]
+            final = final[top_idx]
+        return final
+
+    def _annotate(self, original_image, final_detections, detector: str, classes: list[str]):
+        """Build annotated image with masks and labels."""
+        mask_annotator = sv.MaskAnnotator()
+        box_annotator = sv.BoxAnnotator()
+        labels = []
+        for cls_id, conf in zip(final_detections.class_id, final_detections.confidence):
+            if detector in ("yolo11", "ensemble") and cls_id == 0:
+                labels.append(f"person {conf:.2f}")
+            elif detector in ("segformer",) or (detector == "ensemble" and cls_id in CLOTHING_IDS):
+                from app.services.segformer_detector import LABELS as SEGLABELS
+                label = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
+                labels.append(f"{label} {conf:.2f}")
+            elif cls_id < len(classes):
+                labels.append(f"{classes[cls_id]} {conf:.2f}")
+            else:
+                labels.append(f"class_{cls_id} {conf:.2f}")
+        annotated = mask_annotator.annotate(scene=original_image.copy(), detections=final_detections)
+        annotated = box_annotator.annotate(scene=annotated, detections=final_detections)
+        for xyxy, label in zip(final_detections.xyxy, labels):
+            x, y = int(xyxy[0]), int(xyxy[1])
+            cv2.putText(annotated, label, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        return annotated
+
+    def _build_objects(self, final_detections, detector: str, classes: list[str], image_area: int):
+        """Build detected_objects list and binary masks."""
+        areas = final_detections.area if len(final_detections) > 0 else np.array([])
+        detected_objects: list[dict[str, Any]] = []
+        binary_masks: list[str] = []
+
+        for i, (cls_id, conf, xyxy) in enumerate(zip(
+            final_detections.class_id, final_detections.confidence, final_detections.xyxy,
+        )):
+            if detector == "segformer" or (detector == "ensemble" and cls_id in CLOTHING_IDS):
+                from app.services.segformer_detector import LABELS as SEGLABELS
+                class_name = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
+            elif cls_id < len(classes):
+                class_name = classes[cls_id]
+            else:
+                class_name = f"class_{cls_id}"
+            detected_objects.append({
+                "class_name": class_name,
+                "confidence": round(float(conf), 4),
+                "bbox": [int(b) for b in xyxy],
+                "area_pct": round(float(areas[i] / image_area) * 100, 2),
+            })
+
+        if final_detections.mask is not None:
+            for mask_arr in final_detections.mask:
+                mask_uint8 = (mask_arr.astype(np.uint8)) * 255
+                _, mask_buffer = cv2.imencode(".png", mask_uint8)
+                binary_masks.append(f"data:image/png;base64,{base64.b64encode(mask_buffer).decode('utf-8')}")
+
+        return detected_objects, binary_masks
+
     def segment(
         self,
         image_bytes: bytes,
@@ -264,184 +397,29 @@ class ClothesSegmentor:
         height, width, _ = original_image.shape
         image_area = height * width
 
-        # 1. Detection — supports segformer, yolo11, ensemble
-        if detector == "ensemble" and self._ensemble_detector is not None:
-            # Multi-detector consensus voting
-            ensemble_result = self._ensemble_detector.detect_ensemble(
-                image_bgr=original_image,
-                classes=classes,
-                box_threshold=box_threshold,
-                text_threshold=text_threshold,
-                mode=mode,
-            )
-            detections = ensemble_result["detections"]
-            if detections is None or len(detections) == 0:
-                logger.info(
-                    "Ensemble: no detection | method=%s results=%s",
-                    ensemble_result["method"],
-                    ensemble_result["detector_results"],
-                )
-                return {
-                    "detected": False,
-                    "objects": [],
-                    "mask_image": None,
-                    "processing_time_ms": round((time.time() - t0) * 1000, 1),
-                }
-            logger.info(
-                "Ensemble: detected | method=%s coverage=%.1f%%",
-                ensemble_result["method"],
-                ensemble_result["coverage_pct"],
-            )
-            # If YOLO already gave us masks, use them directly
-            if detections.mask is not None:
-                # Skip to step 5 (annotate) — masks already available
-                has_masks = True
-            else:
-                has_masks = False
-        elif detector == "yolo11" and self._yolo_detector is not None:
-            # YOLO11-seg direct detection
-            detections = self._yolo_detector.predict(
-                original_image, confidence=box_threshold or 0.25, classes=[0]
-            )
-            if len(detections) == 0:
-                return {
-                    "detected": False,
-                    "objects": [],
-                    "mask_image": None,
-                    "processing_time_ms": round((time.time() - t0) * 1000, 1),
-                }
-            has_masks = detections.mask is not None
-        elif detector == "segformer" and self._segformer_detector is not None:
-            detections = self._segformer_detector.segment_to_sv_detections(original_image)
-            has_masks = detections.mask is not None
-        else:
-            # Default: SegFormer
-            detections = self._segformer_detector.segment_to_sv_detections(original_image)
-            has_masks = detections.mask is not None
+        # 1. Detection
+        detections, has_masks = self._detect(original_image, detector, mode, classes, box_threshold, text_threshold)
+        if detections is None:
+            return self._empty_result(t0)
 
-        # 2. Area filtering
-        area_filtered = detections[(detections.area / image_area) < max_area_pct]
-
-        # 3. Nesting filtering (remove boxes inside other boxes)
-        # Skip for SegFormer — per-class masks are independent and valid even if bboxes overlap
-        filtered_boxes: list[Any] = []
-        filtered_confidences: list[Any] = []
-        filtered_class_ids: list[Any] = []
-        filtered_masks: list[Any] = []
-        has_mask_data = area_filtered.mask is not None
-
-        if (detector == "segformer" or (detector == "ensemble" and has_mask_data and len(area_filtered) > 0 and area_filtered.class_id[0] in CLOTHING_IDS)) and has_mask_data:
-            # SegFormer: skip nesting filter — each class is independent
-            for i in range(len(area_filtered)):
-                filtered_boxes.append(area_filtered.xyxy[i])
-                filtered_confidences.append(area_filtered.confidence[i])
-                filtered_class_ids.append(area_filtered.class_id[i])
-                filtered_masks.append(area_filtered.mask[i])
-        else:
-            for i, box1 in enumerate(area_filtered.xyxy):
-                is_inside = False
-                for j, box2 in enumerate(area_filtered.xyxy):
-                    if i != j and self._is_inside(box1, box2):
-                        is_inside = True
-                        break
-                if not is_inside:
-                    filtered_boxes.append(box1)
-                    filtered_confidences.append(area_filtered.confidence[i])
-                    filtered_class_ids.append(area_filtered.class_id[i])
-                    if has_mask_data:
-                        filtered_masks.append(area_filtered.mask[i])
-
-        final_detections = sv.Detections(
-            xyxy=np.array(filtered_boxes) if filtered_boxes else np.empty((0, 4)),
-            confidence=np.array(filtered_confidences),
-            class_id=np.array(filtered_class_ids),
-            mask=np.array(filtered_masks) if filtered_masks else None,
-        )
-
-        # Cap to max_objects (by confidence)
-        if len(final_detections) > max_objects:
-            top_idx = np.argsort(-final_detections.confidence)[:max_objects]
-            final_detections = final_detections[top_idx]
-
+        # 2. Filtering (area + nesting + cap)
+        final_detections = self._filter_detections(detections, detector, max_area_pct, image_area, max_objects, has_masks)
         if len(final_detections) == 0:
-            return {
-                "detected": False,
-                "objects": [],
-                "mask_image": None,
-                "processing_time_ms": round((time.time() - t0) * 1000, 1),
-            }
+            return self._empty_result(t0)
 
-        # 4. Masks — SegFormer and YOLO11-seg already provide masks
+        # 3. Annotate
+        annotated = self._annotate(original_image, final_detections, detector, classes)
 
-        # 5. Annotate
-        mask_annotator = sv.MaskAnnotator()
-        box_annotator = sv.BoxAnnotator()
-        # Build labels — handle YOLO class IDs (0=person) vs text classes
-        labels = []
-        for cls_id, conf in zip(final_detections.class_id, final_detections.confidence):
-            if detector in ("yolo11", "ensemble") and cls_id == 0:
-                labels.append(f"person {conf:.2f}")
-            elif detector in ("segformer",) or (detector == "ensemble" and cls_id in CLOTHING_IDS):
-                from app.services.segformer_detector import LABELS as SEGLABELS
-                label = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
-                labels.append(f"{label} {conf:.2f}")
-            elif cls_id < len(classes):
-                labels.append(f"{classes[cls_id]} {conf:.2f}")
-            else:
-                labels.append(f"class_{cls_id} {conf:.2f}")
-        annotated = mask_annotator.annotate(
-            scene=original_image.copy(), detections=final_detections
-        )
-        annotated = box_annotator.annotate(
-            scene=annotated, detections=final_detections
-        )
-        for xyxy, label in zip(final_detections.xyxy, labels):
-            x, y = int(xyxy[0]), int(xyxy[1])
-            cv2.putText(
-                annotated, label, (x, y - 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2,
-            )
-
-        # 6. Build binary masks (one per object, for inpainting)
-        binary_masks: list[str] = []
-        if final_detections.mask is not None:
-            for mask_arr in final_detections.mask:
-                mask_uint8 = (mask_arr.astype(np.uint8)) * 255
-                _, mask_buffer = cv2.imencode(".png", mask_uint8)
-                mask_b64_str = f"data:image/png;base64,{base64.b64encode(mask_buffer).decode('utf-8')}"
-                binary_masks.append(mask_b64_str)
-
-        # 7. Build response
-        areas = final_detections.area if len(final_detections) > 0 else np.array([])
-        detected_objects: list[dict[str, Any]] = []
-        for i, (cls_id, conf, xyxy) in enumerate(zip(
-            final_detections.class_id,
-            final_detections.confidence,
-            final_detections.xyxy,
-        )):
-            if detector == "segformer" or (detector == "ensemble" and cls_id in CLOTHING_IDS):
-                from app.services.segformer_detector import LABELS as SEGLABELS
-                class_name = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
-            elif cls_id < len(classes):
-                class_name = classes[cls_id]
-            else:
-                class_name = f"class_{cls_id}"
-
-            detected_objects.append({
-                "class_name": class_name,
-                "confidence": round(float(conf), 4),
-                "bbox": [int(b) for b in xyxy],
-                "area_pct": round(float(areas[i] / image_area) * 100, 2),
-            })
+        # 4. Build objects and masks
+        detected_objects, binary_masks = self._build_objects(final_detections, detector, classes, image_area)
 
         _, buffer = cv2.imencode(".jpg", annotated)
         mask_b64 = f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
-        # 8. Optional pose control image
+        # 5. Optional pose control image
         controlnet_image: str | None = None
         pose_landmarks: list[dict[str, Any]] = []
         if include_pose:
-            # Lazy-init PoseRenderer on first use
             if self._pose_renderer is None:
                 self._pose_renderer = PoseRenderer(
                     min_detection_confidence=self.settings.pose_min_confidence
@@ -454,9 +432,7 @@ class ClothesSegmentor:
                         landmarks, image_size=(height, width)
                     )
                     _, pose_buf = cv2.imencode(".png", pose_canvas)
-                    controlnet_image = (
-                        f"data:image/png;base64,{base64.b64encode(pose_buf).decode('utf-8')}"
-                    )
+                    controlnet_image = f"data:image/png;base64,{base64.b64encode(pose_buf).decode('utf-8')}"
                     pose_landmarks = [lm.to_dict() for lm in landmarks]
                     logger.info("Pose control image generated | landmarks=%d", len(landmarks))
                 else:
@@ -465,12 +441,8 @@ class ClothesSegmentor:
                 logger.warning("Failed to generate pose control image: %s", exc)
 
         processing_ms = round((time.time() - t0) * 1000, 1)
-        logger.info(
-            "Segmentation complete | objects=%d time=%.1fms",
-            len(detected_objects), processing_ms,
-        )
+        logger.info("Segmentation complete | objects=%d time=%.1fms", len(detected_objects), processing_ms)
 
-        # Release intermediate tensors and force OS to reclaim memory
         self._last_used = time.time()
         self._cleanup_memory()
 
