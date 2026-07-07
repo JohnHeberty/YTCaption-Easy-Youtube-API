@@ -651,8 +651,8 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 - **SE8 LoRAs:** NsfwPov(0.6) + offset(0.1) + add-detail(0.7) + Inpaint patch v2.6 (582 keys)
 - **Prompt positive/negative:** mantido igual ao v21
 - **Compositing:** SE8 post_process + head paste + Reinhard color transfer
-> **Lições aprendidas:** Ver `LIÇÕES.md`
-> **Pendências:** Ver `PENDENCIAS.md`
+> **Lições aprendidas (SE11):** Ver `services/se11-clothes-removal/docs/LICOES-NSFW.md`
+> **Pendências (SE11):** Ver `services/se11-clothes-removal/docs/ROADMAP.md`
 
 ### Arquivos modificados nesta sessão
 | Arquivo | Mudança |
@@ -708,8 +708,8 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 - **head_adjusted:** 100% sólido (close + floodFill)
 - **Compositing:** paste binário → GaussianBlur 7px blend → head force
 - **GPU:** RTX 3090 24GB — quando CUDA assertion, `pkill -f python` no SE8
-> **Lições aprendidas:** Ver `LIÇÕES.md`
-> **Pendências:** Ver `PENDENCIAS.md`
+> **Lições aprendidas (SE11):** Ver `services/se11-clothes-removal/docs/LICOES-NSFW.md`
+> **Pendências (SE11):** Ver `services/se11-clothes-removal/docs/ROADMAP.md`
 
 ### Modos antigos (DEPRECATED)
 - `pipe_3layers_max`, `pipe_3layers`, `pipe_nsfw`, `pipe_nsfw_subtract`, `progressive` → todos redirecionam para `nsfw` (v17) com deprecation warning
@@ -978,4 +978,4 @@ Files (44): `app/__init__.py`, `app/main.py`, `args_manager.py`, `app/api/__init
 
 All 44 py_compile OK, no logic changes.
 
-> **Próximos passos / Pendências:** Ver `PENDENCIAS.md`
+> **Próximos passos / Pendências (SE11):** Ver `services/se11-clothes-removal/docs/ROADMAP.md`

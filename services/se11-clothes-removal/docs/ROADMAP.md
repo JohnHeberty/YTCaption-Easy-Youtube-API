@@ -133,4 +133,4 @@ Pipeline funcional: SE10 (SegFormer B2 + YOLO11) → SE11 (head mask, body mask,
 | Plano nsfw_test v2 | `services/se11-clothes-removal/docs/plans/UPGRADE-V2.md` |
 | Pesquisa pipeline | `services/se11-clothes-removal/docs/plans/SEARCH.md` |
 | Plano master qualidade | `services/se11-clothes-removal/docs/plans/PLANO-MAESTRO.md` |
-| Lições aprendidas | `LIÇÕES.md` |
+| Lições aprendidas | `services/se11-clothes-removal/docs/LICOES-NSFW.md` |
