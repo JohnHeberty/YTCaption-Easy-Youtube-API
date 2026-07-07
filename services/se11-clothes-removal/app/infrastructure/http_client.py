@@ -4,13 +4,19 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from common.log_utils import get_logger
 
 from app.core.config import settings
 from app.services._helpers import fix_b64_padding as _fix_b64_padding
+
+if TYPE_CHECKING:
+    from common.protocols import (
+        SE8ClientProtocol,
+        SE10ClientProtocol,
+    )
 
 logger = get_logger(__name__)
 

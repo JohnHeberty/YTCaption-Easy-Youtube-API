@@ -8,12 +8,15 @@ Combines SegFormer B2 + YOLO11-seg with:
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import supervision as sv
 
 from common.log_utils import get_logger
+
+if TYPE_CHECKING:
+    from common.protocols import DetectorProtocol
 
 logger = get_logger(__name__)
 
@@ -22,14 +25,14 @@ class EnsembleDetector:
     """Multi-detector ensemble with consensus voting."""
 
     def __init__(self) -> None:
-        self._yolo_detector: Any = None
-        self._segformer_detector: Any = None
+        self._yolo_detector: DetectorProtocol | None = None
+        self._segformer_detector: DetectorProtocol | None = None
 
-    def set_yolo(self, yolo_detector: Any) -> None:
+    def set_yolo(self, yolo_detector: DetectorProtocol) -> None:
         """Register YOLO11-seg detector."""
         self._yolo_detector = yolo_detector
 
-    def set_segformer(self, segformer_detector: Any) -> None:
+    def set_segformer(self, segformer_detector: DetectorProtocol) -> None:
         """Register SegFormer B2 detector."""
         self._segformer_detector = segformer_detector
 

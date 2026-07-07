@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from common.log_utils import get_logger
 
 from app.core.config import get_settings
 from app.core.constants import REDIS_KEY_PREFIX, REDIS_LIST_KEY, REDIS_JOB_TTL
+
+if TYPE_CHECKING:
+    from common.protocols import JobStoreProtocol
 
 logger = get_logger(__name__)
 
@@ -125,7 +128,10 @@ class _FakePipeline:
 
 
 class ClothesRemovalJobStore:
-    """Store for clothes removal jobs."""
+    """Store for clothes removal jobs.
+
+    Conforms to common.protocols.JobStoreProtocol.
+    """
 
     def __init__(self) -> None:
         self.redis = get_redis()
