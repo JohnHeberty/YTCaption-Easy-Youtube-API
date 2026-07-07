@@ -23,6 +23,13 @@ from app.core.models import ClothesRemovalJob, ClothesRemovalJobStatus
 from app.infrastructure.http_client import SE10Client, SE8Client
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.services.head_detector import detect_head_mask
+from app.services._helpers import (
+    DEFAULT_CLOTHES_NEGATIVE,
+    decode_image as _decode_image,
+    to_data_uri as _to_data_uri,
+    strip_data_uri as _strip_data_uri,
+    fix_b64_padding as _fix_b64_padding,
+)
 
 logger = get_logger(__name__)
 
@@ -45,44 +52,8 @@ DEFAULT_PERSON_PROMPT = (
     "natural skin texture matching surrounding skin tone, seamless blend, "
     "preserve original body shape and features, realistic skin, soft lighting"
 )
-DEFAULT_CLOTHES_NEGATIVE = (
-    "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
-    "dress, skirt, pattern, floral, textile, garment, "
-    "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
-    "extra limbs, disfigured, poorly drawn face, mutated hands, "
-    "bad anatomy, deformed skin, wrinkled, scarred"
-)
 
 # ─── Helper Functions ────────────────────────────────────────────────────────
-
-def _decode_image(image_input: str) -> bytes:
-    if image_input.startswith(("http://", "https://")):
-        import httpx
-        resp = httpx.get(image_input, timeout=30)
-        resp.raise_for_status()
-        return resp.content
-    if "," in image_input and image_input.startswith("data:"):
-        image_input = image_input.split(",", 1)[1]
-    return base64.b64decode(_fix_b64_padding(image_input))
-
-
-def _to_data_uri(b64_str: str, mime: str = "image/png") -> str:
-    if b64_str.startswith("data:"):
-        return b64_str
-    return f"data:{mime};base64,{b64_str}"
-
-
-def _strip_data_uri(data_uri: str) -> str:
-    if "," in data_uri and data_uri.startswith("data:"):
-        return data_uri.split(",", 1)[1]
-    return data_uri
-
-
-def _fix_b64_padding(s: str) -> str:
-    missing = len(s) % 4
-    if missing:
-        s += "=" * (4 - missing)
-    return s
 
 
 def combine_masks(masks: list[str]) -> str:

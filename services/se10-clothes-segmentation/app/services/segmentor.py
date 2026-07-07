@@ -30,6 +30,7 @@ from app.core.constants import (
     DEFAULT_MAX_AREA_PCT_PERSON,
     DEFAULT_MAX_OBJECTS,
 )
+from app.services.segformer_detector import CLOTHING_IDS
 
 logger = get_logger(__name__)
 
@@ -144,13 +145,7 @@ class ClothesSegmentor:
         self._segformer_detector = None
         self._ensemble_detector = None
         self._pose_renderer = None
-        import gc
-        gc.collect()
-        try:
-            import ctypes
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
+        self._cleanup_memory()
         logger.info("All models unloaded")
 
     def unload_gpu_models(self) -> None:
@@ -168,11 +163,7 @@ class ClothesSegmentor:
                 torch.cuda.empty_cache()
         except Exception:
             pass
-        try:
-            import ctypes
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
+        self._cleanup_memory()
         logger.info("GPU models unloaded (SegFormer kept)")
 
     def _check_idle_unload(self) -> None:
@@ -183,6 +174,17 @@ class ClothesSegmentor:
         if elapsed > self._idle_timeout:
             logger.info("Idle for %.0fs (timeout=%ds), unloading models", elapsed, self._idle_timeout)
             self.unload_all()
+
+    @staticmethod
+    def _cleanup_memory() -> None:
+        """Force garbage collection and OS memory reclaim."""
+        import gc
+        gc.collect()
+        try:
+            import ctypes
+            ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     #  Geometry helpers
@@ -328,7 +330,7 @@ class ClothesSegmentor:
         filtered_masks: list[Any] = []
         has_mask_data = area_filtered.mask is not None
 
-        if (detector == "segformer" or (detector == "ensemble" and has_mask_data and len(area_filtered) > 0 and area_filtered.class_id[0] in (4, 5, 6, 7))) and has_mask_data:
+        if (detector == "segformer" or (detector == "ensemble" and has_mask_data and len(area_filtered) > 0 and area_filtered.class_id[0] in CLOTHING_IDS)) and has_mask_data:
             # SegFormer: skip nesting filter — each class is independent
             for i in range(len(area_filtered)):
                 filtered_boxes.append(area_filtered.xyxy[i])
@@ -379,7 +381,7 @@ class ClothesSegmentor:
         for cls_id, conf in zip(final_detections.class_id, final_detections.confidence):
             if detector in ("yolo11", "ensemble") and cls_id == 0:
                 labels.append(f"person {conf:.2f}")
-            elif detector in ("segformer",) or (detector == "ensemble" and cls_id in (4, 5, 6, 7)):
+            elif detector in ("segformer",) or (detector == "ensemble" and cls_id in CLOTHING_IDS):
                 from app.services.segformer_detector import LABELS as SEGLABELS
                 label = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
                 labels.append(f"{label} {conf:.2f}")
@@ -417,7 +419,7 @@ class ClothesSegmentor:
             final_detections.confidence,
             final_detections.xyxy,
         )):
-            if detector == "segformer" or (detector == "ensemble" and cls_id in (4, 5, 6, 7)):
+            if detector == "segformer" or (detector == "ensemble" and cls_id in CLOTHING_IDS):
                 from app.services.segformer_detector import LABELS as SEGLABELS
                 class_name = SEGLABELS[cls_id] if cls_id < len(SEGLABELS) else f"class_{cls_id}"
             elif cls_id < len(classes):
@@ -470,13 +472,7 @@ class ClothesSegmentor:
 
         # Release intermediate tensors and force OS to reclaim memory
         self._last_used = time.time()
-        import gc
-        gc.collect()
-        try:
-            import ctypes
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
+        self._cleanup_memory()
 
         return {
             "detected": True,

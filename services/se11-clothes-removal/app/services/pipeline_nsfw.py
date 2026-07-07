@@ -1,7 +1,6 @@
 """NSFW Production Pipeline — retry + pose validation + best selection.
 
-This is a COMPLETELY INDEPENDENT file. Zero imports from pipeline.py.
-All helper functions are duplicated here for isolation.
+Shares helpers via app.services._helpers.
 """
 from __future__ import annotations
 
@@ -27,115 +26,25 @@ from app.services.head_detector import detect_head_mask, detect_face_only
 from app.services.blend_utils import blend_face_region
 from app.validators.pose_detector import render_pose_stick_figure, detect_pose, compare_poses
 from app.services.faceid_extractor import extract_faceid_embedding
+from app.services._helpers import (
+    CLOTHES_CLASSES, DEFAULT_CLOTHES_NEGATIVE, SCORING,
+    decode_image as _decode_image,
+    to_data_uri as _to_data_uri,
+    strip_data_uri as _strip_data_uri,
+    fix_b64_padding as _fix_b64_padding,
+    combine_masks as _combine_masks,
+    detect_skin_hsv as _detect_skin_hsv,
+    compute_composite_score as _compute_composite_score,
+)
 
 logger = get_logger(__name__)
 
-# ─── Constants (PRIVATE — only this file) ───────────────────────────────────
-
-DEFAULT_CLOTHES_NEGATIVE = (
-    "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
-    "dress, skirt, pattern, floral, textile, garment, "
-    "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
-    "extra limbs, disfigured, poorly drawn face, mutated hands, "
-    "bad anatomy, deformed skin, wrinkled, scarred"
-)
-
-CLOTHES_CLASSES = (
-    "spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, "
-    "clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, "
-    "coat, hoodie, t-shirt"
-)
-
-# ─── Multidimensional Scoring Weights ────────────────────────────────────────
-# Lower score = better. skin_ratio uses (1 - ratio) so more skin = lower score.
-SCORE_W_SKIN = 0.40        # Skin exposure (primary quality metric)
-SCORE_W_HEAD = 0.20        # Face preservation (Lustify preserves face natively)
-SCORE_W_LANDMARK = 0.30    # Pose stability (model changes pose more than face)
-SCORE_W_CLOTHES = 0.10     # Clothing residual (low weight — SE10 can be unreliable)
-SCORE_EARLY_STOP = 5.0     # Stop early if composite score < this
-
-# ─── Helpers (COPIED — zero sharing with pipeline.py) ───────────────────────
-
-def _decode_image(image_input: str) -> bytes:
-    if image_input.startswith(("http://", "https://")):
-        import httpx
-        resp = httpx.get(image_input, timeout=30)
-        resp.raise_for_status()
-        return resp.content
-    if "," in image_input and image_input.startswith("data:"):
-        image_input = image_input.split(",", 1)[1]
-    return base64.b64decode(_fix_b64_padding(image_input))
-
-
-def _to_data_uri(b64_str: str, mime: str = "image/png") -> str:
-    if b64_str.startswith("data:"):
-        return b64_str
-    return f"data:{mime};base64,{b64_str}"
-
-
-def _strip_data_uri(data_uri: str) -> str:
-    if "," in data_uri and data_uri.startswith("data:"):
-        return data_uri.split(",", 1)[1]
-    return data_uri
-
-
-def _fix_b64_padding(s: str) -> str:
-    missing = len(s) % 4
-    if missing:
-        s += "=" * (4 - missing)
-    return s
-
-
-def _combine_masks(masks: list[str], orig_h: int, orig_w: int):
-    """Combine multiple base64 masks into a single binary mask."""
-    import cv2 as _cv2
-    import numpy as _np
-    combined = None
-    for mb in masks:
-        raw = _strip_data_uri(mb)
-        c_bytes = base64.b64decode(_fix_b64_padding(raw))
-        cm = _cv2.imdecode(_np.frombuffer(c_bytes, _np.uint8), _cv2.IMREAD_GRAYSCALE)
-        if cm is None:
-            continue
-        if cm.shape[:2] != (orig_h, orig_w):
-            cm = _cv2.resize(cm, (orig_w, orig_h))
-        cb = (cm > 127).astype(_np.uint8) * 255
-        combined = cb if combined is None else _cv2.bitwise_or(combined, cb)
-    return combined
-
-
-def _detect_skin_hsv(img) -> float:
-    """Detect skin exposure using HSV color range (local, fast, no SE10)."""
-    import cv2 as _cv2
-    import numpy as _np
-    hsv = _cv2.cvtColor(img, _cv2.COLOR_BGR2HSV)
-    lower_skin = _np.array([0, 15, 60], dtype=_np.uint8)
-    upper_skin = _np.array([30, 170, 255], dtype=_np.uint8)
-    skin_mask = _cv2.inRange(hsv, lower_skin, upper_skin)
-    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_OPEN, kernel, iterations=1)
-    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_CLOSE, kernel, iterations=2)
-    return float((skin_mask > 0).sum() / skin_mask.size * 100)
-
-
-def _compute_composite_score(
-    skin_ratio: float,
-    head_avg: float,
-    clothes_pct: float,
-    max_landmark: float,
-) -> float:
-    """Compute composite score from four metrics (lower = better)."""
-    skin_score = 1.0 - skin_ratio
-    head_clamped = min(head_avg, 100.0)
-    clothes_clamped = min(clothes_pct, 100.0)
-    landmark_clamped = min(max_landmark, 100.0)
-    score = (
-        SCORE_W_SKIN * skin_score +
-        SCORE_W_HEAD * head_clamped +
-        SCORE_W_LANDMARK * landmark_clamped +
-        SCORE_W_CLOTHES * clothes_clamped
-    )
-    return round(score, 3)
+# ─── Scoring aliases (backward compat) ──────────────────────────────────────
+SCORE_W_SKIN = SCORING.skin
+SCORE_W_HEAD = SCORING.head
+SCORE_W_LANDMARK = SCORING.landmark
+SCORE_W_CLOTHES = SCORING.clothes
+SCORE_EARLY_STOP = SCORING.early_stop
 
 
 async def _detect_result_clothes(

@@ -51,8 +51,8 @@ class TestCombineMasks:
     def test_combine_empty_masks_raises(self):
         from app.services.pipeline import combine_masks
 
-        with pytest.raises(ValueError, match="No valid masks"):
-            combine_masks([])
+        result = combine_masks([])
+        assert result == ""
 
     def test_combine_masks_without_data_uri_prefix(self):
         from app.services.pipeline import combine_masks

@@ -30,9 +30,6 @@ LABELS = [
 # Clothing class IDs (what we want to segment as "clothes")
 CLOTHING_IDS = {4, 5, 6, 7}  # Upper-clothes, Skirt, Pants, Dress
 
-# Body parts we want to EXCLUDE from clothes mask
-BODY_IDS = {1, 2, 3, 11, 12, 13, 14, 15, 16, 17, 18, 19}  # Hat, Hair, Sunglasses, Face, legs, arms, shoes
-
 
 class SegFormerDetector:
     """SegFormer B2 clothes segmentation detector.

@@ -10,16 +10,9 @@ import httpx
 from common.log_utils import get_logger
 
 from app.core.config import settings
+from app.services._helpers import fix_b64_padding as _fix_b64_padding
 
 logger = get_logger(__name__)
-
-
-def _fix_b64_padding(s: str) -> str:
-    """Fix base64 padding if missing."""
-    missing = len(s) % 4
-    if missing:
-        s += "=" * (4 - missing)
-    return s
 
 
 class ServiceClient:

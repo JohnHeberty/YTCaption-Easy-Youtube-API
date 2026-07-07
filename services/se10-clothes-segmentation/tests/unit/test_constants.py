@@ -9,10 +9,6 @@ from app.core.constants import (
     DEFAULT_MAX_AREA_PCT,
     DEFAULT_MAX_OBJECTS,
     ALLOWED_EXTENSIONS,
-    CHECKPOINT_GROUNDINGDINO,
-    CHECKPOINT_SAM2_TINY,
-    GD_CONFIG_SwinT,
-    SAM2_CONFIG_TINY,
 )
 
 
@@ -39,11 +35,3 @@ class TestConstants:
         assert ".jpeg" in ALLOWED_EXTENSIONS
         assert ".png" in ALLOWED_EXTENSIONS
         assert ".gif" not in ALLOWED_EXTENSIONS
-
-    def test_checkpoint_filenames(self):
-        assert CHECKPOINT_GROUNDINGDINO.endswith(".pth")
-        assert CHECKPOINT_SAM2_TINY.endswith(".pt")
-
-    def test_config_paths(self):
-        assert "GroundingDINO" in GD_CONFIG_SwinT
-        assert "sam2" in SAM2_CONFIG_TINY
