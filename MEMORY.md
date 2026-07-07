@@ -17,7 +17,22 @@
 
 **Arquivos alterados:** `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `segformer_detector.py`, `configs/nsfw_production.yaml` (novo), `configs/nsfw_experimental.yaml` (novo), `requirements.txt`, `Dockerfile`, `docker-compose.yml`, `test_helpers.py`.
 **Resultado:** +271 linhas, 9 arquivos, todos os testes passando (SE11: 58, SE10: 62).
-**Commits:** `489efd84` (fase 4 inicial), `d9bc28b7` (YAML config refactor).
+**Commits:** `489efd84` (fase 4 inicial), `d9bc28b7` (YAML config refactor), `70aa132f` (LoRA duplication fix).
+
+### 🟢 Hardcoded LoRA duplication fix (2026-07-07)
+
+**Problema:** `http_client.py` tinha LoRAs hardcoded (NsfwPov=0.2) como fallback em `inpaint()`, contradizendo o YAML config. `pipeline.py` (rota /jobs) usava esses LoRAs sem saber.
+
+**Solução:**
+- `loras` agora é obrigatório em `inpaint()` — `ValueError` se `None`
+- `LORAS_CLOTHES` adicionado em `_helpers.py` (NsfwPov=0.2, detail=0.8)
+- `pipeline.py` importa e passa `LORAS_CLOTHES` explicitamente
+- Todas as 3 rotas agora especificam LoRAs explicitamente:
+  - `/jobs` → `LORAS_CLOTHES` (leve)
+  - `/jobs/nsfw` → `get_nsfw_config('production').loras` (full NSFW)
+  - `/jobs/nsfw-test` → `get_nsfw_config('experimental').loras` (teste)
+
+**Arquivos:** `http_client.py`, `_helpers.py`, `pipeline.py`. Commit: `70aa132f`.
 
 ### 🟢 SOLID Phase 3 — Interfaces e DIP concluído (2026-07-07)
 
