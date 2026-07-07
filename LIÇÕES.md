@@ -164,7 +164,7 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 | HTTP Client | `services/se11-clothes-removal/app/infrastructure/http_client.py` |
 | Models | `services/se11-clothes-removal/app/core/models.py` |
 | Masks doc | `services/se11-clothes-removal/docs/TOP-MASK-CONFIG.md` |
-| Plano production | `docs/archived/PLAN.md` |
+| Plano production | `services/se11-clothes-removal/docs/archived/PLAN.md` |
 
 ---
 
@@ -254,7 +254,7 @@ Pipeline production: `_run_nsfw_test()` via `mode="nsfw"`
 - Amostrar tom de pele da própria pessoa (HSV mediana da pele exposta) — não usar tom fixo
 - Erode clothes mask 5px antes de preencher + blur 15px na borda → transição natural
 - Pesquisa de papers paga off: entender o mecanismo de como VTON models funcionam (sintetizar não colar, dual-encoder, attention regularization) levou direto à solução
-- `exploration/UPGRADE.md` documenta a pesquisa completa (IDM-VTON, OOTDiffusion, Leffa)
+- `services/se11-clothes-removal/docs/plans/UPGRADE-VTON.md` documenta a pesquisa completa (IDM-VTON, OOTDiffusion, Leffa)
 
 
 ## 15. Pose stick figure como IP-Adapter reference DEGRADA resultado (2026-06-30)
@@ -534,7 +534,7 @@ unchanged pose, skin tone matching arms/face, 8k uhd
 | DWPose detector | `services/se11-clothes-removal/app/validators/pose_detector.py` |
 | Head detector | `services/se11-clothes-removal/app/services/head_detector.py` |
 | Exploration script | `exploration/run_mask_pipeline.py` |
-| Pesquisa VTON | `exploration/UPGRADE.md` |
+| Pesquisa VTON | `services/se11-clothes-removal/docs/plans/UPGRADE-VTON.md` |
 
 ## 27. Real-ESRGAN Upscaler — DESABILITADO por distorção de cores (2026-07-04)
 

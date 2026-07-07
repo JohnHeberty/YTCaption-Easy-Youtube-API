@@ -655,7 +655,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
   - **E2E validated:** job `cr_4c585ccaada4` completed; face_protect_mask = 38.8k px vs head_adjusted = 131.1k px (~29.6%); best score = 11.8
   - Resultados visuais copiados para `/root/YTCaption-Easy-Youtube-API/show/`
 - **Exploration script:** `exploration/run_mask_pipeline.py` — grid REF A vs REF B
-- **Research doc:** `exploration/UPGRADE.md` — como VTON models (IDM-VTON, OOTDiffusion, Leffa) funcionam
+- **Research doc:** `services/se11-clothes-removal/docs/plans/UPGRADE-VTON.md` — como VTON models (IDM-VTON, OOTDiffusion, Leffa) funcionam
 - **SE8 LoRAs:** NsfwPov(0.6) + offset(0.1) + add-detail(0.7) + Inpaint patch v2.6 (582 keys)
 - **Prompt positive/negative:** mantido igual ao v21
 - **Compositing:** SE8 post_process + head paste + Reinhard color transfer
@@ -665,7 +665,7 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 ### Arquivos modificados nesta sessão
 | Arquivo | Mudança |
 |---------|---------|
-| `exploration/UPGRADE.md` | Pesquisa VTON + plano de fases SE10/SE8/SE11 |
+| `services/se11-clothes-removal/docs/plans/UPGRADE-VTON.md` | Pesquisa VTON + plano de fases SE10/SE8/SE11 |
 | `exploration/run_mask_pipeline.py` | Opção A: `build_clothes_neutral_ref()` + grid REF A vs REF B |
 | `services/se11-clothes-removal/app/services/pipeline_nsfw.py` | `_build_clothes_neutral_ref()` + IP-Adapter ref neutral + OpenPose ControlNet prompt + landmark-centered face blend + strength 0.86/0.87/0.90 |
 | `services/se11-clothes-removal/app/services/head_detector.py` | NOVO: `detect_face_landmark_mask()` via MediaPipe Face Mesh |
@@ -732,8 +732,8 @@ Fórmula: `score = 0.5 × head_avg + 0.3 × clothes_pct + 0.2 × max_landmark`
 - GFPGAN/CodeFormer disponíveis mas não integrados
 
 ## Sessão anterior (2026-06-22)
-- **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46)
-- **UPGRADE-2.md ATUALIZADO** — 60+ abordagens testadas (v24-v82)
+- **UPGRADE-1.md Fase 1+2 CONCLUÍDA** — 8+ items implemented and tested (v24-v46) → `services/se11-clothes-removal/docs/archived/UPGRADE-1.md`
+- **UPGRADE-2.md ATUALIZADO** — 60+ abordagens testadas (v24-v82) → `services/se11-clothes-removal/docs/archived/UPGRADE-2.md`
 - **v6**: NSFW clothes-only + hard composite, Face=1.000, BG=0.0, Torso=2.2%, Bot=40%
 - **Melhor rota**: `mode=progressive` (v83) — Face=1.000, Bot=62.9%, BG=0.3
 - **Investigação NSFW (v24-v82)**: 60+ abordagens testadas

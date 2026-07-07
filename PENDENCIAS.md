@@ -171,4 +171,4 @@
 | SegFormer detector | `services/se10-clothes-segmentation/app/services/segformer_detector.py` |
 | Ensemble detector | `services/se10-clothes-segmentation/app/services/ensemble_detector.py` |
 | Lições aprendidas | `LIÇÕES.md` |
-| Pesquisa VTON | `exploration/UPGRADE.md` |
+| Pesquisa VTON | `services/se11-clothes-removal/docs/plans/UPGRADE-VTON.md` |
