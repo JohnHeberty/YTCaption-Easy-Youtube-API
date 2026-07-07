@@ -27,6 +27,7 @@ from app.services._helpers import (
     DEFAULT_CLOTHES_NEGATIVE,
     LORAS_CLOTHES,
     get_clothes_config,
+    get_nsfw_config,
     decode_image as _decode_image,
     to_data_uri as _to_data_uri,
     strip_data_uri as _strip_data_uri,
@@ -43,6 +44,7 @@ BEST_CLOTHING_CLASSES = (
 
 # Load clothes config from YAML (with hardcoded fallback)
 _clothes_cfg = get_clothes_config("production")
+_nsfw_cfg = get_nsfw_config("production")
 
 DEFAULT_CLOTHES_PROMPT = _clothes_cfg.clothes_prompt
 DEFAULT_PERSON_PROMPT = _clothes_cfg.person_prompt
@@ -179,10 +181,10 @@ async def _get_torso_mask(se10: SE10Client, image_bytes: bytes, filename: str, i
         orig_img=np.zeros((person.shape[0], person.shape[1], 3), dtype=np.uint8),
         person_binary=person,
         person_bbox=(0, 0, pw, ph),
-        max_head_pct=0.45,
-        neck_margin_below=0.50,
-        dilate_kernel_size=15,
-        dilate_iterations=2,
+        max_head_pct=_nsfw_cfg.hd_max_head_pct,
+        neck_margin_below=_nsfw_cfg.hd_neck_margin_below,
+        dilate_kernel_size=_nsfw_cfg.hd_dilate_kernel_size,
+        dilate_iterations=_nsfw_cfg.hd_dilate_iterations,
     )
     torso = cv2.bitwise_and(person, cv2.bitwise_not(head))
     coverage = (torso > 0).sum() / torso.size * 100
@@ -226,14 +228,15 @@ def filter_clothing_objects(objects: list[dict], masks: list[str], min_area: flo
 
 # ─── Progressive Mode ────────────────────────────────────────────────────────
 
-PROGRESSIVE_PASSES = [
+# Load progressive passes from YAML config (with hardcoded fallback)
+PROGRESSIVE_PASSES = _nsfw_cfg.progressive_passes_clothes or [
     {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
     {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "segformer", "name": "top", "se_mode": "clothes"},
     {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "segformer", "name": "full", "se_mode": "clothes"},
     {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.50, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
 ]
 
-PROGRESSIVE_PASSES_PERSON = [
+PROGRESSIVE_PASSES_PERSON = _nsfw_cfg.progressive_passes_person or [
     {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.70, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
     {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.65, "detector": "segformer", "name": "top", "se_mode": "clothes"},
     {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "segformer", "name": "full", "se_mode": "clothes"},
@@ -331,7 +334,7 @@ async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore
                 prompt=DEFAULT_PERSON_PROMPT,
                 negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
                 inpaint_strength=pass_config["inpaint_strength"],
-                inpaint_respective_field=0.85,
+                inpaint_respective_field=_nsfw_cfg.inpaint_respective_field,
                 inpaint_erode_or_dilate=-10,
                 loras=LORAS_CLOTHES,
             )
@@ -531,7 +534,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
 
         prompt = job.request.prompt or (DEFAULT_PERSON_PROMPT if mode == "person" else DEFAULT_CLOTHES_PROMPT)
         negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
-        inpaint_respective_field = 0.85
+        inpaint_respective_field = _nsfw_cfg.inpaint_respective_field
 
         raw_final = _strip_data_uri(combined_mask)
         final_arr = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_final)), _np.uint8)

@@ -327,7 +327,7 @@ async def run_nsfw_experimental(
                     from app.services.head_detector import detect_face_only
                     face_mask = detect_face_only(
                         orig_img=orig_img, person_binary=person_binary,
-                        margin_above=0.50, margin_below=0.70, margin_sides=0.40,
+                        margin_above=_nsfw_cfg.fp_margin_above, margin_below=_nsfw_cfg.fp_margin_below, margin_sides=_nsfw_cfg.fp_margin_sides,
                     )
                 protection_mask = _cv2.bitwise_or(hair_mask, face_mask)
                 inpaint_mask = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(protection_mask))
@@ -352,10 +352,10 @@ async def run_nsfw_experimental(
                 orig_img=orig_img,
                 person_binary=person_binary,
                 person_bbox=(px, py, pw, ph),
-                max_head_pct=0.45,
-                neck_margin_below=0.50,
-                dilate_kernel_size=15,
-                dilate_iterations=2,
+                max_head_pct=_nsfw_cfg.hd_max_head_pct,
+                neck_margin_below=_nsfw_cfg.hd_neck_margin_below,
+                dilate_kernel_size=_nsfw_cfg.hd_dilate_kernel_size,
+                dilate_iterations=_nsfw_cfg.hd_dilate_iterations,
             )
             inpaint_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(head_mask))
             dilate_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))

@@ -2,6 +2,24 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 Hardcoded Values Cleanup — P0/P1/P2 (2026-07-07)
+
+**Problema:** ~50 hardcoded values restantes após config coherence cleanup. Principais:
+- `pipeline.py:182` usava `max_head_pct=0.45` mas YAML configurava `0.50` — **conflito!**
+- `pipeline.py:334,534` usava `inpaint_respective_field=0.85` mas YAML configurava `0.618` — **conflito!**
+- `pipeline_nsfw.py:377-379` margins `0.50/0.70/0.40` não estavam no YAML
+- `PROGRESSIVE_PASSES` hardcoded em `pipeline.py` (8 passes com classes, thresholds, strengths)
+
+**Correções:**
+1. **P0 conflitos corrigidos:** `pipeline.py` agora usa `_nsfw_cfg.hd_max_head_pct`, `_nsfw_cfg.hd_neck_margin_below`, `_nsfw_cfg.inpaint_respective_field` do YAML
+2. **Face protection margins → YAML:** Adicionada seção `face_protection` com `margin_above`, `margin_below`, `margin_sides`, `dilation_pct`
+3. **PROGRESSIVE_PASSES → YAML:** Adicionada seção `progressive_passes` com subseções `clothes` e `person` (4 passes cada)
+4. **NSFWConfig expandido:** +6 campos (`fp_margin_above`, `fp_margin_below`, `fp_margin_sides`, `fp_dilation_pct`, `progressive_passes_clothes`, `progressive_passes_person`)
+5. **pipeline_nsfw_experimental.py:** Corrigido `detect_head_mask` e `detect_face_only` para usar YAML config
+
+**Arquivos alterados:** `pipeline.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `_helpers.py`, `nsfw_production.yaml`, `nsfw_experimental.yaml`.
+**Resultado:** 120/120 testes passando (SE11: 58, SE10: 62).
+
 ### 🟢 Config Coherence Cleanup — .env vs YAML separation (2026-07-07)
 
 **Problema:** Mistura de configuração entre `.env` e YAML. Valores mortos em `.env` e `config.py` nunca usados. `MAX_FILE_SIZE_MB` duplicado.

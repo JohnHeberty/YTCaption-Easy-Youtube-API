@@ -374,9 +374,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             face_mask = detect_face_only(
                 orig_img=orig_img,
                 person_binary=person_binary,
-                margin_above=0.50,
-                margin_below=0.70,
-                margin_sides=0.40,
+                margin_above=_nsfw_cfg.fp_margin_above,
+                margin_below=_nsfw_cfg.fp_margin_below,
+                margin_sides=_nsfw_cfg.fp_margin_sides,
             )
 
         # ─── Layer 4: Combined protection = hair OR face ─────────────────
@@ -393,7 +393,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         inpaint_mask = _cv2.bitwise_and(person_binary, _cv2.bitwise_not(protection_mask))
 
         # ─── Layer 6: Dilate + close for smooth SE8 edges ────────────────
-        dilation_px = max(10, int(min(orig_w, orig_h) * 0.02))
+        dilation_px = max(10, int(min(orig_w, orig_h) * _nsfw_cfg.fp_dilation_pct))
         expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
         inpaint_mask = _cv2.dilate(inpaint_mask, expand_kernel, iterations=2)
 

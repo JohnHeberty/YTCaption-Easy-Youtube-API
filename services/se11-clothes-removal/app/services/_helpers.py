@@ -50,6 +50,11 @@ class NSFWConfig:
     hd_dilate_iterations: int = 3
     hd_expand_up: float = 2.5
     hd_expand_w: float = 0.5
+    # face_protection section
+    fp_margin_above: float = 0.50
+    fp_margin_below: float = 0.70
+    fp_margin_sides: float = 0.40
+    fp_dilation_pct: float = 0.02
     # se8_params section
     se8_performance_selection: str = "Quality"
     se8_sharpness: float = 2.0
@@ -68,6 +73,9 @@ class NSFWConfig:
     enhance_performance_selection: str = "Speed"
     enhance_guidance_scale: float = 4.0
     enhance_aspect_ratios_selection: str = "1152*896"
+    # progressive_passes section
+    progressive_passes_clothes: list[dict] = field(default_factory=list)
+    progressive_passes_person: list[dict] = field(default_factory=list)
 
     def se8_advanced_params(self) -> dict:
         """Return SE8 advanced_params dict for http_client.inpaint()."""
@@ -112,11 +120,13 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
     pose = data.get("pose_thresholds", {})
     ip = data.get("ip_adapter", {})
     hd = data.get("head_detection", {})
+    fp = data.get("face_protection", {})
     se8 = data.get("se8_params", {})
     se8r = data.get("se8_retry", {})
     enh = data.get("enhance", {})
     loras_raw = data.get("loras", [])
     loras = [_make_lora(l["model"], l["weight"], l.get("enabled", True)) for l in loras_raw]
+    pp = data.get("progressive_passes", {})
     defaults = _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
 
     return NSFWConfig(
@@ -145,6 +155,10 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         hd_dilate_iterations=hd.get("dilate_iterations", defaults.hd_dilate_iterations),
         hd_expand_up=hd.get("expand_up", defaults.hd_expand_up),
         hd_expand_w=hd.get("expand_w", defaults.hd_expand_w),
+        fp_margin_above=fp.get("margin_above", defaults.fp_margin_above),
+        fp_margin_below=fp.get("margin_below", defaults.fp_margin_below),
+        fp_margin_sides=fp.get("margin_sides", defaults.fp_margin_sides),
+        fp_dilation_pct=fp.get("dilation_pct", defaults.fp_dilation_pct),
         se8_performance_selection=se8.get("performance_selection", defaults.se8_performance_selection),
         se8_sharpness=se8.get("sharpness", defaults.se8_sharpness),
         se8_guidance_scale=se8.get("guidance_scale", defaults.se8_guidance_scale),
@@ -160,6 +174,8 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         enhance_performance_selection=enh.get("performance_selection", defaults.enhance_performance_selection),
         enhance_guidance_scale=enh.get("guidance_scale", defaults.enhance_guidance_scale),
         enhance_aspect_ratios_selection=enh.get("aspect_ratios_selection", defaults.enhance_aspect_ratios_selection),
+        progressive_passes_clothes=pp.get("clothes", defaults.progressive_passes_clothes),
+        progressive_passes_person=pp.get("person", defaults.progressive_passes_person),
     )
 
 
@@ -335,6 +351,10 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         hd_dilate_iterations=3,
         hd_expand_up=2.5,
         hd_expand_w=0.5,
+        fp_margin_above=0.50,
+        fp_margin_below=0.70,
+        fp_margin_sides=0.40,
+        fp_dilation_pct=0.02,
         se8_performance_selection="Quality",
         se8_sharpness=2.0,
         se8_guidance_scale=7.0,
@@ -350,6 +370,18 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         enhance_performance_selection="Speed",
         enhance_guidance_scale=4.0,
         enhance_aspect_ratios_selection="1152*896",
+        progressive_passes_clothes=[
+            {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
+            {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "segformer", "name": "top", "se_mode": "clothes"},
+            {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "segformer", "name": "full", "se_mode": "clothes"},
+            {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.50, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
+        ],
+        progressive_passes_person=[
+            {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.70, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
+            {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.65, "detector": "segformer", "name": "top", "se_mode": "clothes"},
+            {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "segformer", "name": "full", "se_mode": "clothes"},
+            {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.55, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
+        ],
     ),
     "experimental": NSFWConfig(
         prompt=NSFW_PROMPT,
@@ -383,6 +415,10 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         hd_dilate_iterations=3,
         hd_expand_up=2.5,
         hd_expand_w=0.5,
+        fp_margin_above=0.50,
+        fp_margin_below=0.70,
+        fp_margin_sides=0.40,
+        fp_dilation_pct=0.02,
         se8_performance_selection="Quality",
         se8_sharpness=2.0,
         se8_guidance_scale=7.0,
@@ -398,6 +434,18 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         enhance_performance_selection="Speed",
         enhance_guidance_scale=4.0,
         enhance_aspect_ratios_selection="1152*896",
+        progressive_passes_clothes=[
+            {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.65, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
+            {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.60, "detector": "segformer", "name": "top", "se_mode": "clothes"},
+            {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.55, "detector": "segformer", "name": "full", "se_mode": "clothes"},
+            {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.50, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
+        ],
+        progressive_passes_person=[
+            {"classes": "spaghetti strap, camisole", "box_threshold": 0.06, "text_threshold": 0.04, "inpaint_strength": 0.70, "detector": "segformer", "name": "straps", "se_mode": "clothes"},
+            {"classes": "top, blouse, shirt", "box_threshold": 0.08, "text_threshold": 0.05, "inpaint_strength": 0.65, "detector": "segformer", "name": "top", "se_mode": "clothes"},
+            {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "segformer", "name": "full", "se_mode": "clothes"},
+            {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.55, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
+        ],
     ),
 }
 

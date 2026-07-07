@@ -59,6 +59,12 @@ head_detection:
   expand_up: 2.5
   expand_w: 0.5
 
+face_protection:
+  margin_above: 0.50
+  margin_below: 0.70
+  margin_sides: 0.40
+  dilation_pct: 0.02
+
 loras:
   - model: "NsfwPovAllInOneLoraSdxl-000009.safetensors"
     weight: 0.6
@@ -115,3 +121,63 @@ clothes:
     text, watermark, deformed, blurry, cartoon, anime, painting, CGI,
     extra limbs, disfigured, poorly drawn face, mutated hands,
     bad anatomy, deformed skin, wrinkled, scarred
+
+progressive_passes:
+  clothes:
+    - classes: "spaghetti strap, camisole"
+      box_threshold: 0.06
+      text_threshold: 0.04
+      inpaint_strength: 0.65
+      detector: "segformer"
+      name: "straps"
+      se_mode: "clothes"
+    - classes: "top, blouse, shirt"
+      box_threshold: 0.08
+      text_threshold: 0.05
+      inpaint_strength: 0.60
+      detector: "segformer"
+      name: "top"
+      se_mode: "clothes"
+    - classes: "dress, clothing, garment"
+      box_threshold: 0.10
+      text_threshold: 0.07
+      inpaint_strength: 0.55
+      detector: "segformer"
+      name: "full"
+      se_mode: "clothes"
+    - classes: "fabric, textile, outfit"
+      box_threshold: 0.12
+      text_threshold: 0.09
+      inpaint_strength: 0.50
+      detector: "segformer"
+      name: "cleanup"
+      se_mode: "clothes"
+  person:
+    - classes: "spaghetti strap, camisole"
+      box_threshold: 0.06
+      text_threshold: 0.04
+      inpaint_strength: 0.70
+      detector: "segformer"
+      name: "straps"
+      se_mode: "clothes"
+    - classes: "top, blouse, shirt"
+      box_threshold: 0.08
+      text_threshold: 0.05
+      inpaint_strength: 0.65
+      detector: "segformer"
+      name: "top"
+      se_mode: "clothes"
+    - classes: "dress, clothing, garment"
+      box_threshold: 0.10
+      text_threshold: 0.07
+      inpaint_strength: 0.60
+      detector: "segformer"
+      name: "full"
+      se_mode: "clothes"
+    - classes: "fabric, textile, outfit"
+      box_threshold: 0.12
+      text_threshold: 0.09
+      inpaint_strength: 0.55
+      detector: "segformer"
+      name: "cleanup"
+      se_mode: "clothes"
