@@ -50,6 +50,28 @@
 
 **Arquivos:** `routes.py`, `models.py`, `http_client.py`, `_helpers.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `nsfw_production.yaml`, `nsfw_experimental.yaml`. Commit: `6ace3f3b`.
 
+### 🟢 Full config-driven cleanup — P0/P1/P2/P3 (2026-07-07)
+
+**Scan encontrou ~50 hardcoded values restantes. Todos corrigidos:**
+
+**P0 (inconsistentes):**
+- `pose_thresholds`: head/torso/limbs/hands em YAML (era 1.5 vs 3.0 vs 0.3)
+- `ip_adapter`: cn_stop/cn_weight em YAML (era 0.7 vs 0.6)
+- `head_detection`: max_head_pct, neck_margin, dilate em YAML
+
+**P1 (SE8 config):**
+- `se8_params`: performance, sharpness, guidance, sampler, scheduler em YAML
+- `se8_retry`: max_attempts=3, base_wait=5 em YAML
+- `enhance`: performance, guidance, aspect_ratio em YAML
+- `se8_advanced_params()` method no NSFWConfig
+
+**P2 (tuning):**
+- `strength_step=0.03` em YAML (era hardcoded)
+- `inter_attempt_delay` em YAML (10s prod / 3s×attempt exp)
+
+**NSFWConfig:** 35 campos configuráveis em 8 seções YAML.
+**Commits:** `92cc0334`.
+
 ### 🟢 SOLID Phase 3 — Interfaces e DIP concluído (2026-07-07)
 
 **Tarefas executadas:**
