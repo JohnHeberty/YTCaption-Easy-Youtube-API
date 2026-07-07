@@ -311,12 +311,12 @@ async def run_nsfw_experimental(
                     orig_img=orig_img,
                     person_binary=person_binary,
                     person_bbox=(px, py, pw, ph),
-                    max_head_pct=0.50,
-                    neck_margin_below=0.3,
-                    dilate_kernel_size=25,
-                    dilate_iterations=3,
-                    expand_up=2.5,
-                    expand_w=0.5,
+                    max_head_pct=_nsfw_cfg.hd_max_head_pct,
+                    neck_margin_below=_nsfw_cfg.hd_neck_margin_below,
+                    dilate_kernel_size=_nsfw_cfg.hd_dilate_kernel_size,
+                    dilate_iterations=_nsfw_cfg.hd_dilate_iterations,
+                    expand_up=_nsfw_cfg.hd_expand_up,
+                    expand_w=_nsfw_cfg.hd_expand_w,
                 )
                 face_mask = detect_face_oval_mask(
                     orig_img=orig_img,
@@ -475,18 +475,18 @@ async def run_nsfw_experimental(
         logger.info("Job %s: original skin_pct=%.1f%% (HSV baseline)", job.job_id, original_skin_pct)
 
         for attempt in range(1, max_attempts + 1):
-            strength = base_strength + 0.03 * (attempt - 1)
+            strength = base_strength + _nsfw_cfg.strength_step * (attempt - 1)
             logger.info("Job %s: SE8 attempt %d/%d — strength=%.2f field=0.55 FaceID=%s",
                         job.job_id, attempt, max_attempts, strength,
                         "on" if faceid_embedding else "off")
 
             image_prompts = [
-                {"cn_img": ref_b64, "cn_stop": 0.5, "cn_weight": 0.8, "cn_type": "ImagePrompt"},
+                {"cn_img": ref_b64, "cn_stop": _nsfw_cfg.ip_image_prompt_cn_stop, "cn_weight": _nsfw_cfg.ip_image_prompt_cn_weight, "cn_type": "ImagePrompt"},
             ]
             # OpenPose ControlNet — works with any SDXL model via ControlNet Union SDXL
             if openpose_b64:
                 image_prompts.append(
-                    {"cn_img": openpose_b64, "cn_stop": 0.6, "cn_weight": 0.3, "cn_type": "OpenPose"}
+                    {"cn_img": openpose_b64, "cn_stop": _nsfw_cfg.ip_openpose_cn_stop, "cn_weight": _nsfw_cfg.ip_openpose_cn_weight, "cn_type": "OpenPose"}
                 )
 
             t0 = time.time()
@@ -504,6 +504,7 @@ async def run_nsfw_experimental(
                 invert_mask=True,
                 ip_adapter_faceid_embeds=faceid_embedding,
                 ip_adapter_faceid_weight=faceid_weight,
+                se8_params=_nsfw_cfg.se8_advanced_params(),
             )
             elapsed = time.time() - t0
 
@@ -515,7 +516,8 @@ async def run_nsfw_experimental(
                 })
                 if attempt < max_attempts:
                     import asyncio
-                    await asyncio.sleep(3 * attempt)
+                    delay = _nsfw_cfg.inter_attempt_delay * attempt if _nsfw_cfg.inter_attempt_multiplier else _nsfw_cfg.inter_attempt_delay
+                    await asyncio.sleep(delay)
                 continue
 
             inpainted_bytes = base64.b64decode(result["base64"])
@@ -549,10 +551,10 @@ async def run_nsfw_experimental(
                         comparison = compare_poses(
                             orig_pose, result_pose,
                             strict=False,
-                            head_threshold_pct=3.0,
-                            torso_threshold_pct=8.0,
-                            limbs_threshold_pct=30.0,
-                            hands_threshold_pct=30.0,
+                            head_threshold_pct=_nsfw_cfg.head_threshold_pct,
+                            torso_threshold_pct=_nsfw_cfg.torso_threshold_pct,
+                            limbs_threshold_pct=_nsfw_cfg.limbs_threshold_pct,
+                            hands_threshold_pct=_nsfw_cfg.hands_threshold_pct,
                         )
                         pose_changed = comparison.pose_changed
 

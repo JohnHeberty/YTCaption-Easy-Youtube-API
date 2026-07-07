@@ -354,12 +354,12 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             orig_img=orig_img,
             person_binary=person_binary,
             person_bbox=(px, py, pw, ph),
-            max_head_pct=0.50,
-            neck_margin_below=0.3,
-            dilate_kernel_size=25,
-            dilate_iterations=3,
-            expand_up=2.5,
-            expand_w=0.5,
+            max_head_pct=_nsfw_cfg.hd_max_head_pct,
+            neck_margin_below=_nsfw_cfg.hd_neck_margin_below,
+            dilate_kernel_size=_nsfw_cfg.hd_dilate_kernel_size,
+            dilate_iterations=_nsfw_cfg.hd_dilate_iterations,
+            expand_up=_nsfw_cfg.hd_expand_up,
+            expand_w=_nsfw_cfg.hd_expand_w,
         )
 
         # ─── Layer 3: Face protection (MediaPipe Face Mesh oval) ─────────
@@ -614,9 +614,9 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             # Delay between attempts to release GPU memory (prevents CUDA assertion)
             if attempt > 1:
                 import asyncio as _asyncio
-                await _asyncio.sleep(10)
+                await _asyncio.sleep(_nsfw_cfg.inter_attempt_delay)
 
-            strength = base_strength + 0.03 * (attempt - 1)
+            strength = base_strength + _nsfw_cfg.strength_step * (attempt - 1)
             cfg = {"strength": strength, "field": _nsfw_cfg.inpaint_respective_field, "erode": 0, "seed": -1}
 
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f",
@@ -627,19 +627,19 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
             ip_adapter_prompts = [
                 {
                     "cn_img": ip_ref_b64,
-                    "cn_stop": 0.5,
-                    "cn_weight": 0.8,
+                    "cn_stop": _nsfw_cfg.ip_image_prompt_cn_stop,
+                    "cn_weight": _nsfw_cfg.ip_image_prompt_cn_weight,
                     "cn_type": "ImagePrompt",
                 },
-                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
-                {"cn_img": None, "cn_stop": 0.5, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": _nsfw_cfg.ip_image_prompt_cn_stop, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
+                {"cn_img": None, "cn_stop": _nsfw_cfg.ip_image_prompt_cn_stop, "cn_weight": 0.0, "cn_type": "ImagePrompt"},
             ]
             # OpenPose ControlNet — works with any SDXL model via ControlNet Union SDXL
             if pose_cn_b64:
                 ip_adapter_prompts.insert(1, {
                     "cn_img": pose_cn_b64,
-                    "cn_stop": 0.7,
-                    "cn_weight": 0.3,
+                    "cn_stop": _nsfw_cfg.ip_openpose_cn_stop,
+                    "cn_weight": _nsfw_cfg.ip_openpose_cn_weight,
                     "cn_type": "OpenPose",
                 })
                 logger.info("Job %s: OpenPose ControlNet enabled", job.job_id)
@@ -658,6 +658,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                 invert_mask=True,
                 ip_adapter_faceid_embeds=faceid_embedding,
                 ip_adapter_faceid_weight=_nsfw_cfg.ip_adapter_faceid_weight,
+                se8_params=_nsfw_cfg.se8_advanced_params(),
             )
             if not result1 or not result1.get("base64"):
                 logger.warning("Job %s: SE8 empty on attempt %d", job.job_id, attempt)
@@ -740,10 +741,10 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
                     comparison = compare_poses(
                         orig_pose, result_pose,
                         strict=False,
-                        head_threshold_pct=1.5,
-                        torso_threshold_pct=8.0,
-                        limbs_threshold_pct=5.0,
-                        hands_threshold_pct=5.0,
+                        head_threshold_pct=_nsfw_cfg.head_threshold_pct,
+                        torso_threshold_pct=_nsfw_cfg.torso_threshold_pct,
+                        limbs_threshold_pct=_nsfw_cfg.limbs_threshold_pct,
+                        hands_threshold_pct=_nsfw_cfg.hands_threshold_pct,
                     )
                     pose_changed = comparison.pose_changed
                     head_diffs = [d.distance_normalized for d in comparison.diffs if d.group == "HEAD"]

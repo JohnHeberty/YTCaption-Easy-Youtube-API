@@ -154,6 +154,7 @@ class SE8Client(ServiceClient):
         invert_mask: bool = False,
         ip_adapter_faceid_embeds: list[list[float]] | None = None,
         ip_adapter_faceid_weight: float = 0.8,
+        se8_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Send image + mask to SE8 for inpainting.
 
@@ -166,6 +167,7 @@ class SE8Client(ServiceClient):
             inpaint_respective_field: Crop area fraction (0.0-1.0)
             style: Style selection
             loras: LoRA list (required — use LORAS_CLOTHES or get_nsfw_config().loras)
+            se8_params: Optional SE8 generation params override (from NSFWConfig.se8_advanced_params())
 
         Returns dict with keys: base64, url, seed, finish_reason
         """
@@ -183,19 +185,32 @@ class SE8Client(ServiceClient):
         if loras is None:
             raise ValueError("loras parameter is required — pass LORAS_CLOTHES or get_nsfw_config().loras")
 
+        # SE8 generation params — use override or defaults
+        _se8 = se8_params or {}
+        performance_selection = _se8.get("performance_selection", "Quality")
+        sharpness = _se8.get("sharpness", 2.0)
+        guidance_scale = _se8.get("guidance_scale", 7.0)
+        refiner_switch = _se8.get("refiner_switch", 0.5)
+        inpaint_engine = _se8.get("inpaint_engine", "v2.6")
+        overwrite_step = _se8.get("overwrite_step", 50)
+        overwrite_switch = _se8.get("overwrite_switch", 1.0)
+        adaptive_cfg = _se8.get("adaptive_cfg", 7.0)
+        sampler_name = _se8.get("sampler_name", "dpmpp_2m_sde_gpu")
+        scheduler_name = _se8.get("scheduler_name", "karras")
+
         payload: dict[str, Any] = {
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "style_selections": [style] if style else [],
-            "performance_selection": "Quality",
+            "performance_selection": performance_selection,
             "aspect_ratios_selection": aspect_str,
             "image_number": 1,
             "image_seed": -1,
-            "sharpness": 2.0,
-            "guidance_scale": 7.0,
+            "sharpness": sharpness,
+            "guidance_scale": guidance_scale,
             "base_model_name": base_model,
             "refiner_model_name": "",
-            "refiner_switch": 0.5,
+            "refiner_switch": refiner_switch,
             "loras": loras,
             "input_image": image_b64,
             "input_mask": mask_b64,
@@ -203,16 +218,16 @@ class SE8Client(ServiceClient):
             "async_process": False,
             "require_base64": False,
             "advanced_params": {
-                "inpaint_engine": "v2.6",
+                "inpaint_engine": inpaint_engine,
                 "inpaint_strength": inpaint_strength,
                 "inpaint_respective_field": inpaint_respective_field,
                 "inpaint_disable_initial_latent": False,
                 "inpaint_erode_or_dilate": inpaint_erode_or_dilate,
-                "overwrite_step": 50,
-                "overwrite_switch": 1.0,
-                "adaptive_cfg": 7.0,
-                "sampler_name": "dpmpp_2m_sde_gpu",
-                "scheduler_name": "karras",
+                "overwrite_step": overwrite_step,
+                "overwrite_switch": overwrite_switch,
+                "adaptive_cfg": adaptive_cfg,
+                "sampler_name": sampler_name,
+                "scheduler_name": scheduler_name,
             },
         }
 
@@ -243,8 +258,9 @@ class SE8Client(ServiceClient):
                         len(ip_adapter_faceid_embeds), ip_adapter_faceid_weight)
 
         # Retry loop for empty SE8 results (CUDA assertion failures return [])
-        max_attempts = 3
-        for attempt in range(max_attempts):
+        retry_max = _se8.get("retry_max_attempts", 3)
+        retry_wait = _se8.get("retry_base_wait", 5)
+        for attempt in range(retry_max):
             response = await self._request_with_retry(
                 "POST",
                 "/v1/generation/image-inpaint-outpaint",
@@ -258,8 +274,8 @@ class SE8Client(ServiceClient):
             if isinstance(item, dict) and item.get("finish_reason") == "SUCCESS":
                 break
             if isinstance(item, list) and len(item) == 0:
-                wait = 5 * (attempt + 1)  # 5s, 10s, 15s — CUDA needs time to recover
-                logger.warning("SE8 returned empty list (attempt %d/%d), waiting %ds before retry...", attempt + 1, max_attempts, wait)
+                wait = retry_wait * (attempt + 1)
+                logger.warning("SE8 returned empty list (attempt %d/%d), waiting %ds before retry...", attempt + 1, retry_max, wait)
                 import asyncio
                 await asyncio.sleep(wait)
                 continue
@@ -388,18 +404,20 @@ class SE8Client(ServiceClient):
         self,
         image_b64: str,
         strength: str = "Vary (Subtle)",
+        enhance_params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Enhance/vary image via SE8."""
+        _enh = enhance_params or {}
         payload: dict[str, Any] = {
             "prompt": "natural skin, photorealistic, high quality",
             "negative_prompt": "deformed, blurry, bad anatomy, text, watermark",
             "style_selections": [],
-            "performance_selection": "Speed",
-            "aspect_ratios_selection": "1152*896",
+            "performance_selection": _enh.get("performance_selection", "Speed"),
+            "aspect_ratios_selection": _enh.get("aspect_ratios_selection", "1152*896"),
             "image_number": 1,
             "image_seed": -1,
             "sharpness": 2.0,
-            "guidance_scale": 4.0,
+            "guidance_scale": _enh.get("guidance_scale", 4.0),
             "base_model_name": "lustifySDXLNSFW_v20-inpainting.safetensors",
             "loras": [
                 {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},

@@ -20,14 +20,69 @@ _CONFIGS_DIR = Path(__file__).resolve().parent.parent.parent / "configs"
 @dataclass(frozen=True)
 class NSFWConfig:
     """Immutable NSFW pipeline configuration loaded from YAML."""
+    # nsfw section
     prompt: str
     negative: str
     loras: list[dict]
+    # inpaint section
     max_attempts: int = 5
     base_strength: float = 0.86
+    strength_step: float = 0.03
+    inter_attempt_delay: int = 10
+    inter_attempt_multiplier: bool = False
     inpaint_respective_field: float = 0.618
     ip_adapter_faceid_weight: float = 0.8
     base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors"
+    # pose_thresholds section
+    head_threshold_pct: float = 1.5
+    torso_threshold_pct: float = 8.0
+    limbs_threshold_pct: float = 5.0
+    hands_threshold_pct: float = 5.0
+    # ip_adapter section
+    ip_image_prompt_cn_stop: float = 0.5
+    ip_image_prompt_cn_weight: float = 0.8
+    ip_openpose_cn_stop: float = 0.7
+    ip_openpose_cn_weight: float = 0.3
+    # head_detection section
+    hd_max_head_pct: float = 0.50
+    hd_neck_margin_below: float = 0.3
+    hd_dilate_kernel_size: int = 25
+    hd_dilate_iterations: int = 3
+    hd_expand_up: float = 2.5
+    hd_expand_w: float = 0.5
+    # se8_params section
+    se8_performance_selection: str = "Quality"
+    se8_sharpness: float = 2.0
+    se8_guidance_scale: float = 7.0
+    se8_inpaint_engine: str = "v2.6"
+    se8_overwrite_step: int = 50
+    se8_overwrite_switch: float = 1.0
+    se8_adaptive_cfg: float = 7.0
+    se8_sampler_name: str = "dpmpp_2m_sde_gpu"
+    se8_scheduler_name: str = "karras"
+    se8_refiner_switch: float = 0.5
+    # se8_retry section
+    se8_retry_max_attempts: int = 3
+    se8_retry_base_wait: int = 5
+    # enhance section
+    enhance_performance_selection: str = "Speed"
+    enhance_guidance_scale: float = 4.0
+    enhance_aspect_ratios_selection: str = "1152*896"
+
+    def se8_advanced_params(self) -> dict:
+        """Return SE8 advanced_params dict for http_client.inpaint()."""
+        return {
+            "inpaint_engine": self.se8_inpaint_engine,
+            "inpaint_strength": 0.0,  # overridden by caller
+            "inpaint_respective_field": 0.0,  # overridden by caller
+            "inpaint_disable_initial_latent": False,
+            "inpaint_erode_or_dilate": 0,  # overridden by caller
+            "overwrite_step": self.se8_overwrite_step,
+            "overwrite_switch": self.se8_overwrite_switch,
+            "adaptive_cfg": self.se8_adaptive_cfg,
+            "sampler_name": self.se8_sampler_name,
+            "scheduler_name": self.se8_scheduler_name,
+        }
 
 
 def _load_nsfw_config(profile: str) -> NSFWConfig:
@@ -54,6 +109,12 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
 
     nsfw = data.get("nsfw", {})
     inpaint = data.get("inpaint", {})
+    pose = data.get("pose_thresholds", {})
+    ip = data.get("ip_adapter", {})
+    hd = data.get("head_detection", {})
+    se8 = data.get("se8_params", {})
+    se8r = data.get("se8_retry", {})
+    enh = data.get("enhance", {})
     loras_raw = data.get("loras", [])
     loras = [_make_lora(l["model"], l["weight"], l.get("enabled", True)) for l in loras_raw]
     defaults = _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
@@ -64,9 +125,41 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         loras=loras or defaults.loras,
         max_attempts=inpaint.get("max_attempts", defaults.max_attempts),
         base_strength=inpaint.get("base_strength", defaults.base_strength),
+        strength_step=inpaint.get("strength_step", defaults.strength_step),
+        inter_attempt_delay=inpaint.get("inter_attempt_delay", defaults.inter_attempt_delay),
+        inter_attempt_multiplier=inpaint.get("inter_attempt_multiplier", defaults.inter_attempt_multiplier),
         inpaint_respective_field=inpaint.get("inpaint_respective_field", defaults.inpaint_respective_field),
         ip_adapter_faceid_weight=inpaint.get("ip_adapter_faceid_weight", defaults.ip_adapter_faceid_weight),
         base_model=inpaint.get("base_model", defaults.base_model),
+        head_threshold_pct=pose.get("head_threshold_pct", defaults.head_threshold_pct),
+        torso_threshold_pct=pose.get("torso_threshold_pct", defaults.torso_threshold_pct),
+        limbs_threshold_pct=pose.get("limbs_threshold_pct", defaults.limbs_threshold_pct),
+        hands_threshold_pct=pose.get("hands_threshold_pct", defaults.hands_threshold_pct),
+        ip_image_prompt_cn_stop=ip.get("image_prompt_cn_stop", defaults.ip_image_prompt_cn_stop),
+        ip_image_prompt_cn_weight=ip.get("image_prompt_cn_weight", defaults.ip_image_prompt_cn_weight),
+        ip_openpose_cn_stop=ip.get("openpose_cn_stop", defaults.ip_openpose_cn_stop),
+        ip_openpose_cn_weight=ip.get("openpose_cn_weight", defaults.ip_openpose_cn_weight),
+        hd_max_head_pct=hd.get("max_head_pct", defaults.hd_max_head_pct),
+        hd_neck_margin_below=hd.get("neck_margin_below", defaults.hd_neck_margin_below),
+        hd_dilate_kernel_size=hd.get("dilate_kernel_size", defaults.hd_dilate_kernel_size),
+        hd_dilate_iterations=hd.get("dilate_iterations", defaults.hd_dilate_iterations),
+        hd_expand_up=hd.get("expand_up", defaults.hd_expand_up),
+        hd_expand_w=hd.get("expand_w", defaults.hd_expand_w),
+        se8_performance_selection=se8.get("performance_selection", defaults.se8_performance_selection),
+        se8_sharpness=se8.get("sharpness", defaults.se8_sharpness),
+        se8_guidance_scale=se8.get("guidance_scale", defaults.se8_guidance_scale),
+        se8_inpaint_engine=se8.get("inpaint_engine", defaults.se8_inpaint_engine),
+        se8_overwrite_step=se8.get("overwrite_step", defaults.se8_overwrite_step),
+        se8_overwrite_switch=se8.get("overwrite_switch", defaults.se8_overwrite_switch),
+        se8_adaptive_cfg=se8.get("adaptive_cfg", defaults.se8_adaptive_cfg),
+        se8_sampler_name=se8.get("sampler_name", defaults.se8_sampler_name),
+        se8_scheduler_name=se8.get("scheduler_name", defaults.se8_scheduler_name),
+        se8_refiner_switch=se8.get("refiner_switch", defaults.se8_refiner_switch),
+        se8_retry_max_attempts=se8r.get("max_attempts", defaults.se8_retry_max_attempts),
+        se8_retry_base_wait=se8r.get("base_wait", defaults.se8_retry_base_wait),
+        enhance_performance_selection=enh.get("performance_selection", defaults.enhance_performance_selection),
+        enhance_guidance_scale=enh.get("guidance_scale", defaults.enhance_guidance_scale),
+        enhance_aspect_ratios_selection=enh.get("aspect_ratios_selection", defaults.enhance_aspect_ratios_selection),
     )
 
 
@@ -141,9 +234,41 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         ],
         max_attempts=5,
         base_strength=0.86,
+        strength_step=0.03,
+        inter_attempt_delay=10,
+        inter_attempt_multiplier=False,
         inpaint_respective_field=0.618,
         ip_adapter_faceid_weight=0.8,
         base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+        head_threshold_pct=1.5,
+        torso_threshold_pct=8.0,
+        limbs_threshold_pct=5.0,
+        hands_threshold_pct=5.0,
+        ip_image_prompt_cn_stop=0.5,
+        ip_image_prompt_cn_weight=0.8,
+        ip_openpose_cn_stop=0.7,
+        ip_openpose_cn_weight=0.3,
+        hd_max_head_pct=0.50,
+        hd_neck_margin_below=0.3,
+        hd_dilate_kernel_size=25,
+        hd_dilate_iterations=3,
+        hd_expand_up=2.5,
+        hd_expand_w=0.5,
+        se8_performance_selection="Quality",
+        se8_sharpness=2.0,
+        se8_guidance_scale=7.0,
+        se8_inpaint_engine="v2.6",
+        se8_overwrite_step=50,
+        se8_overwrite_switch=1.0,
+        se8_adaptive_cfg=7.0,
+        se8_sampler_name="dpmpp_2m_sde_gpu",
+        se8_scheduler_name="karras",
+        se8_refiner_switch=0.5,
+        se8_retry_max_attempts=3,
+        se8_retry_base_wait=5,
+        enhance_performance_selection="Speed",
+        enhance_guidance_scale=4.0,
+        enhance_aspect_ratios_selection="1152*896",
     ),
     "experimental": NSFWConfig(
         prompt=NSFW_PROMPT,
@@ -157,9 +282,41 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         ],
         max_attempts=5,
         base_strength=0.86,
+        strength_step=0.03,
+        inter_attempt_delay=3,
+        inter_attempt_multiplier=True,
         inpaint_respective_field=0.55,
         ip_adapter_faceid_weight=0.8,
         base_model="lustifySDXLNSFW_v20-inpainting.safetensors",
+        head_threshold_pct=3.0,
+        torso_threshold_pct=8.0,
+        limbs_threshold_pct=30.0,
+        hands_threshold_pct=30.0,
+        ip_image_prompt_cn_stop=0.5,
+        ip_image_prompt_cn_weight=0.8,
+        ip_openpose_cn_stop=0.6,
+        ip_openpose_cn_weight=0.3,
+        hd_max_head_pct=0.50,
+        hd_neck_margin_below=0.3,
+        hd_dilate_kernel_size=25,
+        hd_dilate_iterations=3,
+        hd_expand_up=2.5,
+        hd_expand_w=0.5,
+        se8_performance_selection="Quality",
+        se8_sharpness=2.0,
+        se8_guidance_scale=7.0,
+        se8_inpaint_engine="v2.6",
+        se8_overwrite_step=50,
+        se8_overwrite_switch=1.0,
+        se8_adaptive_cfg=7.0,
+        se8_sampler_name="dpmpp_2m_sde_gpu",
+        se8_scheduler_name="karras",
+        se8_refiner_switch=0.5,
+        se8_retry_max_attempts=3,
+        se8_retry_base_wait=5,
+        enhance_performance_selection="Speed",
+        enhance_guidance_scale=4.0,
+        enhance_aspect_ratios_selection="1152*896",
     ),
 }
 

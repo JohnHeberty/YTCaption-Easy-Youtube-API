@@ -1,6 +1,6 @@
 # NSFW Experimental Pipeline Configuration
 # Used by /jobs/nsfw-test route — testing ground for new LoRA combos and prompts.
-# Differences from production: lower NsfwPov weight, higher detail weight.
+# Differences from production: lower NsfwPov weight, higher detail weight, looser thresholds.
 
 nsfw:
   prompt: >
@@ -34,9 +34,32 @@ nsfw:
 inpaint:
   max_attempts: 5
   base_strength: 0.86
+  strength_step: 0.03
+  inter_attempt_delay: 3
+  inter_attempt_multiplier: true
   inpaint_respective_field: 0.55
   ip_adapter_faceid_weight: 0.8
   base_model: "lustifySDXLNSFW_v20-inpainting.safetensors"
+
+pose_thresholds:
+  head_threshold_pct: 3.0
+  torso_threshold_pct: 8.0
+  limbs_threshold_pct: 30.0
+  hands_threshold_pct: 30.0
+
+ip_adapter:
+  image_prompt_cn_stop: 0.5
+  image_prompt_cn_weight: 0.8
+  openpose_cn_stop: 0.6
+  openpose_cn_weight: 0.3
+
+head_detection:
+  max_head_pct: 0.50
+  neck_margin_below: 0.3
+  dilate_kernel_size: 25
+  dilate_iterations: 3
+  expand_up: 2.5
+  expand_w: 0.5
 
 loras:
   - model: "NsfwPovAllInOneLoraSdxl-000009.safetensors"
@@ -54,3 +77,24 @@ loras:
   - model: "None"
     weight: 1.0
     enabled: true
+
+se8_params:
+  performance_selection: "Quality"
+  sharpness: 2.0
+  guidance_scale: 7.0
+  inpaint_engine: "v2.6"
+  overwrite_step: 50
+  overwrite_switch: 1.0
+  adaptive_cfg: 7.0
+  sampler_name: "dpmpp_2m_sde_gpu"
+  scheduler_name: "karras"
+  refiner_switch: 0.5
+
+se8_retry:
+  max_attempts: 3
+  base_wait: 5
+
+enhance:
+  performance_selection: "Speed"
+  guidance_scale: 4.0
+  aspect_ratios_selection: "1152*896"
