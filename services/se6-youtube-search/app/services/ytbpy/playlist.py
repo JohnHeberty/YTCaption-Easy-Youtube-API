@@ -329,19 +329,8 @@ def _extract_playlist_videos(
             length_text = video_renderer.get("lengthText", {}).get("simpleText", "")
             if length_text:
                 video_info["duration"] = length_text
-                time_parts = length_text.split(":")
-                duration_seconds = 0
-                if len(time_parts) == 3:
-                    duration_seconds = (
-                        int(time_parts[0]) * 3600
-                        + int(time_parts[1]) * 60
-                        + int(time_parts[2])
-                    )
-                elif len(time_parts) == 2:
-                    duration_seconds = int(time_parts[0]) * 60 + int(time_parts[1])
-                elif len(time_parts) == 1:
-                    duration_seconds = int(time_parts[0])
-                video_info["duration_seconds"] = duration_seconds
+                from .utils import parse_duration_to_seconds
+                video_info["duration_seconds"] = parse_duration_to_seconds(length_text) or 0
 
             video_meta_text: list[str] = []
 
@@ -516,19 +505,8 @@ def _fetch_continuation_page(
             length_text = video_renderer.get("lengthText", {}).get("simpleText", "")
             if length_text:
                 video_info["duration"] = length_text
-                time_parts = length_text.split(":")
-                duration_seconds = 0
-                if len(time_parts) == 3:
-                    duration_seconds = (
-                        int(time_parts[0]) * 3600
-                        + int(time_parts[1]) * 60
-                        + int(time_parts[2])
-                    )
-                elif len(time_parts) == 2:
-                    duration_seconds = int(time_parts[0]) * 60 + int(time_parts[1])
-                elif len(time_parts) == 1:
-                    duration_seconds = int(time_parts[0])
-                video_info["duration_seconds"] = duration_seconds
+                from .utils import parse_duration_to_seconds
+                video_info["duration_seconds"] = parse_duration_to_seconds(length_text) or 0
 
             video_meta_text: list[str] = []
 

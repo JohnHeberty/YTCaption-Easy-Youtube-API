@@ -91,18 +91,10 @@ def _parse_duration(duration_text: str | None) -> int:
         return 60
     
     try:
-        time_parts = duration_text.split(":")
-        
-        if len(time_parts) == 3:
-            return int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-        elif len(time_parts) == 2:
-            return int(time_parts[0]) * 60 + int(time_parts[1])
-        elif len(time_parts) == 1:
-            return int(time_parts[0])
+        from .utils import parse_duration_to_seconds
+        return parse_duration_to_seconds(duration_text) or 0
     except (ValueError, IndexError):
         return 0
-    
-    return 0
 
 def _parse_time_ago(time_text: str | None) -> str | None:
     """Parse relative time (e.g. "3 weeks ago") into an approximate date"""

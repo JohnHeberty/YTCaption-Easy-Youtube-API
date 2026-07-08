@@ -55,20 +55,11 @@ def _extract_channel_info(video_renderer: dict[str, Any], video_info: dict[str, 
 
 def _extract_video_duration(video_renderer: dict[str, Any], video_info: dict[str, Any]) -> dict[str, Any]:
     """Extract and process video duration information"""
+    from .utils import parse_duration_to_seconds
     duration_text = video_renderer.get("lengthText", {}).get("simpleText", "")
     if duration_text:
         video_info["duration"] = duration_text
-        time_parts = duration_text.split(":")
-        duration_seconds = 0
-        if len(time_parts) == 3:
-            duration_seconds = (
-                int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + int(time_parts[2])
-            )
-        elif len(time_parts) == 2:
-            duration_seconds = int(time_parts[0]) * 60 + int(time_parts[1])
-        elif len(time_parts) == 1:
-            duration_seconds = int(time_parts[0])
-        video_info["duration_seconds"] = duration_seconds
+        video_info["duration_seconds"] = parse_duration_to_seconds(duration_text) or 0
     return video_info
 
 
