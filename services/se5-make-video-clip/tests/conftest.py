@@ -227,6 +227,30 @@ def sample_video_no_subs(tmp_path_factory):
 
 
 @pytest.fixture(scope="session")
+def video_with_subtitles(tmp_path_factory):
+    """Vídeo com legendas hardcoded via subtitles filter (5s, texto visível)."""
+    tmp_dir = tmp_path_factory.mktemp("media")
+    video_path = tmp_dir / "video_with_subs.mp4"
+    srt_path = tmp_dir / "subs.srt"
+
+    # Create SRT subtitle file
+    srt_path.write_text(
+        "1\n00:00:00,000 --> 00:00:05,000\nTest Subtitle\n\n",
+        encoding="utf-8",
+    )
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", "color=c=red:s=1280x720:d=5:r=30",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=5",
+        "-vf", f"subtitles={srt_path}",
+        "-c:v", "libx264", "-c:a", "aac", "-shortest", str(video_path),
+    ]
+    subprocess.run(cmd, capture_output=True, check=True)
+    return video_path
+
+
+@pytest.fixture(scope="session")
 def silent_audio(tmp_path_factory):
     """Áudio silencioso (3s)."""
     path = tmp_path_factory.mktemp("media") / "silent.ogg"

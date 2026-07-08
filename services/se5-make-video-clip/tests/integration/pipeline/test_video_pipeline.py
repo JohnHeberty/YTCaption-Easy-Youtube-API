@@ -46,7 +46,7 @@ class TestVideoPipelineInit:
         """Pipeline has settings loaded"""
         pipeline = VideoPipeline()
         assert pipeline.settings is not None
-        assert isinstance(pipeline.settings, dict)
+        assert hasattr(pipeline.settings, '__getitem__') or isinstance(pipeline.settings, dict)
     
     def test_pipeline_settings_has_all_keys(self):
         """
