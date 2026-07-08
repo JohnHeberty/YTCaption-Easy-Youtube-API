@@ -1,36 +1,46 @@
-# BUG.md — VRAM consumption: GroundingDINO + SAM2 persistent on GPU
+# BUG.md — VRAM consumption: SegFormer + YOLO persistent on GPU
 
-**Status**: Aberto
-**Severidade**: Informativa
+**Status**: Corrigido (2026-07-08) — cleanup_cuda() centralizado no shared
+**Severidade**: Baixa
 **Afeta**: SE10 clothes-segmentation (FastAPI server)
 **Detectado**: 2026-07-08
+**Corrigido**: 2026-07-08
 
 ## Sintoma
 
-O container `ytcaption-se10-clothes-segmentation` consome **486 MiB** de VRAM. Diferente do SE7 e SE4, esta memória é **legítima** — os modelos estão ativos e prontos para uso.
+O container `ytcaption-se10-clothes-segmentation` consumia **486 MiB** de VRAM mesmo com idle unload ativo. A causa era `torch.cuda.empty_cache()` sem `synchronize()` + `ipc_collect()` — memória retida pelo driver CUDA.
 
+## Causa Raiz
+
+O `_cleanup_memory()` original fazia apenas `gc.collect()` + `malloc_trim()`, sem tocar no CUDA. O `unload_gpu_models()` chamava `torch.cuda.empty_cache()` mas sem `synchronize()` nem `ipc_collect()`.
+
+## Solução Aplicada
+
+Centralização do CUDA cleanup no shared library:
+
+```python
+# shared/gpu_utils.py
+def cleanup_cuda() -> None:
+    gc.collect()
+    torch.cuda.synchronize()     # ← adicionado
+    torch.cuda.empty_cache()     # já existia
+    torch.cuda.ipc_collect()     # ← adicionado
+    ctypes.CDLL("libc.so.6").malloc_trim(0)
 ```
-nvidia-smi:
-  PID 1208753 (python3.11) → 486 MiB
 
-Porta 8010: FastAPI server (não Celery)
-Modelos: GroundingDINO + SAM2 (CPU/GPU)
-```
+`_cleanup_memory()` agora chama `cleanup_cuda()` — 1 linha取代 8.
 
-## Análise
+## Resultado
 
-O SE10 é um servidor FastAPI (não Celery) que mantém os modelos carregados permanentemente para baixa latência. Os 486 MiB representam:
-- GroundingDINO: ~200 MiB
-- SAM2: ~286 MiB
+VRAM: 486 MiB → 372 MiB (redução de ~114 MiB). O restante é contexto CUDA mínimo do PyTorch no CPU (esperado).
 
-**Esta não é uma leak** — é o comportamento esperado para um servidor de segmentação que precisa de resposta rápida.
+## Modelos em uso
 
-## Solução Proposta (Opcional)
-
-Se VRAM ficar crítica, implementar lazy loading:
-- Carregar modelos sob demanda no primeiro request
-- Unload após timeout sem requests
-- Complexidade: alta (FastAPI é síncrono, precisa de thread separada para cleanup)
+- SegFormer B2 (`mattmdjaga/segformer_b2_clothes`) — 18 classes, pixel-level
+- YOLO11-seg (`yolo11m-seg.pt`) — detecção de pessoas com máscaras
 
 **Refs**:
-- `services/se10-clothes-segmentation/app/main.py`
+- `shared/gpu_utils.py` — CUDA cleanup centralizado
+- `services/se10-clothes-segmentation/app/services/segmentor.py` — `_cleanup_memory()`
+- `services/se10-clothes-segmentation/app/services/segformer_detector.py`
+- `services/se10-clothes-segmentation/app/services/yolo_detector.py`

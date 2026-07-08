@@ -160,14 +160,6 @@ class ClothesSegmentor:
         self._yolo_detector = None
         self._ensemble_detector = None
         self._pose_renderer = None
-        import gc
-        gc.collect()
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
         self._cleanup_memory()
         logger.info("GPU models unloaded (SegFormer kept)")
 
@@ -182,14 +174,9 @@ class ClothesSegmentor:
 
     @staticmethod
     def _cleanup_memory() -> None:
-        """Force garbage collection and OS memory reclaim."""
-        import gc
-        gc.collect()
-        try:
-            import ctypes
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
+        """Force garbage collection, CUDA cleanup, and OS memory reclaim."""
+        from common.gpu_utils import cleanup_cuda
+        cleanup_cuda()
 
     # ------------------------------------------------------------------ #
     #  Geometry helpers

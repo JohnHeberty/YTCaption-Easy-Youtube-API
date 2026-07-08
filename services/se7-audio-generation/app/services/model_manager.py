@@ -123,11 +123,8 @@ class ChatterboxModelManager(IModelManager):
         if self._model is not None:
             del self._model
             self._model = None
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
-                torch.cuda.ipc_collect()
+            from common.gpu_utils import cleanup_cuda
+            cleanup_cuda()
             self._loaded_at = None
             self._last_used = None
             logger.info("Chatterbox model unloaded")

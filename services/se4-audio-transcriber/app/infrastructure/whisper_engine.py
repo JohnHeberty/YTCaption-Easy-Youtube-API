@@ -13,7 +13,6 @@ import os
 import time
 from pathlib import Path
 from typing import Any
-import gc
 
 from faster_whisper import WhisperModel
 
@@ -162,20 +161,10 @@ class WhisperEngine(TranscriptionEngine):
             # Remove referência ao modelo
             del self._model
             self._model = None
-            
-            # Força garbage collection
-            gc.collect()
-            
-            # Limpa cache CUDA se estava na GPU (DIP: delega validação ao manager)
-            if device == "cuda":
-                try:
-                    import torch as _torch
-                    if _torch.cuda.is_available():
-                        _torch.cuda.empty_cache()
-                        _torch.cuda.synchronize()
-                except Exception:
-                    pass
-                logger.info("Cache CUDA limpo")
+
+            # CUDA cleanup via shared utility
+            from common.gpu_utils import cleanup_cuda
+            cleanup_cuda()
             
             self._loaded_at = None
             self._last_used_at = None
@@ -321,11 +310,8 @@ class WhisperEngine(TranscriptionEngine):
         try:
             if self._model is not None:
                 self._model = None
-                gc.collect()
-                if self.device == "cuda":
-                    import torch as _torch
-                    if _torch.cuda.is_available():
-                        _torch.cuda.empty_cache()
+                from common.gpu_utils import cleanup_cuda
+                cleanup_cuda()
         except Exception:
             pass  # Ignora erros no destructor
 
