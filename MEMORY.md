@@ -2,6 +2,27 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SE11 _helpers.py Split — SOLID Refactoring (2026-07-07)
+
+**Objetivo:** Decompor `_helpers.py` (1,045 linhas — config + image + scoring + detection + upscale) em módulos focados.
+
+**Resultado:**
+- **Original:** 1 arquivo, 1,045 linhas
+- **Novo:** 6 arquivos, 877 linhas total, `_helpers.py` reduzido para 87L (re-export)
+
+**Módulos extraídos:**
+| Módulo | Linhas | Responsabilidade |
+|--------|--------|-----------------|
+| `config_loader.py` | 511 | NSFWConfig, ClothesConfig, ScoringWeights, YAML loading |
+| `image_utils.py` | 60 | Base64, decode, encode, mask helpers |
+| `scoring.py` | 54 | Composite scoring, skin detection |
+| `detection_fallbacks.py` | 194 | Person detection with 3 fallback strategies |
+| `se8_postprocess.py` | 58 | SE8 upscale and face restore |
+
+**Backward compatible:** `_helpers.py` re-exports todo o public API.
+**Commit:** `eb6797b2`
+**Testes:** 58/58 passando.
+
 ### 🟢 SE5 celery_tasks.py Decomposition — SOLID Refactoring (2026-07-07)
 
 **Objetivo:** Decompor o maior God Module do monorepo (`celery_tasks.py` — 2,078 linhas) em módulos focados.

@@ -237,8 +237,9 @@
 - [x] Auditoria completa SE6, SE7, SE8, SE9, SE10, SE11
 - [ ] Auditoria detalhada SE1, SE2, SE3, SE4, SE5
 - [x] SE5 `celery_tasks.py` refactoring (commit `1e027113` — 2,078L → 13 módulos)
-- [ ] SE11 `_helpers.py` + pipelines refactoring
-- [ ] SE8 `worker.py` refactoring
-- [ ] SE6 `ytbpy/` refactoring
-- [ ] SE9 DIP refactoring
-- [ ] SE10 `segmentor.py` refactoring
+- [x] SE11 `_helpers.py` refactoring (commit `eb6797b2` — 1,045L → 6 módulos)
+- [ ] SE11 pipelines Template Method (24h — run_nsfw 618L + run_nsfw_experimental 638L compartilham ~70% código)
+- [ ] SE8 `worker.py` refactoring (16h — 1,472L God Module, extrair 5 módulos)
+- [ ] SE6 `ytbpy/` refactoring (12h — 3 God Modules, eliminar duplicação)
+- [ ] SE9 DIP refactoring (5h — interfaces + DI container)
+- [ ] SE10 `segmentor.py` refactoring (6h — extrair detector/annotator/filter)
