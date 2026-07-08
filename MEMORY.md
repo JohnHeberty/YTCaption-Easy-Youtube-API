@@ -72,6 +72,32 @@
 
 **Commits:** `18b4265d`
 
+### 🟢 SE5 God Function Decomposition — 398 passed, 0 regressions (2026-07-08)
+
+**Objetivo:** Decompor `_process_make_video_async()` (722 linhas) em funções de estágio focadas.
+
+**Extraído de `tasks/make_video.py`:**
+| Função | Responsabilidade |
+|--------|-----------------|
+| `_analyze_audio()` | Encontrar áudio, validar duração, computar target |
+| `_fetch_approved_shorts()` | Descobrir vídeos aprovados em disco |
+| `_load_approved_videos()` | Carregar metadata de cada vídeo |
+| `_select_shorts_randomly()` | Embaralhar + acumular até target_duration |
+| `_assemble_video()` | Concatenar vídeos + validar duração |
+| `_transcribe_with_retry()` | Retry com exponential backoff (5 tentativas) |
+| `_update_retry_status()` | Helper para metadata de retry |
+| `_convert_segments_to_cues()` | Converter segments para word-level cues |
+| `_apply_vad_filtering()` | VAD speech gating |
+| `_generate_srt()` | Gerar arquivo SRT |
+| `_compose_final_video()` | Adicionar áudio + queimar legendas |
+| `_validate_av_sync()` | Verificar sincronização A/V (non-critical) |
+| `_validate_and_trim()` | Trim + validação final de duração |
+| `_build_result()` | Construir JobResult |
+
+**Resultado:** Main orchestrator reduzido de 722 para ~80 linhas. 398 testes passando.
+
+**Commit:** `26a80cfb`
+
 ### 🟢 Test Fixes — SE5 + SE6 Broken Tests (2026-07-08)
 
 **Objetivo:** Corrigir todos os testes quebrados nos serviços SE5, SE6, SE8.
