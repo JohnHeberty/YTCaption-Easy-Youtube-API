@@ -84,6 +84,9 @@ def mock_redis():
 @pytest.fixture
 def mock_job_store(mock_redis):
     """Mock do job store implementando IJobStore completo (IJobRepository + IJobQuery)."""
+    from datetime import datetime, timedelta, timezone
+
+    _jobs = {}
 
     async def find_orphaned_jobs(max_age_minutes=30):
         return []
@@ -91,12 +94,29 @@ def mock_job_store(mock_redis):
     async def get_queue_info():
         return {"queued": 0, "processing": 0}
 
+    def get_job(job_id):
+        return _jobs.get(job_id)
+
+    def save_job(job):
+        _jobs[job.id] = job
+        return job
+
+    def update_job(job):
+        _jobs[job.id] = job
+        return job
+
+    def delete_job(job_id):
+        if job_id in _jobs:
+            del _jobs[job_id]
+            return True
+        return False
+
     store = MagicMock()
     # IJobRepository (CRUD)
-    store.get_job = MagicMock(return_value=None)
-    store.save_job = MagicMock()
-    store.update_job = MagicMock()
-    store.delete_job = MagicMock(return_value=False)
+    store.get_job = MagicMock(side_effect=get_job)
+    store.save_job = MagicMock(side_effect=save_job)
+    store.update_job = MagicMock(side_effect=update_job)
+    store.delete_job = MagicMock(side_effect=delete_job)
     # IJobQuery (read-only queries + aggregation)
     store.list_jobs = MagicMock(return_value=[])
     store.get_stats = MagicMock(return_value={"total_jobs": 0, "by_status": {}})
@@ -155,6 +175,12 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers", "slow: slow-running tests"
+    )
+    config.addinivalue_line(
+        "markers", "integration: integration tests"
+    )
+    config.addinivalue_line(
+        "markers", "unit: unit tests"
     )
 
 

@@ -192,6 +192,7 @@ class TestModelManager:
         mock_whisper_class.return_value = MagicMock()
         
         engine1 = manager.get_or_create_engine("base")
+        engine1.load_model()
         engine2 = manager.get_or_create_engine("base")
         
         assert engine1 is engine2

@@ -220,17 +220,6 @@ class VideoJobStore:
 
         return jobs
 
-
-_store_instance: VideoJobStore | None = None
-
-
-def get_video_job_store() -> VideoJobStore:
-    """Singleton factory for VideoJobStore."""
-    global _store_instance
-    if _store_instance is None:
-        _store_instance = VideoJobStore()
-    return _store_instance
-
     def get_next_queued_job(self) -> dict[str, Any] | None:
         """Get the first queued job without scanning all jobs.
 
@@ -248,3 +237,14 @@ def get_video_job_store() -> VideoJobStore:
                 if job.get("status") == "queued":
                     return job
         return None
+
+
+_store_instance: VideoJobStore | None = None
+
+
+def get_video_job_store() -> VideoJobStore:
+    """Singleton factory for VideoJobStore."""
+    global _store_instance
+    if _store_instance is None:
+        _store_instance = VideoJobStore()
+    return _store_instance

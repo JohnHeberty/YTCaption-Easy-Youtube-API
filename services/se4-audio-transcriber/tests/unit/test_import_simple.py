@@ -40,7 +40,7 @@ def check_imports():
     
     # Check 4: Interfaces imports
     try:
-        from domain.interfaces import TranscriptionResult, TranscriptionEngine
+        from app.domain.interfaces import TranscriptionResult, TranscriptionEngine
         results.append(("domain.interfaces import", True, None))
     except Exception as e:
         results.append(("domain.interfaces import", False, str(e)))

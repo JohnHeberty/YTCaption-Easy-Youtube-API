@@ -16,7 +16,7 @@ from app.core.models import (
     VideoJob,
     VideoJobStatus,
 )
-from app.infrastructure.redis_store import get_video_job_store
+from app.infrastructure.redis_store import VideoJobStore, get_video_job_store
 from app.services.audio_generator import AudioGenerator
 from app.services.image_generator import ImageGenerator
 from app.services.video_assembler import VideoAssembler

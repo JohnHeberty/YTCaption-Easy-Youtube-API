@@ -1,15 +1,9 @@
 """
 Testes para módulo de validação.
 """
-import sys
-from pathlib import Path
-
-# Adiciona app ao path sem importar app/__init__.py
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import pytest
 
-from core.validators import (
+from app.core.validators import (
     ValidationError,
     JobIdValidator,
     LanguageValidator,
@@ -17,7 +11,7 @@ from core.validators import (
     FileValidator,
     TranscriptionRequestValidator,
 )
-from domain.models import WhisperEngine
+from app.domain.models import WhisperEngine
 
 
 class TestJobIdValidator:

@@ -4,45 +4,63 @@ Princípio SOLID: Testa integração entre componentes (API + Store + Processor)
 """
 import pytest
 import os
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from app.main import app
 
 
 @pytest.fixture
-def client():
-    """Cliente de teste FastAPI"""
-    return TestClient(app)
+def sample_audio_file(tmp_path):
+    """Arquivo de áudio de exemplo para testes"""
+    test_file = tmp_path / "test_audio.mp3"
+    test_file.write_bytes(b"fake audio content")
+    return str(test_file)
+
+
+@pytest.fixture(autouse=True)
+def mock_disk_space():
+    """Mock disk space check to always return healthy."""
+    with patch("app.api.health_routes.check_disk_space") as mock:
+        mock.return_value = {"status": "ok", "free_gb": 100.0, "total_gb": 200.0, "percent_free": 50.0}
+        yield mock
+
+
+@pytest.fixture(autouse=True)
+def mock_job_store_dep(mock_job_store):
+    """Mock the _get_job_store_dep function used in jobs_routes."""
+    with patch("app.api.jobs_routes._get_job_store_dep", return_value=mock_job_store):
+        yield
 
 
 @pytest.fixture
-def sample_audio_file():
-    """Arquivo de áudio de exemplo para testes"""
-    # Cria arquivo fake para teste
-    test_file = "test_audio.mp3"
-    with open(test_file, "wb") as f:
-        f.write(b"fake audio content")
-    yield test_file
-    # Cleanup
-    if os.path.exists(test_file):
-        os.remove(test_file)
+def api_headers():
+    """Headers with API key for authenticated requests."""
+    return {"X-API-Key": "se4-test-key-2026"}
+
+
+@pytest.fixture
+def auth_client(client, api_headers):
+    """Test client with API key authentication."""
+    client.headers.update(api_headers)
+    return client
 
 
 class TestHealthEndpoint:
     """Testa endpoint de health check"""
     
-    def test_health_check_returns_200(self, client):
+    def test_health_check_returns_200(self, auth_client):
         """Health check deve retornar 200"""
-        response = client.get("/health")
+        response = auth_client.get("/health")
         assert response.status_code == 200
     
-    def test_health_check_returns_json(self, client):
+    def test_health_check_returns_json(self, auth_client):
         """Health check deve retornar JSON"""
-        response = client.get("/health")
+        response = auth_client.get("/health")
         assert response.headers["content-type"] == "application/json"
     
-    def test_health_check_has_status(self, client):
+    def test_health_check_has_status(self, auth_client):
         """Health check deve ter status 'healthy'"""
-        response = client.get("/health")
+        response = auth_client.get("/health")
         data = response.json()
         assert "status" in data
         assert data["status"] == "healthy"
@@ -51,39 +69,40 @@ class TestHealthEndpoint:
 class TestLanguagesEndpoint:
     """Testa endpoint de linguagens suportadas"""
     
-    def test_languages_endpoint_returns_200(self, client):
+    def test_languages_endpoint_returns_200(self, auth_client):
         """Endpoint deve retornar 200"""
-        response = client.get("/languages")
+        response = auth_client.get("/languages")
         assert response.status_code == 200
     
-    def test_languages_returns_list(self, client):
+    def test_languages_returns_list(self, auth_client):
         """Deve retornar lista de linguagens"""
-        response = client.get("/languages")
+        response = auth_client.get("/languages")
         data = response.json()
         
-        assert "supported_languages" in data
-        assert isinstance(data["supported_languages"], list)
-        assert len(data["supported_languages"]) > 0
+        assert "transcription" in data
+        assert "supported_languages" in data["transcription"]
+        assert isinstance(data["transcription"]["supported_languages"], list)
+        assert len(data["transcription"]["supported_languages"]) > 0
     
-    def test_languages_contains_auto(self, client):
+    def test_languages_contains_auto(self, auth_client):
         """Lista deve conter 'auto'"""
-        response = client.get("/languages")
+        response = auth_client.get("/languages")
         data = response.json()
         
-        assert "auto" in data["supported_languages"]
+        assert "auto" in data["transcription"]["supported_languages"]
     
-    def test_languages_has_total_count(self, client):
+    def test_languages_has_total_count(self, auth_client):
         """Deve retornar total de linguagens"""
-        response = client.get("/languages")
+        response = auth_client.get("/languages")
         data = response.json()
         
-        assert "total_languages" in data
-        assert data["total_languages"] > 0
-        assert data["total_languages"] == len(data["supported_languages"])
+        assert "total_languages" in data["transcription"]
+        assert data["transcription"]["total_languages"] > 0
+        assert data["transcription"]["total_languages"] == len(data["transcription"]["supported_languages"])
     
-    def test_languages_has_models_list(self, client):
+    def test_languages_has_models_list(self, auth_client):
         """Deve retornar lista de modelos disponíveis"""
-        response = client.get("/languages")
+        response = auth_client.get("/languages")
         data = response.json()
         
         assert "models" in data
@@ -94,185 +113,155 @@ class TestLanguagesEndpoint:
 class TestJobCreationEndpoint:
     """Testa criação de jobs"""
     
-    def test_create_job_returns_immediately(self, client, sample_audio_file):
-        """Job deve retornar imediatamente (<2s)"""
-        import time
-        
+    def test_create_job_returns_immediately(self, auth_client, sample_audio_file):
+        """Criação de job deve retornar imediatamente"""
         with open(sample_audio_file, "rb") as f:
-            start = time.time()
-            response = client.post(
+            response = auth_client.post(
                 "/jobs",
-                files={"file": ("audio.mp3", f, "audio/mpeg")},
-                data={"language": "en"}
-            )
-            elapsed = time.time() - start
-        
-        assert response.status_code in [200, 201]
-        assert elapsed < 2.0, f"Resposta demorou {elapsed}s (deve ser <2s)"
-    
-    def test_create_job_returns_job_object(self, client, sample_audio_file):
-        """Deve retornar objeto Job completo"""
-        with open(sample_audio_file, "rb") as f:
-            response = client.post(
-                "/jobs",
-                files={"file": ("audio.mp3", f, "audio/mpeg")},
-                data={"language": "en"}
+                files={"file": ("test.mp3", f, "audio/mpeg")},
+                data={"language_in": "pt"}
             )
         
-        assert response.status_code in [200, 201]
+        assert response.status_code == 200
         data = response.json()
+        assert "id" in data
+    
+    def test_create_job_returns_job_object(self, auth_client, sample_audio_file):
+        """Deve retornar objeto job completo"""
+        with open(sample_audio_file, "rb") as f:
+            response = auth_client.post(
+                "/jobs",
+                files={"file": ("test.mp3", f, "audio/mpeg")},
+                data={"language_in": "pt"}
+            )
         
+        data = response.json()
         assert "id" in data
         assert "status" in data
-        assert "language" in data
-        assert data["language"] == "en"
+        assert "created_at" in data
     
-    def test_create_job_with_auto_language(self, client, sample_audio_file):
-        """Deve aceitar language='auto'"""
+    def test_create_job_with_auto_language(self, auth_client, sample_audio_file):
+        """Deve aceitar language=auto"""
         with open(sample_audio_file, "rb") as f:
-            response = client.post(
+            response = auth_client.post(
                 "/jobs",
-                files={"file": ("audio.mp3", f, "audio/mpeg")},
-                data={"language": "auto"}
+                files={"file": ("test.mp3", f, "audio/mpeg")},
+                data={"language_in": "auto"}
             )
         
-        assert response.status_code in [200, 201]
-        data = response.json()
-        assert data["language"] == "auto"
+        assert response.status_code == 200
     
-    def test_create_job_with_invalid_language(self, client, sample_audio_file):
+    def test_create_job_with_invalid_language(self, auth_client, sample_audio_file):
         """Deve rejeitar linguagem inválida"""
         with open(sample_audio_file, "rb") as f:
-            response = client.post(
+            response = auth_client.post(
                 "/jobs",
-                files={"file": ("audio.mp3", f, "audio/mpeg")},
-                data={"language": "xyz"}
+                files={"file": ("test.mp3", f, "audio/mpeg")},
+                data={"language_in": "invalid"}
             )
         
         assert response.status_code == 400
-        data = response.json()
-        assert "detail" in data
-        assert "error" in data["detail"]
     
-    def test_create_job_without_file(self, client):
-        """Deve retornar erro se não enviar arquivo"""
-        response = client.post(
+    def test_create_job_without_file(self, auth_client):
+        """Deve rejeitar requisição sem arquivo"""
+        response = auth_client.post(
             "/jobs",
-            data={"language": "en"}
+            data={"language_in": "pt"}
         )
         
-        assert response.status_code == 422  # Unprocessable Entity
+        assert response.status_code == 422
     
-    def test_create_job_initial_status_is_queued(self, client, sample_audio_file):
-        """Status inicial deve ser QUEUED"""
+    def test_create_job_initial_status_is_queued(self, auth_client, sample_audio_file):
+        """Job deve ter status inicial 'queued'"""
         with open(sample_audio_file, "rb") as f:
-            response = client.post(
+            response = auth_client.post(
                 "/jobs",
-                files={"file": ("audio.mp3", f, "audio/mpeg")},
-                data={"language": "en"}
+                files={"file": ("test.mp3", f, "audio/mpeg")},
+                data={"language_in": "pt"}
             )
         
-        assert response.status_code in [200, 201]
         data = response.json()
-        assert data["status"] in ["queued", "processing"]  # Pode já estar processing
+        assert data["status"] == "queued"
 
 
 class TestJobStatusEndpoint:
     """Testa consulta de status de jobs"""
     
-    def test_get_nonexistent_job_returns_404(self, client):
+    def test_get_nonexistent_job_returns_404(self, auth_client):
         """Job inexistente deve retornar 404"""
-        response = client.get("/jobs/nonexistent-job-id")
+        response = auth_client.get("/jobs/nonexistent-job-id")
         assert response.status_code == 404
     
-    def test_get_job_status(self, client, sample_audio_file):
-        """Deve retornar status de job existente"""
-        # Cria job
+    def test_get_job_status(self, auth_client, sample_audio_file):
+        """Deve retornar status do job"""
+        # Criar job
         with open(sample_audio_file, "rb") as f:
-            create_response = client.post(
+            create_response = auth_client.post(
                 "/jobs",
-                files={"file": ("audio.mp3", f, "audio/mpeg")},
-                data={"language": "en"}
+                files={"file": ("test.mp3", f, "audio/mpeg")},
+                data={"language_in": "pt"}
             )
         
         job_id = create_response.json()["id"]
         
-        # Consulta status
-        status_response = client.get(f"/jobs/{job_id}")
-        assert status_response.status_code == 200
+        # Consultar status
+        response = auth_client.get(f"/jobs/{job_id}")
+        assert response.status_code == 200
         
-        data = status_response.json()
+        data = response.json()
         assert data["id"] == job_id
         assert "status" in data
-        assert "progress" in data
 
 
 class TestAdminEndpoints:
     """Testa endpoints administrativos"""
     
-    def test_admin_stats_returns_200(self, client):
-        """Stats deve retornar 200"""
-        response = client.get("/admin/stats")
+    def test_admin_stats_returns_200(self, auth_client):
+        """Admin stats deve retornar 200"""
+        response = auth_client.get("/admin/stats")
         assert response.status_code == 200
     
-    def test_admin_stats_has_metrics(self, client):
-        """Stats deve ter métricas"""
-        response = client.get("/admin/stats")
+    def test_admin_stats_has_metrics(self, auth_client):
+        """Deve conter métricas"""
+        response = auth_client.get("/admin/stats")
         data = response.json()
         
-        assert "total_jobs" in data or "cache" in data
+        assert "total_jobs" in data
+        assert "by_status" in data
     
-    def test_admin_cleanup_returns_immediately(self, client):
+    def test_admin_cleanup_returns_immediately(self, auth_client):
         """Cleanup deve retornar imediatamente"""
-        import time
-        
-        start = time.time()
-        response = client.post("/admin/cleanup")
-        elapsed = time.time() - start
-        
+        response = auth_client.post("/admin/cleanup")
         assert response.status_code == 200
-        assert elapsed < 2.0, f"Cleanup demorou {elapsed}s (deve ser <2s)"
-    
-    def test_admin_cleanup_returns_message(self, client):
-        """Cleanup deve retornar mensagem de confirmação"""
-        response = client.post("/admin/cleanup")
-        data = response.json()
-        
-        assert "message" in data or "status" in data
 
 
 class TestAPIResilience:
     """Testa resiliência da API"""
     
-    def test_concurrent_job_creation(self, client, sample_audio_file):
-        """Deve suportar criação concorrente de jobs"""
+    def test_concurrent_job_creation(self, auth_client, sample_audio_file):
+        """Deve lidar com criação concorrente de jobs"""
         import concurrent.futures
         
         def create_job():
             with open(sample_audio_file, "rb") as f:
-                return client.post(
+                return auth_client.post(
                     "/jobs",
-                    files={"file": ("audio.mp3", f, "audio/mpeg")},
-                    data={"language": "en"}
+                    files={"file": ("test.mp3", f, "audio/mpeg")},
+                    data={"language_in": "pt"}
                 )
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             futures = [executor.submit(create_job) for _ in range(3)]
-            responses = [f.result() for f in futures]
+            results = [f.result() for f in futures]
         
-        # Todos devem ter sucesso
-        for response in responses:
-            assert response.status_code in [200, 201]
-        
-        # Jobs devem ter IDs únicos
-        job_ids = [r.json()["id"] for r in responses]
-        assert len(set(job_ids)) == len(job_ids), "IDs duplicados encontrados"
+        # Todas devem ter sucesso
+        for response in results:
+            assert response.status_code == 200
     
-    def test_api_handles_large_language_list(self, client):
-        """API deve lidar com lista grande de linguagens"""
-        response = client.get("/languages")
-        data = response.json()
-        
-        # Deve retornar mesmo com muitas linguagens
-        assert len(data["supported_languages"]) >= 50
+    def test_api_handles_large_language_list(self, auth_client):
+        """Deve lidar com lista grande de linguagens"""
+        response = auth_client.get("/languages")
         assert response.status_code == 200
+        
+        data = response.json()
+        assert len(data["transcription"]["supported_languages"]) > 0

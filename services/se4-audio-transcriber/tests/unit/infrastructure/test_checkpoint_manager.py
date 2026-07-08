@@ -5,17 +5,8 @@ Tests checkpoint save/load/resume functionality.
 """
 
 import pytest
-import json
-import sys
-import os
 
-# Adicionar o caminho do app ao sys.path
-app_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..', 'app'))
-if app_path not in sys.path:
-    sys.path.insert(0, app_path)
-
-# Import direto do módulo para evitar app/__init__.py
-from infrastructure.checkpoint_manager import (
+from app.infrastructure.checkpoint_manager import (
     CheckpointManager,
     TranscriptionStage,
     CheckpointData

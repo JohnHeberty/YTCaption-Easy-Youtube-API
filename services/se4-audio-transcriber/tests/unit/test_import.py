@@ -27,7 +27,7 @@ def test_import_module(module_name, module_path):
 
 def test_validators_import():
     """Testa importação do módulo validators."""
-    from core.validators import (
+    from app.core.validators import (
         ValidationError,
         JobIdValidator,
         LanguageValidator,
@@ -41,7 +41,7 @@ def test_validators_import():
 
 def test_interfaces_import():
     """Testa importação do módulo interfaces."""
-    from domain.interfaces import (
+    from app.domain.interfaces import (
         TranscriptionResult,
         TranscriptionEngine,
         IModelManager,
