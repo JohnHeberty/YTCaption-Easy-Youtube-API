@@ -2,6 +2,23 @@
 
 ## Última sessão (2026-07-08)
 
+### 🟢 SE5 Fixture Fix — 384 passed, 0 failed, 0 errors (2026-07-08)
+
+**Objetivo:** Corrigir os 73 errors restantes (todas eram fixtures faltantes).
+
+**Root causes fixados:**
+1. 11 fixtures faltantes (`temp_dir`, `real_test_video`, `real_test_audio`, etc.) → Adicionar session-scoped media fixtures geradas via ffmpeg
+2. Markers pytest não registrados → Registrar todos os markers customizados
+3. Bug no `video_builder.py` concat filter → Ordenação errada de streams (video/audio não intercalados)
+4. `EnhancedMakeVideoException` não aceitava `file_path` → Adicionar `file_path` + `**kwargs`
+5. Config tests não limpavam `lru_cache` → Usar `get_settings.cache_clear()`
+6. Fixture de áudio gerava `.mp3` mas teste esperava `.ogg` → Gerar `.ogg`
+7. Fixture `sample_ass_file` faltante → Adicionar fixture com arquivo ASS de teste
+
+**Resultado:** 384 passed, 41 skipped, 0 failed, 0 errors
+
+**Commits:** `916fc757`
+
 ### 🟢 SE5 Complete Test Fix — 313 passed, 0 failed (2026-07-08)
 
 **Objetivo:** Corrigir TODOS os testes quebrados do SE5 sem erros silenciosos nem dívida técnica.

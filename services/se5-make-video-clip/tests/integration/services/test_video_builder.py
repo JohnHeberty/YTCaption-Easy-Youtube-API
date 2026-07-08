@@ -13,7 +13,6 @@ from pathlib import Path
 from app.services.video_builder import VideoBuilder
 
 
-@pytest.mark.asyncio
 class TestVideoBuilderInit:
     """Tests for VideoBuilder initialization"""
     

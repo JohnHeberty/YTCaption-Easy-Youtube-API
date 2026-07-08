@@ -20,7 +20,6 @@ from app.services.subtitle_postprocessor import process_subtitles_with_vad
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio
 class TestSyncImprovementsPipeline:
     """Testa pipeline completo com melhorias de sincronização"""
     
