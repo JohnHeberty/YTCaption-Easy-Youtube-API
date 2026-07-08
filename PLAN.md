@@ -193,7 +193,7 @@ Investigação identificou ~96 violações SOLID distribuídas assim:
 | # | O quê | Onde | Esforço |
 |---|---|---|---|
 | 2.1 | Dividir `run_nsfw()` em: `_detect_person()`, `_build_head_mask()`, `_build_reference()`, `_run_inpaint_loop()`, `_score_and_validate()`, `_upscale_and_finalize()` | SE11 pipeline_nsfw.py | 3-4h |
-| 2.2 | Mesclar `pipeline_nsfw.py` e `pipeline_nsfw_experimental.py` com Strategy pattern (diferenças são mínimas: mask construction, LoRA weights) | SE11 | 2-3h |
+| 2.2 | ~~Mesclar `pipeline_nsfw.py` e `pipeline_nsfw_experimental.py` com Strategy pattern~~ — **REMOVIDO: duplicação mantida intencionalmente** para segurança (rota experimental pode ser alterada sem quebrar produção) | SE11 | — |
 | 2.3 | Dividir `segment()` em: `_decode()`, `_detect()`, `_filter()`, `_annotate()`, `_build_response()` | SE10 segmentor.py | 2h |
 | 2.4 | Extrair inner classes `FaceIDProj` e `FaceIDIPAdapter` para módulo próprio | SE8 worker.py:403-489 | 30min |
 

@@ -2,6 +2,17 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 FaceID Adapter Extraction — Item 2.4 SOLID Plan (2026-07-07)
+
+**Objetivo:** Extrair classes `FaceIDProj` e `FaceIDIPAdapter` do SE8 `worker.py` (God Module de 1505 linhas) para módulo próprio.
+
+**Mudanças:**
+1. **Novo arquivo:** `services/se8-image-generation/app/services/faceid_adapter.py` — módulo dedicado com as duas classes FaceID
+2. **worker.py atualizado:** Imports de `FaceIDProj` e `FaceIDIPAdapter` do novo módulo em vez de definição inline (~90 linhas removidas)
+3. **PLAN.md atualizado:** Item 2.4 marcado como concluído, item 2.2 removido (duplicação experimental mantida intencionalmente para segurança)
+
+**Resultado:** SE8: 103/104 passando (1 falha pré-existente em auth), SE11: 58/58, SE10: 62/62.
+
 ### 🟢 Complete Config-Driven Migration — All Hardcoded Values → YAML (2026-07-07)
 
 **Objetivo:** Mover TODOS os ~60 hardcoded values restantes para YAML config.
