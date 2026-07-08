@@ -55,6 +55,13 @@ class NSFWConfig:
     fp_margin_below: float = 0.70
     fp_margin_sides: float = 0.40
     fp_dilation_pct: float = 0.02
+    fp_feather_bottom_px: int = 25
+    # scoring section
+    scoring_skin_weight: float = 0.40
+    scoring_head_weight: float = 0.20
+    scoring_landmark_weight: float = 0.30
+    scoring_clothes_weight: float = 0.10
+    scoring_early_stop: float = 5.0
     # se8_params section
     se8_performance_selection: str = "Quality"
     se8_sharpness: float = 2.0
@@ -76,6 +83,50 @@ class NSFWConfig:
     # progressive_passes section
     progressive_passes_clothes: list[dict] = field(default_factory=list)
     progressive_passes_person: list[dict] = field(default_factory=list)
+    # clothes_classes
+    clothes_classes: str = "spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt"
+    best_clothing_classes: str = "spaghetti strap, camisole, top, blouse"
+    # skin_detection section
+    sd_hsv_lower: list[int] = field(default_factory=lambda: [0, 15, 60])
+    sd_hsv_upper: list[int] = field(default_factory=lambda: [30, 170, 255])
+    sd_morph_kernel_size: int = 5
+    sd_open_iterations: int = 1
+    sd_close_iterations: int = 2
+    # inline_mode section
+    im_person_box_threshold: float = 0.20
+    im_person_text_threshold: float = 0.15
+    im_clothes_text_threshold: float = 0.05
+    im_min_area_pct: float = 0.1
+    im_min_confidence: float = 0.10
+    im_max_objects: int = 3
+    im_bottom_edge_pct: float = 0.95
+    im_bottom_edge_min_area: float = 1.0
+    im_dilate_kernel_size: int = 21
+    im_dilate_iterations: int = 2
+    im_erode_kernel_size: int = 15
+    im_erode_iterations: int = 2
+    im_face_region_pct: float = 0.30
+    im_face_coverage_threshold: float = 5.0
+    im_min_torso_coverage: float = 1.0
+    im_low_coverage_threshold: float = 5.0
+    im_strength_person: float = 0.70
+    im_strength_clothes: float = 0.70
+    im_respective_field: float = 0.618
+    im_erode_or_dilate_progressive: int = -10
+    im_erode_dilate_thresholds: list[dict] = field(default_factory=lambda: [
+        {"min_pct": 50.0, "value": -5},
+        {"min_pct": 30.0, "value": -8},
+        {"min_pct": 15.0, "value": -10},
+        {"min_pct": 5.0, "value": -15},
+        {"min_pct": 0.0, "value": -20},
+    ])
+    im_mask_cap_threshold_pct: float = 15.0
+    im_mask_cap_max_erode: int = -30
+    im_mask_cap_erode_scale: int = 3
+    im_mask_cap_min_erode_kernel: int = 15
+    # clothing_gap section
+    cg_close_kernel_size: int = 100
+    cg_close_iterations: int = 1
 
     def se8_advanced_params(self) -> dict:
         """Return SE8 advanced_params dict for http_client.inpaint()."""
@@ -121,12 +172,23 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
     ip = data.get("ip_adapter", {})
     hd = data.get("head_detection", {})
     fp = data.get("face_protection", {})
+    sc = data.get("scoring", {})
     se8 = data.get("se8_params", {})
     se8r = data.get("se8_retry", {})
     enh = data.get("enhance", {})
     loras_raw = data.get("loras", [])
     loras = [_make_lora(l["model"], l["weight"], l.get("enabled", True)) for l in loras_raw]
     pp = data.get("progressive_passes", {})
+    sd = data.get("skin_detection", {})
+    im = data.get("inline_mode", {})
+    im_pd = im.get("person_detection", {})
+    im_cd = im.get("clothes_detection", {})
+    im_of = im.get("object_filter", {})
+    im_mp = im.get("mask_params", {})
+    im_ip = im.get("inpaint", {})
+    im_ed = im.get("erode_dilate_thresholds", [])
+    im_mc = im.get("mask_cap", {})
+    cg = data.get("clothing_gap", {})
     defaults = _HARDCODED_DEFAULTS.get(profile, _HARDCODED_DEFAULTS["production"])
 
     return NSFWConfig(
@@ -159,6 +221,12 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         fp_margin_below=fp.get("margin_below", defaults.fp_margin_below),
         fp_margin_sides=fp.get("margin_sides", defaults.fp_margin_sides),
         fp_dilation_pct=fp.get("dilation_pct", defaults.fp_dilation_pct),
+        fp_feather_bottom_px=fp.get("feather_bottom_px", defaults.fp_feather_bottom_px),
+        scoring_skin_weight=sc.get("skin_weight", defaults.scoring_skin_weight),
+        scoring_head_weight=sc.get("head_weight", defaults.scoring_head_weight),
+        scoring_landmark_weight=sc.get("landmark_weight", defaults.scoring_landmark_weight),
+        scoring_clothes_weight=sc.get("clothes_weight", defaults.scoring_clothes_weight),
+        scoring_early_stop=sc.get("early_stop", defaults.scoring_early_stop),
         se8_performance_selection=se8.get("performance_selection", defaults.se8_performance_selection),
         se8_sharpness=se8.get("sharpness", defaults.se8_sharpness),
         se8_guidance_scale=se8.get("guidance_scale", defaults.se8_guidance_scale),
@@ -176,6 +244,40 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         enhance_aspect_ratios_selection=enh.get("aspect_ratios_selection", defaults.enhance_aspect_ratios_selection),
         progressive_passes_clothes=pp.get("clothes", defaults.progressive_passes_clothes),
         progressive_passes_person=pp.get("person", defaults.progressive_passes_person),
+        clothes_classes=data.get("clothes_classes", defaults.clothes_classes),
+        best_clothing_classes=data.get("best_clothing_classes", defaults.best_clothing_classes),
+        sd_hsv_lower=sd.get("hsv_lower", defaults.sd_hsv_lower),
+        sd_hsv_upper=sd.get("hsv_upper", defaults.sd_hsv_upper),
+        sd_morph_kernel_size=sd.get("morph_kernel_size", defaults.sd_morph_kernel_size),
+        sd_open_iterations=sd.get("open_iterations", defaults.sd_open_iterations),
+        sd_close_iterations=sd.get("close_iterations", defaults.sd_close_iterations),
+        im_person_box_threshold=im_pd.get("box_threshold", defaults.im_person_box_threshold),
+        im_person_text_threshold=im_pd.get("text_threshold", defaults.im_person_text_threshold),
+        im_clothes_text_threshold=im_cd.get("text_threshold", defaults.im_clothes_text_threshold),
+        im_min_area_pct=im_of.get("min_area_pct", defaults.im_min_area_pct),
+        im_min_confidence=im_of.get("min_confidence", defaults.im_min_confidence),
+        im_max_objects=im_of.get("max_objects", defaults.im_max_objects),
+        im_bottom_edge_pct=im_of.get("bottom_edge_pct", defaults.im_bottom_edge_pct),
+        im_bottom_edge_min_area=im_of.get("bottom_edge_min_area", defaults.im_bottom_edge_min_area),
+        im_dilate_kernel_size=im_mp.get("dilate_kernel_size", defaults.im_dilate_kernel_size),
+        im_dilate_iterations=im_mp.get("dilate_iterations", defaults.im_dilate_iterations),
+        im_erode_kernel_size=im_mp.get("erode_kernel_size", defaults.im_erode_kernel_size),
+        im_erode_iterations=im_mp.get("erode_iterations", defaults.im_erode_iterations),
+        im_face_region_pct=im_mp.get("face_region_pct", defaults.im_face_region_pct),
+        im_face_coverage_threshold=im_mp.get("face_coverage_threshold", defaults.im_face_coverage_threshold),
+        im_min_torso_coverage=im_mp.get("min_torso_coverage", defaults.im_min_torso_coverage),
+        im_low_coverage_threshold=im_mp.get("low_coverage_threshold", defaults.im_low_coverage_threshold),
+        im_strength_person=im_ip.get("strength_person", defaults.im_strength_person),
+        im_strength_clothes=im_ip.get("strength_clothes", defaults.im_strength_clothes),
+        im_respective_field=im_ip.get("respective_field", defaults.im_respective_field),
+        im_erode_or_dilate_progressive=im_ip.get("erode_or_dilate_progressive", defaults.im_erode_or_dilate_progressive),
+        im_erode_dilate_thresholds=im_ed if im_ed else defaults.im_erode_dilate_thresholds,
+        im_mask_cap_threshold_pct=im_mc.get("threshold_pct", defaults.im_mask_cap_threshold_pct),
+        im_mask_cap_max_erode=im_mc.get("max_erode", defaults.im_mask_cap_max_erode),
+        im_mask_cap_erode_scale=im_mc.get("erode_scale", defaults.im_mask_cap_erode_scale),
+        im_mask_cap_min_erode_kernel=im_mc.get("min_erode_kernel", defaults.im_mask_cap_min_erode_kernel),
+        cg_close_kernel_size=cg.get("close_kernel_size", defaults.cg_close_kernel_size),
+        cg_close_iterations=cg.get("close_iterations", defaults.cg_close_iterations),
     )
 
 
@@ -187,33 +289,7 @@ class ClothesConfig:
     clothes_prompt: str
     person_prompt: str
     clothes_negative: str
-
-
-_CLOTHES_DEFAULTS: dict[str, ClothesConfig] = {
-    "production": ClothesConfig(
-        clothes_prompt=(
-            "NSFW, NSFW, NSFW, NSFW, NSFW, "
-            "bare skin, smooth skin surface, realistic skin texture, "
-            "detailed breast anatomy, realistic nipples, natural skin pores, "
-            "seamless skin transition, consistent skin tone with surrounding body, "
-            "photorealistic, professional photography, studio lighting, "
-            "high resolution, sharp focus on skin detail, 8k uhd, "
-            "hyperrealistic, detailed skin rendering, natural body proportions"
-        ),
-        person_prompt=(
-            "natural skin texture matching surrounding skin tone, seamless blend, "
-            "preserve original body shape and features, realistic skin, soft lighting"
-        ),
-        clothes_negative=(
-            "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
-            "dress, skirt, pattern, floral, textile, garment, "
-            "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
-            "extra limbs, disfigured, poorly drawn face, mutated hands, "
-            "bad anatomy, deformed skin, wrinkled, scarred"
-        ),
-    ),
-}
-_CLOTHES_DEFAULTS["experimental"] = _CLOTHES_DEFAULTS["production"]
+    loras: list[dict] = field(default_factory=list)
 
 
 def _load_clothes_config(profile: str) -> ClothesConfig:
@@ -241,10 +317,14 @@ def _load_clothes_config(profile: str) -> ClothesConfig:
     clothes = data.get("clothes", {})
     defaults = _CLOTHES_DEFAULTS.get(profile, _CLOTHES_DEFAULTS["production"])
 
+    loras_raw = clothes.get("loras", [])
+    loras = [_make_lora(l["model"], l["weight"], l.get("enabled", True)) for l in loras_raw] if loras_raw else defaults.loras
+
     return ClothesConfig(
         clothes_prompt=clothes.get("clothes_prompt", defaults.clothes_prompt).strip(),
         person_prompt=clothes.get("person_prompt", defaults.person_prompt).strip(),
         clothes_negative=clothes.get("clothes_negative", defaults.clothes_negative).strip(),
+        loras=loras,
     )
 
 
@@ -262,11 +342,7 @@ def get_clothes_config(profile: str = "production") -> ClothesConfig:
 
 # ─── Shared Constants ────────────────────────────────────────────────────────
 
-CLOTHES_CLASSES = (
-    "spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, "
-    "clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, "
-    "coat, hoodie, t-shirt"
-)
+DEFAULT_BASE_MODEL = "lustifySDXLNSFW_v20-inpainting.safetensors"
 
 DEFAULT_CLOTHES_NEGATIVE = (
     "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
@@ -317,6 +393,41 @@ def _make_lora(model: str, weight: float, enabled: bool = True) -> dict:
     return {"enabled": enabled, "model_name": model, "weight": weight}
 
 
+# Clothes config defaults — used when YAML config files are missing.
+_CLOTHES_DEFAULTS: dict[str, ClothesConfig] = {
+    "production": ClothesConfig(
+        clothes_prompt=(
+            "NSFW, NSFW, NSFW, NSFW, NSFW, "
+            "bare skin, smooth skin surface, realistic skin texture, "
+            "detailed breast anatomy, realistic nipples, natural skin pores, "
+            "seamless skin transition, consistent skin tone with surrounding body, "
+            "photorealistic, professional photography, studio lighting, "
+            "high resolution, sharp focus on skin detail, 8k uhd, "
+            "hyperrealistic, detailed skin rendering, natural body proportions"
+        ),
+        person_prompt=(
+            "natural skin texture matching surrounding skin tone, seamless blend, "
+            "preserve original body shape and features, realistic skin, soft lighting"
+        ),
+        clothes_negative=(
+            "clothes, fabric, bra, straps, underwear, top, blouse, shirt, "
+            "dress, skirt, pattern, floral, textile, garment, "
+            "text, watermark, deformed, blurry, cartoon, anime, painting, CGI, "
+            "extra limbs, disfigured, poorly drawn face, mutated hands, "
+            "bad anatomy, deformed skin, wrinkled, scarred"
+        ),
+        loras=[
+            _make_lora("NsfwPovAllInOneLoraSdxl-000009.safetensors", 0.2),
+            _make_lora("sd_xl_offset_example-lora_1.0.safetensors", 0.1),
+            _make_lora("add-detail-xl.safetensors", 0.8),
+            _make_lora("None", 1.0),
+            _make_lora("None", 1.0),
+        ],
+    ),
+}
+_CLOTHES_DEFAULTS["experimental"] = _CLOTHES_DEFAULTS["production"]
+
+
 # Hardcoded defaults — used when YAML config files are missing.
 _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
     "production": NSFWConfig(
@@ -355,6 +466,50 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         fp_margin_below=0.70,
         fp_margin_sides=0.40,
         fp_dilation_pct=0.02,
+        fp_feather_bottom_px=25,
+        scoring_skin_weight=0.40,
+        scoring_head_weight=0.20,
+        scoring_landmark_weight=0.30,
+        scoring_clothes_weight=0.10,
+        scoring_early_stop=5.0,
+        sd_hsv_lower=[0, 15, 60],
+        sd_hsv_upper=[30, 170, 255],
+        sd_morph_kernel_size=5,
+        sd_open_iterations=1,
+        sd_close_iterations=2,
+        im_person_box_threshold=0.20,
+        im_person_text_threshold=0.15,
+        im_clothes_text_threshold=0.05,
+        im_min_area_pct=0.1,
+        im_min_confidence=0.10,
+        im_max_objects=3,
+        im_bottom_edge_pct=0.95,
+        im_bottom_edge_min_area=1.0,
+        im_dilate_kernel_size=21,
+        im_dilate_iterations=2,
+        im_erode_kernel_size=15,
+        im_erode_iterations=2,
+        im_face_region_pct=0.30,
+        im_face_coverage_threshold=5.0,
+        im_min_torso_coverage=1.0,
+        im_low_coverage_threshold=5.0,
+        im_strength_person=0.70,
+        im_strength_clothes=0.70,
+        im_respective_field=0.618,
+        im_erode_or_dilate_progressive=-10,
+        im_erode_dilate_thresholds=[
+            {"min_pct": 50.0, "value": -5},
+            {"min_pct": 30.0, "value": -8},
+            {"min_pct": 15.0, "value": -10},
+            {"min_pct": 5.0, "value": -15},
+            {"min_pct": 0.0, "value": -20},
+        ],
+        im_mask_cap_threshold_pct=15.0,
+        im_mask_cap_max_erode=-30,
+        im_mask_cap_erode_scale=3,
+        im_mask_cap_min_erode_kernel=15,
+        cg_close_kernel_size=100,
+        cg_close_iterations=1,
         se8_performance_selection="Quality",
         se8_sharpness=2.0,
         se8_guidance_scale=7.0,
@@ -382,6 +537,8 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
             {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "segformer", "name": "full", "se_mode": "clothes"},
             {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.55, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
         ],
+        clothes_classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt",
+        best_clothing_classes="spaghetti strap, camisole, top, blouse",
     ),
     "experimental": NSFWConfig(
         prompt=NSFW_PROMPT,
@@ -419,6 +576,50 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
         fp_margin_below=0.70,
         fp_margin_sides=0.40,
         fp_dilation_pct=0.02,
+        fp_feather_bottom_px=25,
+        scoring_skin_weight=0.40,
+        scoring_head_weight=0.20,
+        scoring_landmark_weight=0.30,
+        scoring_clothes_weight=0.10,
+        scoring_early_stop=5.0,
+        sd_hsv_lower=[0, 15, 60],
+        sd_hsv_upper=[30, 170, 255],
+        sd_morph_kernel_size=5,
+        sd_open_iterations=1,
+        sd_close_iterations=2,
+        im_person_box_threshold=0.20,
+        im_person_text_threshold=0.15,
+        im_clothes_text_threshold=0.05,
+        im_min_area_pct=0.1,
+        im_min_confidence=0.10,
+        im_max_objects=3,
+        im_bottom_edge_pct=0.95,
+        im_bottom_edge_min_area=1.0,
+        im_dilate_kernel_size=21,
+        im_dilate_iterations=2,
+        im_erode_kernel_size=15,
+        im_erode_iterations=2,
+        im_face_region_pct=0.30,
+        im_face_coverage_threshold=5.0,
+        im_min_torso_coverage=1.0,
+        im_low_coverage_threshold=5.0,
+        im_strength_person=0.70,
+        im_strength_clothes=0.70,
+        im_respective_field=0.55,
+        im_erode_or_dilate_progressive=-10,
+        im_erode_dilate_thresholds=[
+            {"min_pct": 50.0, "value": -5},
+            {"min_pct": 30.0, "value": -8},
+            {"min_pct": 15.0, "value": -10},
+            {"min_pct": 5.0, "value": -15},
+            {"min_pct": 0.0, "value": -20},
+        ],
+        im_mask_cap_threshold_pct=15.0,
+        im_mask_cap_max_erode=-30,
+        im_mask_cap_erode_scale=3,
+        im_mask_cap_min_erode_kernel=15,
+        cg_close_kernel_size=100,
+        cg_close_iterations=1,
         se8_performance_selection="Quality",
         se8_sharpness=2.0,
         se8_guidance_scale=7.0,
@@ -446,6 +647,8 @@ _HARDCODED_DEFAULTS: dict[str, NSFWConfig] = {
             {"classes": "dress, clothing, garment", "box_threshold": 0.10, "text_threshold": 0.07, "inpaint_strength": 0.60, "detector": "segformer", "name": "full", "se_mode": "clothes"},
             {"classes": "fabric, textile, outfit", "box_threshold": 0.12, "text_threshold": 0.09, "inpaint_strength": 0.55, "detector": "segformer", "name": "cleanup", "se_mode": "clothes"},
         ],
+        clothes_classes="spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt",
+        best_clothing_classes="spaghetti strap, camisole, top, blouse",
     ),
 }
 
@@ -464,6 +667,11 @@ def get_nsfw_config(profile: str) -> NSFWConfig:
     return _load_nsfw_config(profile)
 
 
+# Load clothes classes from production config (after get_nsfw_config is defined)
+_nsfw_cfg_for_classes = get_nsfw_config("production")
+CLOTHES_CLASSES = _nsfw_cfg_for_classes.clothes_classes
+
+
 # ─── Scoring Weights ─────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -476,7 +684,19 @@ class ScoringWeights:
     early_stop: float = 5.0
 
 
-SCORING = ScoringWeights()
+def _build_scoring_from_config(cfg: NSFWConfig) -> ScoringWeights:
+    """Build ScoringWeights from NSFWConfig."""
+    return ScoringWeights(
+        skin=cfg.scoring_skin_weight,
+        head=cfg.scoring_head_weight,
+        landmark=cfg.scoring_landmark_weight,
+        clothes=cfg.scoring_clothes_weight,
+        early_stop=cfg.scoring_early_stop,
+    )
+
+
+# Default scoring loaded from production config
+SCORING = _build_scoring_from_config(get_nsfw_config("production"))
 
 
 # ─── Base64 / Image Helpers ──────────────────────────────────────────────────
@@ -548,13 +768,16 @@ def detect_skin_hsv(img) -> float:
     """
     import cv2 as _cv2
     import numpy as _np
+
+    # Load skin detection config from production profile
+    _skin_cfg = get_nsfw_config("production")
     hsv = _cv2.cvtColor(img, _cv2.COLOR_BGR2HSV)
-    lower_skin = _np.array([0, 15, 60], dtype=_np.uint8)
-    upper_skin = _np.array([30, 170, 255], dtype=_np.uint8)
+    lower_skin = _np.array(_skin_cfg.sd_hsv_lower, dtype=_np.uint8)
+    upper_skin = _np.array(_skin_cfg.sd_hsv_upper, dtype=_np.uint8)
     skin_mask = _cv2.inRange(hsv, lower_skin, upper_skin)
-    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
-    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_OPEN, kernel, iterations=1)
-    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_CLOSE, kernel, iterations=2)
+    kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (_skin_cfg.sd_morph_kernel_size, _skin_cfg.sd_morph_kernel_size))
+    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_OPEN, kernel, iterations=_skin_cfg.sd_open_iterations)
+    skin_mask = _cv2.morphologyEx(skin_mask, _cv2.MORPH_CLOSE, kernel, iterations=_skin_cfg.sd_close_iterations)
     return float((skin_mask > 0).sum() / skin_mask.size * 100)
 
 

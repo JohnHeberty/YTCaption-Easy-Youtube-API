@@ -12,6 +12,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 from common.datetime_utils import now_brazil
+from app.services._helpers import DEFAULT_BASE_MODEL
 
 
 # =============================================================================
@@ -109,7 +110,7 @@ class CreateClothesRemovalRequest(BaseModel):
     use_faceid: bool = True
     faceid_weight: float = 0.8
     test_inpaint_strength: float = 0.35
-    base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors"
+    base_model: str = DEFAULT_BASE_MODEL
 
 
 # =============================================================================

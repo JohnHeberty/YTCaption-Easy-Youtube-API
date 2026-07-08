@@ -2,6 +2,26 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 Complete Config-Driven Migration — All Hardcoded Values → YAML (2026-07-07)
+
+**Objetivo:** Mover TODOS os ~60 hardcoded values restantes para YAML config.
+
+**Grupos implementados:**
+1. **Scoring weights + early_stop** → YAML `scoring` section (5 campos)
+2. **LORAS_CLOTHES** → YAML `clothes.loras` section (5 LoRA entries)
+3. **CLOTHES_CLASSES + BEST_CLOTHING_CLASSES** → YAML top-level (2 strings)
+4. **Skin detection HSV** → YAML `skin_detection` section (5 campos)
+5. **feather_bottom_px + base_model dedup** → YAML `face_protection.feather_bottom_px` + `DEFAULT_BASE_MODEL` constant
+6. **Inline mode mask params** → YAML `inline_mode` section (~30 campos)
+7. **Clothing gap kernel** → YAML `clothing_gap` section (2 campos)
+
+**NSFWConfig expandido:** 41 → **~80 campos** (todos configuráveis via YAML)
+**YAML sections:** 11 → **15 sections** (scoring, skin_detection, inline_mode, clothing_gap adicionadas)
+**base_model dedup:** 12 ocorrências → 1 constante `DEFAULT_BASE_MODEL`
+
+**Arquivos alterados:** `_helpers.py`, `pipeline.py`, `pipeline_nsfw.py`, `pipeline_nsfw_experimental.py`, `http_client.py`, `models.py`, `schemas.py`, `routes.py`, `nsfw_production.yaml`, `nsfw_experimental.yaml`.
+**Resultado:** 120/120 testes passando (SE11: 58, SE10: 62).
+
 ### 🟢 Hardcoded Values Cleanup — P0/P1/P2 (2026-07-07)
 
 **Problema:** ~50 hardcoded values restantes após config coherence cleanup. Principais:

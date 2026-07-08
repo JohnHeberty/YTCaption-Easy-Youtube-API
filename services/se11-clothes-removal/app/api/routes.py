@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
 from app.core.models import ClothesRemovalJob
+from app.services._helpers import DEFAULT_BASE_MODEL
 from app.api.schemas import (
     ClothesRemovalJobStatus,
     ConfigResponse,
@@ -520,7 +521,7 @@ async def create_nsfw_test_job(
         description="Base denoising strength. Pipeline runs 5 attempts from this value (0.86→0.98).",
     ),
     base_model: str = Form(
-        default="lustifySDXLNSFW_v20-inpainting.safetensors",
+        default=DEFAULT_BASE_MODEL,
         description="Base SDXL checkpoint. LustifyNSFW (recommended) or JuggernautXL.",
     ),
     face_blend_mode: str = Form(

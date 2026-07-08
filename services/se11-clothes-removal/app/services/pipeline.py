@@ -25,7 +25,6 @@ from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.services.head_detector import detect_head_mask
 from app.services._helpers import (
     DEFAULT_CLOTHES_NEGATIVE,
-    LORAS_CLOTHES,
     get_clothes_config,
     get_nsfw_config,
     decode_image as _decode_image,
@@ -38,10 +37,6 @@ logger = get_logger(__name__)
 
 # ─── Constants ───────────────────────────────────────────────────────────────
 
-BEST_CLOTHING_CLASSES = (
-    "spaghetti strap, camisole, top, blouse"
-)
-
 # Load clothes config from YAML (with hardcoded fallback)
 _clothes_cfg = get_clothes_config("production")
 _nsfw_cfg = get_nsfw_config("production")
@@ -49,6 +44,8 @@ _nsfw_cfg = get_nsfw_config("production")
 DEFAULT_CLOTHES_PROMPT = _clothes_cfg.clothes_prompt
 DEFAULT_PERSON_PROMPT = _clothes_cfg.person_prompt
 DEFAULT_CLOTHES_NEGATIVE = _clothes_cfg.clothes_negative
+LORAS_CLOTHES = _clothes_cfg.loras
+BEST_CLOTHING_CLASSES = _nsfw_cfg.best_clothing_classes
 
 # ─── Helper Functions ────────────────────────────────────────────────────────
 
@@ -107,9 +104,9 @@ def _keep_object(obj: dict, image_height: int) -> bool:
     bbox = obj.get("bbox", [0, 0, 0, 0])
     if len(bbox) == 4:
         _, y, _, h = bbox
-        if y + h > image_height * 0.95 and area < 1.0:
+        if y + h > image_height * _nsfw_cfg.im_bottom_edge_pct and area < _nsfw_cfg.im_bottom_edge_min_area:
             return False
-    if area < 0.1:
+    if area < _nsfw_cfg.im_min_area_pct:
         return False
     return True
 
@@ -154,7 +151,7 @@ def _color_transfer(result_bytes: bytes, original_bytes: bytes, mask_uri: str) -
 async def _get_torso_mask(se10: SE10Client, image_bytes: bytes, filename: str, image_height: int) -> str | None:
     resp = await se10.segment(
         image_bytes=image_bytes, filename=filename,
-        classes="person, woman, man", box_threshold=0.20, text_threshold=0.15, mode="person",
+        classes="person, woman, man", box_threshold=_nsfw_cfg.im_person_box_threshold, text_threshold=_nsfw_cfg.im_person_text_threshold, mode="person",
     )
     if not resp.get("detected") or not resp.get("masks"):
         return None
@@ -318,11 +315,11 @@ async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore
             mask_img = _cv2p.imdecode(mask_arr, _cv2p.IMREAD_GRAYSCALE)
             if mask_img is not None:
                 h_img = mask_img.shape[0]
-                face_region = mask_img[:int(h_img * 0.30)]
+                face_region = mask_img[:int(h_img * _nsfw_cfg.im_face_region_pct)]
                 face_coverage = (face_region > 127).sum() / max(face_region.size, 1) * 100
-                if face_coverage > 5.0:
+                if face_coverage > _nsfw_cfg.im_face_coverage_threshold:
                     logger.warning("Job %s: pass %d — mask covers %.1f%% of face region, eroding top", job.job_id, pass_idx + 1, face_coverage)
-                    mask_img[:int(h_img * 0.30)] = 0
+                    mask_img[:int(h_img * _nsfw_cfg.im_face_region_pct)] = 0
                     _, buf = _cv2p.imencode(".png", mask_img)
                     combined_mask = _to_data_uri(base64.b64encode(buf).decode("utf-8"), mime="image/png")
 
@@ -334,8 +331,8 @@ async def _run_progressive(job: ClothesRemovalJob, store: ClothesRemovalJobStore
                 prompt=DEFAULT_PERSON_PROMPT,
                 negative_prompt=DEFAULT_CLOTHES_NEGATIVE,
                 inpaint_strength=pass_config["inpaint_strength"],
-                inpaint_respective_field=_nsfw_cfg.inpaint_respective_field,
-                inpaint_erode_or_dilate=-10,
+                inpaint_respective_field=_nsfw_cfg.im_respective_field,
+                inpaint_erode_or_dilate=_nsfw_cfg.im_erode_or_dilate_progressive,
                 loras=LORAS_CLOTHES,
             )
 
@@ -441,7 +438,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
                 logger.warning("Job %s: torso detection failed, trying full person mask", job.job_id)
                 resp = await se10.segment(
                     image_bytes=image_bytes, filename=f"{job.job_id}.jpg",
-                    classes="person, woman, man", box_threshold=0.20, text_threshold=0.15, mode="person",
+                    classes="person, woman, man", box_threshold=_nsfw_cfg.im_person_box_threshold, text_threshold=_nsfw_cfg.im_person_text_threshold, mode="person",
                 )
                 if resp.get("detected") and resp.get("masks"):
                     objects = resp.get("objects", [])
@@ -467,17 +464,17 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
             segment_result = await se10.segment(
                 image_bytes=image_bytes, filename=f"{job.job_id}.jpg",
                 classes=effective_classes, box_threshold=job.request.box_threshold,
-                text_threshold=0.05, mode=mode, detector=job.request.detector,
+                text_threshold=_nsfw_cfg.im_clothes_text_threshold, mode=mode, detector=job.request.detector,
             )
             objects = segment_result.get("objects", [])
             all_masks = segment_result.get("masks", [])
 
             sorted_pairs = [
                 (i, obj) for i, obj in enumerate(objects)
-                if _keep_object(obj, image_height) and obj.get("confidence", 0) >= 0.10
+                if _keep_object(obj, image_height) and obj.get("confidence", 0) >= _nsfw_cfg.im_min_confidence
             ]
             sorted_pairs.sort(key=lambda p: p[1].get("confidence", 0), reverse=True)
-            max_objects = min(3, len(sorted_pairs))
+            max_objects = min(_nsfw_cfg.im_max_objects, len(sorted_pairs))
 
             filtered_objects = []
             filtered_masks = []
@@ -522,11 +519,11 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         if mask_img is not None:
             coverage = (mask_img > 127).sum() / mask_img.size * 100
             logger.info("Job %s: clothing mask coverage=%.1f%%", job.job_id, coverage)
-            if coverage < 5.0:
+            if coverage < _nsfw_cfg.im_low_coverage_threshold:
                 logger.info("Job %s: low coverage, trying person→torso fallback", job.job_id)
                 torso_mask = await _get_torso_mask(se10, image_bytes, f"{job.job_id}.jpg", image_height)
                 if torso_mask:
-                    combined_mask = dilate_mask(torso_mask, kernel_size=21, iterations=2)
+                    combined_mask = dilate_mask(torso_mask, kernel_size=_nsfw_cfg.im_dilate_kernel_size, iterations=_nsfw_cfg.im_dilate_iterations)
                     filtered_objects = [{"class_name": "person_torso", "area_pct": coverage, "confidence": 0, "bbox": [0, 0, 0, 0]}]
                     logger.info("Job %s: using person→torso mask (was %.1f%%)", job.job_id, coverage)
 
@@ -534,7 +531,7 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
 
         prompt = job.request.prompt or (DEFAULT_PERSON_PROMPT if mode == "person" else DEFAULT_CLOTHES_PROMPT)
         negative_prompt = job.request.negative_prompt or DEFAULT_CLOTHES_NEGATIVE
-        inpaint_respective_field = _nsfw_cfg.inpaint_respective_field
+        inpaint_respective_field = _nsfw_cfg.im_respective_field
 
         raw_final = _strip_data_uri(combined_mask)
         final_arr = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_final)), _np.uint8)
@@ -542,28 +539,21 @@ async def run_clothes_removal(job: ClothesRemovalJob, store: ClothesRemovalJobSt
         final_pct = (final_mask > 127).sum() / final_mask.size * 100 if final_mask is not None else 0.0
 
         if mode == "person":
-            inpaint_strength = 0.70
-            if final_pct > 50.0:
-                erode_or_dilate = -5
-            elif final_pct > 30.0:
-                erode_or_dilate = -8
-            else:
-                erode_or_dilate = -10
+            inpaint_strength = _nsfw_cfg.im_strength_person
         else:
-            inpaint_strength = 0.70
-            if final_pct > 30.0:
-                erode_or_dilate = -20
-            elif final_pct > 15.0:
-                erode_or_dilate = -15
-            elif final_pct > 5.0:
-                erode_or_dilate = -10
-            else:
-                erode_or_dilate = -5
+            inpaint_strength = _nsfw_cfg.im_strength_clothes
 
-        if mode != "person" and final_pct > 15.0:
+        # Determine erode_or_dilate based on thresholds from config
+        erode_or_dilate = _nsfw_cfg.im_erode_dilate_thresholds[-1]["value"]  # default to last
+        for threshold in _nsfw_cfg.im_erode_dilate_thresholds:
+            if final_pct > threshold["min_pct"]:
+                erode_or_dilate = threshold["value"]
+                break
+
+        if mode != "person" and final_pct > _nsfw_cfg.im_mask_cap_threshold_pct:
             logger.info("Job %s: coverage %.1f%% exceeds cap, eroding mask", job.job_id, final_pct)
-            erode_or_dilate = min(erode_or_dilate, -30)
-            erode_kern = max(int((final_pct - 15.0) * 3), 15)
+            erode_or_dilate = min(erode_or_dilate, _nsfw_cfg.im_mask_cap_max_erode)
+            erode_kern = max(int((final_pct - _nsfw_cfg.im_mask_cap_threshold_pct) * _nsfw_cfg.im_mask_cap_erode_scale), _nsfw_cfg.im_mask_cap_min_erode_kernel)
             combined_mask = _erode_mask(combined_mask, kernel_size=erode_kern, iterations=2)
             raw_final2 = _strip_data_uri(combined_mask)
             final_arr2 = _np.frombuffer(base64.b64decode(_fix_b64_padding(raw_final2)), _np.uint8)

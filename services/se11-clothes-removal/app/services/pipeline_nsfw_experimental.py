@@ -292,7 +292,7 @@ async def run_nsfw_experimental(
             inpaint_mask = clothes_combined.copy()
 
             # Close gaps between clothing items (e.g. hoodie→pants gap on exposed belly)
-            close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (100, 100))
+            close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (_nsfw_cfg.cg_close_kernel_size, _nsfw_cfg.cg_close_kernel_size))
             inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k)
 
             # Constrain mask to person silhouette — prevents closing from bleeding
@@ -321,7 +321,7 @@ async def run_nsfw_experimental(
                 face_mask = detect_face_oval_mask(
                     orig_img=orig_img,
                     person_binary=person_binary,
-                    feather_bottom_px=25,
+                    feather_bottom_px=_nsfw_cfg.fp_feather_bottom_px,
                 )
                 if _cv2.countNonZero(face_mask) == 0:
                     from app.services.head_detector import detect_face_only

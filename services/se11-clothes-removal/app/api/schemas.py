@@ -11,6 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services._helpers import DEFAULT_BASE_MODEL
+
 
 class FlexibleSchema(BaseModel):
     model_config = {"extra": "allow"}
@@ -252,7 +254,7 @@ class CreateClothesRemovalRequest(BaseModel):
         description="Base denoising strength for nsfw_test (0.86 default). nsfw_test runs 5 attempts from this value. nsfw (production) ignores this — strength is hardcoded (0.86→0.98 progression).",
     )
     base_model: str = Field(
-        default="lustifySDXLNSFW_v20-inpainting.safetensors",
+        default=DEFAULT_BASE_MODEL,
         description="Base SDXL checkpoint (nsfw_test only). nsfw (production) hardcodes LustifyNSFW. JuggernautXL also available.",
         examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
     )
@@ -361,7 +363,7 @@ class CreateClothesRemovalTestRequest(BaseModel):
         description="Base denoising strength. Pipeline runs 5 attempts from this value (0.86→0.98).",
     )
     base_model: str = Field(
-        default="lustifySDXLNSFW_v20-inpainting.safetensors",
+        default=DEFAULT_BASE_MODEL,
         description="Base SDXL checkpoint. LustifyNSFW (recommended) or JuggernautXL.",
         examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
     )

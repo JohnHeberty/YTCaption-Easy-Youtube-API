@@ -367,7 +367,7 @@ async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> Non
         face_mask = detect_face_oval_mask(
             orig_img=orig_img,
             person_binary=person_binary,
-            feather_bottom_px=25,
+            feather_bottom_px=_nsfw_cfg.fp_feather_bottom_px,
         )
         if _cv2.countNonZero(face_mask) == 0:
             logger.warning("Job %s: face_oval_mask empty, falling back to haarcascade", job.job_id)

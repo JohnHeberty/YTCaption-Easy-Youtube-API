@@ -64,6 +64,71 @@ face_protection:
   margin_below: 0.70
   margin_sides: 0.40
   dilation_pct: 0.02
+  feather_bottom_px: 25
+
+scoring:
+  skin_weight: 0.40
+  head_weight: 0.20
+  landmark_weight: 0.30
+  clothes_weight: 0.10
+  early_stop: 5.0
+
+clothes_classes: "spaghetti strap, camisole, top, blouse, shirt, dress, bra, underwear, clothing, garment, skirt, pants, shorts, jeans, sweater, jacket, coat, hoodie, t-shirt"
+best_clothing_classes: "spaghetti strap, camisole, top, blouse"
+
+skin_detection:
+  hsv_lower: [0, 15, 60]
+  hsv_upper: [30, 170, 255]
+  morph_kernel_size: 5
+  open_iterations: 1
+  close_iterations: 2
+
+inline_mode:
+  person_detection:
+    box_threshold: 0.20
+    text_threshold: 0.15
+  clothes_detection:
+    text_threshold: 0.05
+  object_filter:
+    min_area_pct: 0.1
+    min_confidence: 0.10
+    max_objects: 3
+    bottom_edge_pct: 0.95
+    bottom_edge_min_area: 1.0
+  mask_params:
+    dilate_kernel_size: 21
+    dilate_iterations: 2
+    erode_kernel_size: 15
+    erode_iterations: 2
+    face_region_pct: 0.30
+    face_coverage_threshold: 5.0
+    min_torso_coverage: 1.0
+    low_coverage_threshold: 5.0
+  inpaint:
+    strength_person: 0.70
+    strength_clothes: 0.70
+    respective_field: 0.618
+    erode_or_dilate_progressive: -10
+  erode_dilate_thresholds:
+    - min_pct: 50.0
+      value: -5
+    - min_pct: 30.0
+      value: -8
+    - min_pct: 15.0
+      value: -10
+    - min_pct: 5.0
+      value: -15
+    - min_pct: 0.0
+      value: -20
+  mask_cap:
+    threshold_pct: 15.0
+    max_erode: -30
+    erode_scale: 3
+    min_erode_kernel: 15
+
+clothing_gap:
+  close_kernel_size: 100
+  close_iterations: 1
 
 loras:
   - model: "NsfwPovAllInOneLoraSdxl-000009.safetensors"
@@ -121,6 +186,22 @@ clothes:
     text, watermark, deformed, blurry, cartoon, anime, painting, CGI,
     extra limbs, disfigured, poorly drawn face, mutated hands,
     bad anatomy, deformed skin, wrinkled, scarred
+  loras:
+    - model: "NsfwPovAllInOneLoraSdxl-000009.safetensors"
+      weight: 0.2
+      enabled: true
+    - model: "sd_xl_offset_example-lora_1.0.safetensors"
+      weight: 0.1
+      enabled: true
+    - model: "add-detail-xl.safetensors"
+      weight: 0.8
+      enabled: true
+    - model: "None"
+      weight: 1.0
+      enabled: true
+    - model: "None"
+      weight: 1.0
+      enabled: true
 
 progressive_passes:
   clothes:

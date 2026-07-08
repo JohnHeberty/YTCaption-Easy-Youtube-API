@@ -10,7 +10,7 @@ import httpx
 from common.log_utils import get_logger
 
 from app.core.config import settings
-from app.services._helpers import fix_b64_padding as _fix_b64_padding
+from app.services._helpers import fix_b64_padding as _fix_b64_padding, DEFAULT_BASE_MODEL
 
 if TYPE_CHECKING:
     from common.protocols import (
@@ -150,7 +150,7 @@ class SE8Client(ServiceClient):
         style: str = "",
         loras: list[dict[str, Any]] | None = None,
         image_prompts: list[dict[str, Any]] | None = None,
-        base_model: str = "lustifySDXLNSFW_v20-inpainting.safetensors",
+        base_model: str = DEFAULT_BASE_MODEL,
         invert_mask: bool = False,
         ip_adapter_faceid_embeds: list[list[float]] | None = None,
         ip_adapter_faceid_weight: float = 0.8,
@@ -418,7 +418,7 @@ class SE8Client(ServiceClient):
             "image_seed": -1,
             "sharpness": 2.0,
             "guidance_scale": _enh.get("guidance_scale", 4.0),
-            "base_model_name": "lustifySDXLNSFW_v20-inpainting.safetensors",
+            "base_model_name": DEFAULT_BASE_MODEL,
             "loras": [
                 {"enabled": True, "model_name": "NsfwPovAllInOneLoraSdxl-000009.safetensors", "weight": 0.5},
                 {"enabled": True, "model_name": "add-detail-xl.safetensors", "weight": 0.8},
