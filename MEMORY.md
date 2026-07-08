@@ -2,6 +2,26 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SE11 Pipeline Template Method — SOLID Refactoring (2026-07-07)
+
+**Objetivo:** Eliminar ~70% de código duplicado entre `pipeline_nsfw.py` (910L) e `pipeline_nsfw_experimental.py` (776L).
+
+**Resultado:**
+- `pipeline_nsfw.py`: 910L → 257L (-72%)
+- `pipeline_nsfw_experimental.py`: 776L → 307L (-60%)
+- Novo: `pipeline_base.py` (622L) — Template Method base class com toda lógica compartilhada
+- Novo: `ip_adapter_utils.py` (84L) — `build_clothes_neutral_ref` unificado
+- Novo: `pose_validation.py` (80L) — `validate_pose_async`
+- Novo: `debug_utils.py` (213L) — `build_debug_grid`, `save_debug_image`, `save_mask_overlay`, etc.
+- **Commit:** `f7f3e169`
+- **Testes:** 58/58 passando
+
+**Arquitetura Template Method:**
+- `NSFWPipelineBase` (ABC): orquestra pipeline comum (decode → detect → clothes → faceid → masks → ip_ref → inpaint loop → finalize)
+- `NSFWProductionPipeline`: 6-layer mask, per-attempt pose, debug grid
+- `NSFWExperimentalPipeline`: 3 mask modes, pose once, OpenPose stick figure, show/ copy
+- Entry points `run_nsfw()` e `run_nsfw_experimental()` mantidos para backward compatibility
+
 ### 🟢 SE8 worker.py Extraction — SOLID Refactoring (2026-07-07)
 
 **Objetivo:** Extrair funções de `worker.py` (1,472L) em módulos focados.

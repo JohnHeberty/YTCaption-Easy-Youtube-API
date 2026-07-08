@@ -242,4 +242,4 @@
 - [x] SE9 DIP refactoring (commit `4bb4bb9f` — singleton get_video_job_store())
 - [x] SE6 `ytbpy/` refactoring (commit `c11c8554` — duration parsing dedup)
 - [x] SE8 `worker.py` refactoring (commit `3b4de0a9` — 1,472L → 1,161L + 2 new modules)
-- [ ] SE11 pipelines Template Method (24h — run_nsfw 618L + run_nsfw_experimental 638L compartilham ~70% código)
+- [x] SE11 pipelines Template Method (commit `f7f3e169` — 910L+776L → 257L+307L + 4 new modules)
