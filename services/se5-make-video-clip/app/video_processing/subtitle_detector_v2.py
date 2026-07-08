@@ -78,10 +78,8 @@ class SubtitleDetectorV2:
             )
         
         self.ocr = PaddleOCR(
-            use_angle_cls=True,
+            use_textline_orientation=True,
             lang='en',
-            show_log=show_log,
-            use_gpu=True
         )
         self.max_frames = max_frames
         

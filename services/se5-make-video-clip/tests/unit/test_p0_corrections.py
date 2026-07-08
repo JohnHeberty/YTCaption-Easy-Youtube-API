@@ -92,27 +92,24 @@ class TestImports:
 
     def test_video_builder_import(self):
         """Testa importação de VideoBuilder."""
-        try:
-            from services.video_builder import VideoBuilder
-            assert VideoBuilder is not None
-        except ImportError as e:
-            pytest.skip(f"VideoBuilder não disponível: {e}")
+        from app.services.video_builder import VideoBuilder
+        assert VideoBuilder is not None
 
     def test_job_manager_import(self):
         """Testa importação de JobManager."""
         try:
-            from services.job_manager import JobManager
+            from app.services.job_manager import JobManager
             assert JobManager is not None
-        except ImportError as e:
-            pytest.skip(f"JobManager não disponível: {e}")
+        except ImportError:
+            pytest.skip("JobManager não existe neste serviço")
 
     def test_cache_manager_import(self):
         """Testa importação de CacheManager."""
         try:
-            from services.cache_manager import CacheManager
+            from app.services.cache_manager import CacheManager
             assert CacheManager is not None
-        except ImportError as e:
-            pytest.skip(f"CacheManager não disponível: {e}")
+        except ImportError:
+            pytest.skip("CacheManager não existe neste serviço")
 
 
 class TestLockManager:

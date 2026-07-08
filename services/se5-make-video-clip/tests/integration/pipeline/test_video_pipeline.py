@@ -11,6 +11,8 @@ import shutil
 import time
 from pathlib import Path
 
+from app.pipeline.video_pipeline import VideoPipeline
+
 
 def _has_paddleocr():
     try:
