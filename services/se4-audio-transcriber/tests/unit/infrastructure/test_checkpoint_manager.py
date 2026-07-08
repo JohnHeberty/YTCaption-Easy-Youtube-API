@@ -5,6 +5,7 @@ Tests checkpoint save/load/resume functionality.
 """
 
 import pytest
+import json
 
 from app.infrastructure.checkpoint_manager import (
     CheckpointManager,

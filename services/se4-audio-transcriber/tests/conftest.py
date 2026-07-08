@@ -21,6 +21,9 @@ except ImportError:
     def now_brazil():
         return datetime.now()
 
+# Configure asyncio mode
+pytest_plugins = ("pytest_asyncio",)
+
 
 @pytest.fixture
 def fake_redis():

@@ -49,7 +49,7 @@ class TestJobStateUpdaterRedisPersistence:
 
         output_path = "/tmp/output/test.srt"
         result_text = "Final transcribed text content here."
-        segments_data = [{"start": 0, "end": 5, "text": "Test segment"}]
+        segments_data = [{"start": 0, "end": 5, "duration": 5, "text": "Test segment"}]
         file_size_output = 1234
         language_detected = "pt-BR"
 

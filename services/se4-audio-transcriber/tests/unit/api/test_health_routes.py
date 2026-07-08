@@ -25,6 +25,11 @@ class TestHealthRoutes:
             mock_whisper
         )
 
+    @pytest.fixture(autouse=True)
+    def _set_api_key(self, client):
+        """Add API key to client headers."""
+        client.headers["X-API-Key"] = "se4-test-key-2026"
+
     def test_health_returns_200(self, client):
         response = client.get("/health")
         assert response.status_code == 200

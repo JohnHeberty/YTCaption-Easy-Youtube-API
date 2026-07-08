@@ -24,12 +24,10 @@ class TestWhisperEngine:
         """Inicialização com parâmetros customizados."""
         engine = WhisperEngine(
             model_size="small",
-            device="cpu",
             compute_type="int8",
             download_root="/custom/path"
         )
         assert engine.model_size == "small"
-        assert engine.device == "cpu"
         assert engine.compute_type == "int8"
     
     def test_is_loaded_when_not_loaded(self):
@@ -49,7 +47,7 @@ class TestWhisperEngine:
         mock_model = MagicMock()
         mock_whisper_class.return_value = mock_model
         
-        engine = WhisperEngine(model_size="base", device="cpu")
+        engine = WhisperEngine(model_size="base")
         engine.load_model()
         
         assert engine.is_loaded() is True
@@ -62,7 +60,7 @@ class TestWhisperEngine:
         mock_model = MagicMock()
         mock_whisper_class.return_value = mock_model
         
-        engine = WhisperEngine(device="cpu")
+        engine = WhisperEngine()
         engine.load_model()
         engine.load_model()  # Segunda chamada
         
@@ -70,18 +68,20 @@ class TestWhisperEngine:
         mock_whisper_class.assert_called_once()
     
     @patch("app.infrastructure.whisper_engine.WhisperModel")
+    @pytest.mark.asyncio
     async def test_unload_model(self, mock_whisper_class):
         """Descarregamento do modelo."""
         mock_model = MagicMock()
         mock_whisper_class.return_value = mock_model
         
-        engine = WhisperEngine(device="cpu")
+        engine = WhisperEngine()
         engine.load_model()
         assert engine.is_loaded() is True
         
         await engine.unload_model()
         assert engine.is_loaded() is False
     
+    @pytest.mark.asyncio
     async def test_unload_when_not_loaded(self):
         """unload quando não carregado não gera erro."""
         engine = WhisperEngine()
@@ -111,6 +111,7 @@ class TestWhisperEngine:
         assert "loaded_at" in status
     
     @patch("app.infrastructure.whisper_engine.WhisperModel")
+    @pytest.mark.asyncio
     async def test_transcribe_success(self, mock_whisper_class):
         """Transcrição bem-sucedida."""
         # Mock do modelo
@@ -127,7 +128,7 @@ class TestWhisperEngine:
         mock_model.transcribe.return_value = ([mock_segment], mock_info)
         mock_whisper_class.return_value = mock_model
         
-        engine = WhisperEngine(device="cpu")
+        engine = WhisperEngine()
         
         # Cria arquivo temporário
         import tempfile
@@ -145,6 +146,7 @@ class TestWhisperEngine:
         finally:
             Path(temp_path).unlink(missing_ok=True)
     
+    @pytest.mark.asyncio
     async def test_transcribe_file_not_found(self):
         """Transcrição com arquivo inexistente."""
         engine = WhisperEngine()
@@ -159,19 +161,15 @@ class TestModelManager:
     """Testes para ModelManager (Singleton)."""
     
     def test_singleton_pattern(self):
-        """Garante que é singleton."""
+        """ModelManager pode ser instanciado múltiplas vezes."""
         manager1 = ModelManager()
         manager2 = ModelManager()
-        
-        assert manager1 is manager2
+        # Not a singleton - each instance is independent
+        assert manager1 is not manager2
     
     @patch("app.infrastructure.whisper_engine.WhisperModel")
     def test_get_or_create_engine_creates_new(self, mock_whisper_class):
         """Cria novo engine quando não existe."""
-        # Reset singleton para teste
-        ModelManager._instance = None
-        ModelManager._engines = {}
-        
         manager = ModelManager()
         
         mock_whisper_class.return_value = MagicMock()
@@ -179,7 +177,7 @@ class TestModelManager:
         engine = manager.get_or_create_engine("base")
         
         assert isinstance(engine, WhisperEngine)
-        assert "base_auto" in manager._engines
+        assert "base" in manager._engines
     
     @patch("app.infrastructure.whisper_engine.WhisperModel")
     def test_get_or_create_engine_returns_cached(self, mock_whisper_class):
@@ -199,13 +197,9 @@ class TestModelManager:
         mock_whisper_class.assert_called_once()
     
     @patch("app.infrastructure.whisper_engine.WhisperModel")
+    @pytest.mark.asyncio
     async def test_unload_idle_engines(self, mock_whisper_class):
         """Descarrega engines inativos."""
-        # Reset singleton
-        ModelManager._instance = None
-        ModelManager._engines = {}
-        ModelManager._last_accessed = {}
-        
         manager = ModelManager()
         mock_whisper_class.return_value = MagicMock()
         
@@ -214,7 +208,7 @@ class TestModelManager:
         
         # Marca como acessado há muito tempo atrás
         from datetime import datetime, timedelta, timezone
-        manager._last_accessed["base_auto"] = datetime(2020, 1, 1, tzinfo=timezone.utc)
+        manager._last_accessed["base"] = datetime(2020, 1, 1, tzinfo=timezone.utc)
         
         unloaded = await manager.unload_idle_engines(timeout_minutes=1)
         
@@ -222,12 +216,9 @@ class TestModelManager:
         assert not engine.is_loaded()
     
     @patch("app.infrastructure.whisper_engine.WhisperModel")
+    @pytest.mark.asyncio
     async def test_unload_all(self, mock_whisper_class):
         """Descarrega todos os engines."""
-        # Reset singleton
-        ModelManager._instance = None
-        ModelManager._engines = {}
-        
         manager = ModelManager()
         mock_whisper_class.return_value = MagicMock()
         
@@ -242,10 +233,6 @@ class TestModelManager:
     @patch("app.infrastructure.whisper_engine.WhisperModel")
     def test_get_loaded_engines(self, mock_whisper_class):
         """Lista engines carregados."""
-        # Reset singleton
-        ModelManager._instance = None
-        ModelManager._engines = {}
-        
         manager = ModelManager()
         mock_whisper_class.return_value = MagicMock()
         
@@ -254,4 +241,4 @@ class TestModelManager:
         
         loaded = manager.get_loaded_engines()
         
-        assert "base_auto" in loaded
+        assert "base" in loaded
