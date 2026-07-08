@@ -26,7 +26,6 @@ TODAS as Sprints antigas (00-07) foram descontinuadas.
 Esta é a ÚNICA abordagem mantida.
 """
 import cv2
-from paddleocr import PaddleOCR
 from pathlib import Path
 import os
 from typing import Any
@@ -68,6 +67,16 @@ class SubtitleDetectorV2:
                        Use None para processar TODOS os frames (pode causar OOM)
                        300 frames @ 30fps = 10 segundos (suficiente para detecção)
         """
+        self.max_frames = max_frames
+        
+        try:
+            from paddleocr import PaddleOCR
+        except ImportError:
+            raise ImportError(
+                "paddleocr is required for SubtitleDetectorV2. "
+                "Install with: pip install paddleocr"
+            )
+        
         self.ocr = PaddleOCR(
             use_angle_cls=True,
             lang='en',
@@ -228,17 +237,22 @@ class SubtitleDetectorV2:
         return self.detect(video_path)
 
 if __name__ == "__main__":
-    # Teste rápido
+    import sys
+    
+    if len(sys.argv) < 2:
+        print("Usage: python subtitle_detector_v2.py <video_path>")
+        sys.exit(1)
+    
+    video_path = sys.argv[1]
     detector = SubtitleDetectorV2(max_frames=30)
     
-    # Test dataset removed - use real videos for testing
-    if Path(test_video).exists():
-        print(f"\n📹 Testando: {test_video}")
-        has_text, conf, text, meta = detector.detect(test_video)
+    if Path(video_path).exists():
+        print(f"\n📹 Testando: {video_path}")
+        has_text, conf, text, meta = detector.detect(video_path)
         print(f"\n✅ Resultado:")
         print(f"   Tem texto: {has_text}")
         print(f"   Confiança: {conf:.2%}")
         print(f"   Frames processados: {meta['frames_processed']}")
         print(f"   Frames com texto: {meta['frames_with_text']}")
     else:
-        print(f"⚠️  Arquivo de teste não encontrado: {test_video}")
+        print(f"⚠️  Arquivo não encontrado: {video_path}")

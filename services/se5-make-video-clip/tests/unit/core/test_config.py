@@ -33,44 +33,23 @@ from app.core.config import get_settings, Settings, ensure_directories
 def test_get_settings_has_pipeline_directory_keys():
     """
     TEST CRÍTICO: Verifica que get_settings() retorna as chaves de diretório do pipeline.
-    
-    Este é o teste que FALHA em produção causando o erro:
-    KeyError: 'transform_dir' at video_pipeline.py:282
-    
-    Após o bugfix, este teste deve PASSAR.
     """
     settings = get_settings()
     
-    # Verificar que settings é um dicionário
-    assert isinstance(settings, dict), "get_settings() deve retornar um dicionário"
-    
-    # BUGFIX: Verificar que as chaves ausentes agora existem
-    assert "transform_dir" in settings, \
-        "BUGFIX NECESSÁRIO: 'transform_dir' ausente em get_settings()"
-    
-    assert "validate_dir" in settings, \
-        "BUGFIX NECESSÁRIO: 'validate_dir' ausente em get_settings()"
-    
-    assert "approved_dir" in settings, \
-        "BUGFIX NECESSÁRIO: 'approved_dir' ausente em get_settings()"
+    # Settings é um objeto Pydantic com __getitem__/get
+    assert hasattr(settings, "transform_dir"), "transform_dir ausente"
+    assert hasattr(settings, "validate_dir"), "validate_dir ausente"
+    assert hasattr(settings, "approved_dir"), "approved_dir ausente"
     
     # Verificar que os valores são strings válidas (paths)
-    assert isinstance(settings["transform_dir"], str), \
-        "transform_dir deve ser string"
-    assert isinstance(settings["validate_dir"], str), \
-        "validate_dir deve ser string"
-    assert isinstance(settings["approved_dir"], str), \
-        "approved_dir deve ser string"
+    assert isinstance(settings.transform_dir, str), "transform_dir deve ser string"
+    assert isinstance(settings.validate_dir, str), "validate_dir deve ser string"
+    assert isinstance(settings.approved_dir, str), "approved_dir deve ser string"
     
     # Verificar que não são strings vazias
-    assert len(settings["transform_dir"]) > 0, "transform_dir não pode ser vazio"
-    assert len(settings["validate_dir"]) > 0, "validate_dir não pode ser vazio"
-    assert len(settings["approved_dir"]) > 0, "approved_dir não pode ser vazio"
-    
-    print("\n✅ BUGFIX VERIFICADO: Todas as chaves de diretório estão presentes!")
-    print(f"   transform_dir: {settings['transform_dir']}")
-    print(f"   validate_dir: {settings['validate_dir']}")
-    print(f"   approved_dir: {settings['approved_dir']}")
+    assert len(settings.transform_dir) > 0, "transform_dir não pode ser vazio"
+    assert len(settings.validate_dir) > 0, "validate_dir não pode ser vazio"
+    assert len(settings.approved_dir) > 0, "approved_dir não pode ser vazio"
 
 
 # ============================================================================
@@ -97,15 +76,11 @@ def test_settings_class_has_pipeline_directory_fields():
 
 def test_settings_singleton_pattern():
     """Verifica que get_settings() retorna a mesma instância."""
+    from app.core import config
+    config.get_settings.cache_clear()
     settings1 = get_settings()
     settings2 = get_settings()
-    
-    # Modificar um valor no primeiro
-    settings1["_test_marker"] = "test_123"
-    
-    # Verificar que o segundo também tem o marcador (mesma instância)
-    assert settings2.get("_test_marker") == "test_123", \
-        "get_settings() deve retornar a mesma instância (singleton)"
+    assert settings1 is settings2, "get_settings() deve retornar a mesma instância (singleton)"
 
 
 def test_settings_has_all_required_keys():
@@ -114,8 +89,8 @@ def test_settings_has_all_required_keys():
     
     required_keys = [
         # Service
-        "service_name",
-        "version",
+        "app_name",
+        "app_version",
         "port",
         "debug",
         
@@ -147,7 +122,7 @@ def test_settings_has_all_required_keys():
         "ffmpeg_preset",
     ]
     
-    missing_keys = [key for key in required_keys if key not in settings]
+    missing_keys = [key for key in required_keys if not hasattr(settings, key)]
     
     assert len(missing_keys) == 0, \
         f"Chaves ausentes em get_settings(): {missing_keys}"
@@ -328,7 +303,7 @@ def test_all_existing_keys_still_present():
     
     # Campos que DEVIAM existir antes do bugfix
     existing_keys = [
-        "service_name",
+        "app_name",
         "redis_url",
         "audio_upload_dir",
         "shorts_cache_dir",
@@ -338,7 +313,7 @@ def test_all_existing_keys_still_present():
     ]
     
     for key in existing_keys:
-        assert key in settings, \
+        assert hasattr(settings, key), \
             f"REGRESSÃO: Campo existente '{key}' foi removido!"
 
 

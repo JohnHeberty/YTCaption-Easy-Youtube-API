@@ -14,7 +14,9 @@ class Settings(BaseServiceSettings):
 
     # Service Info
     app_name: str = "make-video-clip"
+    service_name: str = "make-video-clip"  # Alias for backward compat
     app_version: str = "1.0.0"
+    version: str = "1.0.0"  # Alias for backward compat
     environment: str = "development"
     debug: bool = False
 
@@ -129,6 +131,9 @@ class Settings(BaseServiceSettings):
 
     def get(self, key: str, default: Any = None) -> Any:
         return getattr(self, key, default)
+
+    def __contains__(self, key: str) -> bool:
+        return hasattr(self, key)
 
 
 @lru_cache(maxsize=1)

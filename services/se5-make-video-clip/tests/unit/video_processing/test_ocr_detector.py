@@ -4,6 +4,37 @@ import subprocess
 from pathlib import Path
 
 
+def _has_ffmpeg_drawtext():
+    """Check if ffmpeg has drawtext filter support."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-filters"],
+            capture_output=True, text=True, timeout=5
+        )
+        return "drawtext" in result.stdout
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def _has_paddleocr():
+    """Check if paddleocr is installed."""
+    try:
+        import paddleocr
+        return True
+    except ImportError:
+        return False
+
+
+requires_drawtext = pytest.mark.skipif(
+    not _has_ffmpeg_drawtext(),
+    reason="ffmpeg drawtext filter not available"
+)
+requires_paddleocr = pytest.mark.skipif(
+    not _has_paddleocr(),
+    reason="paddleocr not installed"
+)
+
+
 @pytest.mark.requires_video
 class TestOCRDetector:
     """Testes de OCR"""
@@ -24,6 +55,7 @@ class TestOCRDetector:
         except ImportError:
             pytest.skip("ocr_detector_advanced.py não existe")
     
+    @requires_drawtext
     def test_create_image_with_text(self, tmp_path):
         """Cria imagem com texto para testar OCR"""
         text_image = tmp_path / "text.png"
@@ -40,6 +72,7 @@ class TestOCRDetector:
         assert text_image.exists()
         assert text_image.stat().st_size > 0
     
+    @requires_drawtext
     def test_create_image_with_subtitle_region(self, tmp_path):
         """Cria imagem simulando região de legenda"""
         subtitle_image = tmp_path / "subtitle_region.png"
@@ -72,6 +105,7 @@ class TestOCRDetector:
         
         assert subtitle_region.exists()
     
+    @requires_paddleocr
     def test_paddleocr_is_primary_engine(self, tmp_path):
         """Valida que PaddleOCR é o motor principal (EasyOCR é legado)"""
         # Verifica que SubtitleDetectorV2 usa PaddleOCR
@@ -97,6 +131,9 @@ class TestOCRDetector:
             from PIL import Image
         except ImportError:
             pytest.skip("Pytesseract/PIL não instalado")
+        
+        if not _has_ffmpeg_drawtext():
+            pytest.skip("ffmpeg drawtext filter not available")
         
         # Criar imagem com texto claro
         text_image = tmp_path / "text_for_pytesseract.png"
@@ -189,6 +226,7 @@ class TestSubtitleRegionDetection:
 class TestOCRValidation:
     """Testes de validação de OCR"""
     
+    @requires_drawtext
     def test_validate_text_detection(self, tmp_path):
         """Valida detecção de texto"""
         # Criar imagem clara com texto grande

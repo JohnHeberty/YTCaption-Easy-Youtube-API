@@ -143,14 +143,15 @@ class TestRequirements:
 
 
 class TestCommonSymlink:
-    """Testa symlink para common."""
+    """Testa que common library está acessível."""
 
-    def test_common_symlink_exists(self):
-        """Verifica que symlink para common existe."""
-        common_path = Path(__file__).parent.parent.parent / "app" / "common"
-
-        assert common_path.exists(), "Symlink para common não existe"
-        assert common_path.is_symlink(), "common existe mas não é um symlink"
+    def test_common_accessible(self):
+        """Verifica que common library está importável."""
+        try:
+            import common
+            assert common is not None
+        except ImportError:
+            pytest.fail("common library não está instalada. Execute: pip install -e ./common")
 
 
 if __name__ == "__main__":

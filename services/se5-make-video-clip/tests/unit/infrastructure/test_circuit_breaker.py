@@ -4,7 +4,7 @@ import time
 from enum import Enum
 
 try:
-    from app.infrastructure.circuit_breaker import CircuitBreaker, CircuitBreakerState
+    from app.infrastructure.circuit_breaker import SimpleCircuitBreaker, circuit_breakers
     CIRCUIT_BREAKER_AVAILABLE = True
 except ImportError:
     CIRCUIT_BREAKER_AVAILABLE = False
@@ -269,24 +269,24 @@ class TestCircuitBreakerModule:
     def test_circuit_breaker_module_imports(self):
         """Módulo circuit_breaker importa corretamente"""
         assert CIRCUIT_BREAKER_AVAILABLE, "circuit_breaker.py deve existir"
-        assert CircuitBreaker is not None
-        assert CircuitBreakerState is not None
+        assert SimpleCircuitBreaker is not None
+        assert circuit_breakers is not None
     
     def test_circuit_states_enum(self):
-        """CircuitBreakerState tem todos os estados"""
+        """Circuit breaker tem estados via is_open"""
         assert CIRCUIT_BREAKER_AVAILABLE, "circuit_breaker.py deve existir"
-        assert CircuitBreakerState.CLOSED == "closed"
-        assert CircuitBreakerState.OPEN == "open"
-        assert CircuitBreakerState.HALF_OPEN == "half_open"
+        cb = SimpleCircuitBreaker(failure_threshold=3)
+        assert cb.is_open is False  # Closed = not open
+        cb.record_failure()
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.is_open is True  # Open after threshold
     
     def test_circuit_breaker_instantiation(self):
-        """CircuitBreaker pode ser instanciado"""
+        """SimpleCircuitBreaker pode ser instanciado"""
         assert CIRCUIT_BREAKER_AVAILABLE, "circuit_breaker.py deve existir"
-        cb = CircuitBreaker(failure_threshold=3, timeout=5, half_open_max_calls=2)
+        cb = SimpleCircuitBreaker(failure_threshold=3)
         assert cb is not None
         assert cb.failure_threshold == 3
-        assert cb.timeout == 5
-        assert cb.half_open_max_calls == 2
-        # Estado inicial vazio (rastreia por service)
-        assert len(cb.failures) == 0
-        assert len(cb.state) == 0
+        assert cb.failure_count == 0
+        assert cb.is_open is False

@@ -11,9 +11,22 @@ import shutil
 import time
 from pathlib import Path
 
-from app.pipeline.video_pipeline import VideoPipeline
+
+def _has_paddleocr():
+    try:
+        import paddleocr
+        return True
+    except ImportError:
+        return False
 
 
+requires_paddleocr = pytest.mark.skipif(
+    not _has_paddleocr(),
+    reason="paddleocr not installed"
+)
+
+
+@requires_paddleocr
 class TestVideoPipelineInit:
     """Tests for VideoPipeline initialization"""
     
@@ -72,6 +85,7 @@ class TestVideoPipelineInit:
         assert pipeline.video_builder is not None
 
 
+@requires_paddleocr
 class TestEnsureDirectories:
     """Tests for directory creation"""
     
@@ -95,6 +109,7 @@ class TestEnsureDirectories:
             assert full_path.is_dir()
 
 
+@requires_paddleocr
 class TestCleanupOrphanedFiles:
     """
     🔴 CRITICAL TESTS - Method that caused the production bug
@@ -174,6 +189,7 @@ class TestCleanupOrphanedFiles:
         assert recent.exists(), "Recent file should be preserved"
 
 
+@requires_paddleocr
 class TestMoveToValidation:
     """Tests for move_to_validation method"""
     
@@ -220,6 +236,7 @@ class TestMoveToValidation:
 
 
 @pytest.mark.asyncio
+@requires_paddleocr
 class TestTransformVideo:
     """Tests for transform_video method"""
     
@@ -251,6 +268,7 @@ class TestTransformVideo:
 
 
 @pytest.mark.asyncio
+@requires_paddleocr
 class TestValidateVideo:
     """Tests for validate_video method"""
     
@@ -283,6 +301,7 @@ class TestValidateVideo:
 
 
 @pytest.mark.asyncio
+@requires_paddleocr
 class TestApproveRejectFlow:
     """Tests for approve/reject flow"""
     
@@ -330,6 +349,7 @@ class TestApproveRejectFlow:
 
 @pytest.mark.asyncio
 @pytest.mark.slow
+@requires_paddleocr
 class TestPipelineFullFlow:
     """Tests for complete pipeline flow"""
     
@@ -370,6 +390,7 @@ class TestPipelineFullFlow:
             assert pipeline.status_store.is_rejected(video_id)
 
 
+@requires_paddleocr
 class TestPipelineModuleStructure:
     """Tests for pipeline module structure"""
     

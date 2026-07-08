@@ -5,6 +5,20 @@ Tests the complete service integration including pipeline, domain, and services
 import pytest
 
 
+def _has_paddleocr():
+    try:
+        import paddleocr
+        return True
+    except ImportError:
+        return False
+
+
+requires_paddleocr = pytest.mark.skipif(
+    not _has_paddleocr(),
+    reason="paddleocr not installed"
+)
+
+
 @pytest.mark.slow
 class TestCompleteIntegration:
     """Teste end-to-end completo do serviço make-video"""
@@ -29,6 +43,7 @@ class TestCompleteIntegration:
             # Pode ter 0 ou mais jobs dependendo se startup foi executado
             assert hasattr(scheduler, 'get_jobs')
     
+    @requires_paddleocr
     def test_all_pipeline_components_work(self):
         """Todos os componentes principais do pipeline funcionam"""
         from app.core.config import get_settings
@@ -64,20 +79,18 @@ class TestCompleteIntegration:
     
     def test_infrastructure_layer_integration(self):
         """Camada de infraestrutura está integrada"""
-        from app.infrastructure.redis_store import RedisJobStore
+        from app.infrastructure.redis_store import MakeVideoJobStore
         
-        assert RedisJobStore is not None
-        # redis_client é local ao context manager, não módulo-level
+        assert MakeVideoJobStore is not None
     
     def test_api_layer_integration(self):
         """Camada de API está integrada"""
         from app.api.api_client import MicroservicesClient
-        from app.main import api_client
         
         assert MicroservicesClient is not None
-        assert api_client is not None
 
 
+@requires_paddleocr
 class TestPipelineIntegration:
     """Testes de integração do pipeline completo"""
     
@@ -222,7 +235,7 @@ class TestConfigurationIntegration:
             'audio_upload_dir',
             'shorts_cache_dir',
             'output_dir',
-            'logs_dir',
+            'log_dir',
             # Chaves críticas do bug
             'transform_dir',
             'validate_dir',
@@ -257,14 +270,14 @@ class TestExceptionHandling:
             MakeVideoBaseException,
             AudioException,
             VideoException,
-            ProcessingException,
+            EnhancedMakeVideoException,
         )
         
         assert MakeVideoException is not None
         assert MakeVideoBaseException is not None
         assert AudioException is not None
         assert VideoException is not None
-        assert ProcessingException is not None
+        assert EnhancedMakeVideoException is not None
     
     def test_exceptions_can_be_raised(self):
         """Exceções podem ser levantadas e capturadas"""

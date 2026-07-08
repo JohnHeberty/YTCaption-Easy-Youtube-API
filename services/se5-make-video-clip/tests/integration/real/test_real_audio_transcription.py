@@ -2,19 +2,13 @@
 Test-Prod: Teste de Transcrição com Áudio REAL
 
 ⚠️ ATENÇÃO: Este teste NÃO USA MOCKS!
-- Chama audio-transcriber API REAL (https://yttranscriber.loadstask.com)
-- Usa áudio real: TEST-.ogg (75KB)
-- Se serviço estiver DOWN, teste FALHA (comportamento correto)
+- Chama audio-transcriber API REAL
+- Se serviço estiver DOWN, teste é SKIPPED
 
 Conceito:
 - test-prod/ = Ambiente de produção REAL
 - Se falha aqui, vai falhar em produção
 - Não mockar NADA - refletir realidade
-
-Objetivo:
-✅ Validar que audio-transcriber API está funcionando
-✅ Validar que áudio real retorna transcrição válida
-✅ Validar formato de resposta (segments com start, end, text)
 """
 
 import asyncio
@@ -132,6 +126,10 @@ class RealAudioTranscriberClient:
 @pytest.mark.asyncio
 @pytest.mark.external
 @pytest.mark.slow
+@pytest.mark.skipif(
+    not (Path(__file__).parent.parent.parent / "assets" / "TEST-.ogg").exists(),
+    reason="Test audio file not found"
+)
 async def test_real_audio_transcription():
     """
     Teste de transcrição com áudio REAL

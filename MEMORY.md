@@ -1,6 +1,62 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-07)
+## Última sessão (2026-07-08)
+
+### 🟢 Test Fixes — SE5 + SE6 Broken Tests (2026-07-08)
+
+**Objetivo:** Corrigir todos os testes quebrados nos serviços SE5, SE6, SE8.
+
+**SE5 — exceptions_v2.py (commit `0bc131d8`):**
+- ErrorCode enum: +3 códigos (`API_TIMEOUT=4009`, `API_RATE_LIMIT=4006`, `CIRCUIT_BREAKER_OPEN=4010`)
+- +5 classes: `ExternalServiceException`, `CircuitBreakerOpenException`, `AudioInvalidFormatException`, `AudioTooShortException`, `AudioTooLongException`
+- +1 alias: `TranscriberUnavailableException` → `AudioTranscriberUnavailableException`
+- Refatorado: `TranscriptionTimeoutException` (aceita `job_id`/`max_polls` kwargs, usa `API_TIMEOUT`)
+- Refatorado: `APIRateLimitException` (aceita `service_name`/`retry_after` kwargs)
+- Refatorado: `VideoDownloaderUnavailableException` (default message)
+- Fix: `reason` agora armazenado em `details["reason"]` para serialização
+- Fix teste: `service` name assertion (`"audio-transcriber"` → `"se4-audio-transcriber"`)
+
+**SE6 — test fixes (commit `0bc131d8`):**
+- `test_models.py`: import de `app.domain.models` (não `app.models`), usar `YouTubeSearchJob` (não `Job`)
+- `test_e2e.py`: import de `app.domain.models`
+- `test_integration.py`: mock `job_store`, headers API key, `raise_server_exceptions=False` para Celery
+
+**Resultado:**
+| Service | Testes | Status |
+|---------|--------|--------|
+| SE5 | 198 passed | Pré-existente: 12 failed, 43 errors (paddleocr) |
+| SE6 | 42 unit passed | Pré-existente: 1 error (test_search_routes) |
+| SE8 | 103 passed | Pré-existente: 1 failed (auth test) |
+| SE9 | 27 passed | ✅ |
+| SE10 | 62 passed | ✅ |
+| SE11 | 58 passed | ✅ |
+
+### 🟢 Docker Fixes — SE5/SE6/SE8 Containers (2026-07-08)
+
+**Objetivo:** Build e rodar containers Docker para SE5, SE6, SE8.
+
+**SE8 Docker fixes (commit `a090f7c0`):**
+- `docker-compose.yml`: context paths corrigidos (`../..` → `../../..`)
+- `Dockerfile`: adicionado `opencv-python-headless` + `Pillow` para API stage
+- `Dockerfile.gpu`: `opencv-python-headless==4.8.0.76` para Python 3.11
+- `face_restoration.py`: removido import top-level de `torch` (lazy only)
+
+**Containers rodando:**
+| Container | Serviço | Status |
+|-----------|---------|--------|
+| `ytcaption-make-video-clip` | SE5 | ✅ Healthy |
+| `ytcaption-make-video-clip-celery` | SE5 | ✅ Healthy |
+| `ytcaption-make-video-clip-celery-beat` | SE5 | ✅ Healthy |
+| `youtube-search-api` | SE6 | ✅ Healthy |
+| `youtube-search-celery-worker` | SE6 | ✅ Healthy |
+| `youtube-search-celery-beat` | SE6 | ✅ Healthy |
+| `image-engine-api` | SE8 | ✅ Healthy |
+| `image-engine-worker` | SE8 | ✅ Healthy |
+| `se9-make-video-img` | SE9 | ✅ Healthy |
+| `ytcaption-se10-clothes-segmentation` | SE10 | ✅ Healthy |
+| `se11-clothes-removal` | SE11 | ✅ Healthy |
+
+## Sessão anterior (2026-07-07)
 
 ### 🟢 SE11 Pipeline Template Method — SOLID Refactoring (2026-07-07)
 

@@ -119,6 +119,10 @@ class RealAudioTranscriberClient:
 @pytest.mark.asyncio
 @pytest.mark.external
 @pytest.mark.slow
+@pytest.mark.skipif(
+    not (Path(__file__).parent.parent.parent / "assets" / "TEST-.ogg").exists(),
+    reason="Test audio file not found"
+)
 async def test_real_pipeline_complete():
     """
     Teste de pipeline completo com áudio REAL e serviços REAIS
