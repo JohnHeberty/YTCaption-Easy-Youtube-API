@@ -246,12 +246,14 @@ class DomainJobProcessor:
             JobResult com informações do vídeo final
         """
         
-        # Extrair dados do contexto
-        audio_duration = context.data.get('audio_duration', 0.0)
-        selected_shorts = context.data.get('selected_shorts', [])
-        final_video_path = Path(context.data.get('final_video_path', ''))
-        video_info = context.data.get('video_info', {})
-        segments = context.data.get('segments', [])
+        # Extrair dados do contexto via resultados dos stages
+        audio_result = context.get_result('analyze_audio')
+        audio_duration = audio_result.data.get('audio_duration', 0.0) if audio_result else 0.0
+        selected_shorts = context.selected_shorts or []
+        final_video_path = context.final_video_path or Path('')
+        video_info = context.video_info or {}
+        segments_result = context.get_result('generate_subtitles')
+        segments = segments_result.data.get('segments', []) if segments_result else []
         
         # Calcular tamanho do arquivo
         file_size = final_video_path.stat().st_size if final_video_path.exists() else 0

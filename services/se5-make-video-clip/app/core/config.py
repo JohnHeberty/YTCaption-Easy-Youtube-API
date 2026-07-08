@@ -40,6 +40,7 @@ class Settings(BaseServiceSettings):
     validate_dir: str = "./data/validate"
     approved_dir: str = "./data/approved/videos"
     output_dir: str = "./data/approved/output"
+    temp_dir: str = "/tmp/make-video-temp"
     log_dir: str = "./data/logs"
 
     # Logging

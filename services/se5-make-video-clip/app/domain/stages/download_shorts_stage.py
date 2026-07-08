@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..job_stage import JobStage, StageContext
+from ...shared.events import EventType
 from ...shared.exceptions import VideoProcessingException, ErrorCode
 from common.log_utils import get_logger
 
@@ -154,7 +155,7 @@ class DownloadShortsStage(JobStage):
                         progress = 70.0
                     
                     await context.publish_event(
-                        context.event_publisher._event_type if context.event_publisher else None,
+                        EventType.VIDEO_DOWNLOADING,
                         {'progress': progress}
                     )
             

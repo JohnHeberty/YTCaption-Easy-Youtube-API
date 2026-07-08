@@ -75,24 +75,24 @@ class AnalyzeAudioStage(JobStage):
         logger.info(f"🎵 Audio duration: {audio_duration:.2f}s")
         
         # Validate duration constraints
-        if audio_duration < ProcessingLimits.MIN_AUDIO_DURATION:
+        if audio_duration < ProcessingLimits.MIN_AUDIO_DURATION_SECONDS:
             raise AudioProcessingException(
-                f"Audio too short: {audio_duration:.1f}s (minimum {ProcessingLimits.MIN_AUDIO_DURATION}s)",
+                f"Audio too short: {audio_duration:.1f}s (minimum {ProcessingLimits.MIN_AUDIO_DURATION_SECONDS}s)",
                 error_code=ErrorCode.AUDIO_TOO_SHORT,
                 details={
                     'duration': audio_duration,
-                    'minimum': ProcessingLimits.MIN_AUDIO_DURATION
+                    'minimum': ProcessingLimits.MIN_AUDIO_DURATION_SECONDS
                 },
                 job_id=context.job_id,
             )
         
-        if audio_duration > ProcessingLimits.MAX_AUDIO_DURATION:
+        if audio_duration > ProcessingLimits.MAX_AUDIO_DURATION_SECONDS:
             raise AudioProcessingException(
-                f"Audio too long: {audio_duration:.1f}s (maximum {ProcessingLimits.MAX_AUDIO_DURATION}s)",
+                f"Audio too long: {audio_duration:.1f}s (maximum {ProcessingLimits.MAX_AUDIO_DURATION_SECONDS}s)",
                 error_code=ErrorCode.AUDIO_TOO_LONG,
                 details={
                     'duration': audio_duration,
-                    'maximum': ProcessingLimits.MAX_AUDIO_DURATION
+                    'maximum': ProcessingLimits.MAX_AUDIO_DURATION_SECONDS
                 },
                 job_id=context.job_id,
             )

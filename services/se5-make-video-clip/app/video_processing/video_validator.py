@@ -4,7 +4,6 @@ from __future__ import annotations
 Video Validator com OCR e TRSD
 
 Valida integridade de vídeo e detecta legendas embutidas usando OCR + TRSD
-ATUALIZADO: Multi-Engine OCR (PaddleOCR + Tesseract) + Visual Features
 """
 
 import subprocess
@@ -15,21 +14,17 @@ import os
 import re
 import hashlib
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 from pathlib import Path
 
-# TRSD imports (Sprint 04)
 from app.subtitle_processing.subtitle_detector import TextRegionExtractor
-from app.subtitle_processing.temporal_tracker import TemporalTracker
-from app.subtitle_processing.subtitle_classifier_v2 import SubtitleClassifierV2  # Sprint 08 - Reescrito para 90%+ precisão
-from .frame_extractor import FFmpegFrameExtractor  # Sprint 05
-from app.infrastructure.telemetry import TRSDTelemetry, DebugArtifactSaver, PerformanceMetrics  # Sprint 07
+from app.subtitle_processing.subtitle_classifier_v2 import SubtitleClassifierV2
+from .frame_extractor import FFmpegFrameExtractor, FrameExtractor
+from app.infrastructure.telemetry import TRSDTelemetry, DebugArtifactSaver
 from app.core.config import Settings
-
-# PaddleOCR + Visual Features
-from .ocr_detector_advanced import get_ocr_detector, PaddleOCRDetector
+from .ocr_detector_advanced import get_ocr_detector
 from .visual_features import VisualFeaturesAnalyzer
+from .ocr_detectors import TRSDDetector, LegacyOCRDetector, VideoIntegrityError
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -58,10 +53,7 @@ def _get_ocr_gpu_setting() -> bool:
     
     return False
 
-class VideoIntegrityError(Exception):
-    """Exceção para vídeos corrompidos ou inválidos"""
-    pass
-
+    
 class VideoValidator:
     """
     Valida vídeos e detecta legendas embutidas usando PaddleOCR + Visual Features
@@ -77,56 +69,63 @@ class VideoValidator:
     """
     
     def __init__(self, min_confidence: float = 0.15, frames_per_second: int | None = None, max_frames: int | None = None, redis_store: Any = None) -> None:
-        """
-        🚨 FORÇA BRUTA 100% FRAMES - ZERO TOLERÂNCIA
-        
-        Args:
-            min_confidence: Confiança mínima para detectar texto (padrão: 0.15 = ultra sensível)
-            frames_per_second: IGNORADO - processa 100% dos frames
-            max_frames: IGNORADO - processa 100% dos frames
-            redis_store: Optional RedisJobStore for cache
-        """
         self.min_confidence = min_confidence
         self.frames_per_second = frames_per_second
         self.max_frames = max_frames
         self.redis_store = redis_store
         
-        # P2 Optimization: Lock para thread-safe operations
         self._ocr_lock = threading.Lock()
         
-        # Determinar se usar GPU (via variável de ambiente)
         use_gpu = _get_ocr_gpu_setting()
         mode = "GPU" if use_gpu else "CPU"
         
-        # PaddleOCR Detector (singleton)
         logger.info(f"Initializing PaddleOCR system ({mode})...")
-        self.ocr_detector = get_ocr_detector()  # Singleton PaddleOCR
+        self.ocr_detector = get_ocr_detector()
         self.use_gpu = use_gpu
         
-        # Visual Features Analyzer
         self.visual_analyzer = VisualFeaturesAnalyzer()
-        logger.info("✅ Visual Features Analyzer initialized")
+        logger.info("Visual Features Analyzer initialized")
         
-        # TRSD Components (Sprint 04)
+        self._frame_extractor = FrameExtractor()
+        
         self.config = Settings()
         self.trsd_enabled = self.config.trsd_enabled
         
         if self.trsd_enabled:
             self.text_extractor = TextRegionExtractor(self.config)
-            self.classifier = SubtitleClassifierV2(self.config, fps=frames_per_second)  # Sprint 08 - V2
-            self.frame_extractor = FFmpegFrameExtractor(self.config.trsd_downscale_width)  # Sprint 05
-            self.telemetry = TRSDTelemetry(enabled=True)  # Sprint 07
-            self.debug_saver = DebugArtifactSaver(  # Sprint 07
+            self.classifier = SubtitleClassifierV2(self.config, fps=frames_per_second)
+            self.trsd_frame_extractor = FFmpegFrameExtractor(self.config.trsd_downscale_width)
+            self.telemetry = TRSDTelemetry(enabled=True)
+            self.debug_saver = DebugArtifactSaver(
                 enabled=self.config.trsd_save_debug_artifacts,
                 base_dir='data/logs/debug/artifacts'
+            )
+            self._trsd_detector = TRSDDetector(
+                config=self.config,
+                text_extractor=self.text_extractor,
+                classifier=self.classifier,
+                frame_extractor=self.trsd_frame_extractor,
+                telemetry=self.telemetry,
+                debug_saver=self.debug_saver,
+                get_video_info=self.get_video_info,
             )
             logger.info("TRSD enabled - using intelligent temporal detection")
         else:
             logger.info("TRSD disabled - using legacy OCR detection")
         
+        self._legacy_detector = LegacyOCRDetector(
+            ocr_detector=self.ocr_detector,
+            visual_analyzer=self.visual_analyzer,
+            ocr_lock=self._ocr_lock,
+            min_confidence=self.min_confidence,
+            frames_per_second=self.frames_per_second,
+            max_frames=self.max_frames,
+            ensure_supported_codec=self._ensure_supported_codec,
+        )
+        
         logger.info(
-            f"VideoValidator initialized - 🚨 FORÇA BRUTA 100% FRAMES "
-            f"(min_confidence={min_confidence}, ZERO sampling, ZERO limits)"
+            f"VideoValidator initialized "
+            f"(min_confidence={min_confidence})"
         )
     
     def validate_video_integrity(self, video_path: str, timeout: int = 10) -> bool:
@@ -163,252 +162,35 @@ class VideoValidator:
             logger.error(f"❌ Video integrity check failed: {video_path} - {e}")
             raise VideoIntegrityError(f"Video validation failed: {e}")
     
-    def _detect_with_trsd(self, video_path: str, timeout: int = 60) -> tuple[bool, float, str, dict[str, Any]]:
-        """
-        Detecção inteligente com TRSD (Sprint 04)
-        
-        Pipeline:
-        1. Extrai frames com OpenCV
-        2. Para cada frame:
-           - TextRegionExtractor detecta texto por ROI
-        3. TemporalTracker rastreia texto entre frames
-        4. SubtitleClassifier decide se é legenda ou texto estático
-        
-        Args:
-            video_path: Path do vídeo
-            timeout: Timeout em segundos
-        
-        Returns:
-            Tuple (has_subtitles, confidence, reason, debug_info)
-        """
-        start_time = time.time()
-        
-        try:
-            # Sprint 07: Start timing
-            self.telemetry.start_timer('total')
-            
-            # Obter duração do vídeo
-            info = self.get_video_info(video_path)
-            duration = info['duration']
-            
-            # Determinar frames a analisar
-            timestamps = self._get_sample_timestamps(duration)
-            
-            logger.info(f"TRSD: Analyzing {len(timestamps)} frames from {duration:.1f}s video")
-            
-            # Sprint 05: Extração otimizada de frames
-            self.telemetry.start_timer('frame_extraction')
-            extraction_result = self.frame_extractor.extract_frames(
-                video_path, timestamps, timeout
-            )
-            frame_extraction_ms = self.telemetry.stop_timer('frame_extraction')
-            
-            logger.info(
-                f"Frame extraction: {extraction_result.method}, "
-                f"{extraction_result.extraction_time_ms:.0f}ms, "
-                f"{len(extraction_result.frames)} frames"
-            )
-            
-            # Criar tracker temporal
-            tracker = TemporalTracker(self.config)
-            
-            # Sprint 07: Track OCR time
-            self.telemetry.start_timer('ocr')
-            
-            frames_analyzed = 0
-            total_lines_detected = 0
-            
-            for frame_idx, (frame, ts) in enumerate(extraction_result.frames):
-                frames_analyzed += 1
-                
-                # Detectar texto com TextRegionExtractor
-                text_lines = self.text_extractor.extract_from_frame(frame, ts, frame_idx)
-                total_lines_detected += len(text_lines)
-                
-                # Atualizar tracker
-                tracker.update(text_lines, frame_idx)
-                
-                # Early exit: se já temos evidência clara de legenda dinâmica
-                if frames_analyzed >= 10 and frame_idx % 5 == 0:
-                    # Calcular métricas parciais
-                    partial_tracks = tracker.active_tracks
-                    for track in partial_tracks:
-                        track.compute_metrics(frames_analyzed)
-                    
-                    # Classificar parcialmente
-                    self.telemetry.start_timer('classification')
-                    result = self.classifier.decide(partial_tracks)
-                    classification_ms = self.telemetry.stop_timer('classification')
-                    
-                    # Se detectou legenda com alta confiança, early exit
-                    if result.has_subtitles and result.confidence >= 0.85:
-                        ocr_time_ms = self.telemetry.stop_timer('ocr')
-                        total_ms = self.telemetry.stop_timer('total')
-                        elapsed_ms = (time.time() - start_time) * 1000
-                        
-                        # Sprint 07: Record telemetry
-                        video_id = Path(video_path).stem
-                        metrics = PerformanceMetrics(
-                            total_time_ms=total_ms,
-                            frame_extraction_ms=frame_extraction_ms,
-                            ocr_time_ms=ocr_time_ms,
-                            tracking_time_ms=0.0,
-                            classification_time_ms=classification_ms,
-                            frames_analyzed=frames_analyzed,
-                            tracks_created=len(partial_tracks),
-                            lines_detected=total_lines_detected
-                        )
-                        
-                        self.telemetry.record_decision(
-                            video_id=video_id,
-                            decision='block',
-                            confidence=result.confidence,
-                            reason=result.reason,
-                            method='TRSD',
-                            metrics=metrics,
-                            tracks_by_category=result.tracks_by_category,
-                            decision_logic=result.decision_logic,
-                            early_exit=True,
-                            debug_info={'extraction_method': extraction_result.method}
-                        )
-                        
-                        # Save debug artifacts
-                        self.debug_saver.save_detection_artifacts(
-                            video_id, extraction_result.frames, partial_tracks, result, metrics
-                        )
-                        
-                        logger.warning(
-                            f"⚠️ TRSD EARLY EXIT: Detected subtitles @ frame {frame_idx} "
-                            f"(conf={result.confidence:.2f}, {elapsed_ms:.0f}ms)"
-                        )
-                        
-                        return (
-                            result.has_subtitles,
-                            result.confidence,
-                            result.reason,
-                            {
-                                'method': 'TRSD',
-                                'early_exit': True,
-                                'frames_analyzed': frames_analyzed,
-                                'tracks': len(result.subtitle_tracks)
-                            }
-                        )
-            
-            # Note: No VideoCapture to release - using frame extractor
-            ocr_time_ms = self.telemetry.stop_timer('ocr')
-            final_tracks = tracker.finalize()
-            
-            # Classificar resultado final
-            self.telemetry.start_timer('classification')
-            result = self.classifier.decide(final_tracks)
-            classification_ms = self.telemetry.stop_timer('classification')
-            
-            total_ms = self.telemetry.stop_timer('total')
-            elapsed_ms = (time.time() - start_time) * 1000
-            
-            # Sprint 07: Record telemetry
-            video_id = Path(video_path).stem
-            metrics = PerformanceMetrics(
-                total_time_ms=total_ms,
-                frame_extraction_ms=frame_extraction_ms,
-                ocr_time_ms=ocr_time_ms,
-                tracking_time_ms=0.0,
-                classification_time_ms=classification_ms,
-                frames_analyzed=frames_analyzed,
-                tracks_created=len(final_tracks),
-                lines_detected=total_lines_detected
-            )
-            
-            self.telemetry.record_decision(
-                video_id=video_id,
-                decision='block' if result.has_subtitles else 'approve',
-                confidence=result.confidence,
-                reason=result.reason,
-                method='TRSD',
-                metrics=metrics,
-                tracks_by_category=result.tracks_by_category,
-                decision_logic=result.decision_logic,
-                early_exit=False,
-                debug_info={'extraction_method': extraction_result.method}
-            )
-            
-            # Save debug artifacts
-            self.debug_saver.save_detection_artifacts(
-                video_id, extraction_result.frames, final_tracks, result, metrics
-            )
-            
-            logger.info(
-                f"{'⚠️' if result.has_subtitles else '✅'} TRSD: {result.reason} "
-                f"(conf={result.confidence:.2f}, {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
-            )
-            
-            return (
-                result.has_subtitles,
-                result.confidence,
-                result.reason,
-                {
-                    'method': 'TRSD',
-                    'early_exit': False,
-                    'frames_analyzed': frames_analyzed,
-                    'tracks_by_category': result.tracks_by_category
-                }
-            )
-        
-        except Exception as e:
-            logger.error(f"TRSD detection failed: {e}", exc_info=True)
-            # Reraise para fallback
-            raise
-    
     def has_embedded_subtitles(self, video_path: str, timeout: int = 300, force_revalidation: bool = False) -> tuple[bool, float, str, int]:
-        """
-        Detecta legendas embutidas no vídeo usando TRSD (se habilitado) ou OCR legado
-        
-        🚨 FORÇA BRUTA 100% FRAMES quando force_revalidation=True
-        
-        Args:
-            video_path: Path do vídeo
-            timeout: Timeout em segundos (aumentado para 300s para processar 100% frames)
-            force_revalidation: Se True, IGNORA cache e força validação 100% frames
-        
-        Returns:
-            Tuple (has_subtitles, confidence, sample_text, frames_processed)
-        """
-        # 🚨 REVALIDAÇÃO: Ignorar cache completamente
         if not force_revalidation:
-            # ===== Cache apenas quando NÃO for revalidação =====
             cached_result = self._check_cache(video_path)
             if cached_result is not None:
-                logger.info(f"✅ Cache hit: {video_path}")
-                # Cache pode ter 3 ou 4 valores, compatibilidade
+                logger.info(f"Cache hit: {video_path}")
                 if len(cached_result) == 3:
-                    return cached_result + (-1,)  # -1 indica cache (frames desconhecidos)
+                    return cached_result + (-1,)
                 return cached_result
         else:
-            logger.info(f"🚨 REVALIDAÇÃO FORÇADA: Ignorando cache, processando 100% frames")
+            logger.info(f"REVALIDATION FORCED: Ignoring cache")
         
-        # Sprint 04: Tentar TRSD primeiro (se habilitado)
         if self.trsd_enabled:
             try:
-                logger.info(f"🔍 Attempting TRSD detection: {video_path}")
-                has_subs, conf, reason, debug_info = self._detect_with_trsd(video_path, timeout)
-                logger.info(f"✅ TRSD detection completed: {reason}")
+                logger.info(f"Attempting TRSD detection: {video_path}")
+                has_subs, conf, reason, debug_info = self._trsd_detector.detect(video_path, timeout)
+                logger.info(f"TRSD detection completed: {reason}")
                 
-                result = (has_subs, conf, reason, -1)  # -1 = frames não aplicável para TRSD
+                result = (has_subs, conf, reason, -1)
                 
-                # Salvar em cache apenas se NÃO for revalidação
                 if not force_revalidation:
                     self._save_cache(video_path, result)
                 
                 return result
             
             except Exception as e:
-                logger.warning(f"⚠️ TRSD detection failed, falling back to legacy: {e}")
-                # Continue para método legado
+                logger.warning(f"TRSD detection failed, falling back to legacy: {e}")
         
-        # Método legado (ou fallback)
-        result = self._detect_with_legacy_ocr(video_path, timeout)
+        result = self._legacy_detector.detect(video_path, timeout)
         
-        # Salvar em cache apenas se NÃO for revalidação
         if not force_revalidation:
             self._save_cache(video_path, result)
         
@@ -429,7 +211,7 @@ class VideoValidator:
             Tuple (text, combined_confidence, timestamp) se encontrou texto, None caso contrário
             combined_confidence: Score combinado de OCR (0-1) + Visual Features (0-100)
         """
-        frame = self._extract_frame(working_path, ts)
+        frame = self._frame_extractor.extract_frame(working_path, ts)
         if frame is None:
             return None
         
@@ -463,254 +245,6 @@ class VideoValidator:
         combined_confidence = (max_ocr_conf * 0.6) + (visual_score * 0.4)
         
         return (text, combined_confidence, ts)
-    
-    def _detect_with_legacy_ocr(self, video_path: str, timeout: int = 300) -> tuple[bool, float, str, int]:
-        """
-        🚨 FORÇA BRUTA 100% FRAMES - ZERO TOLERÂNCIA
-        
-        Processa TODOS os frames do vídeo sequencialmente.
-        UMA LETRA DETECTADA = BAN IMEDIATO
-        
-        Args:
-            video_path: Caminho do vídeo
-            timeout: Timeout em segundos (aumentado para 300s para processar 100% frames)
-        
-        Returns:
-            Tuple (has_subtitles, confidence, text)
-        """
-        start_time = time.time()
-        working_path = video_path
-        cleanup_path = None
-        
-        try:
-            # Converter para codec suportado se necessário (ex.: AV1 → H.264)
-            working_path, cleanup_path = self._ensure_supported_codec(video_path)
-            
-            # Abrir vídeo com OpenCV
-            cap = cv2.VideoCapture(working_path)
-            if not cap.isOpened():
-                raise VideoIntegrityError(f"Cannot open video: {working_path}")
-            
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            duration = total_frames / fps if fps > 0 else 0
-            
-            # Calcular step e limite baseado na config
-            frame_step = max(1, int(fps / self.frames_per_second)) if self.frames_per_second else 1
-            max_frames_to_process = self.max_frames if self.max_frames else total_frames
-            
-            logger.info(
-                f"🔍 OCR: processando até {max_frames_to_process} frames "
-                f"(step={frame_step}, {fps:.2f} fps, {duration:.1f}s vídeo)"
-            )
-            
-            frames_analyzed = 0
-            all_detections = []
-            first_text_detected = None
-            frame_count = 0
-            
-            # 🚨 PROCESSAR FRAMES COM SAMPLING
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                frame_count += 1
-                if frame_count % frame_step != 0:
-                    continue
-                
-                if frames_analyzed >= max_frames_to_process:
-                    break
-                
-                frames_analyzed += 1
-                
-                # Log progresso a cada 100 frames
-                if frames_analyzed % 100 == 0:
-                    logger.debug(f"   Processando frame {frames_analyzed}/{total_frames}...")
-                
-                # OCR no frame completo
-                try:
-                    with self._ocr_lock:
-                        ocr_results = self.ocr_detector.detect_text(frame)
-                    
-                    # Verificar se encontrou texto
-                    if ocr_results:
-                        all_texts = []
-                        max_conf = 0.0
-                        
-                        for result in ocr_results:
-                            if result.text.strip():
-                                all_texts.append(result.text)
-                                max_conf = max(max_conf, result.confidence)
-                        
-                        if all_texts:
-                            text = ' '.join(all_texts).strip()
-                            timestamp = frames_analyzed / fps if fps > 0 else frames_analyzed
-                            
-                            all_detections.append((text, max_conf, timestamp))
-                            
-                            # 🚨 PRIMEIRA DETECÇÃO = GUARDAR PARA RETORNO
-                            if first_text_detected is None and max_conf >= self.min_confidence:
-                                first_text_detected = (text, max_conf, timestamp)
-                                logger.warning(
-                                    f"🚨 TEXTO DETECTADO no frame {frames_analyzed}/{total_frames} "
-                                    f"(ts={timestamp:.1f}s, conf={max_conf:.2f}): {text[:80]}"
-                                )
-                
-                except Exception as e:
-                    # Ignorar erros de frame individual
-                    logger.debug(f"Erro no frame {frames_analyzed}: {e}")
-                    continue
-            
-            cap.release()
-            
-            elapsed_ms = (time.time() - start_time) * 1000
-            
-            # ZERO TOLERÂNCIA: SE DETECTOU QUALQUER TEXTO ACIMA DO THRESHOLD = BAN
-            if first_text_detected:
-                text, conf, ts = first_text_detected
-                logger.error(
-                    f"🚨 EMBEDDED SUBTITLES DETECTED - BAN IMEDIATO!\n"
-                    f"   Frames analisados: {frames_analyzed}/{total_frames}\n"
-                    f"   Total detecções: {len(all_detections)}\n"
-                    f"   Primeira detecção: frame @ {ts:.1f}s (conf={conf:.2f})\n"
-                    f"   Texto: {text[:100]}\n"
-                    f"   Tempo: {elapsed_ms:.0f}ms"
-                )
-                return True, conf, text, frames_analyzed
-            
-            # Se não encontrou texto acima do threshold
-            logger.info(
-                f"✅ Vídeo APROVADO - Nenhum texto detectado\n"
-                f"   Frames analisados: {frames_analyzed}/{total_frames}\n"
-                f"   Detecções baixa confiança: {len(all_detections)}\n"
-                f"   Tempo: {elapsed_ms:.0f}ms"
-            )
-            return False, 0.0, "", frames_analyzed
-            
-        except Exception as e:
-            logger.error(f"❌ OCR detection error: {e}", exc_info=True)
-            return False, 0.0, f"Error: {e}", 0
-        
-        finally:
-            # Limpar arquivo transcodado temporário, se criado
-            if cleanup_path:
-                try:
-                    Path(cleanup_path).unlink(missing_ok=True)
-                except Exception:
-                    logger.debug(f"Could not remove temp transcoded file: {cleanup_path}")
-    
-    def _get_all_frame_indices(self, video_path: str) -> list[int]:
-        """
-        🚨 FORÇA BRUTA: Retorna TODOS os índices de frames do vídeo
-        
-        ZERO SAMPLING, ZERO LIMITS - processa 100% dos frames
-        
-        Args:
-            video_path: Caminho do vídeo
-        
-        Returns:
-            Lista com TODOS os índices de frames [0, 1, 2, ..., total_frames-1]
-        """
-        cap = cv2.VideoCapture(video_path)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        cap.release()
-        
-        # Retornar TODOS os frames, sem limite
-        all_indices = list(range(total_frames))
-        
-        duration = total_frames / fps if fps > 0 else 0
-        
-        logger.info(
-            f"🚨 FORÇA BRUTA: Processando 100% dos frames: {total_frames} frames "
-            f"({fps:.2f} fps, {duration:.1f}s video) - ZERO sampling"
-        )
-        
-        return all_indices
-    
-    def _extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> np.ndarray | None:
-        """
-        Extrai um frame do vídeo em determinado timestamp
-        
-        🔧 FIX: Thread-safe extraction (removed signal.alarm - not compatible with ThreadPoolExecutor)
-        - Fallback para FFmpeg se OpenCV falhar
-        - Early failure detection
-        
-        Returns:
-            numpy array (BGR) ou None se falhar
-        """
-        import tempfile
-        
-        # Try OpenCV first (without signal timeout - not thread-safe)
-        try:
-            cap = cv2.VideoCapture(video_path)
-            
-            if not cap.isOpened():
-                logger.warning(f"OpenCV failed to open video: {video_path}")
-                # Try FFmpeg fallback
-                return self._extract_frame_ffmpeg(video_path, timestamp)
-            
-            # Seek to timestamp
-            cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
-            
-            ret, frame = cap.read()
-            cap.release()
-            
-            if not ret:
-                logger.debug(f"Failed to extract frame at {timestamp}s - trying FFmpeg")
-                return self._extract_frame_ffmpeg(video_path, timestamp)
-            
-            return frame
-        
-        except Exception as e:
-            logger.error(f"Frame extraction error at {timestamp}s: {e}")
-            return None
-    
-    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> np.ndarray | None:
-        """
-        Fallback: Extrai frame usando FFmpeg diretamente
-        
-        Mais lento mas funciona com qualquer codec (incluindo AV1)
-        """
-        import tempfile
-        import numpy as np
-        
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                tmp_path = tmp.name
-            
-            cmd = [
-                'ffmpeg',
-                '-ss', str(timestamp),
-                '-i', video_path,
-                '-frames:v', '1',
-                '-f', 'image2',
-                '-y',
-                tmp_path
-            ]
-            
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                timeout=5,
-                check=False
-            )
-            
-            if result.returncode == 0 and Path(tmp_path).exists():
-                frame = cv2.imread(tmp_path)
-                Path(tmp_path).unlink(missing_ok=True)
-                
-                if frame is not None:
-                    logger.debug(f"✅ FFmpeg extracted frame at {timestamp}s")
-                    return frame
-            
-            Path(tmp_path).unlink(missing_ok=True)
-            return None
-        
-        except Exception as e:
-            logger.error(f"FFmpeg frame extraction failed: {e}")
-            return None
     
     # ===== P2 Optimization: Cache Methods =====
     
@@ -881,7 +415,6 @@ class VideoValidator:
         
         # 🚫 FILTER 2: Sequências longas de caracteres especiais (ruído visual típico)
         # Ex: "=—|" "===" "---" são ruídos, não legendas
-        import re
         special_sequences = re.findall(r'[^a-zA-Z0-9\s]{3,}', text)
         if len(special_sequences) > 2:
             return 0.0

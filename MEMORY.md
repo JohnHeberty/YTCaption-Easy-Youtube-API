@@ -2,6 +2,29 @@
 
 ## Última sessão (2026-07-08)
 
+### 🟢 SE5 video_validator.py Decomposition (2026-07-08)
+
+**Objetivo:** Decompor `video_validator.py` (1,039L) em módulos menores focados.
+
+**Resultado:**
+| Arquivo | Antes | Depois | Mudança |
+|---------|-------|--------|---------|
+| `video_validator.py` | 1,039L | 572L | -45% (orchestrator) |
+| `frame_extractor.py` | 255L | 335L | +80L (FrameExtractor class) |
+| `ocr_detectors.py` | — | 351L | Novo: TRSDDetector + LegacyOCRDetector |
+
+**Módulos extraídos:**
+- `FrameExtractor` — OpenCV primary + FFmpeg fallback + `_get_all_frame_indices`
+- `TRSDDetector` — TRSD temporal subtitle detection pipeline
+- `LegacyOCRDetector` — brute-force 100% frames OCR detection
+- `VideoIntegrityError` — moved to ocr_detectors.py, re-exported from video_validator.py
+
+**Bugs fixados:**
+1. `_get_sample_timestamps` — called but never defined in `_detect_with_trsd` → implemented as `_get_sample_timestamps(duration, sample_interval=2.0)`
+2. Redundant `import re` inside `_calculate_ocr_confidence` (line 884) — removed (already imported at module level)
+
+**Validação:** 3 arquivos py_compile OK, 11 testes frame_extractor passando, 3 callers import OK.
+
 ### 🟢 SE9 Unit Tests — 60 new tests, 144 total (2026-07-08)
 
 **Objetivo:** Cobrir testes unitários para os 5 arquivos fonte não testados do SE9.

@@ -133,13 +133,18 @@ class StageContext:
     async def publish_event(self, event_type: EventType, data: dict[str, Any]) -> None:
         """Publish event if publisher available"""
         if self.event_publisher:
+            import uuid
+            from datetime import datetime, timezone
             event = Event(
-                event_type=event_type,
+                id=str(uuid.uuid4()),
+                type=event_type,
                 source="make-video-service",
+                timestamp=datetime.now(timezone.utc),
                 data={
                     'job_id': self.job_id,
                     **data
-                }
+                },
+                subject=self.job_id,
             )
             await self.event_publisher.publish(event)
 

@@ -253,3 +253,83 @@ class FFmpegFrameExtractor:
         )
         
         return frame_scaled
+
+
+class FrameExtractor:
+    
+    def extract_frame(self, video_path: str, timestamp: float, timeout: int = 3) -> np.ndarray | None:
+        try:
+            cap = cv2.VideoCapture(video_path)
+            
+            if not cap.isOpened():
+                logger.warning(f"OpenCV failed to open video: {video_path}")
+                return self._extract_frame_ffmpeg(video_path, timestamp)
+            
+            cap.set(cv2.CAP_PROP_POS_MSEC, timestamp * 1000)
+            
+            ret, frame = cap.read()
+            cap.release()
+            
+            if not ret:
+                logger.debug(f"Failed to extract frame at {timestamp}s - trying FFmpeg")
+                return self._extract_frame_ffmpeg(video_path, timestamp)
+            
+            return frame
+        
+        except Exception as e:
+            logger.error(f"Frame extraction error at {timestamp}s: {e}")
+            return None
+    
+    def _extract_frame_ffmpeg(self, video_path: str, timestamp: float) -> np.ndarray | None:
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            cmd = [
+                'ffmpeg',
+                '-ss', str(timestamp),
+                '-i', video_path,
+                '-frames:v', '1',
+                '-f', 'image2',
+                '-y',
+                tmp_path
+            ]
+            
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                timeout=5,
+                check=False
+            )
+            
+            if result.returncode == 0 and Path(tmp_path).exists():
+                frame = cv2.imread(tmp_path)
+                Path(tmp_path).unlink(missing_ok=True)
+                
+                if frame is not None:
+                    logger.debug(f"FFmpeg extracted frame at {timestamp}s")
+                    return frame
+            
+            Path(tmp_path).unlink(missing_ok=True)
+            return None
+        
+        except Exception as e:
+            logger.error(f"FFmpeg frame extraction failed: {e}")
+            return None
+    
+    def _get_all_frame_indices(self, video_path: str) -> list[int]:
+        cap = cv2.VideoCapture(video_path)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        cap.release()
+        
+        all_indices = list(range(total_frames))
+        
+        duration = total_frames / fps if fps > 0 else 0
+        
+        logger.info(
+            f"Processing 100% of frames: {total_frames} frames "
+            f"({fps:.2f} fps, {duration:.1f}s video)"
+        )
+        
+        return all_indices
