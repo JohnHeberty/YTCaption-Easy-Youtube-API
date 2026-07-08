@@ -8,10 +8,10 @@ from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.models import VideoJobStatus
-from app.infrastructure.redis_store import VideoJobStore
+from app.infrastructure.redis_store import get_video_job_store
 
 router = APIRouter()
-store = VideoJobStore()
+store = get_video_job_store()
 
 
 @router.get("/download/{job_id}")

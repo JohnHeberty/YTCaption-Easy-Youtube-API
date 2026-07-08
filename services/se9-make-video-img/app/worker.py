@@ -8,7 +8,7 @@ from common.log_utils import get_logger
 import threading
 
 from app.core.models import VideoJob, VideoJobStatus
-from app.infrastructure.redis_store import VideoJobStore
+from app.infrastructure.redis_store import get_video_job_store
 
 logger = get_logger(__name__)
 
@@ -20,7 +20,7 @@ class VideoWorker:
     """Worker that processes video jobs from the queue."""
 
     def __init__(self) -> None:
-        self.store = VideoJobStore()
+        self.store = get_video_job_store()
         self.running = False
         self._loop: asyncio.AbstractEventLoop | None = None
 

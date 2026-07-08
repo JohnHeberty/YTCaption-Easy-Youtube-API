@@ -17,11 +17,11 @@ from app.core.models import (
     VideoJob,
     VideoJobStatus,
 )
-from app.infrastructure.redis_store import VideoJobStore
+from app.infrastructure.redis_store import get_video_job_store
 from app.worker import get_worker
 
 router = APIRouter()
-store = VideoJobStore()
+store = get_video_job_store()
 
 
 @router.get("/")

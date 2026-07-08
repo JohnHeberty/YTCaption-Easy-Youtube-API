@@ -16,7 +16,7 @@ from app.core.models import (
     VideoJob,
     VideoJobStatus,
 )
-from app.infrastructure.redis_store import VideoJobStore
+from app.infrastructure.redis_store import get_video_job_store
 from app.services.audio_generator import AudioGenerator
 from app.services.image_generator import ImageGenerator
 from app.services.video_assembler import VideoAssembler
@@ -37,7 +37,7 @@ class VideoPipeline:
         image_generator_cls: type[ImageGenerator] | None = None,
         assembler_cls: type[VideoAssembler] | None = None,
     ) -> None:
-        self.store = store or VideoJobStore()
+        self.store = store or get_video_job_store()
         self._audio_generator_cls = audio_generator_cls or AudioGenerator
         self._image_generator_cls = image_generator_cls or ImageGenerator
         self._assembler_cls = assembler_cls or VideoAssembler
