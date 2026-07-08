@@ -1,16 +1,16 @@
 services:
   image-engine-api:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: services/se8-image-generation/docker/Dockerfile
       target: api
     container_name: image-engine-api
     ports:
       - "8008:8008"
     volumes:
-      - ../shared/:/app/common:rw
-      - ../../services/se8-image-generation/app/:/app/app:rw
-      - ../../services/se8-image-generation/data/:/app/data:rw
+      - ../../../shared:/app/common:rw
+      - ../../../services/se8-image-generation/app/:/app/app:rw
+      - ../../../services/se8-image-generation/data/:/app/data:rw
     env_file:
       - ../.env
     environment:
@@ -28,14 +28,14 @@ services:
 
   image-engine-worker:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: services/se8-image-generation/docker/Dockerfile.gpu
       target: worker
     container_name: image-engine-worker
     volumes:
-      - ../shared/:/app/common:rw
-      - ../../services/se8-image-generation/app/:/app/app:rw
-      - ../../services/se8-image-generation/data/:/app/data:rw
+      - ../../../shared:/app/common:rw
+      - ../../../services/se8-image-generation/app/:/app/app:rw
+      - ../../../services/se8-image-generation/data/:/app/data:rw
       - se8-models:/app/data/models
       - se8-outputs:/app/data/outputs
     env_file:

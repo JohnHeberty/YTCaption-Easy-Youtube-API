@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir -e ./common
 COPY services/se8-image-generation/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# OpenCV + Pillow for API (face_routes.py imports cv2, image_utils.py imports PIL)
+RUN pip install --no-cache-dir numpy==1.24.0 opencv-python-headless==4.8.0.76 Pillow==10.0.0
+
 # =============================================================================
 # Stage: api
 # =============================================================================

@@ -6,7 +6,6 @@ from common.log_utils import get_logger
 
 import cv2
 import numpy as np
-import torch
 
 logger = get_logger(__name__)
 
