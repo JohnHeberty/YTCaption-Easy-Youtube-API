@@ -127,6 +127,7 @@ class SE8Client(ServiceClient):
         height: int = 1024,
         steps: int = 30,
         performance: str = "Quality",
+        negative_prompt: str | None = None,
     ) -> list[dict[str, Any]]:
         """Generate image synchronously. Returns list of image dicts with 'url' key."""
         payload: dict[str, Any] = {
@@ -136,6 +137,8 @@ class SE8Client(ServiceClient):
             "steps": steps,
             "performance": performance,
         }
+        if negative_prompt:
+            payload["negative_prompt"] = negative_prompt
         response = await self._request_with_retry(
             "POST",
             "/v1/generation/text-to-image",

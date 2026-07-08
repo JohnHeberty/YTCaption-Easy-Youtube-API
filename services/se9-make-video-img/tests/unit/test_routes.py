@@ -64,7 +64,7 @@ def test_create_job(client):
     tc, store, worker = client
     payload = _make_request_dict()
     resp = tc.post("/jobs", json=payload)
-    assert resp.status_code == 200
+    assert resp.status_code == 201
     data = resp.json()
     assert data["status"] == "queued"
     assert data["job_id"].startswith("rbg_")

@@ -150,6 +150,7 @@ class VideoPipeline:
             crossfade_duration=settings.default_crossfade_duration,
             hook_text=job.request.hook,
             on_screen_text=[t.model_dump() for t in job.request.on_screen_text] or None,
+            scene_suggestions=job.request.scene_suggestions,
         )
         await self._update_stage(job, "assembling_video", "complete")
         return final_video

@@ -7,16 +7,29 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
-from app.core.models import VideoJobStatus
+from app.api.schemas import ErrorResponse, VideoJobStatus
 from app.infrastructure.redis_store import get_video_job_store
 
-router = APIRouter()
+router = APIRouter(tags=["Download"])
 store = get_video_job_store()
 
 
-@router.get("/download/{job_id}")
+@router.get(
+    "/download/{job_id}",
+    summary="Download completed video",
+    description=(
+        "Download the final video file (MP4) for a completed job.\n\n"
+        "**Prerequisites:** Job must have `status=completed`. "
+        "Use `GET /jobs/{job_id}` to poll until completed.\n\n"
+        "**Response:** Binary MP4 file with `Content-Disposition` header."
+    ),
+    responses={
+        200: {"description": "Video file (MP4)", "content": {"video/mp4": {}}},
+        400: {"model": ErrorResponse, "description": "Job not completed"},
+        404: {"model": ErrorResponse, "description": "Job or video file not found"},
+    },
+)
 async def download_video(job_id: str) -> FileResponse:
-    """Download the completed video file."""
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")

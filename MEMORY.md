@@ -2,6 +2,113 @@
 
 ## Última sessão (2026-07-08)
 
+### 🟢 SE9 Unit Tests — 60 new tests, 144 total (2026-07-08)
+
+**Objetivo:** Cobrir testes unitários para os 5 arquivos fonte não testados do SE9.
+
+**Novos testes (5 arquivos, 60 testes):**
+| Arquivo | Testes | Cobertura |
+|---------|--------|-----------|
+| `test_image_generator.py` | 15 | ImageGenerator: init, cinematic suffix, generate_all, dims, progress, error |
+| `test_health_routes.py` | 3 | Ping endpoint, health check structure, add_check calls |
+| `test_audio_generator_more.py` | 11 | generate single/multi chunk, voice_id, normalize_text, concat_wav |
+| `test_ffmpeg_utils.py` | 12 | get_audio_duration, create_segment zoom, concat, add_audio, trim, run_ffmpeg |
+| `test_video_assembler_more.py` | 19 | assemble happy path, zoom_styles, transitions, scene durations |
+
+**Técnicas usadas:**
+- `unittest.mock.AsyncMock` + `patch` para SE7/SE8 clients e FFmpeg subprocess
+- `pytest.mark.asyncio` para testes async
+- `tmp_path` fixture para arquivos temporários
+- Patches em `app.infrastructure.ffmpeg_utils.*` para testar video_assembler
+
+**Total SE9:** 144 testes passando (84 pré-existentes + 60 novos)
+
+### 🟢 SE9 API Reformulada — schemas.py + endpoints novos (2026-07-08)
+
+**Objetivo:** Reformular API do SE9 com padrões de qualidade SE11.
+
+**Arquivos alterados:**
+- `app/api/routes.py` — Reescrito: usa schemas.py, response_model em todas rotas, status 201 para POST, descriptions detalhados, +GET /config, +GET /transitions, +paginação GET /jobs
+- `app/api/admin_routes.py` — Atualizado: usa AdminStatsResponse, AdminCleanupResponse, descriptions
+- `app/api/download_routes.py` — Atualizado: usa ErrorResponse, descriptions
+- `app/api/health_routes.py` — Atualizado: usa HealthResponse, PingResponse, descriptions
+- `tests/unit/test_routes.py` — Fix: POST /jobs agora retorna 201 (era 200)
+
+**Novos endpoints:**
+- `GET /config` — Retorna configuração do serviço (defaults, aspect ratios, zoom styles, upstream URLs)
+- `GET /transitions` — Retorna transições FFmpeg disponíveis (32 transições)
+
+**Testes:** 84 passed, 0 failed
+
+### 🟢 SE9 Phase 1 Quick Wins — G1-G5 Implementados (2026-07-08)
+
+**Objetivo:** Implementar os 5 gaps críticos identificados na análise do make-video.json.
+
+**Arquivos alterados:**
+- `app/core/models.py` — SceneSuggestion: +negative_prompt, +camera_movement, +transition; OnScreenText: +end_seconds
+- `app/core/constants.py` — +CAMERA_MOVEMENT_MAP (static/slow_push_in/slow_pull_out → zoom styles), +TRANSITION_MAP (corte seco/fade curto → FFmpeg xfade names)
+- `app/infrastructure/http_client.py` — SE8Client.generate_image(): +negative_prompt param
+- `app/services/image_generator.py` — Passa scene.negative_prompt ao SE8
+- `app/services/video_assembler.py` — +_build_scene_zoom_styles(), +_build_scene_transitions(); assemble() aceita scene_suggestions; per-scene zoom e transições
+- `app/services/pipeline.py` — Passa scene_suggestions ao assembler
+
+**Testes:** 84 passed, 0 failed (compatível com mudanças)
+
+**Impacto:**
+- G1: negative_prompt agora é enviado ao SE8 Fooocus
+- G2: camera_movement do JSON mapeado para Ken Burns (static→sem zoom, slow_push_in→zoom_in)
+- G3: transition do JSON mapeada para FFmpeg xfade (corte seco→hard cut, fade curto→fadeblack)
+- G4+G5: OnScreenText agora suporta end_seconds (preparado para caption timing global)
+
+**Próximo passo:** Atualizar routes.py para usar schemas.py, implementar GET /config e GET /transitions.
+
+### 🟢 SE9 INVESTIGATE.md + API.md + schemas.py (2026-07-08)
+
+**Objetivo:** Aumentar nível de detalhe do INVESTIGATE.md e reformular completamente a API do SE9 com padrões de qualidade SE11.
+
+**Arquivos criados/atualizados:**
+- `services/se9-make-video-img/INVESTIGATE.md` (747 → 1133 linhas) — Análise aprofundada com:
+  - Seção 2.2: Mapeamento completo de todos os campos de `output` (17 campos, tabela SE9 usa?)
+  - Seção 2.3: Análise campo-a-campo das 6 cenas (image, motion, audio, captions)
+  - Seção 2.3.2: Dados completos de `image` por cena (prompt, negative_prompt, shot_type, framing, camera_movement, composition, subject, environment, lighting, color_mood, visual_action, broll_direction, allowed/forbidden_visual_elements)
+  - Seção 2.3.3: Dados de `motion` por cena (camera_movement, transition, motion_rhythm, edit_pacing)
+  - Seção 2.3.4: Dados de `audio` por cena (sfx_cues, silence_cues, ambient_bed, music_bed, mix_notes)
+  - Seção 2.3.5: Dados de `captions` por cena (global_start_seconds, global_end_seconds, text)
+  - Seção 2.4: global_style com impacto no SE9
+  - Seção 11: Gap Analysis Detalhado (12 gaps categorizados por impacto: Alto/Médio/Baixo)
+  - Seção 11.3: Prioridade de implementação (Fase 1 Quick Wins, Fase 2 Prompt Enrichment, Fase 3 Audio)
+  - Seção 12: Script de conversão v2 com gaps corrigidos (negative_prompt, camera_movement, transitions, global timing)
+
+- `services/se9-make-video-img/API.md` (883 linhas) — Documentação completa da API reformulada:
+  - Seção 1: Visão geral com tabela de 12 endpoints
+  - Seção 2: Schemas completos (Enums, Request Models, Response Models com Field descriptions)
+  - Seção 3: Detalhes de cada endpoint (curl examples, response JSON, errors)
+  - Seção 4: Fluxos (criação, processamento, polling, webhook)
+  - Seção 5: Guia de conversão make-video.json → API
+  - Seção 6: Erros HTTP e erros específicos do pipeline
+  - Seção 7: Configuração completa (.env + defaults)
+  - Seção 8: Testes (unit, e2e, manual)
+  - Seção 9: Arquitetura (diretórios, dependências, worker)
+  - Novos endpoints documentados: GET /config, GET /transitions
+
+- `services/se9-make-video-img/app/api/schemas.py` (670 linhas) — Schemas de API separados (padrão SE11):
+  - FlexibleSchema base (extra="allow")
+  - Enums: VideoJobStatus, StageStatus, ZoomStyle
+  - Request: NarrationSegment, SceneSuggestion (com negative_prompt, camera_movement, transition), OnScreenText (com end_seconds), CreateVideoRequest (com global_style)
+  - Response: CreateVideoResponse, JobStatusResponse, ListJobsResponse, DeleteJobResponse, ConfigResponse, TransitionsResponse, ServiceInfoResponse, ErrorResponse
+  - Admin: AdminStatsResponse, AdminCleanupResponse
+  - Health: HealthResponse, PingResponse
+
+**Gaps identificados no SE9 (12 gaps, 4 críticos P1):**
+1. G1: negative_prompt não enviado ao SE8 (ALTO)
+2. G2: camera_movement ignorado — SE9 usa random (ALTO)
+3. G3: transition ignorada — SE9 usa random (MÉDIO)
+4. G4: global_start_seconds ignorado — usa timing local (ALTO)
+5. G5: end_seconds não suportado em OnScreenText (ALTO)
+6. G6-G12: global_style, sfx_cues, silence_cues, ambient_bed, shot_type, platform, allowed/forbidden (MÉDIO-BAIXO)
+
+**Próximo passo:** Implementar Fase 1 Quick Wins (G1-G5) — negative_prompt, camera_movement, transitions, caption timing.
+
 ### 🟢 SE9 Unit Test Suite — 84 passed, 0 failed (2026-07-08)
 
 **Objetivo:** Criar cobertura de testes para os 10 arquivos sem testes no SE9.

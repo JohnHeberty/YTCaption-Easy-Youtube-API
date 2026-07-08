@@ -54,11 +54,15 @@ class NarrationSegment(BaseModel):
 class SceneSuggestion(BaseModel):
     t: float
     visual: str
+    negative_prompt: str | None = None
+    camera_movement: str | None = None  # "static", "slow_push_in", "slow_pull_out", "random"
+    transition: str | None = None  # FFmpeg xfade transition name
 
 
 class OnScreenText(BaseModel):
     t: float
     text: str
+    end_seconds: float | None = None
 
 
 class CreateVideoRequest(BaseModel):

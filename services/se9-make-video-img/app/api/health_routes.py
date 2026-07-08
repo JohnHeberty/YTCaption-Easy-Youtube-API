@@ -8,14 +8,26 @@ import httpx
 from fastapi import APIRouter
 
 from app.core.config import settings
+from app.api.schemas import HealthResponse, PingResponse
 from common.health_utils import ServiceHealthChecker
 
-router = APIRouter()
+router = APIRouter(tags=["Health"])
 
 
-@router.get("/health")
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Health check",
+    description=(
+        "Check service health including SE7, SE8, disk, and FFmpeg.\n\n"
+        "Returns `status: ok` if all checks pass, or `status: degraded` if any fail.\n\n"
+        "**Use this** as a liveness probe for container orchestration."
+    ),
+    responses={
+        200: {"description": "Health status"},
+    },
+)
 async def health_check() -> dict[str, Any]:
-    """Check service health including SE7, SE8, disk, and ffmpeg."""
     checker = ServiceHealthChecker("make-video-img", version=settings.app_version)
 
     async def check_se7() -> dict[str, str]:
@@ -46,7 +58,14 @@ async def health_check() -> dict[str, Any]:
     return await checker.check_all()
 
 
-@router.get("/ping")
-async def ping() -> dict[str, bool]:
-    """Simple ping endpoint."""
-    return {"pong": True}
+@router.get(
+    "/ping",
+    response_model=PingResponse,
+    summary="Ping",
+    description="Simple connectivity test. Returns `{\"pong\": true}`.",
+    responses={
+        200: {"description": "Pong response"},
+    },
+)
+async def ping() -> PingResponse:
+    return PingResponse(pong=True)

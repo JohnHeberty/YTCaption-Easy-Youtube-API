@@ -9,8 +9,8 @@ from typing import Any
 from common.log_utils import get_logger
 
 from app.core.config import settings
-from app.core.constants import TRANSITIONS
-from app.core.models import NarrationSegment
+from app.core.constants import CAMERA_MOVEMENT_MAP, TRANSITIONS, TRANSITION_MAP
+from app.core.models import NarrationSegment, SceneSuggestion
 from app.infrastructure import ffmpeg_utils
 
 logger = get_logger(__name__)
@@ -48,6 +48,74 @@ class VideoAssembler:
         durations[-1] = audio_duration - base_dur * (num_scenes_needed - 1)
         return durations
 
+    def _build_scene_zoom_styles(
+        self,
+        scene_suggestions: list[SceneSuggestion] | None,
+        num_scenes: int,
+        image_paths: list[str],
+        default_zoom_style: str,
+    ) -> list[str]:
+        """Build per-scene zoom styles from scene_suggestions camera_movement.
+
+        Maps camera_movement values to Ken Burns zoom styles:
+        - "static" → "static" (no zoom)
+        - "slow_push_in" → "zoom_in"
+        - "slow_pull_out" → "zoom_out"
+        - None/missing → use default_zoom_style or random
+        """
+        styles: list[str] = []
+        for i in range(num_scenes):
+            # Get scene suggestion for this image (cycled)
+            scene_idx = i % len(image_paths) if image_paths else i
+            if scene_suggestions and scene_idx < len(scene_suggestions):
+                cam_move = scene_suggestions[scene_idx].camera_movement
+                if cam_move and cam_move in CAMERA_MOVEMENT_MAP:
+                    mapped = CAMERA_MOVEMENT_MAP[cam_move]
+                    if mapped == "random":
+                        styles.append(random.choice(["zoom_in", "zoom_out"]))
+                    else:
+                        styles.append(mapped)
+                    continue
+
+            # Fallback to default or alternating
+            if default_zoom_style == "random":
+                styles.append(random.choice(["zoom_in", "zoom_out"]))
+            else:
+                styles.append(default_zoom_style)
+
+        return styles
+
+    def _build_scene_transitions(
+        self,
+        scene_suggestions: list[SceneSuggestion] | None,
+        num_scenes: int,
+        image_paths: list[str],
+    ) -> list[str | None]:
+        """Build per-scene transitions from scene_suggestions.
+
+        Returns list of transition names (or None for hard cuts).
+        Index i = transition AFTER scene i (len = num_scenes - 1).
+        """
+        transitions: list[str | None] = []
+        for i in range(num_scenes - 1):
+            scene_idx = i % len(image_paths) if image_paths else i
+            if scene_suggestions and scene_idx < len(scene_suggestions):
+                raw_trans = scene_suggestions[scene_idx].transition
+                if raw_trans:
+                    # Check if it's a known mapping from upstream JSON
+                    if raw_trans in TRANSITION_MAP:
+                        mapped = TRANSITION_MAP[raw_trans]
+                        transitions.append(mapped)  # None = hard cut
+                        continue
+                    # Otherwise treat as direct FFmpeg xfade name
+                    transitions.append(raw_trans)
+                    continue
+
+            # Fallback: random transition
+            transitions.append(random.choice(TRANSITIONS))
+
+        return transitions
+
     async def assemble(
         self,
         audio_path: str,
@@ -62,6 +130,7 @@ class VideoAssembler:
         crossfade_duration: float = 0.5,
         hook_text: str = "",
         on_screen_text: list[dict[str, Any]] | None = None,
+        scene_suggestions: list[SceneSuggestion] | None = None,
     ) -> str:
         """Assemble final video. Returns path to completed video.
 
@@ -108,19 +177,30 @@ class VideoAssembler:
 
         chosen_seq = random.choice(_STYLE_SEQUENCES)
 
+        # Build per-scene zoom styles from scene_suggestions camera_movement
+        scene_zoom_styles = self._build_scene_zoom_styles(
+            scene_suggestions, num_scenes_needed, image_paths, zoom_style
+        )
+
+        # Build per-scene transitions from scene_suggestions
+        scene_transitions = self._build_scene_transitions(
+            scene_suggestions, num_scenes_needed, image_paths
+        )
+
         logger.info(
             "Assembling video: %d source images → %d scenes "
-            "(per_scene=%.1fs), %.1fs audio, title=%.1fs, seq=%s",
+            "(per_scene=%.1fs), %.1fs audio, title=%.1fs, zoom_styles=%s, transitions=%s",
             len(image_paths), num_scenes_needed,
-            per_scene_duration, audio_duration, title_duration, chosen_seq,
+            per_scene_duration, audio_duration, title_duration,
+            scene_zoom_styles, scene_transitions,
         )
 
         segment_paths = await self._create_segments(
-            image_paths, output_dir, scene_durations, width, height, fps, chosen_seq
+            image_paths, output_dir, scene_durations, width, height, fps, scene_zoom_styles
         )
 
         concat_path = os.path.join(output_dir, "video_concat.mp4")
-        await self._concatenate(concat_path, segment_paths, crossfade_duration)
+        await self._concatenate(concat_path, segment_paths, crossfade_duration, scene_transitions)
 
         padded_audio_path = os.path.join(output_dir, "audio_padded.wav")
         final_path = await self._merge_audio_video(
@@ -133,14 +213,14 @@ class VideoAssembler:
 
     async def _create_segments(
         self, image_paths: list[str], output_dir: str, scene_durations: list[float],
-        width: int, height: int, fps: int, chosen_seq: list[str],
+        width: int, height: int, fps: int, scene_zoom_styles: list[str],
     ) -> list[str]:
         """Create individual video segments from images."""
         cycled_images = [image_paths[i % len(image_paths)] for i in range(len(scene_durations))]
         segment_paths: list[str] = []
         for i, (img_path, dur) in enumerate(zip(cycled_images, scene_durations)):
             segment_path = os.path.join(output_dir, f"segment_{i}.mp4")
-            scene_style = chosen_seq[i % len(chosen_seq)]
+            scene_style = scene_zoom_styles[i] if i < len(scene_zoom_styles) else "random"
             logger.info("Creating segment %d: %.1fs, style=%s", i, dur, scene_style)
             await ffmpeg_utils.create_segment(
                 image_path=img_path,
@@ -156,11 +236,22 @@ class VideoAssembler:
 
     async def _concatenate(
         self, concat_path: str, segment_paths: list[str], crossfade_duration: float,
+        scene_transitions: list[str | None] | None = None,
     ) -> None:
-        """Concatenate segments with crossfade transitions."""
-        first_xfade = random.choice(["circleopen", "dissolve", "radial", "zoomin", "smoothleft"])
+        """Concatenate segments with crossfade transitions.
+
+        Uses per-scene transitions from scene_suggestions when available.
+        Falls back to random transitions for scenes without explicit transitions.
+        """
         num_transitions = len(segment_paths) - 1
-        transition_list = [first_xfade] + [random.choice(TRANSITIONS) for _ in range(num_transitions - 1)]
+        transition_list: list[str] = []
+
+        for i in range(num_transitions):
+            # scene_transitions[i] is the transition AFTER scene i
+            if scene_transitions and i < len(scene_transitions) and scene_transitions[i]:
+                transition_list.append(scene_transitions[i])
+            else:
+                transition_list.append(random.choice(TRANSITIONS))
 
         if len(segment_paths) <= MAX_XFAD_BATCH_SIZE:
             logger.info("Concatenating %d segments with crossfade transitions: %s", len(segment_paths), transition_list)

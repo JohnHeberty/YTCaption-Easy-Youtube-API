@@ -8,18 +8,26 @@ from typing import Any
 from fastapi import APIRouter
 
 from app.core.config import settings
+from app.api.schemas import AdminStatsResponse, AdminCleanupResponse, ErrorResponse
 from app.infrastructure.redis_store import get_video_job_store
 
-router = APIRouter()
+router = APIRouter(tags=["Admin"])
 store = get_video_job_store()
 
-# Statuses considered terminal (safe to clean up)
-_TERMINAL_STATUSES = {"completed", "failed"}
 
-
-@router.get("/admin/stats")
-async def stats() -> dict[str, Any]:
-    """System statistics."""
+@router.get(
+    "/admin/stats",
+    response_model=AdminStatsResponse,
+    summary="System statistics",
+    description=(
+        "Returns system statistics including job counts by status and disk usage.\n\n"
+        "Use this to monitor system health and capacity."
+    ),
+    responses={
+        200: {"description": "System statistics"},
+    },
+)
+async def stats() -> AdminStatsResponse:
     jobs = store.list_jobs()
     status_counts: dict[str, int] = {}
     for job in jobs:
@@ -36,20 +44,30 @@ async def stats() -> dict[str, Any]:
                 "free_gb": round(free / (1024**3), 1),
             }
 
-    return {
-        "service": "make-video-img",
-        "version": settings.app_version,
-        "jobs": {
+    return AdminStatsResponse(
+        service="make-video-img",
+        version=settings.app_version,
+        jobs={
             "total": len(jobs),
             "by_status": status_counts,
         },
-        "disk": disk_usage,
-    }
+        disk=disk_usage,
+    )
 
 
-@router.post("/admin/cleanup")
-async def cleanup() -> dict[str, str]:
-    """Cleanup failed jobs: remove output dirs AND Redis keys."""
+@router.post(
+    "/admin/cleanup",
+    response_model=AdminCleanupResponse,
+    summary="Cleanup failed jobs",
+    description=(
+        "Cleanup failed jobs: remove output directories AND Redis keys.\n\n"
+        "**Only failed jobs** are cleaned up. Completed jobs are preserved."
+    ),
+    responses={
+        200: {"description": "Cleanup result"},
+    },
+)
+async def cleanup() -> AdminCleanupResponse:
     cleaned = 0
 
     for job in store.list_jobs():
@@ -61,4 +79,6 @@ async def cleanup() -> dict[str, str]:
             store.delete_job(job_id)
             cleaned += 1
 
-    return {"detail": f"Cleaned up {cleaned} failed jobs (dirs + Redis keys)"}
+    return AdminCleanupResponse(
+        detail=f"Cleaned up {cleaned} failed jobs (dirs + Redis keys)"
+    )

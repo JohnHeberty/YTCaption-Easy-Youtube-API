@@ -41,3 +41,22 @@ IMAGE_ASPECT_RATIOS = {
     "16:9": (1792, 1024),
     "1:1": (1024, 1024),
 }
+
+# Camera movement → Ken Burns zoom style mapping
+# JSON camera_movement values → SE9 zoom_style values
+CAMERA_MOVEMENT_MAP = {
+    "static": "static",
+    "slow_push_in": "zoom_in",
+    "slow_pull_out": "zoom_out",
+    "random": "random",
+}
+
+# Transition name mapping: upstream JSON → FFmpeg xfade names
+# "corte seco" = hard cut (no transition = None)
+TRANSITION_MAP = {
+    "corte seco": None,
+    "fade curto": "fadeblack",
+    "fade": "fadefast",
+    "dissolve": "dissolve",
+    "crossfade": "dissolve",
+}

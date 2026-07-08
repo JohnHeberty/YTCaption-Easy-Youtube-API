@@ -60,6 +60,7 @@ class ImageGenerator:
                 height=height,
                 steps=steps,
                 performance=performance,
+                negative_prompt=scene.negative_prompt,
             )
 
             first = images[0]

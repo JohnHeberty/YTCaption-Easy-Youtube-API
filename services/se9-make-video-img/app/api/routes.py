@@ -6,46 +6,161 @@ import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 
 from app.core.config import settings
-from app.core.constants import JOB_ID_PREFIX
+from app.core.constants import (
+    JOB_ID_PREFIX,
+    TRANSITIONS,
+    ASPECT_RATIOS,
+    ZOOM_STYLES,
+    IMAGE_ASPECT_RATIOS,
+)
 from app.core.models import (
     CreateVideoRequest,
-    CreateVideoResponse,
-    JobStatusResponse,
     VideoJob,
+)
+from app.api.schemas import (
+    CreateVideoResponse,
+    DeleteJobResponse,
+    JobStatusResponse,
+    JobListItem,
+    ListJobsResponse,
+    ServiceInfoResponse,
+    ConfigResponse,
+    TransitionsResponse,
+    ErrorResponse,
     VideoJobStatus,
 )
 from app.infrastructure.redis_store import get_video_job_store
 from app.worker import get_worker
 
-router = APIRouter()
+router = APIRouter(tags=["Jobs"])
 store = get_video_job_store()
 
 
-@router.get("/")
-async def root() -> dict[str, Any]:
-    """Service info endpoint."""
-    return {
-        "service": "make-video-img",
-        "version": settings.app_version,
-        "endpoints": {
+# ─── Service Info ────────────────────────────────────────────────────────────
+
+@router.get(
+    "/",
+    response_model=ServiceInfoResponse,
+    summary="Service info",
+    tags=["Health"],
+    description=(
+        "Returns service metadata: name, version, and a catalog of all available endpoints.\n\n"
+        "**Use this endpoint** to discover the API structure programmatically."
+    ),
+)
+async def root() -> ServiceInfoResponse:
+    return ServiceInfoResponse(
+        service="make-video-img",
+        version=settings.app_version,
+        endpoints={
             "POST /jobs": "Create video generation job",
-            "GET /jobs": "List all jobs",
-            "GET /jobs/{job_id}": "Get job status",
-            "DELETE /jobs/{job_id}": "Delete job",
-            "GET /download/{job_id}": "Download completed video",
-            "GET /health": "Health check",
+            "GET /jobs": "List all jobs (paginated)",
+            "GET /jobs/{job_id}": "Get job status and progress",
+            "DELETE /jobs/{job_id}": "Delete job and output files",
+            "GET /download/{job_id}": "Download completed video (MP4)",
+            "GET /config": "Service configuration",
+            "GET /transitions": "Available FFmpeg xfade transitions",
+            "GET /health": "Health check (SE7 + SE8 + disk + FFmpeg)",
+            "GET /ping": "Simple ping",
             "GET /admin/stats": "System statistics",
-            "POST /admin/cleanup": "Cleanup temp files and failed jobs",
+            "POST /admin/cleanup": "Cleanup failed jobs",
         },
-    }
+    )
 
 
-@router.post("/jobs", response_model=CreateVideoResponse)
+# ─── Config / Metadata ──────────────────────────────────────────────────────
+
+@router.get(
+    "/config",
+    response_model=ConfigResponse,
+    summary="Service configuration",
+    description=(
+        "Returns current service configuration including default video settings, "
+        "supported aspect ratios, zoom styles, and upstream service URLs.\n\n"
+        "**Note:** Does not expose secrets (API keys)."
+    ),
+    responses={
+        200: {"description": "Service configuration"},
+    },
+)
+async def get_config() -> ConfigResponse:
+    return ConfigResponse(
+        service="make-video-img",
+        version=settings.app_version,
+        defaults={
+            "voice_id": settings.default_voice_id,
+            "aspect_ratio": settings.default_aspect_ratio,
+            "zoom_style": "random",
+            "fps": settings.default_fps,
+            "width": settings.default_width,
+            "height": settings.default_height,
+            "crossfade_duration": settings.default_crossfade_duration,
+            "image_steps": settings.default_image_steps,
+            "image_performance": settings.default_image_performance,
+            "title_card_duration": settings.title_card_duration,
+            "tts_exaggeration": settings.tts_exaggeration,
+            "tts_cfg_weight": settings.tts_cfg_weight,
+            "tts_temperature": settings.tts_temperature,
+        },
+        supported_aspect_ratios=list(ASPECT_RATIOS.keys()),
+        supported_zoom_styles=ZOOM_STYLES,
+        upstream={
+            "se7": settings.se7_url,
+            "se8": settings.se8_url,
+        },
+    )
+
+
+@router.get(
+    "/transitions",
+    response_model=TransitionsResponse,
+    summary="Available transitions",
+    description=(
+        "Returns all FFmpeg xfade transitions available for video assembly.\n\n"
+        "Use `scene_suggestions[].transition` to specify a transition per scene. "
+        "If not specified, a random transition is chosen from this list."
+    ),
+    responses={
+        200: {"description": "Available transitions"},
+    },
+)
+async def list_transitions() -> TransitionsResponse:
+    return TransitionsResponse(
+        transitions=TRANSITIONS,
+        total=len(TRANSITIONS),
+        default="random",
+    )
+
+
+# ─── Jobs CRUD ───────────────────────────────────────────────────────────────
+
+@router.post(
+    "/jobs",
+    response_model=CreateVideoResponse,
+    status_code=201,
+    summary="Create video generation job",
+    description=(
+        "Create a new video generation job.\n\n"
+        "The pipeline will:\n"
+        "1. Generate audio narration via SE7 TTS (Chatterbox)\n"
+        "2. Generate scene images via SE8 Fooocus SDXL\n"
+        "3. Assemble video with Ken Burns, crossfade transitions, and captions\n\n"
+        "**Minimum required fields:** `post_id`, `hook`, `narration`, `scene_suggestions`.\n\n"
+        "Each scene supports:\n"
+        "- `negative_prompt` — what to avoid in the image\n"
+        "- `camera_movement` — Ken Burns direction (static/slow_push_in/slow_pull_out)\n"
+        "- `transition` — FFmpeg xfade transition after this scene"
+    ),
+    responses={
+        201: {"description": "Job created successfully"},
+        422: {"model": ErrorResponse, "description": "Validation error"},
+        500: {"model": ErrorResponse, "description": "Internal server error"},
+    },
+)
 async def create_job(request: CreateVideoRequest) -> CreateVideoResponse:
-    """Create a new video generation job."""
     job_id = f"{JOB_ID_PREFIX}{uuid.uuid4().hex[:12]}"
 
     job = VideoJob(
@@ -61,7 +176,7 @@ async def create_job(request: CreateVideoRequest) -> CreateVideoResponse:
 
     return CreateVideoResponse(
         job_id=job_id,
-        status="queued",
+        status=VideoJobStatus.QUEUED,
         post_id=request.post_id,
         estimated_seconds=request.estimated_seconds,
         scenes_count=len(request.scene_suggestions),
@@ -69,9 +184,66 @@ async def create_job(request: CreateVideoRequest) -> CreateVideoResponse:
     )
 
 
-@router.get("/jobs/{job_id}", response_model=JobStatusResponse)
+@router.get(
+    "/jobs",
+    response_model=ListJobsResponse,
+    summary="List all jobs",
+    description=(
+        "Returns a paginated list of all video generation jobs.\n\n"
+        "Jobs are returned in reverse chronological order (most recent first)."
+    ),
+    responses={
+        200: {"description": "Paginated job list"},
+    },
+)
+async def list_jobs(
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+        description="Maximum number of jobs to return",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of jobs to skip (for pagination)",
+    ),
+) -> ListJobsResponse:
+    jobs = store.list_jobs()
+    sliced = jobs[offset : offset + limit]
+    return ListJobsResponse(
+        jobs=[
+            JobListItem(
+                job_id=j["job_id"],
+                status=j["status"],
+                progress=j.get("progress", 0),
+                post_id=j.get("post_id"),
+                created_at=j.get("created_at"),
+            )
+            for j in sliced
+        ],
+        total=len(jobs),
+    )
+
+
+@router.get(
+    "/jobs/{job_id}",
+    response_model=JobStatusResponse,
+    summary="Get job status",
+    description=(
+        "Get the current status and progress of a video generation job.\n\n"
+        "**Polling:** Call this endpoint every 5–10 seconds while `status` is\n"
+        "`queued`, `generating_audio`, `generating_images`, or `assembling_video`.\n"
+        "The job is finished when `status` is `completed` or `failed`.\n\n"
+        "**Progress:** Weighted across stages — audio=0-40%, images=40-70%, assembly=70-100%.\n\n"
+        "**Output:** When completed, use `GET /download/{job_id}` to download the MP4."
+    ),
+    responses={
+        200: {"description": "Job status"},
+        404: {"model": ErrorResponse, "description": "Job not found"},
+    },
+)
 async def get_job_status(job_id: str) -> JobStatusResponse:
-    """Get the status of a video job."""
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -86,9 +258,21 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
     )
 
 
-@router.delete("/jobs/{job_id}")
-async def delete_job(job_id: str) -> dict[str, str]:
-    """Delete a video job and its output directory."""
+@router.delete(
+    "/jobs/{job_id}",
+    response_model=DeleteJobResponse,
+    summary="Delete job",
+    description=(
+        "Delete a video generation job and all its output files.\n\n"
+        "**Warning:** This action is irreversible. All output images,\n"
+        "video segments, and final MP4 will be permanently removed."
+    ),
+    responses={
+        200: {"description": "Job deleted"},
+        404: {"model": ErrorResponse, "description": "Job not found"},
+    },
+)
+async def delete_job(job_id: str) -> DeleteJobResponse:
     job_data = store.get_job(job_id)
     if not job_data:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -98,23 +282,4 @@ async def delete_job(job_id: str) -> dict[str, str]:
         shutil.rmtree(output_dir, ignore_errors=True)
 
     store.delete_job(job_id)
-    return {"detail": f"Job {job_id} deleted"}
-
-
-@router.get("/jobs")
-async def list_jobs() -> dict[str, Any]:
-    """List all video jobs."""
-    jobs = store.list_jobs()
-    return {
-        "jobs": [
-            {
-                "job_id": j["job_id"],
-                "status": j["status"],
-                "progress": j.get("progress", 0),
-                "post_id": j.get("post_id"),
-                "created_at": j.get("created_at"),
-            }
-            for j in jobs
-        ],
-        "total": len(jobs),
-    }
+    return DeleteJobResponse(detail=f"Job {job_id} deleted")
