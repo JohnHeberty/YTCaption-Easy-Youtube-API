@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 _redis_store: Any = None
 _LIST_KEY = "rbg_jobs:list"
+_QUEUED_KEY = "rbg_jobs:queued"
 
 
 def get_redis() -> Any:
@@ -172,6 +173,13 @@ class VideoJobStore:
         pipe = self._pipe()
         pipe.setex(key, JOB_TTL, data)
         pipe.zadd(_LIST_KEY, {job_id: float(created_at)})
+
+        status = job_data.get("status", "queued")
+        if status == "queued":
+            pipe.zadd(_QUEUED_KEY, {job_id: float(created_at)})
+        else:
+            pipe.zrem(_QUEUED_KEY, job_id)
+
         pipe.execute()
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
@@ -192,6 +200,7 @@ class VideoJobStore:
         pipe = self._pipe()
         pipe.delete(key)
         pipe.zrem(_LIST_KEY, job_id)
+        pipe.zrem(_QUEUED_KEY, job_id)
         pipe.execute()
 
     def list_jobs(self) -> list[dict[str, Any]]:
@@ -215,19 +224,21 @@ class VideoJobStore:
         if stale_ids:
             try:
                 self._zrem(_LIST_KEY, *stale_ids)
+                self._zrem(_QUEUED_KEY, *stale_ids)
             except Exception:
                 logger.warning("Failed to clean %d stale entries from sorted set", len(stale_ids))
 
         return jobs
 
     def get_next_queued_job(self) -> dict[str, Any] | None:
-        """Get the first queued job without scanning all jobs.
+        """Get the oldest queued job efficiently using the queued set.
 
-        Iterates the sorted set lazily — stops at the first QUEUED job found.
-        Much more efficient than list_jobs() when there are many completed jobs.
+        Only scans jobs known to be in 'queued' status — O(K) where K is
+        the number of queued jobs (usually 0-2), not O(N) total jobs.
         """
-        job_ids = self._zrevrange(_LIST_KEY, 0, -1)
+        job_ids = self._zrevrange(_QUEUED_KEY, 0, -1)
 
+        stale_ids: list[str] = []
         for jid in job_ids:
             jid_str = jid.decode() if isinstance(jid, bytes) else jid
             key = f"{JOB_PREFIX}{jid_str}"
@@ -236,6 +247,14 @@ class VideoJobStore:
                 job = json.loads(data)
                 if job.get("status") == "queued":
                     return job
+            stale_ids.append(jid_str)
+
+        if stale_ids:
+            try:
+                self._zrem(_QUEUED_KEY, *stale_ids)
+            except Exception:
+                pass
+
         return None
 
 

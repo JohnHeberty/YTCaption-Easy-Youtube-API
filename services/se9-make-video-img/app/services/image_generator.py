@@ -52,7 +52,7 @@ class ImageGenerator:
         for i, scene in enumerate(sorted_scenes):
             # Frente C: Add cinematic suffix for depth and visual quality
             enhanced_prompt = scene.visual + self.cinematic_suffix
-            logger.info(f"Generating image {i + 1}/{len(sorted_scenes)}: {scene.visual[:50]}...")
+            logger.info("Generating image %d/%d: %s...", i + 1, len(sorted_scenes), scene.visual[:50])
 
             images = await self.client.generate_image(
                 prompt=enhanced_prompt,
@@ -73,7 +73,7 @@ class ImageGenerator:
                 f.write(image_data)
 
             image_paths.append(image_path)
-            logger.info(f"Image saved: {image_path}")
+            logger.info("Image saved: %s", image_path)
 
             if progress_callback:
                 progress = ((i + 1) / len(sorted_scenes)) * 100

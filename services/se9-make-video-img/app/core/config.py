@@ -42,7 +42,6 @@ class MakeVideoImgSettings(BaseServiceSettings):
 
     # === TITLE CARD ===
     title_card_duration: float = 0.5
-    title_card_wrap_width: int = 30
 
     # === TTS PARAMS (passed to SE7) ===
     tts_exaggeration: float = 0.5

@@ -2,6 +2,40 @@
 
 ## Última sessão (2026-07-08)
 
+### 🟢 SE9 Unit Test Suite — 84 passed, 0 failed (2026-07-08)
+
+**Objetivo:** Criar cobertura de testes para os 10 arquivos sem testes no SE9.
+
+**Novos testes (7 arquivos, 48 testes):**
+| Arquivo | Testes | Cobertura |
+|---------|--------|-----------|
+| `test_pipeline.py` | 12 | VideoPipeline orchestration, retry logic, stage transitions, webhook |
+| `test_http_client.py` | 11 | SE7/SE8 clients com respx HTTP mocking |
+| `test_webhook.py` | 6 | Payload construction, retry, early return |
+| `test_routes.py` | 8 | Todos 5 endpoints da API |
+| `test_download_routes.py` | 4 | Download edge cases |
+| `test_admin_routes.py` | 4 | Stats + cleanup |
+| `test_worker.py` | 5 | Singleton, job pickup, process_job |
+
+**Técnicas usadas:**
+- `respx` para mock HTTP (SE7/SE8/webhook)
+- `FastAPI TestClient` para endpoints (routes/download/admin)
+- `unittest.mock.AsyncMock` para pipeline assíncrono
+- `tempfile` para testes de download com FileResponse real
+- Patches em `app.services.pipeline.*` para testar worker (lazy import)
+
+**Total SE9:** 84 testes passando (36 pré-existentes + 48 novos)
+
+### 🟢 SE9 Bug Fixes (2026-07-08)
+
+**6 bugs corrigidos em 9 arquivos:**
+1. **HIGH:** `get_next_queued_job()` O(N) Redis GETs → sorted set `rbg_jobs:queued`
+2. **MEDIUM:** 0 scenes IndexError → validação `if not image_paths`
+3. **MEDIUM:** `on_screen_text` unused → wired through pipeline to assembler
+4. **LOW:** Mock missing `normalize_text` → added param
+5. **LOW:** Unused `TITLE_CARD_WRAP_WIDTH` → removed
+6. **LOW:** f-strings in loggers → `%s` format
+
 ### 🟢 SE5 Fixture Fix — 384 passed, 0 failed, 0 errors (2026-07-08)
 
 **Objetivo:** Corrigir os 73 errors restantes (todas eram fixtures faltantes).

@@ -50,3 +50,30 @@ def test_list_jobs(store):
     store.save_job("rbg_2", {"job_id": "rbg_2", "status": "completed"})
     jobs = store.list_jobs()
     assert len(jobs) == 2
+
+
+def test_get_next_queued_job(store):
+    store.save_job("rbg_1", {"job_id": "rbg_1", "status": "queued", "created_at": 1.0})
+    store.save_job("rbg_2", {"job_id": "rbg_2", "status": "completed", "created_at": 2.0})
+    job = store.get_next_queued_job()
+    assert job is not None
+    assert job["job_id"] == "rbg_1"
+    assert job["status"] == "queued"
+
+
+def test_get_next_queued_job_removes_from_queued_set_after_status_change(store):
+    store.save_job("rbg_1", {"job_id": "rbg_1", "status": "queued", "created_at": 1.0})
+    assert store.get_next_queued_job() is not None
+
+    store.save_job("rbg_1", {"job_id": "rbg_1", "status": "generating_audio", "created_at": 1.0})
+    assert store.get_next_queued_job() is None
+
+
+def test_get_next_queued_job_empty(store):
+    assert store.get_next_queued_job() is None
+
+
+def test_delete_job_removes_from_queued_set(store):
+    store.save_job("rbg_1", {"job_id": "rbg_1", "status": "queued"})
+    store.delete_job("rbg_1")
+    assert store.get_next_queued_job() is None

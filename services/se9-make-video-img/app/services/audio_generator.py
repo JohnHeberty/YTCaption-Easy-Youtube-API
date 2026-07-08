@@ -82,7 +82,7 @@ class AudioGenerator:
         full_text = self._concatenate_narration(narration)
         chunks = self._chunk_text(full_text)
 
-        logger.info(f"Audio generation: {len(chunks)} chunk(s), {len(full_text)} chars total")
+        logger.info("Audio generation: %d chunk(s), %d chars total", len(chunks), len(full_text))
 
         if len(chunks) == 1:
             audio_bytes = await self._generate_single(chunks[0], voice_id, normalize_text)
@@ -92,7 +92,7 @@ class AudioGenerator:
         else:
             chunk_paths: list[str] = []
             for i, chunk in enumerate(chunks):
-                logger.info(f"Generating chunk {i + 1}/{len(chunks)}")
+                logger.info("Generating chunk %d/%d", i + 1, len(chunks))
                 audio_bytes = await self._generate_single(chunk, voice_id, normalize_text)
                 chunk_path = os.path.join(output_dir, f"audio_chunk_{i}.wav")
                 with open(chunk_path, "wb") as f:
@@ -107,7 +107,7 @@ class AudioGenerator:
                     os.remove(p)
 
         duration = await get_audio_duration(audio_path)
-        logger.info(f"Audio generated: {audio_path} ({duration:.1f}s)")
+        logger.info("Audio generated: %s (%.1fs)", audio_path, duration)
         return audio_path, duration
 
     async def _generate_single(self, text: str, voice_id: str, normalize_text: bool = True) -> bytes:

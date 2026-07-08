@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+from typing import Any
 
 from common.log_utils import get_logger
 
@@ -60,11 +61,15 @@ class VideoAssembler:
         zoom_style: str = "random",
         crossfade_duration: float = 0.5,
         hook_text: str = "",
+        on_screen_text: list[dict[str, Any]] | None = None,
     ) -> str:
         """Assemble final video. Returns path to completed video.
 
         Images are looped cyclically to cover the full audio duration.
         """
+        if not image_paths:
+            raise ValueError("No images provided for video assembly")
+
         audio_duration = await ffmpeg_utils.get_audio_duration(audio_path)
 
         # Calculate average per-scene duration from narration timestamps
@@ -123,7 +128,7 @@ class VideoAssembler:
             title_duration, output_dir, job_id,
         )
 
-        logger.info(f"Video assembled: {final_path}")
+        logger.info("Video assembled: %s", final_path)
         return final_path
 
     async def _create_segments(
@@ -136,7 +141,7 @@ class VideoAssembler:
         for i, (img_path, dur) in enumerate(zip(cycled_images, scene_durations)):
             segment_path = os.path.join(output_dir, f"segment_{i}.mp4")
             scene_style = chosen_seq[i % len(chosen_seq)]
-            logger.info(f"Creating segment {i}: {dur:.1f}s, style={scene_style}")
+            logger.info("Creating segment %d: %.1fs, style=%s", i, dur, scene_style)
             await ffmpeg_utils.create_segment(
                 image_path=img_path,
                 output_path=segment_path,
@@ -158,7 +163,7 @@ class VideoAssembler:
         transition_list = [first_xfade] + [random.choice(TRANSITIONS) for _ in range(num_transitions - 1)]
 
         if len(segment_paths) <= MAX_XFAD_BATCH_SIZE:
-            logger.info(f"Concatenating {len(segment_paths)} segments with crossfade transitions: {transition_list}")
+            logger.info("Concatenating %d segments with crossfade transitions: %s", len(segment_paths), transition_list)
             await ffmpeg_utils.concat_segments(
                 segment_paths=segment_paths,
                 output_path=concat_path,
@@ -167,8 +172,9 @@ class VideoAssembler:
             )
         else:
             logger.info(
-                f"Concatenating {len(segment_paths)} segments in batches of {MAX_XFAD_BATCH_SIZE} "
-                f"(transitions within batches, hard cut between batches)"
+                "Concatenating %d segments in batches of %d "
+                "(transitions within batches, hard cut between batches)",
+                len(segment_paths), MAX_XFAD_BATCH_SIZE,
             )
             await ffmpeg_utils.concat_batched(
                 segment_paths=segment_paths,

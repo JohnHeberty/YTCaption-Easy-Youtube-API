@@ -101,6 +101,7 @@ class MockAudioGenerator:
         narration: list[NarrationSegment],
         voice_id: str = "builtin_feminino",
         output_dir: str = "/tmp",
+        normalize_text: bool = True,
     ) -> tuple[str, float]:
         """Generate a dummy WAV matching estimated duration."""
         if narration:
@@ -112,7 +113,7 @@ class MockAudioGenerator:
         _create_dummy_wav(audio_path, duration=estimated_duration)
         from app.infrastructure.ffmpeg_utils import get_audio_duration
         duration = await get_audio_duration(audio_path)
-        logger.info(f"[MOCK] Audio generated: {audio_path} ({duration:.1f}s)")
+        logger.info("[MOCK] Audio generated: %s (%.1fs)", audio_path, duration)
         return audio_path, duration
 
 

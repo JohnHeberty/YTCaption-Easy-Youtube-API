@@ -34,3 +34,15 @@ def test_calculate_scene_durations_min_one(assembler):
     """num_scenes_needed=0 defaults to 1."""
     durations = assembler._calculate_scene_durations(audio_duration=10.0, num_scenes_needed=0)
     assert len(durations) == 1
+
+
+@pytest.mark.asyncio
+async def test_assemble_raises_on_empty_images(assembler):
+    """Empty image list should raise ValueError."""
+    with pytest.raises(ValueError, match="No images provided"):
+        await assembler.assemble(
+            audio_path="/tmp/fake.wav",
+            image_paths=[],
+            narration=[],
+            output_dir="/tmp",
+        )
