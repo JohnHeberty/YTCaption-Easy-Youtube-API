@@ -30,6 +30,7 @@ class ChatterboxModelManager(IModelManager):
         self._model: Any = None
         self._sr = 24000
         self._loaded_at: float | None = None
+        self._last_used: float | None = None
 
     @staticmethod
     def _resolve_device(device_str: str) -> str:
@@ -124,9 +125,21 @@ class ChatterboxModelManager(IModelManager):
             self._model = None
             import torch
             if torch.cuda.is_available():
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
             self._loaded_at = None
+            self._last_used = None
             logger.info("Chatterbox model unloaded")
+
+    def maybe_unload(self, timeout: float = 60.0) -> bool:
+        if self._model is None or self._last_used is None:
+            return False
+        if time.time() - self._last_used > timeout:
+            logger.info("Model idle for %.0fs, unloading", time.time() - self._last_used)
+            self.unload_model()
+            return True
+        return False
 
     def generate(self, text: str, audio_prompt_path: str | None = None,
                  exaggeration: float = 0.5, temperature: float = 0.8,
@@ -147,6 +160,7 @@ class ChatterboxModelManager(IModelManager):
 
         try:
             wav = self._model.generate(**kwargs)
+            self._last_used = time.time()
             return wav
         except Exception as e:
             raise ResourceExhausted(f"Generation failed: {e}") from e

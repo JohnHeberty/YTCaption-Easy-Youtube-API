@@ -33,6 +33,15 @@ class GenerationTask(Task):
             self._generator = get_generator()
         return self._generator
 
+    def before_start(self, task_id: str, args: tuple, kwargs: dict) -> None:
+        try:
+            from app.infrastructure.dependencies import get_model_manager
+            mgr = get_model_manager()
+            if mgr.maybe_unload(timeout=60.0):
+                logger.info("Idle model unloaded before task %s", task_id)
+        except Exception:
+            pass
+
 
 def _resolve_audio_prompt_path(voice_id: str, store: Any) -> str | None:
     """Resolve voice_id to audio file path for voice cloning."""
