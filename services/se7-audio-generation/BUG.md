@@ -1,6 +1,6 @@
 # BUG.md — VRAM Leak: Chatterbox model memory not released after job completion
 
-**Status**: Aberto
+**Status**: Corrigido (2026-07-08)
 **Severidade**: Média
 **Afeta**: SE7 audio-generation (celery worker)
 **Detectado**: 2026-07-08
@@ -36,25 +36,16 @@ torch.cuda.memory_reserved(0):   0  ← mas o driver CUDA segura 4.78 GB
 - Rodar SE7 + SE8 + SE10 simultaneamente fica no limite de VRAM
 - Reiniciar o container libera a memória (workaround temporário)
 
-## Solução Proposta
+## Solução Aplicada
 
-**Lazy Unload com timeout**: Se nenhum job chegar em 60 segundos após a última execução, fazer unload explícito do modelo da GPU:
+**Lazy Unload com timeout** (2026-07-08):
 
-```python
-# Conceito:
-class ChatterboxModelManager:
-    _last_used: float = 0.0
-    _unload_timeout: float = 60.0
+1. **`model_manager.py`**: Adicionado `_last_used` timestamp, atualizado a cada `generate()`. Novo método `maybe_unload(timeout=60.0)` verifica idle e descarrega. `unload_model()` melhorado com `synchronize()` + `ipc_collect()`.
 
-    def maybe_unload(self):
-        if self._model is not None:
-            if time.time() - self._last_used > self._unload_timeout:
-                del self._model
-                self._model = None
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-```
+2. **`celery_tasks.py`**: Adicionado `before_start()` na `GenerationTask` que chama `maybe_unload(timeout=60.0)` antes de cada task.
+
+**Efeito esperado**: Sem jobs → 0 MB VRAM. Modelo recarrega (~2-3s) na próxima task. `worker_max_tasks_per_child=50` como fallback.
 
 **Refs**:
 - `services/se7-audio-generation/app/services/model_manager.py`
-- `services/se7-audio-generation/app/tasks/generate_audio.py`
+- `services/se7-audio-generation/app/infrastructure/celery_tasks.py`
