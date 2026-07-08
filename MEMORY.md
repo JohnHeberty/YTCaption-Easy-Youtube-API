@@ -2,6 +2,36 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SE10 segmentor.py Extraction — SOLID Refactoring (2026-07-07)
+
+**Objetivo:** Extrair funções puras de `segmentor.py` (457L) em módulo separado.
+
+**Resultado:**
+- `segmentor.py`: 457L → 377L (-80 linhas)
+- Novo: `segment_helpers.py` (139L) — `is_inside()`, `annotate_detections()`, `build_detected_objects()`, `filter_detections()`
+- **Commit:** `694f2481`
+- **Testes:** 62/62 passando
+
+### 🟢 SE9 DIP — Singleton VideoJobStore (2026-07-07)
+
+**Objetivo:** Eliminar 4 instâncias independentes de `VideoJobStore()` via singleton factory.
+
+**Resultado:**
+- Novo: `get_video_job_store()` singleton factory em `redis_store.py`
+- 6 arquivos atualizados para usar factory
+- **Commit:** `4bb4bb9f`
+- **Testes:** 27/27 passando
+
+### 🟢 SE6 Duration Parsing Dedup (2026-07-07)
+
+**Objetivo:** Eliminar 4 implementações inline de parsing de duração.
+
+**Resultado:**
+- Todas as 4 ocorrências substituídas por `parse_duration_to_seconds()` de `utils.py`
+- search.py, playlist.py (2x), channel.py atualizados
+- **Commit:** `c11c8554`
+- -39 linhas líquidas
+
 ### 🟢 SE11 _helpers.py Split — SOLID Refactoring (2026-07-07)
 
 **Objetivo:** Decompor `_helpers.py` (1,045 linhas — config + image + scoring + detection + upscale) em módulos focados.

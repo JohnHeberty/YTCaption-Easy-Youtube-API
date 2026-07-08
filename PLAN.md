@@ -238,8 +238,8 @@
 - [ ] Auditoria detalhada SE1, SE2, SE3, SE4, SE5
 - [x] SE5 `celery_tasks.py` refactoring (commit `1e027113` — 2,078L → 13 módulos)
 - [x] SE11 `_helpers.py` refactoring (commit `eb6797b2` — 1,045L → 6 módulos)
-- [ ] SE11 pipelines Template Method (24h — run_nsfw 618L + run_nsfw_experimental 638L compartilham ~70% código)
+- [x] SE10 `segmentor.py` refactoring (commit `694f2481` — 457L → 377L + segment_helpers.py 139L)
+- [x] SE9 DIP refactoring (commit `4bb4bb9f` — singleton get_video_job_store())
+- [x] SE6 `ytbpy/` refactoring (commit `c11c8554` — duration parsing dedup)
 - [ ] SE8 `worker.py` refactoring (16h — 1,472L God Module, extrair 5 módulos)
-- [ ] SE6 `ytbpy/` refactoring (12h — 3 God Modules, eliminar duplicação)
-- [ ] SE9 DIP refactoring (5h — interfaces + DI container)
-- [ ] SE10 `segmentor.py` refactoring (6h — extrair detector/annotator/filter)
+- [ ] SE11 pipelines Template Method (24h — run_nsfw 618L + run_nsfw_experimental 638L compartilham ~70% código)
