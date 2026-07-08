@@ -115,7 +115,9 @@ class EnhancedMakeVideoException(Exception):
         job_id: str | None = None,
         recoverable: bool = False,
         reason: str | None = None,
-        subtitle_path: str | None = None
+        subtitle_path: str | None = None,
+        file_path: str | None = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -126,7 +128,15 @@ class EnhancedMakeVideoException(Exception):
         self.recoverable = recoverable
         self.reason = reason
         self.subtitle_path = subtitle_path
+        self.file_path = file_path
         self.timestamp = now_brazil()
+        
+        # Store extra context in details
+        if file_path:
+            self.details["file_path"] = file_path
+        for k, v in kwargs.items():
+            if k not in self.details:
+                self.details[k] = v
         
         # Store reason in details for serialization
         if reason:

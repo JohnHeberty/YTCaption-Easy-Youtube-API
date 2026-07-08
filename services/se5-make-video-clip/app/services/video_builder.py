@@ -298,8 +298,13 @@ class VideoBuilder:
                 f"{''.join(concat_video_inputs)}concat=n={len(resolved_video_files)}:v=1:a=0[vout]"
             )
         else:
+            # concat expects alternating video/audio: [v0][a0][v1][a1]...
+            interleaved = []
+            for i in range(len(resolved_video_files)):
+                interleaved.append(f"[v{i}]")
+                interleaved.append(f"[a{i}]")
             filter_parts.append(
-                f"{''.join(concat_video_inputs)}{''.join(concat_audio_inputs)}"
+                f"{''.join(interleaved)}"
                 f"concat=n={len(resolved_video_files)}:v=1:a=1[vout][aout]"
             )
 

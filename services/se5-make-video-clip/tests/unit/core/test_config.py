@@ -180,20 +180,15 @@ def test_paths_can_be_converted_to_pathlib():
 
 def test_transform_dir_respects_env_variable(monkeypatch, temp_dir):
     """Verifica que TRANSFORM_DIR pode ser sobrescrito por variável de ambiente."""
-    # Definir variável de ambiente customizada
     custom_path = str(temp_dir / "custom_transform")
     monkeypatch.setenv("TRANSFORM_DIR", custom_path)
     
-    # Forçar recriação do settings
-    from app.core import config
-    config._settings = None
-    config._settings_dict = None
+    get_settings.cache_clear()
     
     settings = get_settings()
     
-    # Verificar que usa o valor customizado
-    assert settings["transform_dir"] == custom_path, \
-        f"transform_dir deve usar variável de ambiente. Esperado: {custom_path}, Obtido: {settings['transform_dir']}"
+    assert settings.transform_dir == custom_path, \
+        f"transform_dir deve usar variável de ambiente. Esperado: {custom_path}, Obtido: {settings.transform_dir}"
 
 
 def test_validate_dir_respects_env_variable(monkeypatch, temp_dir):
@@ -201,12 +196,10 @@ def test_validate_dir_respects_env_variable(monkeypatch, temp_dir):
     custom_path = str(temp_dir / "custom_validate")
     monkeypatch.setenv("VALIDATE_DIR", custom_path)
     
-    from app.core import config
-    config._settings = None
-    config._settings_dict = None
+    get_settings.cache_clear()
     
     settings = get_settings()
-    assert settings["validate_dir"] == custom_path
+    assert settings.validate_dir == custom_path
 
 
 def test_approved_dir_respects_env_variable(monkeypatch, temp_dir):
@@ -214,12 +207,10 @@ def test_approved_dir_respects_env_variable(monkeypatch, temp_dir):
     custom_path = str(temp_dir / "custom_approved")
     monkeypatch.setenv("APPROVED_DIR", custom_path)
     
-    from app.core import config
-    config._settings = None
-    config._settings_dict = None
+    get_settings.cache_clear()
     
     settings = get_settings()
-    assert settings["approved_dir"] == custom_path
+    assert settings.approved_dir == custom_path
 
 
 # ============================================================================
