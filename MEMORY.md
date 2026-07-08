@@ -2,6 +2,17 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SE8 worker.py Extraction — SOLID Refactoring (2026-07-07)
+
+**Objetivo:** Extrair funções de `worker.py` (1,472L) em módulos focados.
+
+**Resultado:**
+- `worker.py`: 1,472L → 1,161L (-311 linhas)
+- Novo: `ip_adapter_worker.py` (252L) — `_load_faceid_adapter`, `_apply_ip_adapter`
+- Novo: `task_type_registry.py` (64L) — `TaskTypeRegistry`, `create_default_registry`
+- **Commit:** `3b4de0a9`
+- **Testes:** 103/104 passando (1 falha pré-existente em auth)
+
 ### 🟢 SE10 segmentor.py Extraction — SOLID Refactoring (2026-07-07)
 
 **Objetivo:** Extrair funções puras de `segmentor.py` (457L) em módulo separado.
