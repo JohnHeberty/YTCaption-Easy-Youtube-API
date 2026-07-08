@@ -2,6 +2,34 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 SE5 celery_tasks.py Decomposition — SOLID Refactoring (2026-07-07)
+
+**Objetivo:** Decompor o maior God Module do monorepo (`celery_tasks.py` — 2,078 linhas) em módulos focados.
+
+**Resultado:**
+- **Original:** 1 arquivo, 2,078 linhas (8+ responsabilidades)
+- **Novo:** 13 arquivos, 1,983 linhas total, `celery_tasks.py` reduzido para 64L (re-export)
+
+**Módulos extraídos:**
+| Módulo | Linhas | Responsabilidade |
+|--------|--------|-----------------|
+| `instances.py` | 68 | Global service instances management |
+| `base.py` | 84 | Job status update with retry |
+| `checkpoint.py` | 112 | Checkpoint save/load/delete |
+| `timeout.py` | 42 | Dynamic timeout calculation |
+| `circuit_breaker.py` | 50 | SimpleCircuitBreaker |
+| `simple_metrics.py` | 20 | SimpleMetrics tracking |
+| `signals.py` | 16 | Celery signal handlers |
+| `helpers.py` | 154 | Video transform/crop/validate |
+| `tasks/make_video.py` | 849 | Main video processing task |
+| `tasks/download.py` | 211 | Download pipeline task |
+| `tasks/cleanup.py` | 72 | Cleanup tasks |
+| `tasks/recovery.py` | 304 | Job recovery task |
+
+**Backward compatible:** `celery_tasks.py` re-exports todo o public API.
+**Commit:** `1e027113`
+**Testes:** Imports verificados, 242 testes passando (erros pré-existentes em paddleocr, CircuitBreakerOpenException).
+
 ### 🔍 SOLID Audit Completa — Todos os Services (2026-07-07)
 
 **Objetivo:** Investigar violations SOLID em todos os 11 services do monorepo.

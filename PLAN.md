@@ -236,7 +236,7 @@
 
 - [x] Auditoria completa SE6, SE7, SE8, SE9, SE10, SE11
 - [ ] Auditoria detalhada SE1, SE2, SE3, SE4, SE5
-- [ ] SE5 `celery_tasks.py` refactoring
+- [x] SE5 `celery_tasks.py` refactoring (commit `1e027113` — 2,078L → 13 módulos)
 - [ ] SE11 `_helpers.py` + pipelines refactoring
 - [ ] SE8 `worker.py` refactoring
 - [ ] SE6 `ytbpy/` refactoring
