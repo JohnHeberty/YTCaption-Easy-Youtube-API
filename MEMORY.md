@@ -2,6 +2,18 @@
 
 ## Última sessão (2026-07-07)
 
+### 🟢 Task Type Registry Pattern — Item 4.2 SOLID Plan (2026-07-07)
+
+**Objetivo:** Implementar registry pattern para task types no SE8 worker (OCP — Open/Closed Principle).
+
+**Mudanças:**
+1. **Nova classe `TaskTypeRegistry`:** Registry com `register()` e `detect()` methods
+2. **Detectores registráveis:** Cada task type é um detector separado (função) registrado no registry
+3. **`_detect_task_type()` atualizado:** Usa registry em vez de if/elif chain
+4. **Extensível sem modificar código:** Novos task types podem ser adicionados registrando novos detectores
+
+**Resultado:** SE8: 103/104 passando (1 falha pré-existente em auth), SE11: 58/58, SE10: 62/62.
+
 ### 🟢 FaceID Adapter Extraction — Item 2.4 SOLID Plan (2026-07-07)
 
 **Objetivo:** Extrair classes `FaceIDProj` e `FaceIDIPAdapter` do SE8 `worker.py` (God Module de 1505 linhas) para módulo próprio.

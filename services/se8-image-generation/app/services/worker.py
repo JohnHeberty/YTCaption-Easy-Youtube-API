@@ -16,7 +16,7 @@ import io
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from app.domain.task_models import (
     AsyncTask,
@@ -45,18 +45,73 @@ def process_stop() -> None:
         logger.warning("Failed to interrupt processing: %s", e)
 
 
+# ─── Task Type Registry ──────────────────────────────────────────────────────
+
+class TaskTypeRegistry:
+    """Registry for task type detection.
+
+    Allows registering task type detectors without modifying _detect_task_type().
+    Each detector is a callable that takes a request dict and returns TaskType or None.
+    """
+
+    def __init__(self) -> None:
+        self._detectors: list[Callable[[dict[str, Any]], TaskType | None]] = []
+
+    def register(self, detector: Callable[[dict[str, Any]], TaskType | None]) -> None:
+        """Register a task type detector function."""
+        self._detectors.append(detector)
+
+    def detect(self, req: dict[str, Any]) -> TaskType:
+        """Detect task type from request using registered detectors.
+
+        Returns first matching TaskType, or TEXT_TO_IMAGE as default.
+        """
+        for detector in self._detectors:
+            result = detector(req)
+            if result is not None:
+                return result
+        return TaskType.TEXT_TO_IMAGE
+
+
+# Global registry instance
+_task_type_registry = TaskTypeRegistry()
+
+
+def _register_default_detectors() -> None:
+    """Register the built-in task type detectors."""
+
+    def _detect_upscale(req: dict[str, Any]) -> TaskType | None:
+        if req.get("current_tab") == "uov" or req.get("uov_input_image"):
+            return TaskType.IMG_UPSCALE_VARY
+        return None
+
+    def _detect_inpaint(req: dict[str, Any]) -> TaskType | None:
+        if req.get("current_tab") == "inpaint" or req.get("inpaint_input_image"):
+            return TaskType.IMG_INPAINT_OUTPAINT
+        return None
+
+    def _detect_prompt(req: dict[str, Any]) -> TaskType | None:
+        if req.get("current_tab") == "ip" or req.get("image_prompts"):
+            return TaskType.IMG_PROMPT
+        return None
+
+    def _detect_enhance(req: dict[str, Any]) -> TaskType | None:
+        if req.get("current_tab") == "enhance" or req.get("enhance_checkbox"):
+            return TaskType.IMG_ENHANCE
+        return None
+
+    _task_type_registry.register(_detect_upscale)
+    _task_type_registry.register(_detect_inpaint)
+    _task_type_registry.register(_detect_prompt)
+    _task_type_registry.register(_detect_enhance)
+
+
+_register_default_detectors()
+
+
 def _detect_task_type(req: dict[str, Any]) -> TaskType:
     """Detect task type from request parameters."""
-    current_tab = req.get("current_tab", "prompt")
-    if current_tab == "uov" or req.get("uov_input_image"):
-        return TaskType.IMG_UPSCALE_VARY
-    if current_tab == "inpaint" or req.get("inpaint_input_image"):
-        return TaskType.IMG_INPAINT_OUTPAINT
-    if current_tab == "ip" or req.get("image_prompts"):
-        return TaskType.IMG_PROMPT
-    if current_tab == "enhance" or req.get("enhance_checkbox"):
-        return TaskType.IMG_ENHANCE
-    return TaskType.TEXT_TO_IMAGE
+    return _task_type_registry.detect(req)
 
 
 def _build_async_task(req: dict[str, Any]) -> AsyncTask:
