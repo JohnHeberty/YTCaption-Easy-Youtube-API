@@ -188,13 +188,8 @@ async def get_full_transcription(
             detail=f"Transcrição não pronta. Status: {job.status}"
         )
 
-    if not job.transcription_segments:
-        raise HTTPException(
-            status_code=500,
-            detail="Segments não disponíveis para este job"
-        )
-
-    duration = job.transcription_segments[-1].end if job.transcription_segments else 0.0
+    segments = job.transcription_segments or []
+    duration = segments[-1].end if segments else 0.0
 
     processing_time = None
     if job.completed_at and job.created_at:
@@ -210,8 +205,8 @@ async def get_full_transcription(
         language_out=job.language_out,
         was_translated=was_translated,
         full_text=job.transcription_text or "",
-        segments=job.transcription_segments,
-        total_segments=len(job.transcription_segments),
+        segments=segments,
+        total_segments=len(segments),
         duration=duration,
         processing_time=processing_time
     )
