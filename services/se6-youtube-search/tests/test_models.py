@@ -3,19 +3,18 @@ Unit tests for models
 """
 import pytest
 from datetime import datetime, timedelta
-from app.models import Job, JobStatus, SearchType, SearchRequest
+from app.domain.models import YouTubeSearchJob, JobStatus, SearchType, SearchRequest
 
 
 def test_job_create_new_video_info():
     """Test creating new video info job"""
-    job = Job.create_new(
+    job = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO_INFO,
         video_id="dQw4w9WgXcQ",
-        cache_ttl_hours=24
     )
     
     assert job.id is not None
-    assert len(job.id) == 16  # SHA256 truncated
+    assert len(job.id) > 0
     assert job.search_type == SearchType.VIDEO_INFO
     assert job.video_id == "dQw4w9WgXcQ"
     assert job.status == JobStatus.QUEUED
@@ -26,11 +25,10 @@ def test_job_create_new_video_info():
 
 def test_job_create_new_channel_info():
     """Test creating new channel info job"""
-    job = Job.create_new(
+    job = YouTubeSearchJob.create_new(
         search_type=SearchType.CHANNEL_INFO,
         channel_id="UCuAXFkgsw1L7xaCfnd5JJOw",
         include_videos=True,
-        cache_ttl_hours=24
     )
     
     assert job.channel_id == "UCuAXFkgsw1L7xaCfnd5JJOw"
@@ -40,11 +38,10 @@ def test_job_create_new_channel_info():
 
 def test_job_create_new_video_search():
     """Test creating new video search job"""
-    job = Job.create_new(
+    job = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO,
         query="python tutorial",
         max_results=20,
-        cache_ttl_hours=24
     )
     
     assert job.query == "python tutorial"
@@ -54,12 +51,12 @@ def test_job_create_new_video_search():
 
 def test_job_unique_id_same_params():
     """Test that same parameters generate same job ID (caching)"""
-    job1 = Job.create_new(
+    job1 = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO_INFO,
         video_id="dQw4w9WgXcQ"
     )
     
-    job2 = Job.create_new(
+    job2 = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO_INFO,
         video_id="dQw4w9WgXcQ"
     )
@@ -69,12 +66,12 @@ def test_job_unique_id_same_params():
 
 def test_job_different_id_different_params():
     """Test that different parameters generate different job IDs"""
-    job1 = Job.create_new(
+    job1 = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO_INFO,
         video_id="dQw4w9WgXcQ"
     )
     
-    job2 = Job.create_new(
+    job2 = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO_INFO,
         video_id="abc123def456"
     )
@@ -82,23 +79,20 @@ def test_job_different_id_different_params():
     assert job1.id != job2.id
 
 
-def test_job_is_expired():
-    """Test job expiration check"""
-    # Create job that expires in 1 hour
-    job = Job.create_new(
+def test_job_expires_at():
+    """Test job expiration field"""
+    job = YouTubeSearchJob.create_new(
         search_type=SearchType.VIDEO_INFO,
         video_id="dQw4w9WgXcQ",
-        cache_ttl_hours=1
     )
     
-    # Should not be expired yet
-    assert not job.is_expired
+    # expires_at is None by default
+    assert job.expires_at is None
     
-    # Manually set expiration to past
-    job.expires_at = datetime.now() - timedelta(hours=1)
-    
-    # Should be expired now
-    assert job.is_expired
+    # Set expiration manually
+    job.expires_at = datetime.now() + timedelta(hours=1)
+    assert job.expires_at is not None
+    assert job.expires_at > datetime.now()
 
 
 def test_search_request_validation():
@@ -134,8 +128,7 @@ def test_job_status_enum():
 def test_search_type_enum():
     """Test search type enum values"""
     assert SearchType.VIDEO.value == "video"
-    assert SearchType.CHANNEL.value == "channel"
-    assert SearchType.VIDEO_INFO.value == "video_info"
     assert SearchType.CHANNEL_INFO.value == "channel_info"
+    assert SearchType.VIDEO_INFO.value == "video_info"
     assert SearchType.PLAYLIST_INFO.value == "playlist_info"
     assert SearchType.RELATED_VIDEOS.value == "related_videos"

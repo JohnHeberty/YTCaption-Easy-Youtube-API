@@ -75,8 +75,11 @@ class ErrorCode(Enum):
     TRANSCRIBER_TIMEOUT = 4004
     TRANSCRIBER_WORKERS_STUCK = 4005
     API_RATE_LIMIT_EXCEEDED = 4006
+    API_RATE_LIMIT = 4006  # Alias
     API_AUTHENTICATION_FAILED = 4007
     API_INVALID_RESPONSE = 4008
+    API_TIMEOUT = 4009
+    CIRCUIT_BREAKER_OPEN = 4010
     
     # System Errors (5xxx)
     DISK_FULL = 5001
@@ -124,6 +127,10 @@ class EnhancedMakeVideoException(Exception):
         self.reason = reason
         self.subtitle_path = subtitle_path
         self.timestamp = now_brazil()
+        
+        # Store reason in details for serialization
+        if reason:
+            self.details["reason"] = reason
         
         # Preservar stack trace da exceção original
         if cause:

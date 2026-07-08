@@ -6,7 +6,7 @@ import pytest
 import time
 from fastapi.testclient import TestClient
 from app.main import app
-from app.models import JobStatus
+from app.domain.models import JobStatus
 
 client = TestClient(app)
 

@@ -46,7 +46,7 @@ class TestExceptionDetailsConflict:
         assert exc.error_code == ErrorCode.API_TIMEOUT
         assert exc.details["transcription_job_id"] == "test-job-123"
         assert exc.details["max_polls"] == 60
-        assert exc.details["service"] == "audio-transcriber"
+        assert exc.details["service"] == "se4-audio-transcriber"
     
     def test_transcription_timeout_with_extra_kwargs(self):
         """

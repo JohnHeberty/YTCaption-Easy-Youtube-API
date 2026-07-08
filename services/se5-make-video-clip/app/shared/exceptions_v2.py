@@ -100,22 +100,74 @@ class YouTubeSearchUnavailableException(MicroserviceException):
 
 
 class VideoDownloaderUnavailableException(MicroserviceException):
-    def __init__(self, message: str, **kwargs):
+    def __init__(self, message: str = "Video downloader unavailable", **kwargs):
         super().__init__(message, ErrorCode.VIDEO_DOWNLOADER_UNAVAILABLE, service_name="se2-video-downloader", **kwargs)
 
 
 class AudioTranscriberUnavailableException(MicroserviceException):
-    def __init__(self, message: str, **kwargs):
+    def __init__(self, message: str = "Audio transcriber unavailable", reason: str | None = None, **kwargs):
+        if reason:
+            message = f"{message}: {reason}"
         super().__init__(message, ErrorCode.AUDIO_TRANSCRIBER_UNAVAILABLE, service_name="se4-audio-transcriber", **kwargs)
+
+# Alias for backward compat
+TranscriberUnavailableException = AudioTranscriberUnavailableException
 
 
 class TranscriptionTimeoutException(MicroserviceException):
-    def __init__(self, message: str, **kwargs):
-        super().__init__(message, ErrorCode.TRANSCRIBER_TIMEOUT, service_name="se4-audio-transcriber", **kwargs)
+    def __init__(self, job_id: str | None = None, max_polls: int | None = None, **kwargs):
+        message = f"Transcription timeout: job {job_id} (max polls: {max_polls})"
+        kwargs.setdefault("recoverable", False)
+        super().__init__(message, ErrorCode.API_TIMEOUT, service_name="se4-audio-transcriber", **kwargs)
+        if job_id:
+            self.details["transcription_job_id"] = job_id
+        if max_polls:
+            self.details["max_polls"] = max_polls
 
 class APIRateLimitException(MicroserviceException):
-    def __init__(self, message: str = "API rate limit exceeded", **kwargs):
-        super().__init__(message, ErrorCode.API_RATE_LIMIT_EXCEEDED, service_name="external-api", **kwargs)
+    def __init__(self, service_name: str = "external-api", retry_after: int | None = None, **kwargs):
+        message = f"Rate limit exceeded: {service_name}" + (f" (retry after {retry_after}s)" if retry_after else "")
+        super().__init__(message, ErrorCode.API_RATE_LIMIT, service_name=service_name, **kwargs)
+        if retry_after:
+            self.details["retry_after"] = retry_after
+
+
+class ExternalServiceException(EnhancedMakeVideoException):
+    def __init__(self, service_name: str, message: str, error_code: ErrorCode, details: dict | None = None, **kwargs):
+        merged = dict(details or {})
+        merged["service"] = service_name
+        super().__init__(message, error_code, details=merged, **kwargs)
+
+
+class CircuitBreakerOpenException(MicroserviceException):
+    def __init__(self, service_name: str, **kwargs):
+        message = f"Circuit breaker OPEN for {service_name}"
+        super().__init__(message, ErrorCode.CIRCUIT_BREAKER_OPEN, service_name=service_name, recoverable=False, **kwargs)
+        self.details["circuit_state"] = "open"
+
+
+class AudioInvalidFormatException(AudioProcessingException):
+    def __init__(self, message: str = "Audio invalid format", audio_path: str | None = None, reason: str | None = None, **kwargs):
+        super().__init__(message, ErrorCode.AUDIO_INVALID_FORMAT, audio_path=audio_path, **kwargs)
+        if reason:
+            self.details["reason"] = reason
+
+
+class AudioTooShortException(AudioProcessingException):
+    def __init__(self, duration: float, min_duration: float, **kwargs):
+        message = f"Audio too short: {duration}s (min: {min_duration}s)"
+        super().__init__(message, ErrorCode.AUDIO_TOO_SHORT, **kwargs)
+        self.details["duration"] = duration
+        self.details["min_duration"] = min_duration
+
+
+class AudioTooLongException(AudioProcessingException):
+    def __init__(self, duration: float, max_duration: float, **kwargs):
+        message = f"Audio too long: {duration}s (max: {max_duration}s)"
+        super().__init__(message, ErrorCode.AUDIO_TOO_LONG, **kwargs)
+        self.details["duration"] = duration
+        self.details["max_duration"] = max_duration
+
 
 __all__ = [
     "MakeVideoBaseException",
@@ -144,6 +196,11 @@ __all__ = [
     "TranscriberUnavailableException",
     "TranscriptionTimeoutException",
     "APIRateLimitException",
+    "ExternalServiceException",
+    "CircuitBreakerOpenException",
+    "AudioInvalidFormatException",
+    "AudioTooShortException",
+    "AudioTooLongException",
     "EnhancedMakeVideoException",
     "AudioProcessingException",
     "VideoProcessingException",
