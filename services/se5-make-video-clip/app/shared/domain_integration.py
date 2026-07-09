@@ -40,6 +40,7 @@ from ..services.blacklist_factory import get_blacklist
 from ..infrastructure.file_logger import FileLogger
 from .events import EventPublisher, EventType
 from .exceptions import MakeVideoException
+from ..core.models import StageInfo
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -77,12 +78,65 @@ class DomainJobProcessor:
         self.blacklist = blacklist
         self.settings = settings
         self.event_publisher = event_publisher
-        
+        self._current_job: Job | None = None
+
         # Criar stages com dependências
         self.stages = self._create_stages()
-        
-        # Criar processor
-        self.processor = JobProcessor(stages=self.stages)
+
+        # Criar processor com callback para atualizar Job.stages em tempo real
+        self.processor = JobProcessor(
+            stages=self.stages,
+            stage_callback=self._on_stage_update,
+        )
+
+    async def _on_stage_update(
+        self,
+        stage_name: str,
+        status: str,
+        progress: float,
+        duration: float,
+        error_msg: str | None,
+    ) -> None:
+        """Callback called by JobProcessor after each stage to update Job.stages."""
+        job = self._current_job
+        if not job:
+            return
+
+        try:
+            # Map DDD stage names to API display names
+            display_names = {
+                'analyze_audio': 'Analyzing audio',
+                'load_approved': 'Loading approved videos',
+                'select_shorts': 'Selecting shorts',
+                'assemble_video': 'Assembling video',
+                'generate_subtitles': 'Generating subtitles',
+                'final_composition': 'Final composition',
+                'trim_video': 'Trimming video',
+                'validate_av_sync': 'Validating A/V sync',
+            }
+
+            if stage_name not in job.stages:
+                job.stages[stage_name] = StageInfo(
+                    name=stage_name,
+                    display_name=display_names.get(stage_name, stage_name),
+                )
+
+            stage_info = job.stages[stage_name]
+
+            if status == 'processing':
+                stage_info.start()
+            elif status == 'completed':
+                stage_info.complete()
+            elif status == 'failed':
+                stage_info.fail(error_msg or 'Unknown error')
+
+            stage_info.update_progress(progress)
+
+            # Persist to Redis so API can read updated stages
+            self.redis_store.save_job(job)
+
+        except Exception as exc:
+            logger.debug("Failed to update stage %s: %s", stage_name, exc)
     
     def _create_stages(self) -> list[JobStage]:
         """Cria e configura todos os stages com dependências concretas"""
@@ -175,7 +229,9 @@ class DomainJobProcessor:
             
             # Executar processamento através dos stages
             logger.info(f"🚀 Starting domain-driven processing for job {job_id}")
+            self._current_job = job
             final_context = await self.processor.process(context)
+            self._current_job = None
 
             # Cleanup stale files
             try:

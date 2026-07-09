@@ -206,6 +206,7 @@ class VideoAssembler:
         final_path = await self._merge_audio_video(
             audio_path, padded_audio_path, concat_path,
             title_duration, output_dir, job_id,
+            on_screen_text=on_screen_text,
         )
 
         logger.info("Video assembled: %s", final_path)
@@ -278,8 +279,9 @@ class VideoAssembler:
     async def _merge_audio_video(
         self, audio_path: str, padded_audio_path: str, concat_path: str,
         title_duration: float, output_dir: str, job_id: str,
+        on_screen_text: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Pad audio, add to video, and trim to final duration."""
+        """Pad audio, add to video, render captions, and trim to final duration."""
         await self._pad_audio_start(audio_path, padded_audio_path, title_duration)
 
         audio_video_path = os.path.join(output_dir, "video_audio.mp4")
@@ -290,12 +292,25 @@ class VideoAssembler:
             output_path=audio_video_path,
         )
 
+        # Render captions if provided
+        if on_screen_text:
+            captioned_path = os.path.join(output_dir, "video_captioned.mp4")
+            logger.info("Rendering %d captions", len(on_screen_text))
+            await ffmpeg_utils.render_captions(
+                video_path=audio_video_path,
+                output_path=captioned_path,
+                captions=on_screen_text,
+            )
+            video_for_trim = captioned_path
+        else:
+            video_for_trim = audio_video_path
+
         padded_duration = await ffmpeg_utils.get_audio_duration(padded_audio_path)
         final_name = f"{job_id}_final.mp4" if job_id else "final.mp4"
         final_path = os.path.join(output_dir, final_name)
         logger.info("Trimming to padded audio duration: %.1fs", padded_duration)
         await ffmpeg_utils.trim_to_duration(
-            video_path=audio_video_path,
+            video_path=video_for_trim,
             duration=padded_duration,
             output_path=final_path,
         )

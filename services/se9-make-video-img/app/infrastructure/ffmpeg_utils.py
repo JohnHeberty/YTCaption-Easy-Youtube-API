@@ -382,3 +382,73 @@ async def trim_to_duration(video_path: str, duration: float, output_path: str) -
         output_path,
     ]
     await run_ffmpeg(args)
+
+
+async def render_captions(
+    video_path: str,
+    output_path: str,
+    captions: list[dict[str, Any]],
+    font_size: int = 48,
+    font_color: str = "white",
+    border_width: int = 3,
+    position_y: str = "h-th-80",
+) -> None:
+    """Render on-screen captions using FFmpeg drawtext filter.
+
+    Each caption entry must have:
+    - text: str — caption text
+    - t: float — start time in seconds
+    - end_seconds: float | None — end time (default: t + 3.0)
+
+    Captions are centered horizontally at the bottom of the video.
+    Text has a black border for readability over any background.
+    """
+    if not captions:
+        # No captions — just copy
+        import shutil
+        shutil.copy2(video_path, output_path)
+        return
+
+    # Build drawtext filter chain
+    drawtext_filters: list[str] = []
+    for cap in captions:
+        text = cap.get("text", "")
+        start = cap.get("t", 0.0)
+        end = cap.get("end_seconds") or (start + 3.0)
+
+        # Escape special characters for FFmpeg drawtext
+        escaped = text.replace("\\", "\\\\")
+        escaped = escaped.replace("'", "\\'")
+        escaped = escaped.replace(":", "\\:")
+        escaped = escaped.replace("%", "%%")
+
+        enable = f"between(t\\,{start:.3f}\\,{end:.3f})"
+        dt = (
+            f"drawtext=text='{escaped}'"
+            f":fontsize={font_size}"
+            f":fontcolor={font_color}"
+            f":borderw={border_width}"
+            f":bordercolor=black"
+            f":x=(w-tw)/2"
+            f":y={position_y}"
+            f":enable='{enable}'"
+        )
+        drawtext_filters.append(dt)
+
+    vf = ",".join(drawtext_filters)
+
+    args = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-vf", vf,
+        "-c:v", "libx264",
+        "-profile:v", "main",
+        "-level", "4.0",
+        "-g", "30",
+        "-bf", "2",
+        "-c:a", "copy",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    await run_ffmpeg(args, timeout=settings.ffmpeg_total_timeout)

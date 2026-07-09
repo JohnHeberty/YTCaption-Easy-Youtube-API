@@ -56,14 +56,14 @@ class MakeVideoJob(StandardJob):
             id=job_id,
             **kwargs,
         )
-        job.add_stage("analyzing_audio", "Analyzing audio")
-        job.add_stage("loading_approved", "Loading approved videos")
-        job.add_stage("selecting_shorts", "Selecting shorts")
-        job.add_stage("assembling_video", "Assembling video")
-        job.add_stage("generating_subtitles", "Generating subtitles")
+        job.add_stage("analyze_audio", "Analyzing audio")
+        job.add_stage("load_approved", "Loading approved videos")
+        job.add_stage("select_shorts", "Selecting shorts")
+        job.add_stage("assemble_video", "Assembling video")
+        job.add_stage("generate_subtitles", "Generating subtitles")
         job.add_stage("final_composition", "Final composition")
-        job.add_stage("trimming_video", "Trimming video")
-        job.add_stage("validating_av_sync", "Validating A/V sync")
+        job.add_stage("trim_video", "Trimming video")
+        job.add_stage("validate_av_sync", "Validating A/V sync")
         job.mark_as_queued()
         return job
 

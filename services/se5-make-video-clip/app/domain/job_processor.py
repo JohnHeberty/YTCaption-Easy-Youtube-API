@@ -18,12 +18,17 @@ JobProcessor - Chain of Responsibility pattern for job execution
 """
 from __future__ import annotations
 
+from typing import Callable, Awaitable, Any
+
 from .job_stage import JobStage, StageContext, StageResult, StageStatus
 from ..shared.events import EventType
 from ..shared.exceptions import EnhancedMakeVideoException, ErrorCode
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
+
+# Callback signature: (stage_name, stage_status, progress, duration_seconds, error_message)
+StageCallback = Callable[[str, str, float, float, str | None], Awaitable[None]]
 
 class JobProcessor:
     """
@@ -32,36 +37,39 @@ class JobProcessor:
     Executes stages in sequence with automatic compensation on failure
     """
     
-    def __init__(self, stages: list[JobStage]) -> None:
+    def __init__(self, stages: list[JobStage], stage_callback: StageCallback | None = None) -> None:
         """
         Initialize processor with stages
-        
+
         Args:
             stages: List of stages to execute in order
+            stage_callback: Optional async callback(stage_name, status, progress, duration, error_msg)
+                            called after each stage completes/fails for real-time Job.stages updates.
         """
         self.stages = stages
         self.completed_stages: list[JobStage] = []
+        self._stage_callback = stage_callback
     
     async def process(self, context: StageContext) -> StageContext:
         """
         Process job through all stages
-        
+
         Implements Chain of Responsibility:
         1. Execute each stage in sequence
         2. Pass enriched context to next stage
         3. On failure, compensate completed stages in reverse
-        
+
         Args:
             context: Initial job context
-            
+
         Returns:
             Enriched context after all stages
-            
+
         Raises:
             EnhancedMakeVideoException: If any stage fails
         """
         logger.info(f"🚀 Starting job processing: {context.job_id} ({len(self.stages)} stages)")
-        
+
         # Publish job started event
         await context.publish_event(
             EventType.JOB_STARTED,
@@ -71,22 +79,34 @@ class JobProcessor:
                 'stages': [stage.name for stage in self.stages],
             }
         )
-        
+
         try:
             # Execute each stage in sequence
             for i, stage in enumerate(self.stages, 1):
                 logger.info(f"📍 [{i}/{len(self.stages)}] Executing stage: {stage.name}")
-                
+
+                # Notify callback: stage started
+                if self._stage_callback:
+                    await self._stage_callback(stage.name, "processing", stage.progress_start, 0.0, None)
+
                 # Execute stage
                 result = await stage.run(context)
-                
+
                 # Track completed stage for potential compensation
                 if result.success:
                     self.completed_stages.append(stage)
                     logger.info(
                         f"✅ Stage {stage.name} completed in {result.duration_seconds:.2f}s"
                     )
+                    # Notify callback: stage completed
+                    if self._stage_callback:
+                        await self._stage_callback(stage.name, "completed", 100.0, result.duration_seconds, None)
                 else:
+                    # Notify callback: stage failed
+                    error_msg = str(result.error) if result.error else "Unknown error"
+                    if self._stage_callback:
+                        await self._stage_callback(stage.name, "failed", result.data.get('progress', 0), result.duration_seconds, error_msg)
+
                     # Stage failed, trigger compensation
                     raise result.error or EnhancedMakeVideoException(
                         f"Stage {stage.name} failed",
@@ -94,10 +114,10 @@ class JobProcessor:
                         details={'stage': stage.name},
                         job_id=context.job_id,
                     )
-            
+
             # All stages completed successfully
             logger.info(f"🎉 Job {context.job_id} completed successfully")
-            
+
             # Publish job completed event
             await context.publish_event(
                 EventType.JOB_COMPLETED,
@@ -108,14 +128,14 @@ class JobProcessor:
                     'stages_completed': len(self.completed_stages),
                 }
             )
-            
+
             return context
-            
+
         except Exception as e:
             # Compensate completed stages in reverse order
             logger.error(f"❌ Job {context.job_id} failed: {e}")
             await self._compensate_stages(context)
-            
+
             # Publish job failed event
             error = e if isinstance(e, EnhancedMakeVideoException) else EnhancedMakeVideoException(
                 f"Job processing failed: {str(e)}",
@@ -123,7 +143,7 @@ class JobProcessor:
                 cause=e,
                 job_id=context.job_id,
             )
-            
+
             await context.publish_event(
                 EventType.JOB_FAILED,
                 {
@@ -131,7 +151,7 @@ class JobProcessor:
                     'completed_stages': [s.name for s in self.completed_stages],
                 }
             )
-            
+
             raise error
     
     async def _compensate_stages(self, context: StageContext) -> None:
