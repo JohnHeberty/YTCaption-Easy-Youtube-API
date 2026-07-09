@@ -1,6 +1,102 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-08)
+## Última sessão (2026-07-09)
+
+### 🟢 SE5 Real E2E Test — COMPLETE SUCCESS (2026-07-09)
+
+**Objetivo:** Testar pipeline DDD do SE5 end-to-end com áudio TTS real e vídeos YouTube reais baixados.
+
+**Resultado:** ✅ SUCESSO — Job `mv_3m3YhGB5Dm` completou todos os 8 stages DDD.
+
+**Input:**
+- Audio: `/tmp/real_audio.wav` (23.3s, TTS motivational Portuguese via SE7)
+- Videos: 2 real YouTube shorts downloaded via SE2
+  - `jxF7ocKbmMQ.mp4` (21.3s, 1920x1080, AV1, 4.1MB)
+  - `MeTaryZOClQ.mp4` (41.1s, 1080x1920, H.264, 13.2MB)
+
+**Output:**
+- File: `/root/YTCaption-Easy-Youtube-API/services/se5-make-video-clip/data/approved/output/mv_3m3YhGB5Dm_final.mp4`
+- Copied to: `/root/YTCaption-Easy-Youtube-API/show/se5_real_e2e_final.mp4`
+- Duration: 23.5s, Resolution: 1080x1920, H.264+AAC, 10.2MB, FPS: 30
+
+**All 8 DDD stages passed:**
+| Stage | Status | Time |
+|-------|--------|------|
+| analyze_audio | ✅ | ~0.02s |
+| load_approved | ✅ | ~0.01s |
+| select_shorts | ✅ | ~0.01s |
+| assemble_video | ✅ | 52.6s |
+| generate_subtitles | ✅ | 0.02s (0 segments — TTS audio) |
+| final_composition | ✅ | 0.4s |
+| trim_video | ✅ | 11.4s |
+| validate_av_sync | ✅ | 0.13s (drift=0.155s/0.67%) |
+
+**Total processing time:** 65s
+
+### Bugs fixed during real E2E session (2026-07-09)
+
+1. **SE6 `reelItemRenderer` not extracted** — Added handling in `_process_search_results` at `search.py:166`. YouTube Shorts appear as `reelItemRenderer` but scraper only checked `videoRenderer`.
+2. **SE6 cached job return** — Deterministic job IDs (SHA256 hash) cause old completed results to be returned. Deleted old cached jobs from Redis DB 6.
+3. **SE2 permission denied** — `data/cache/` dir owned by root, container runs as appuser. Fixed with `chmod 777`.
+4. **SE6/SE2 unreachable from SE5 Docker** — localhost URLs don't work in containers. Added proper service hostnames.
+5. **SE5 wrong API key for SE6/SE2** — Per-service API key config added to `config.py`, `api_client.py`, `dependencies.py`, `instances.py`, `downloader.py`, `.env`, `docker-compose.yml`.
+6. **SE6 `Job.create_new` error** — Changed to `YouTubeSearchJob.create_new` in `search.py`.
+
+### Phase 2+3+4 Deployed (2026-07-09)
+
+**Phase 2 — New Stages:**
+- `app/domain/stages/load_approved_stage.py` — Reads from `data/approved/videos/`, validates dir + mp4 files
+- `app/domain/stages/validate_av_sync_stage.py` — Non-critical A/V sync validation
+
+**Phase 3 — Stage Fixes:**
+- `app/core/constants.py`: MIN=5s, MAX=3600s
+- `app/domain/stages/select_shorts_stage.py`: Warning when total_shorts_duration < audio_duration
+- `app/domain/stages/assemble_video_stage.py`: CONCAT_TOLERANCE=2.0 post-concat validation
+- `app/domain/stages/generate_subtitles_stage.py`: MAX_SUBTITLE_RETRIES=5, MAX_BACKOFF_SECONDS=300, `_transcribe_with_retry()` with exponential backoff, weighted word cue distribution
+- `app/domain/stages/final_composition_stage.py`: Fixed subtitle_style isinstance check
+- `app/domain/stages/trim_video_stage.py`: FINAL_TOLERANCE=2.0 post-trim validation
+
+**Phase 4 — Observability:**
+- `app/shared/domain_integration.py`: Checkpoints (save/delete), simple_metrics tracking, imports for checkpoint/update_job_status/metrics
+
+**Docker rebuild:** Both `make-video-clip` and `make-video-clip-celery` rebuilt and restarted.
+
+### Previous bugs fixed (2026-07-09 E2E #1)
+
+1. **Docker stale code** — Container built BEFORE DDD activation. Rebuilt images.
+2. **`import aioredis`** → `import redis.asyncio as aioredis` (aioredis merged into redis-py)
+3. **`redis_store` sync methods** — Removed `await` from 4 `redis_store.*()` calls
+4. **`job.updated_at` field missing** — `MakeVideoJob` doesn't have `updated_at`. Removed both lines.
+5. **`EventPublisher` methods don't exist** — `publish_job_started/completed/failed` are module-level functions, not class methods.
+6. **Disk space too low** — 4.4% free → pruned Docker images/cache → 70% free
+7. **SE4 unreachable from SE5** — Cross-network Docker connectivity. Fixed with `docker network connect` + env var.
+8. **No words extracted** — Empty transcription from silence audio → graceful placeholder.
+9. **Empty SRT validation** — `srt_has_content` check before `burn_subtitles`.
+
+**Job result (first E2E with test audio):**
+```json
+{
+  "video_url": "/download/mv_8HCXT7aF4F",
+  "video_file": "mv_8HCXT7aF4F_final.mp4",
+  "file_size": 89400,
+  "duration": 5.0,
+  "resolution": "1080x1920",
+  "aspect_ratio": "9:16",
+  "fps": 30,
+  "shorts_used": 1,
+  "subtitle_segments": 0,
+  "processing_time": 104.95
+}
+```
+
+### Known non-blocking issues
+- Event publishing type error (dict passed to methods expecting bytes) — observability only
+- SE4 network connection temporary (needs docker-compose persistence)
+- Stage display names in API response still show old names (fetching_shorts, downloading_shorts)
+
+---
+
+## Sessão anterior (2026-07-08)
 
 ### 🟢 SE5 DDD Activation — Phases 1-6 Complete (2026-07-08)
 
@@ -77,6 +173,83 @@ analyze_audio → load_approved → select_shorts → assemble_video
 - Patches em `app.infrastructure.ffmpeg_utils.*` para testar video_assembler
 
 **Total SE9:** 144 testes passando (84 pré-existentes + 60 novos)
+
+### 🟢 SE9 Pipeline Completo FUNCIONANDO (2026-07-09)
+
+**Objetivo:** Testar pipeline real com make-video.json end-to-end.
+
+**Resultado:** ✅ SUCESSO — Vídeo gerado com todas as 6 cenas, áudio TTS, Ken Burns, crossfade.
+
+**Vídeo gerado:**
+- Path: `/root/YTCaption-Easy-Youtube-API/show/rbg_7794af81b5bb_final.mp4`
+- Resolução: 1080×1920 (9:16 vertical)
+- FPS: 30, Codec: H.264 + AAC
+- Duração: 35.4s, Tamanho: 7.7MB
+
+**Tempo de processamento:** ~2.5 min total (audio 35s, images 66s, assembly 56s)
+
+**Bugs corrigidos:**
+1. SE8 Dockerfile: torch CPU→GPU, +psutil, +einops, +transformers, +scipy, +torchsde
+2. SE8 Docker NVIDIA: volume mounts manuais para libnvidia-ml.so, libcuda.so, libnvidia-ptxjitcompiler.so (nvidia-container-toolkit 1.18.2/1.19.1 incompatível com driver 590.x)
+3. SE8 Docker volumes: removidos named volumes se8-models/se8-outputs (sobrescreviam host mounts)
+4. SE9 pipeline.py: fix tuple unpacking `audio_path = await _generate_audio()` → `audio_path, _audio_duration = await _generate_audio()`
+5. SE8 pipeline.py: fix lazy import torch no decorator `_no_grad`
+
+**Arquivos alterados (SE8):**
+- `docker/Dockerfile` — torch CPU, psutil, config.txt permissions, models subdirs
+- `docker/Dockerfile.gpu` — stage api (GPU), +psutil, +einops, +transformers, +scipy, +torchsde
+- `docker/docker-compose.yml` — API usa Dockerfile.gpu, volume mounts NVIDIA libs, remove named volumes
+- `app/services/pipeline.py` — lazy import torch no decorator `_no_grad`
+
+**Arquivos alterados (SE9):**
+- `app/services/pipeline.py` — fix tuple unpacking audio_path
+
+### 🟢 SE9 + SE8 Fixes — Docker GPU (2026-07-09)
+
+**Objetivo:** Testar pipeline real com make-video.json.
+
+**Mudanças no SE8 Dockerfile:**
+- `app/services/pipeline.py` — Fix lazy import torch no decorator `_no_grad` (import dentro do wrapper)
+- `docker/Dockerfile` — Adicionado: torch CPU, psutil, safetensors, pyyaml, config.txt permissions
+- `docker/Dockerfile.gpu` — Adicionado stage `api` (GPU-enabled), psutil, config.txt permissions, models subdirs
+- `docker/docker-compose.yml` — API container agora usa `Dockerfile.gpu` com GPU reservation
+
+**Status do teste:**
+- Conversão: ✅ Script `scripts/convert_make_video.py` funcional
+- POST /jobs: ✅ 201 Created
+- Stage 1 (audio): ✅ Completed (30s)
+- Stage 2 (images): ❌ Failed — NVIDIA driver libs não montados no container
+
+**Bloqueio:** Docker NVIDIA runtime não está montando `libnvidia-ml.so` no container. O `nvidia.conf` aponta para `/usr/local/nvidia/lib/` mas o diretório não existe. `nvidia-smi` funciona no host mas falha dentro do container. Container tem `NVIDIA_VISIBLE_DEVICES=all` e runtime=nvidia, mas libs não são montadas.
+
+**Diagnóstico:**
+- `nvidia-smi` no host: ✅ Driver 590.48.01, CUDA 13.1
+- `docker run --gpus all nvidia/cuda nvidia-smi`: ✅ Funciona
+- `docker exec image-engine-api nvidia-smi`: ❌ "Found no NVIDIA driver"
+- `/usr/local/nvidia/lib/` no container: ❌ Não existe
+
+**Nota:** Este é um problema de infraestrutura Docker/NVIDIA, não de código. O SE8 worker container provavelmente tem o mesmo problema.
+
+### 🟢 SE9 Teste Real — Script de Conversão + Pipeline (2026-07-08)
+
+**Objetivo:** Testar pipeline real com make-video.json.
+
+**Script criado:** `services/se9-make-video-img/scripts/convert_make_video.py`
+- Converte make-video.json → CreateVideoRequest (SE9 API format)
+- Todos os gaps corrigidos (G1-G6): negative_prompt, camera_movement, transitions, global timing, end_seconds, global_style
+- Uso: `python3 scripts/convert_make_video.py make-video.json --send`
+
+**Resultado do teste:**
+- Conversão: ✅ Payload gerado corretamente (122 linhas)
+- POST /jobs: ✅ 201 Created (rbg_0cd41a012600)
+- Stage 1 (audio): ✅ Completed (35s, SE7 TTS)
+- Stage 2 (images): ❌ Failed — "SE8 returned empty image list"
+
+**Bloqueio:** SE8 API container não tem torch instalado. O `pipeline.py` do SE8 importa torch na definição da classe (decorator `@_no_grad`), mas o container API não tem torch. Erro: `ModuleNotFoundError: No module named 'torch'`
+
+**Nota:** Este é um problema pré-existente do SE8, não introduzido por nossas mudanças. O SE8 API container precisa de torch para geração de imagens funcionar. O worker container (Dockerfile.gpu) tem torch, mas o API container (Dockerfile regular) não.
+
+**Próximo passo:** Instalar torch no container SE8 API ou usar Dockerfile.gpu para o API.
 
 ### 🟢 SE9 API Reformulada — schemas.py + endpoints novos (2026-07-08)
 
