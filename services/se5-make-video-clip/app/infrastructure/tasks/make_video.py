@@ -111,7 +111,7 @@ async def _process_make_video_with_domain(job_id: str) -> Any:
     if video_validator is None or blacklist is None:
         get_instances()
 
-    import aioredis
+    import redis.asyncio as aioredis
     redis_client = await aioredis.from_url(settings['redis_url'])
     event_publisher = EventPublisher(redis_client=redis_client)
 

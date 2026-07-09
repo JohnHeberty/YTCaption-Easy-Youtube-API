@@ -73,13 +73,17 @@ class GenerateSubtitlesStage(JobStage):
         raw_cues = self._extract_word_cues(segments)
         
         if not raw_cues:
-            logger.error(f"❌ NO WORDS extracted from {len(segments)} segments!")
-            raise AudioProcessingException(
-                "No words extracted from transcription",
-                error_code=ErrorCode.TRANSCRIPTION_FAILED,
-                details={'segments_count': len(segments)},
-                job_id=context.job_id,
+            # No speech detected — generate empty SRT and continue
+            logger.warning(
+                "⚠️  No words extracted from transcription (%d segments). "
+                "Audio may have no speech. Generating empty SRT.",
+                len(segments),
             )
+            raw_cues = [{
+                'start': 0.0,
+                'end': 0.0,
+                'text': ''
+            }]
         
         logger.info(f"📊 Extracted {len(raw_cues)} word cues")
         
@@ -111,7 +115,8 @@ class GenerateSubtitlesStage(JobStage):
         words_per_caption = int(context.settings.get('words_per_caption', 2))
         
         # Group cues into segments for SRT generation
-        segments_for_srt = self._group_cues_into_segments(final_cues, segment_size=10)
+        valid_cues = [c for c in final_cues if c.get('text', '').strip()]
+        segments_for_srt = self._group_cues_into_segments(valid_cues, segment_size=10) if valid_cues else []
         
         self.subtitle_generator.generate_word_by_word_srt(
             segments_for_srt,
@@ -128,9 +133,10 @@ class GenerateSubtitlesStage(JobStage):
             )
         
         srt_size = subtitle_path.stat().st_size
-        if srt_size == 0:
+        has_speech = len(valid_cues) > 0
+        if srt_size == 0 and has_speech:
             raise AudioProcessingException(
-                "SRT file is empty (0 bytes)",
+                "SRT file is empty but speech was detected",
                 error_code=ErrorCode.SUBTITLE_GENERATION_FAILED,
                 details={'path': str(subtitle_path)},
                 job_id=context.job_id,

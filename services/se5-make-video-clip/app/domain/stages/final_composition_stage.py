@@ -115,7 +115,13 @@ class FinalCompositionStage(JobStage):
         logger.info(f"✅ Audio added")
         
         # ── Fase 2: Conditional subtitle burn ───────────────────────────────
-        if context.burn_subtitles and context.subtitle_path and context.subtitle_path.exists():
+        srt_has_content = (
+            context.subtitle_path
+            and context.subtitle_path.exists()
+            and context.subtitle_path.stat().st_size > 0
+        )
+
+        if context.burn_subtitles and srt_has_content:
             final_video_path = Path(context.settings['output_dir']) / f"{context.job_id}_final.mp4"
             
             logger.info(f"📝 Burning subtitles...")
@@ -130,7 +136,11 @@ class FinalCompositionStage(JobStage):
         else:
             # No subtitle burn — use video_with_audio as final
             final_video_path = Path(context.settings['output_dir']) / f"{context.job_id}_final.mp4"
-            logger.info(f"⏭️  Skipping subtitle burn (burn_subtitles={context.burn_subtitles})")
+            reason = (
+                "no speech detected (empty SRT)" if context.burn_subtitles and not srt_has_content
+                else f"burn_subtitles={context.burn_subtitles}"
+            )
+            logger.info(f"⏭️  Skipping subtitle burn ({reason})")
 
             import shutil
             shutil.copy2(str(video_with_audio_path), str(final_video_path))

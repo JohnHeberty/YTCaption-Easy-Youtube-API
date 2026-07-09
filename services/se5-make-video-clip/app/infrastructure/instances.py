@@ -39,6 +39,9 @@ def get_instances() -> tuple[Any, Any, Any, Any, Any]:
             video_downloader_url=settings['video_downloader_url'],
             audio_transcriber_url=settings['audio_transcriber_url'],
             api_key=settings.get('api_key'),
+            youtube_search_api_key=settings.get('youtube_search_api_key'),
+            video_downloader_api_key=settings.get('video_downloader_api_key'),
+            audio_transcriber_api_key=settings.get('audio_transcriber_api_key'),
         )
 
         video_builder = VideoBuilder(

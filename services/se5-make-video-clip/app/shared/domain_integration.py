@@ -136,7 +136,7 @@ class DomainJobProcessor:
         job_logger.info("=" * 80)
         
         # Carregar job do Redis
-        job = await self.redis_store.get_job(job_id)
+        job = self.redis_store.get_job(job_id)
         if not job:
             job_logger.error(f"❌ Job {job_id} not found in Redis")
             raise MakeVideoException(f"Job {job_id} not found")
@@ -145,8 +145,7 @@ class DomainJobProcessor:
         
         # Atualizar status inicial
         job.status = JobStatus.PROCESSING
-        job.updated_at = now_brazil()
-        await self.redis_store.save_job(job)
+        self.redis_store.save_job(job)
         
         try:
             # Criar contexto compartilhado para todos os stages
@@ -165,11 +164,14 @@ class DomainJobProcessor:
             )
             
             # Publicar evento de início
-            if self.event_publisher:
-                await self.event_publisher.publish_job_started(
+            try:
+                from ..shared.events import publish_job_started
+                await publish_job_started(
                     job_id=job_id,
-                    query=job.query if job.query else "approved_videos"  # Opcional
+                    query=job.query if job.query else "approved_videos"
                 )
+            except Exception as exc:
+                logger.debug("Failed to publish job_started event: %s", exc)
             
             # Executar processamento através dos stages
             logger.info(f"🚀 Starting domain-driven processing for job {job_id}")
@@ -197,14 +199,17 @@ class DomainJobProcessor:
             job.progress = 100.0
             job.completed_at = now_brazil()
             job.expires_at = job.completed_at + timedelta(hours=24)
-            await self.redis_store.save_job(job)
+            self.redis_store.save_job(job)
             
             # Publicar evento de sucesso
-            if self.event_publisher:
-                await self.event_publisher.publish_job_completed(
+            try:
+                from ..shared.events import publish_job_completed
+                await publish_job_completed(
                     job_id=job_id,
-                    result=result.model_dump()
+                    duration_seconds=result.processing_time
                 )
+            except Exception as exc:
+                logger.debug("Failed to publish job_completed event: %s", exc)
             
             logger.info(f"🎉 Job {job_id} completed successfully (Domain-Driven)!")
             logger.info(f"   ├─ Duration: {result.duration:.1f}s")
@@ -235,15 +240,17 @@ class DomainJobProcessor:
                     "details": getattr(e, 'context', {})
                 }
             
-            job.updated_at = now_brazil()
-            await self.redis_store.save_job(job)
-            
+            self.redis_store.save_job(job)
+
             # Publicar evento de erro
-            if self.event_publisher:
-                await self.event_publisher.publish_job_failed(
+            try:
+                from ..shared.events import publish_job_failed
+                await publish_job_failed(
                     job_id=job_id,
-                    error=job.error
+                    error=str(job.error)
                 )
+            except Exception as exc:
+                logger.debug("Failed to publish job_failed event: %s", exc)
             
             logger.error(f"❌ Job {job_id} failed (Domain-Driven): {e}", exc_info=True)
             job_logger.error(f"❌ JOB FAILED: {e}")

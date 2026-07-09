@@ -48,8 +48,10 @@ class ShortsDownloader:
         downloaded: list[dict[str, Any]] = []
         search_attempts = 0
         searched_video_ids: set[str] = set()
-        api_key = self._settings.get('api_key', '')
-        svc_headers = {"X-API-Key": api_key} if api_key else {}
+        search_api_key = self._settings.get('youtube_search_api_key', '') or self._settings.get('api_key', '')
+        download_api_key = self._settings.get('video_downloader_api_key', '') or self._settings.get('api_key', '')
+        search_headers = {"X-API-Key": search_api_key} if search_api_key else {}
+        download_headers = {"X-API-Key": download_api_key} if download_api_key else {}
 
         try:
             while len(downloaded) < max_count and search_attempts < MAX_SEARCH_ATTEMPTS:
@@ -62,7 +64,7 @@ class ShortsDownloader:
                     search_attempts, search_count, videos_still_needed,
                 )
 
-                shorts = await self._search_shorts(query, search_count, svc_headers)
+                shorts = await self._search_shorts(query, search_count, search_headers)
                 logger.info("  Search returned %d shorts", len(shorts))
 
                 unique_shorts = self._filter_shorts(
@@ -86,7 +88,7 @@ class ShortsDownloader:
                     if len(downloaded) >= max_count:
                         break
                     await self._download_single(
-                        short, downloaded, max_count, progress_callback, svc_headers,
+                        short, downloaded, max_count, progress_callback, download_headers,
                     )
 
             logger.info(

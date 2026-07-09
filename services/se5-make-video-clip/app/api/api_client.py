@@ -40,14 +40,20 @@ class MicroservicesClient:
                  audio_transcriber_url: str = "http://localhost:8005",
                  timeout: float = 30.0,
                  max_retries: int = 3,
-                 api_key: str | None = None) -> None:
+                 api_key: str | None = None,
+                 youtube_search_api_key: str | None = None,
+                 video_downloader_api_key: str | None = None,
+                 audio_transcriber_api_key: str | None = None) -> None:
         
         self.youtube_search_url = youtube_search_url.rstrip('/')
         self.video_downloader_url = video_downloader_url.rstrip('/')
         self.audio_transcriber_url = audio_transcriber_url.rstrip('/')
         self.max_retries = max_retries
-        
-        headers = {"X-API-Key": api_key} if api_key else {}
+
+        # Per-service API keys for authenticating WITH those services
+        self._search_headers = {"X-API-Key": youtube_search_api_key} if youtube_search_api_key else {}
+        self._downloader_headers = {"X-API-Key": video_downloader_api_key} if video_downloader_api_key else {}
+        self._transcriber_headers = {"X-API-Key": audio_transcriber_api_key} if audio_transcriber_api_key else {}
         
         # Cliente HTTP com retry automático e SSL desabilitado
         transport = httpx.AsyncHTTPTransport(retries=max_retries)
@@ -55,7 +61,6 @@ class MicroservicesClient:
             timeout=timeout, 
             transport=transport,
             verify=False,
-            headers=headers,
         )
         
         logger.info(f"🌐 Microservices Client initialized:")
@@ -88,7 +93,8 @@ class MicroservicesClient:
             # Iniciar busca
             response = await self.client.post(
                 f"{self.youtube_search_url}/search/shorts",
-                params={"query": query, "max_results": max_results}
+                params={"query": query, "max_results": max_results},
+                headers=self._search_headers,
             )
             response.raise_for_status()
             search_job = response.json()
@@ -102,7 +108,8 @@ class MicroservicesClient:
             
             for attempt in range(max_polls):
                 response = await self.client.get(
-                    f"{self.youtube_search_url}/jobs/{job_id}"
+                    f"{self.youtube_search_url}/jobs/{job_id}",
+                    headers=self._search_headers,
                 )
                 response.raise_for_status()
                 job = response.json()
@@ -161,7 +168,8 @@ class MicroservicesClient:
             logger.debug(f"   POST /jobs: url={url}, quality=best")
             response = await self.client.post(
                 f"{self.video_downloader_url}/jobs",
-                json={"url": url, "quality": "best"}
+                json={"url": url, "quality": "best"},
+                headers=self._downloader_headers,
             )
             logger.debug(f"   Response status: {response.status_code}")
             response.raise_for_status()
@@ -177,7 +185,8 @@ class MicroservicesClient:
             for attempt in range(max_polls):
                 logger.debug(f"   Polling attempt {attempt+1}/{max_polls} for job {job_id}")
                 response = await self.client.get(
-                    f"{self.video_downloader_url}/jobs/{job_id}"
+                    f"{self.video_downloader_url}/jobs/{job_id}",
+                    headers=self._downloader_headers,
                 )
                 logger.debug(f"   Poll response status: {response.status_code}")
                 response.raise_for_status()
@@ -188,7 +197,8 @@ class MicroservicesClient:
                     # Baixar arquivo
                     logger.info(f"💾 Baixando arquivo: {output_path}")
                     video_response = await self.client.get(
-                        f"{self.video_downloader_url}/jobs/{job_id}/download"
+                        f"{self.video_downloader_url}/jobs/{job_id}/download",
+                        headers=self._downloader_headers,
                     )
                     video_response.raise_for_status()
                     
@@ -335,7 +345,8 @@ class MicroservicesClient:
                         response = await self.client.post(
                             f"{self.audio_transcriber_url}/jobs",
                             files={"file": ("audio.ogg", f, "audio/ogg")},
-                            data={"language_in": language}
+                            data={"language_in": language},
+                            headers=self._transcriber_headers,
                         )
                     response.raise_for_status()
                     job = response.json()
@@ -385,7 +396,8 @@ class MicroservicesClient:
                 
                 try:
                     response = await self.client.get(
-                        f"{self.audio_transcriber_url}/jobs/{job_id}"
+                        f"{self.audio_transcriber_url}/jobs/{job_id}",
+                        headers=self._transcriber_headers,
                     )
                     response.raise_for_status()
                     job = response.json()
@@ -402,7 +414,8 @@ class MicroservicesClient:
                         # 3. Buscar transcrição completa (GET /jobs/{job_id}/transcription)
                         # ✅ OpenAPI: Retorna TranscriptionResponse com segments[]
                         response = await self.client.get(
-                            f"{self.audio_transcriber_url}/jobs/{job_id}/transcription"
+                            f"{self.audio_transcriber_url}/jobs/{job_id}/transcription",
+                            headers=self._transcriber_headers,
                         )
                         response.raise_for_status()
                         transcription = response.json()

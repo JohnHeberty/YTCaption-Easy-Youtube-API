@@ -33,6 +33,11 @@ class Settings(BaseServiceSettings):
     video_downloader_url: str = "http://localhost:8002"
     audio_transcriber_url: str = "http://localhost:8004"
 
+    # Microservices API Keys (for authenticating WITH those services)
+    youtube_search_api_key: str = ""
+    video_downloader_api_key: str = ""
+    audio_transcriber_api_key: str = ""
+
     # Storage
     audio_upload_dir: str = "./data/raw/audio"
     shorts_cache_dir: str = "./data/raw/shorts"
