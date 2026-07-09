@@ -16,6 +16,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # OpenCV + Pillow for API (face_routes.py imports cv2, image_utils.py imports PIL)
 RUN pip install --no-cache-dir numpy==1.24.0 opencv-python-headless==4.8.0.76 Pillow==10.0.0
 
+# PyTorch (CPU-only for API, GPU version in Dockerfile.gpu for worker)
+RUN pip install --no-cache-dir torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cpu
+
+# Additional dependencies for API generation
+RUN pip install --no-cache-dir psutil safetensors pyyaml
+
 # =============================================================================
 # Stage: api
 # =============================================================================
@@ -34,8 +40,9 @@ COPY services/se8-image-generation/extras/ ./extras/
 COPY services/se8-image-generation/args_manager.py ./args_manager.py
 
 RUN useradd -m -u 1000 appuser && \
-    mkdir -p /app/data/{outputs,models,temp} && \
-    chown -R appuser:appuser /app/data
+    mkdir -p /app/data/{outputs,models,temp} /app/data/models/{checkpoints,loras,vae,embeddings} && \
+    touch /app/config.txt /app/config_modification_tutorial.txt && \
+    chown -R appuser:appuser /app/data /app/config.txt /app/config_modification_tutorial.txt
 
 USER appuser
 

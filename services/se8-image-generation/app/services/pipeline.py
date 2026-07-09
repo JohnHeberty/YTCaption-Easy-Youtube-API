@@ -142,10 +142,13 @@ class Pipeline:
 
     @staticmethod
     def _no_grad(fn):
-        """Decorator: torch.no_grad + torch.inference_mode."""
-        import torch
+        """Decorator: torch.no_grad + torch.inference_mode.
 
+        Lazy import: torch is imported inside the wrapper, not at class definition time.
+        This allows the API container to load without torch installed.
+        """
         def wrapper(*args, **kwargs):
+            import torch
             with torch.no_grad():
                 with torch.inference_mode():
                     return fn(*args, **kwargs)

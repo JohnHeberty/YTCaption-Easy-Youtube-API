@@ -23,6 +23,54 @@ RUN pip install --no-cache-dir \
     --index-url https://download.pytorch.org/whl/cu121
 
 # =============================================================================
+# Stage: api (GPU-enabled)
+# =============================================================================
+FROM gpu-base AS api
+
+WORKDIR /app
+
+COPY shared/ ./common/
+RUN pip install --no-cache-dir -e ./common
+
+COPY services/se8-image-generation/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# ML dependencies
+RUN pip install --no-cache-dir \
+    safetensors==0.4.0 \
+    pyyaml==6.0 \
+    Pillow==10.0.0 \
+    numpy==1.24.0 \
+    opencv-python-headless==4.8.0.76 \
+    psutil \
+    einops \
+    transformers \
+    scipy \
+    torchsde
+
+COPY services/se8-image-generation/app/ ./app/
+COPY services/se8-image-generation/run.py ./run.py
+
+# Vendored FOOOCUS dependencies (isolated inside SE8)
+COPY services/se8-image-generation/ldm_patched/ ./ldm_patched/
+COPY services/se8-image-generation/modules/ ./modules/
+COPY services/se8-image-generation/sdxl_styles/ ./sdxl_styles/
+COPY services/se8-image-generation/extras/ ./extras/
+COPY services/se8-image-generation/args_manager.py ./args_manager.py
+
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data/{outputs,models,temp} /app/data/models/{checkpoints,loras,vae,embeddings} && \
+    touch /app/config.txt /app/config_modification_tutorial.txt && \
+    chown -R appuser:appuser /app/data /app/config.txt /app/config_modification_tutorial.txt
+
+EXPOSE 8008
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8008/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8008"]
+
+# =============================================================================
 # Stage: worker (GPU)
 # =============================================================================
 FROM gpu-base AS worker
@@ -41,7 +89,12 @@ RUN pip install --no-cache-dir \
     pyyaml==6.0 \
     Pillow==10.0.0 \
     numpy==1.24.0 \
-    opencv-python-headless==4.8.0.76
+    opencv-python-headless==4.8.0.76 \
+    psutil \
+    einops \
+    transformers \
+    scipy \
+    torchsde
 
 COPY services/se8-image-generation/app/ ./app/
 
