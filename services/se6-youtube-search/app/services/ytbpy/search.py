@@ -167,18 +167,22 @@ def _process_search_results(initial_data: dict[str, Any], max_results: int = 10)
                     video_renderer = item.get("videoRenderer", {})
 
                     video_info = _extract_search_video_details(video_renderer)
-                    if not video_info:
+                    if video_info:
+                        video_info = _extract_channel_info(video_renderer, video_info)
+                        video_info = _extract_video_duration(video_renderer, video_info)
+                        video_info = _extract_video_status(video_renderer, video_info)
+                        video_info = _extract_additional_details(video_renderer, video_info)
+                        search_results.append(video_info)
+                        if len(search_results) >= max_results:
+                            break
                         continue
 
-                    video_info = _extract_channel_info(video_renderer, video_info)
-                    video_info = _extract_video_duration(video_renderer, video_info)
-                    video_info = _extract_video_status(video_renderer, video_info)
-                    video_info = _extract_additional_details(video_renderer, video_info)
-
-                    search_results.append(video_info)
-
-                    if len(search_results) >= max_results:
-                        break
+                    reel_renderer = item.get("reelItemRenderer", {})
+                    reel_info = _extract_reel_item_details(reel_renderer)
+                    if reel_info:
+                        search_results.append(reel_info)
+                        if len(search_results) >= max_results:
+                            break
 
                 if len(search_results) >= max_results:
                     break

@@ -18,7 +18,7 @@ from fastapi import APIRouter, Query, HTTPException, Depends
 
 from app.core.config import get_settings
 from app.core.constants import SearchType, SearchLimits
-from app.domain.models import Job
+from app.domain.models import Job, YouTubeSearchJob
 from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStore
 from app.infrastructure.celery_tasks import youtube_search_task
 from app.infrastructure.dependencies import job_store
@@ -105,7 +105,7 @@ async def get_video_info(
     try:
         logger.info(f"Request for video info: {video_id}")
 
-        new_job = Job.create_new(
+        new_job = YouTubeSearchJob.create_new(
             search_type=SearchType.VIDEO_INFO,
             video_id=video_id,
             cache_ttl_hours=settings["cache_ttl_hours"],
@@ -147,7 +147,7 @@ async def get_channel_info(
             f"Request for channel info: {channel_id} (include_videos: {include_videos})"
         )
 
-        new_job = Job.create_new(
+        new_job = YouTubeSearchJob.create_new(
             search_type=SearchType.CHANNEL_INFO,
             channel_id=channel_id,
             include_videos=include_videos,
@@ -183,7 +183,7 @@ async def get_playlist_info(
     try:
         logger.info(f"Request for playlist info: {playlist_id}")
 
-        new_job = Job.create_new(
+        new_job = YouTubeSearchJob.create_new(
             search_type=SearchType.PLAYLIST_INFO,
             playlist_id=playlist_id,
             cache_ttl_hours=settings["cache_ttl_hours"],
@@ -227,7 +227,7 @@ async def search_videos(
 
         validated_max = _validate_max_results(max_results)
 
-        new_job = Job.create_new(
+        new_job = YouTubeSearchJob.create_new(
             search_type=SearchType.VIDEO,
             query=query,
             max_results=validated_max,
@@ -272,7 +272,7 @@ async def get_related_videos(
 
         validated_max = _validate_max_results(max_results)
 
-        new_job = Job.create_new(
+        new_job = YouTubeSearchJob.create_new(
             search_type=SearchType.RELATED_VIDEOS,
             video_id=video_id,
             max_results=validated_max,
@@ -317,7 +317,7 @@ async def search_shorts(
 
         validated_max = _validate_max_results(max_results)
 
-        new_job = Job.create_new(
+        new_job = YouTubeSearchJob.create_new(
             search_type=SearchType.SHORTS,
             query=query,
             max_results=validated_max,
