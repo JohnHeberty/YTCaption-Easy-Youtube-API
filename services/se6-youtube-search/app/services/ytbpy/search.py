@@ -184,6 +184,13 @@ def _process_search_results(initial_data: dict[str, Any], max_results: int = 10)
                         if len(search_results) >= max_results:
                             break
 
+                    # Extract shorts from Shorts shelf (gridShelfViewModel)
+                    shelf_shorts = _extract_shelf_shorts(item)
+                    if shelf_shorts:
+                        search_results.extend(shelf_shorts)
+                        if len(search_results) >= max_results:
+                            break
+
                 if len(search_results) >= max_results:
                     break
 
@@ -255,6 +262,9 @@ def _fetch_continuation_page(continuation_token: str, timeout: int = 10) -> tupl
 
                     video_info = _extract_search_video_details(video_renderer)
                     if not video_info:
+                        # Try shelf shorts in continuation pages too
+                        shelf_shorts = _extract_shelf_shorts(content)
+                        results.extend(shelf_shorts)
                         continue
 
                     video_info = _extract_channel_info(video_renderer, video_info)
@@ -319,6 +329,70 @@ def search_youtube(query: str, max_results: int = 10, timeout: int = 10) -> dict
         "pages_fetched": page_count,
         "results": all_results[:max_results],
     }
+
+
+def _extract_shelf_shorts(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract shorts from gridShelfViewModel (YouTube Shorts shelf in search results).
+
+    YouTube places Shorts in a dedicated shelf using gridShelfViewModel → shortsLockupViewModel
+    instead of videoRenderer. This is common for non-English queries (PT, ES, etc.).
+    """
+    shelf = item.get("gridShelfViewModel", {})
+    if not shelf:
+        return []
+
+    shorts = []
+    for shelf_item in shelf.get("contents", []):
+        slvm = shelf_item.get("shortsLockupViewModel", {})
+        if not slvm:
+            continue
+
+        video_id = None
+
+        # Try entityId first: "shorts-shelf-item-{videoId}"
+        entity_id = slvm.get("entityId", "")
+        if entity_id.startswith("shorts-shelf-item-"):
+            video_id = entity_id[len("shorts-shelf-item-"):]
+
+        # Fallback: onTap → innertubeCommand → reelWatchEndpoint → videoId
+        if not video_id:
+            onTap = slvm.get("onTap", {})
+            cmd = onTap.get("innertubeCommand", {})
+            rwe = cmd.get("reelWatchEndpoint", {})
+            video_id = rwe.get("videoId")
+
+        if not video_id:
+            continue
+
+        # Extract title from overlayMetadata
+        overlay = slvm.get("overlayMetadata", {})
+        title = overlay.get("primaryText", {}).get("content", "")
+        view_text = overlay.get("secondaryText", {}).get("content", "")
+
+        views = 0
+        if view_text:
+            view_match = re.search(r"([\d.]+[KkMm]?)", view_text)
+            if view_match:
+                raw = view_match.group(1).replace(",", "")
+                if raw.upper().endswith("K"):
+                    views = int(float(raw[:-1]) * 1_000)
+                elif raw.upper().endswith("M"):
+                    views = int(float(raw[:-1]) * 1_000_000)
+                else:
+                    views = int(float(raw))
+
+        short_info = {
+            "video_id": video_id,
+            "title": title,
+            "url": f"https://www.youtube.com/shorts/{video_id}",
+            "thumbnails": get_thumbnail_urls(video_id),
+            "views": views,
+            "duration_seconds": 60,  # Shorts are ≤60s by definition
+            "is_short": True,
+        }
+        shorts.append(short_info)
+
+    return shorts
 
 
 def _extract_reel_item_details(reel_renderer: dict[str, Any]) -> dict[str, Any] | None:

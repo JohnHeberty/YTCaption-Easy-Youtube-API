@@ -151,9 +151,13 @@ class EventPublisher:
             # Também salvar em stream para histórico (Redis Streams)
             # Streams são persistentes e podem ser consumidos com offset
             stream_name = f"event_stream:{event.type.value.split('.')[0]}"
+            flat_data = {k: str(v) if not isinstance(v, str) else v
+                         for k, v in event.to_dict().items()
+                         if k != "data"}
+            flat_data["data_json"] = json.dumps(event.data)
             await self.redis.xadd(
                 stream_name,
-                event.to_dict(),
+                flat_data,
                 maxlen=10000  # Manter últimos 10k eventos
             )
             

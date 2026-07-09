@@ -877,7 +877,7 @@ async def _process_make_video_async(job_id: str) -> None:
     job_logger.info("Job loaded: max_shorts=%s (no query - uses approved videos)", job.max_shorts)
 
     try:
-        from ..pipeline.video_pipeline import VideoPipeline
+        from app.pipeline.video_pipeline import VideoPipeline
         pipeline = VideoPipeline()
         pipeline.cleanup_stale_validations(job_id, max_age_minutes=30)
         pipeline.cleanup_orphaned_files(max_age_minutes=30)
@@ -985,7 +985,7 @@ async def _process_make_video_async(job_id: str) -> None:
 
     finally:
         try:
-            from ..pipeline.video_pipeline import VideoPipeline
+            from app.pipeline.video_pipeline import VideoPipeline
             pipeline_cleanup = VideoPipeline()
             pipeline_cleanup.cleanup_orphaned_files(max_age_minutes=30)
             job_logger.info("Final cleanup: orphaned files removed from all pipeline folders")

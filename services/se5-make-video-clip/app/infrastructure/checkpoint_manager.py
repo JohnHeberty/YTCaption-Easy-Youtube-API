@@ -20,11 +20,13 @@ logger = get_logger(__name__)
 class CheckpointStage(str, Enum):
     """Estágios de processamento com checkpoints"""
     ANALYZING_AUDIO = "analyzing_audio"
-    FETCHING_SHORTS = "fetching_shorts"
-    DOWNLOADING_SHORTS = "downloading_shorts"
-    VALIDATING_SHORTS = "validating_shorts"
+    LOADING_APPROVED = "loading_approved"
     SELECTING_SHORTS = "selecting_shorts"
-    BUILDING_VIDEO = "building_video"
+    ASSEMBLING_VIDEO = "assembling_video"
+    GENERATING_SUBTITLES = "generating_subtitles"
+    FINAL_COMPOSITION = "final_composition"
+    TRIMMING_VIDEO = "trimming_video"
+    VALIDATING_AV_SYNC = "validating_av_sync"
     COMPLETED = "completed"
 
 @dataclass

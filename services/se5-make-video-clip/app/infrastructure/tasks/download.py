@@ -62,7 +62,7 @@ def process_download_pipeline(self, job_id: str) -> None:
 
 async def _process_download_pipeline_async(job_id: str) -> None:
     """Async implementation of download pipeline."""
-    from ..instances import video_validator, blacklist
+    from .. import instances
 
     store, api_client, video_builder, shorts_cache, subtitle_gen = get_instances()
     settings = get_settings()
@@ -97,7 +97,7 @@ async def _process_download_pipeline_async(job_id: str) -> None:
     job_logger.info(f"⬇️ [2/3] Downloading {len(results)} shorts...")
     await update_job_status(job_id, JobStatus.PROCESSING, progress=25.0)
 
-    from ..pipeline.video_pipeline import VideoPipeline
+    from app.pipeline.video_pipeline import VideoPipeline
     pipeline = VideoPipeline()
     pipeline.cleanup_stale_validations(job_id, max_age_minutes=30)
 
@@ -137,7 +137,7 @@ async def _process_download_pipeline_async(job_id: str) -> None:
     job_logger.info(f"🔍 [3/3] Validating {len(downloaded_ids)} shorts...")
     await update_job_status(job_id, JobStatus.PROCESSING, progress=55.0)
 
-    if video_validator is None or blacklist is None:
+    if instances.video_validator is None or instances.blacklist is None:
         get_instances()
 
     approved_ids = []
@@ -158,8 +158,8 @@ async def _process_download_pipeline_async(job_id: str) -> None:
             aspect_ratio=aspect_ratio,
             crop_position=crop_position,
             video_builder=video_builder,
-            video_validator=video_validator,
-            blacklist=blacklist,
+            video_validator=instances.video_validator,
+            blacklist=instances.blacklist,
             job_logger=job_logger,
         )
 
