@@ -12,8 +12,8 @@ from enum import Enum
 
 class ProcessingLimits:
     """Limites de processamento"""
-    MIN_AUDIO_DURATION_SECONDS = 10
-    MAX_AUDIO_DURATION_SECONDS = 300
+    MIN_AUDIO_DURATION_SECONDS = 5
+    MAX_AUDIO_DURATION_SECONDS = 3600
     MIN_SHORTS_COUNT = 5
     MAX_SHORTS_COUNT = 50
     MAX_SHORTS = 50  # Alias para MAX_SHORTS_COUNT

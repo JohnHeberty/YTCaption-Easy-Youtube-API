@@ -75,7 +75,16 @@ class SelectShortsStage(JobStage):
                 error_code=ErrorCode.NO_VALID_SHORTS,
                 job_id=context.job_id,
             )
-        
+
+        # Warn if total duration is shorter than audio
+        if total_duration < (context.audio_duration or 0):
+            logger.warning(
+                "⚠️  Total shorts duration (%.1fs) < audio duration (%.1fs) — "
+                "video will be shorter than audio",
+                total_duration,
+                context.audio_duration,
+            )
+
         logger.info(
             f"🎯 Selected {len(selected_shorts)} shorts "
             f"({total_duration:.1f}s / target {context.target_video_duration:.1f}s)"

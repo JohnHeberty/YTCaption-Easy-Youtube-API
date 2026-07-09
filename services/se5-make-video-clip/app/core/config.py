@@ -127,6 +127,9 @@ class Settings(BaseServiceSettings):
     # Video Fetch
     max_fetch_rounds: int = 10
 
+    # DDD Architecture Toggle
+    use_domain_driven_architecture: bool = True
+
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key, None)
 

@@ -19,6 +19,8 @@ from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
+FINAL_TOLERANCE = 2.0
+
 class TrimVideoStage(JobStage):
     """Stage 8: Trim video to exact duration"""
     
@@ -113,7 +115,16 @@ class TrimVideoStage(JobStage):
             
             # Replace final video with trimmed version
             shutil.move(str(trimmed_video_path), str(context.final_video_path))
-            
+
+            # Post-trim validation
+            post_trim = await self.video_builder.get_video_info(str(context.final_video_path))
+            post_dur = post_trim.get('duration', 0)
+            if abs(post_dur - final_duration) > FINAL_TOLERANCE:
+                logger.warning(
+                    "⚠️  Post-trim duration mismatch: expected %.1fs, got %.1fs (tolerance %.1fs)",
+                    final_duration, post_dur, FINAL_TOLERANCE,
+                )
+
             logger.info(f"✅ Video trimmed and replaced")
             trimmed = True
         else:

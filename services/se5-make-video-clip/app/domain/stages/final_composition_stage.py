@@ -119,11 +119,12 @@ class FinalCompositionStage(JobStage):
             final_video_path = Path(context.settings['output_dir']) / f"{context.job_id}_final.mp4"
             
             logger.info(f"📝 Burning subtitles...")
+            style = context.subtitle_style if isinstance(context.subtitle_style, str) else "dynamic"
             await self.video_builder.burn_subtitles(
                 video_path=str(video_with_audio_path),
                 subtitle_path=str(context.subtitle_path),
                 output_path=str(final_video_path),
-                style=context.subtitle_style if isinstance(context.subtitle_style, str) else "dynamic"
+                style=style,
             )
             logger.info(f"✅ Subtitles burned")
         else:

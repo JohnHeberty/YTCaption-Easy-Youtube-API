@@ -17,16 +17,19 @@ from typing import Any
 from ..domain.job_processor import JobProcessor
 from ..domain.job_stage import StageContext, JobStage
 from ..domain.stages.analyze_audio_stage import AnalyzeAudioStage
-from ..domain.stages.fetch_shorts_stage import FetchShortsStage
-from ..domain.stages.download_shorts_stage import DownloadShortsStage
+from ..domain.stages.load_approved_stage import LoadApprovedVideosStage
 from ..domain.stages.select_shorts_stage import SelectShortsStage
 from ..domain.stages.assemble_video_stage import AssembleVideoStage
 from ..domain.stages.generate_subtitles_stage import GenerateSubtitlesStage
 from ..domain.stages.final_composition_stage import FinalCompositionStage
 from ..domain.stages.trim_video_stage import TrimVideoStage
+from ..domain.stages.validate_av_sync_stage import ValidateAVSyncStage
 
 from ..core.models import Job, JobStatus, JobResult, ShortInfo
 from ..infrastructure.redis_store import MakeVideoJobStore as RedisJobStore
+from ..infrastructure.checkpoint import save_checkpoint, delete_checkpoint
+from ..infrastructure.base import update_job_status
+from ..infrastructure.simple_metrics import simple_metrics
 from ..api.api_client import MicroservicesClient
 from ..services.video_builder import VideoBuilder
 from ..services.shorts_manager import ShortsCache
@@ -83,20 +86,14 @@ class DomainJobProcessor:
     
     def _create_stages(self) -> list[JobStage]:
         """Cria e configura todos os stages com dependências concretas"""
-        
+
         # Cada stage recebe as dependências que precisa
         return [
             AnalyzeAudioStage(
                 video_builder=self.video_builder
             ),
-            FetchShortsStage(
-                api_client=self.api_client
-            ),
-            DownloadShortsStage(
-                api_client=self.api_client,
-                shorts_cache=self.shorts_cache,
-                video_validator=self.video_validator,
-                blacklist=self.blacklist
+            LoadApprovedVideosStage(
+                video_builder=self.video_builder
             ),
             SelectShortsStage(),
             AssembleVideoStage(
@@ -112,7 +109,10 @@ class DomainJobProcessor:
             ),
             TrimVideoStage(
                 video_builder=self.video_builder
-            )
+            ),
+            ValidateAVSyncStage(
+                video_builder=self.video_builder
+            ),
         ]
     
     async def process_job(self, job_id: str) -> JobResult:
@@ -174,8 +174,21 @@ class DomainJobProcessor:
             # Executar processamento através dos stages
             logger.info(f"🚀 Starting domain-driven processing for job {job_id}")
             final_context = await self.processor.process(context)
-            
-            # Extrair resultados do contexto final
+
+            # Cleanup stale files
+            try:
+                from ..pipeline.cleanup import PipelineCleanup
+                PipelineCleanup(settings=self.settings).cleanup_stale_validations()
+            except Exception:
+                pass
+
+            # Delete checkpoint on success
+            try:
+                await delete_checkpoint(job_id)
+            except Exception:
+                pass
+
+            # Extract job result
             result = self._build_job_result(job, final_context)
             
             # Atualizar job como completo
@@ -198,7 +211,10 @@ class DomainJobProcessor:
             logger.info(f"   ├─ Size: {result.file_size_mb}MB")
             logger.info(f"   ├─ Shorts used: {result.shorts_used}")
             logger.info(f"   └─ Processing time: {result.processing_time:.1f}s")
-            
+
+            # Metrics
+            simple_metrics.jobs_completed += 1
+
             job_logger.info("=" * 80)
             job_logger.info(f"✅ JOB COMPLETED SUCCESSFULLY")
             job_logger.info("=" * 80)
@@ -231,7 +247,10 @@ class DomainJobProcessor:
             
             logger.error(f"❌ Job {job_id} failed (Domain-Driven): {e}", exc_info=True)
             job_logger.error(f"❌ JOB FAILED: {e}")
-            
+
+            # Metrics
+            simple_metrics.jobs_failed += 1
+
             raise
     
     def _build_job_result(self, job: Job, context: StageContext) -> JobResult:

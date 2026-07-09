@@ -2,6 +2,38 @@
 
 ## Última sessão (2026-07-08)
 
+### 🟢 SE5 DDD Activation — Phases 1-6 Complete (2026-07-08)
+
+**Objetivo:** Ativar o caminho DDD do SE5 (LoadApprovedVideos → DDD stages), substituindo o FetchShorts+DownloadShorts legacy.
+
+**Resultado — 6 fases completadas:**
+
+| Fase | Arquivos alterados | Status |
+|------|-------------------|--------|
+| 1 — Config flag | `app/core/config.py` | `use_domain_driven_architecture: bool = True` |
+| 2 — New stages | `app/domain/stages/load_approved_stage.py`, `app/domain/stages/validate_av_sync_stage.py` | Novos stages criados |
+| 2 — Wiring | `app/shared/domain_integration.py`, `app/domain/stages/__init__.py` | LoadApproved+ValidateAVSync substituem FetchShorts+DownloadShorts |
+| 3 — Stage fixes | `app/domain/stages/select_shorts_stage.py`, `assemble_video_stage.py`, `generate_subtitles_stage.py`, `final_composition_stage.py`, `trim_video_stage.py`, `app/core/constants.py` | 7 fixes aplicados |
+| 4 — Observability | `app/shared/domain_integration.py` | Checkpoints, metrics, job status updates |
+| 5 — Tests | 4 arquivos em `tests/unit/domain/stages/` | 14 novos testes |
+| 6 — Flag flip | `app/core/config.py` | `True` |
+
+**Phase 3 fixes detalhados:**
+- `ProcessingLimits`: 10s→5s, 300s→3600s (matching legacy)
+- `SelectShortsStage`: warning when total_duration < audio_duration
+- `AssembleVideoStage`: CONCAT_TOLERANCE=2.0 post-concat validation
+- `GenerateSubtitlesStage`: retry with exponential backoff (5 attempts, max 300s) + weighted word cue distribution
+- `FinalCompositionStage`: subtitle_style isinstance check
+- `TrimVideoStage`: FINAL_TOLERANCE=2.0 post-trim validation
+
+**DDD Pipeline now (8 stages):**
+```
+analyze_audio → load_approved → select_shorts → assemble_video
+→ generate_subtitles → final_composition → trim_video → validate_av_sync
+```
+
+**Validação:** py_compile all files OK, 118 unit tests passed (domain+core+shared), 0 failures.
+
 ### 🟢 SE5 video_validator.py Decomposition (2026-07-08)
 
 **Objetivo:** Decompor `video_validator.py` (1,039L) em módulos menores focados.

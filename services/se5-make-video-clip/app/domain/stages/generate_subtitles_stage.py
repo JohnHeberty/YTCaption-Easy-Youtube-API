@@ -9,6 +9,7 @@ GenerateSubtitlesStage - Transcribe audio and generate word-by-word subtitles
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,9 @@ from ...shared.exceptions import AudioProcessingException, ErrorCode
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
+
+MAX_SUBTITLE_RETRIES = 5
+MAX_BACKOFF_SECONDS = 300
 
 class GenerateSubtitlesStage(JobStage):
     """Stage 6: Generate subtitles with VAD"""
@@ -52,16 +56,15 @@ class GenerateSubtitlesStage(JobStage):
     async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Generate subtitles with speech gating
-        
+
         Returns:
             Dict with subtitle_path, cue_count, vad_status
         """
         logger.info(f"📝 Generating subtitles for {context.audio_path}")
-        
-        # 1. Transcribe audio
-        segments = await self.api_client.transcribe_audio(
-            str(context.audio_path),
-            context.subtitle_language
+
+        # 1. Transcribe audio with retry
+        segments = await self._transcribe_with_retry(
+            str(context.audio_path), context.subtitle_language
         )
         
         logger.info(f"📊 Transcription: {len(segments)} segments")
@@ -154,15 +157,13 @@ class GenerateSubtitlesStage(JobStage):
         }
     
     def _extract_word_cues(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Extract word-level cues from transcription segments"""
+        """Extract word-level cues from transcription segments with weighted timing."""
         raw_cues = []
-        
+
         for segment in segments:
-            # Try word_timestamps first
             words = segment.get('words', [])
-            
+
             if words:
-                # Word-level timestamps available
                 for word_data in words:
                     raw_cues.append({
                         'start': word_data['start'],
@@ -170,28 +171,52 @@ class GenerateSubtitlesStage(JobStage):
                         'text': word_data['word']
                     })
             else:
-                # Fallback: split segment text into words
+                # Fallback: weighted distribution by word length
                 text = segment.get('text', '').strip()
                 if text:
                     words_list = re.findall(r'\S+', text)
                     seg_start = segment.get('start', 0.0)
                     seg_end = segment.get('end', seg_start + 1.0)
                     seg_duration = seg_end - seg_start
-                    
+
                     if words_list:
-                        time_per_word = seg_duration / len(words_list)
-                        
-                        for i, word in enumerate(words_list):
-                            word_start = seg_start + (i * time_per_word)
-                            word_end = word_start + time_per_word
-                            
+                        total_weight = sum(len(w) for w in words_list)
+                        if total_weight == 0:
+                            total_weight = len(words_list)
+
+                        cursor = seg_start
+                        for word in words_list:
+                            word_weight = len(word) if len(word) > 0 else 1
+                            word_duration = seg_duration * (word_weight / total_weight)
                             raw_cues.append({
-                                'start': word_start,
-                                'end': word_end,
+                                'start': cursor,
+                                'end': cursor + word_duration,
                                 'text': word
                             })
-        
+                            cursor += word_duration
+
         return raw_cues
+
+    async def _transcribe_with_retry(self, audio_path: str, language: str) -> list[dict[str, Any]]:
+        """Transcribe audio with exponential backoff retry."""
+        last_error = None
+        for attempt in range(MAX_SUBTITLE_RETRIES):
+            try:
+                return await self.api_client.transcribe_audio(audio_path, language)
+            except Exception as exc:
+                last_error = exc
+                wait = min(2 ** attempt, MAX_BACKOFF_SECONDS)
+                logger.warning(
+                    "Transcription attempt %d/%d failed: %s. Retrying in %ds...",
+                    attempt + 1, MAX_SUBTITLE_RETRIES, exc, wait,
+                )
+                await asyncio.sleep(wait)
+
+        raise AudioProcessingException(
+            f"Transcription failed after {MAX_SUBTITLE_RETRIES} attempts: {last_error}",
+            error_code=ErrorCode.TRANSCRIPTION_FAILED,
+            job_id=getattr(self, '_job_id', None),
+        )
     
     def _group_cues_into_segments(self, cues: list[dict[str, Any]], segment_size: int = 10) -> list[dict[str, Any]]:
         """Group cues into segments"""

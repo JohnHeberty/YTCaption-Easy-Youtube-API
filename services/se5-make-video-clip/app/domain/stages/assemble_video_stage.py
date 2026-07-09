@@ -19,6 +19,8 @@ from common.log_utils import get_logger
 
 logger = get_logger(__name__)
 
+CONCAT_TOLERANCE = 2.0
+
 class AssembleVideoStage(JobStage):
     """Stage 5: Assemble video from shorts"""
     
@@ -48,33 +50,46 @@ class AssembleVideoStage(JobStage):
     async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Assemble video from selected shorts
-        
+
         Returns:
             Dict with temp_video_path and video_count
         """
         logger.info(f"🎬 Assembling video from {len(context.selected_shorts)} shorts")
-        
+
         # Extract video file paths
         video_files = [short['file_path'] for short in context.selected_shorts]
-        
+        expected_duration = sum(s.get('duration_seconds', 0) for s in context.selected_shorts)
+
         # Create output path
         temp_video_path = Path(context.settings['temp_dir']) / context.job_id / "video_no_audio.mp4"
         temp_video_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Concatenate videos
         await self.video_builder.concatenate_videos(
             video_files=video_files,
             output_path=str(temp_video_path),
             aspect_ratio=context.aspect_ratio,
             crop_position=context.crop_position,
-            remove_audio=True  # Remove audio from shorts
+            remove_audio=True
         )
-        
+
+        # Validate concatenated duration
+        try:
+            actual_duration = await self.video_builder.get_video_info(str(temp_video_path))
+            actual_dur = actual_duration.get('duration', 0)
+            if expected_duration > 0 and abs(actual_dur - expected_duration) > CONCAT_TOLERANCE:
+                logger.warning(
+                    "⚠️  Concat duration mismatch: expected %.1fs, got %.1fs (tolerance %.1fs)",
+                    expected_duration, actual_dur, CONCAT_TOLERANCE,
+                )
+        except Exception as exc:
+            logger.warning("⚠️  Could not validate concat duration: %s", exc)
+
         logger.info(f"✅ Video assembled: {temp_video_path}")
-        
+
         # Update context
         context.temp_video_path = temp_video_path
-        
+
         return {
             'temp_video_path': str(temp_video_path),
             'video_count': len(video_files),
