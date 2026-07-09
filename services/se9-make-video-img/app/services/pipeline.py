@@ -52,7 +52,7 @@ class VideoPipeline:
         os.makedirs(output_dir, exist_ok=True)
 
         try:
-            audio_path = await self._generate_audio(job, output_dir)
+            audio_path, _audio_duration = await self._generate_audio(job, output_dir)
 
             image_paths = await self._generate_images(job, output_dir)
 

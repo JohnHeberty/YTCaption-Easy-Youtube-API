@@ -47,41 +47,42 @@ class StageInfo(BaseModel):
 
 
 class NarrationSegment(BaseModel):
-    t: float
-    text: str
+    t: float = Field(..., description="Start time in seconds from video beginning.")
+    text: str = Field(..., max_length=5000, description="Narration text for this segment.")
 
 
 class SceneSuggestion(BaseModel):
-    t: float
-    visual: str
-    negative_prompt: str | None = None
-    camera_movement: str | None = None  # "static", "slow_push_in", "slow_pull_out", "random"
-    transition: str | None = None  # FFmpeg xfade transition name
+    t: float = Field(..., description="Start time in seconds.")
+    visual: str = Field(..., max_length=2000, description="Image generation prompt for SE8 Fooocus.")
+    negative_prompt: str | None = Field(default=None, max_length=2000, description="Negative prompt — what to avoid in the image.")
+    camera_movement: str | None = Field(default=None, description="Camera movement: static, slow_push_in, slow_pull_out, random.")
+    transition: str | None = Field(default=None, description="FFmpeg xfade transition after this scene (e.g. dissolve, fadeblack).")
 
 
 class OnScreenText(BaseModel):
-    t: float
-    text: str
-    end_seconds: float | None = None
+    t: float = Field(..., description="Start time in seconds when the caption appears.")
+    text: str = Field(..., max_length=500, description="Caption text to display on screen.")
+    end_seconds: float | None = Field(default=None, description="End time in seconds when the caption disappears.")
 
 
 class CreateVideoRequest(BaseModel):
-    post_id: str
-    hook: str
-    estimated_seconds: int
-    language: str = "pt-BR"
-    content_rating: str = "Geral"
-    narration: list[NarrationSegment]
-    scene_suggestions: list[SceneSuggestion]
-    on_screen_text: list[OnScreenText] = []
-    title_options: list[str] = []
-    hashtags: list[str] = []
-    safety_notes: list[str] = []
-    voice_id: str = "builtin_feminino"
-    aspect_ratio: str = "9:16"
-    zoom_style: str = "random"
-    webhook_url: str | None = None
-    normalize_text: bool = True
+    post_id: str = Field(..., min_length=1, max_length=100, description="Unique post identifier from the upstream system.")
+    hook: str = Field(..., max_length=500, description="Title/hook text for the video.")
+    estimated_seconds: int = Field(..., ge=5, le=600, description="Target video duration in seconds.")
+    language: str = Field(default="pt-BR", max_length=10, description="Language code for TTS and caption rendering.")
+    content_rating: str = Field(default="Geral", max_length=20, description="Content rating hint (metadata only).")
+    narration: list[NarrationSegment] = Field(..., min_length=1, description="Narration segments with timestamps.")
+    scene_suggestions: list[SceneSuggestion] = Field(..., min_length=1, max_length=20, description="Visual prompts for scene images.")
+    on_screen_text: list[OnScreenText] = Field(default_factory=list, description="Caption overlays with timing.")
+    title_options: list[str] = Field(default_factory=list, description="Alternative title options (metadata).")
+    hashtags: list[str] = Field(default_factory=list, description="Hashtags for the video (metadata).")
+    safety_notes: list[str] = Field(default_factory=list, description="Safety/content notes (metadata only).")
+    voice_id: str = Field(default="builtin_feminino", max_length=100, description="TTS voice identifier.")
+    aspect_ratio: str = Field(default="9:16", description="Video aspect ratio: 9:16, 16:9, 1:1.")
+    zoom_style: str = Field(default="random", description="Default Ken Burns zoom direction.")
+    webhook_url: str | None = Field(default=None, description="Webhook URL for job completion notification.")
+    normalize_text: bool = Field(default=True, description="Normalize text before TTS.")
+    global_style: dict | None = Field(default=None, description="Global style constraints from upstream JSON (metadata).")
 
 
 class VideoJob(BaseModel):

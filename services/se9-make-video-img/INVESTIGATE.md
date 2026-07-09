@@ -1,7 +1,8 @@
 # INVESTIGATE.md — Viabilidade: make-video.json → Vídeo
 
-**Data**: 2026-07-08
+**Data**: 2026-07-08 (atualizado)
 **Objetivo**: Investigar se é possível gerar um vídeo a partir do `make-video.json` usando o service SE9 (make-video-img).
+**Versão**: v2 — análise aprofundada com gap analysis e mapeamento campo-a-campo.
 
 ---
 
@@ -36,52 +37,275 @@ O arquivo é um **array JSON** com 1 objeto contendo 4 chaves:
 
 **Origem provável**: Pipeline n8n ou sistema upstream que gera o payload para envio ao SE9.
 
-### 2.2 Dados Extraídos de `output`
+### 2.2 Campos de `output` — Mapeamento Completo
 
-| Campo | Valor | Observação |
-|---|---|---|
-| `job_type` | `"create_short_video"` | Tipo do job |
-| `payload_version` | `"video_render_payload_v1"` | Versão do schema |
-| `post_id` | `"1ra5656"` | ID do post |
-| `title` | `"Fiz meu pai vender o sítio assombrado dele (foi difícil)"` | Título do vídeo |
-| `platform` | `"tiktok_reels_shorts"` | Plataforma alvo |
-| `aspect_ratio` | `"9:16"` | Formato vertical |
-| `language` | `"pt-BR"` | Idioma |
-| `total_duration_seconds` | `30` | Duração total |
-| `render_settings.width` | `1080` | Largura |
-| `render_settings.height` | `1920` | Altura |
-| `render_settings.fps` | `30` | FPS |
-| `full_narration_text` | 510 caracteres | Texto completo da narração |
-
-### 2.3 Cenas (6 cenas de 5s cada)
-
-| Cena | scene_id | Start | End | Narration (início) |
+| Campo | Valor | Tipo | SE9 Usa? | Observação |
 |---|---|---|---|---|
-| S01 | VS01 | 0s | 5s | "Meu pai comprou um sítio perto da família materna." |
-| S02 | VS02 | 5s | 10s | "Uma semana depois, ouvi ruídos à noite..." |
-| S03 | VS03 | 10s | 15s | "Os ruídos ficaram frequentes..." |
-| S04 | VS04 | 15s | 20s | "Comecei a ouvir um canto de mulher..." |
-| S05 | VS05 | 20s | 25s | "Uma prima de segundo grau sofreu um acidente..." |
-| S06 | VS06 | 25s | 30s | "Convenci meu pai a vender o sítio..." |
+| `job_type` | `"create_short_video"` | string | ❌ Ignorado | Metadado do upstream |
+| `payload_version` | `"video_render_payload_v1"` | string | ❌ Ignorado | Versão do schema |
+| `post_id` | `"1ra5656"` | string | ✅ Usado | Mapeado para CreateVideoRequest.post_id |
+| `title` | `"Fiz meu pai vender o sítio..."` | string | ✅ Usado | Mapeado para CreateVideoRequest.hook |
+| `platform` | `"tiktok_reels_shorts"` | string | ❌ Ignorado | Metadado — útil para presets futuros |
+| `aspect_ratio` | `"9:16"` | string | ✅ Usado | Mapeado para CreateVideoRequest.aspect_ratio |
+| `language` | `"pt-BR"` | string | ✅ Usado | Mapeado para CreateVideoRequest.language |
+| `total_duration_seconds` | `30` | int | ✅ Usado | Mapeado para CreateVideoRequest.estimated_seconds |
+| `render_settings.width` | `1080` | int | ❌ Ignorado | SE9 usa config default (1080) — OK |
+| `render_settings.height` | `1920` | int | ❌ Ignorado | SE9 usa config default (1920) — OK |
+| `render_settings.fps` | `30` | int | ❌ Ignorado | SE9 usa config default (30) — OK |
+| `render_settings.format` | `"mp4"` | string | ❌ Ignorado | SE9 sempre gera MP4 |
+| `full_narration_text` | 510 chars | string | ❌ Ignorado | SE9 concatena narration segments |
+| `global_style` | { ... } | object | ❌ Ignorado | Limites criativos — ver seção 2.4 |
+| `scenes` | [ ... ] | array | ✅ Parcial | Ver seção 2.3 |
 
-Cada cena contém:
-- `narration_text` → Texto da narração
-- `image.prompt` → Prompt para geração de imagem
-- `image.negative_prompt` → O que evitar na imagem
-- `captions[]` → Legendas com timestamps
-- `motion.camera_movement` → Movimento de câmera (static/slow_push_in)
-- `audio.sfx_cues` → Efeitos sonoros (apenas S02 tem 1 cue)
+### 2.3 Cenas — Análise Campo-a-Campo (6 cenas)
 
-### 2.4 global_style (limites criativos)
+#### 2.3.1 Visão Geral das Cenas
+
+| Cena | scene_id | Start | End | Duration | camera_movement | transition |
+|---|---|---|---|---|---|---|
+| S01 | VS01 | 0s | 5s | 5s | `static` | `corte seco` |
+| S02 | VS02 | 5s | 10s | 5s | `slow_push_in` | `corte seco` |
+| S03 | VS03 | 10s | 15s | 5s | `slow_push_in` | `fade curto` |
+| S04 | VS04 | 15s | 20s | 5s | `static` | `corte seco` |
+| S05 | VS05 | 20s | 25s | 5s | `static` | `corte seco` |
+| S06 | VS06 | 25s | 30s | 5s | `static` | `corte seco` |
+
+#### 2.3.2 Campo `image` por Cena
+
+**S01** — Paisagem rural
+```
+prompt: "Estabelecing shot vertical, câmera estática, paisagem rural genérica
+         com vegetação rasteira e céu levemente nublado sob luz natural discreta.
+         foco no ambiente."
+negative_prompt: "pessoas, casas, carros, cercas, animais, objetos específicos,
+                  elementos urbanos, estruturas construídas, detalhes chamativos."
+shot_type: "establishing_shot"
+framing: "vertical 9:16 framing, fact-safe"
+camera_movement: "static"
+composition: "Composição vertical simples com foco no ambiente rural genérico
+              e espaço negativo no céu."
+subject: "paisagem rural genérica"
+environment: "ambiente rural genérico"
+lighting: "natural discreet"
+color_mood: "soft dark"
+visual_action: "nenhuma ação encenada"
+broll_direction: "B-roll atmosférico de campo aberto com vegetação e céu
+                  levemente nublado."
+allowed_visual_elements: ["ambiente rural genérico", "vegetação", "céu", "luz natural discreta"]
+forbidden_visual_elements: ["casa específica", "pessoas", "veículos", "objetos específicos",
+                            "marcas de presença humana"]
+```
+
+**S02** — Interior noturno
+```
+prompt: "Medium shot of a generic interior at night. Soft low light, minimal detail.
+         Focus on atmosphere and creating a sense of anticipation. Vertical 9:16
+         aspect ratio. Slow push-in."
+negative_prompt: "people, faces, specific objects, entities, shadows suggesting
+                  figures, gore, violence, exterior scenes."
+shot_type: "medium_shot"
+framing: "vertical 9:16 framing, fact-safe"
+camera_movement: "slow_push_in"
+composition: "Composição vertical simples com espaço negativo na parte superior
+              e inferior do quadro."
+subject: "ambiente interno genérico"
+environment: "ambiente interno generico"
+lighting: "soft low light"
+color_mood: "low contrast"
+visual_action: "Nenhuma ação encenada, apenas uma atmosfera de espera e expectativa."
+broll_direction: "b-roll cinematográfico e fact-locked, focado em detalhes ambientais discretos."
+allowed_visual_elements: ["ambiente interno genérico", "luz baixa", "espaço vazio"]
+forbidden_visual_elements: ["pessoas", "objetos específicos não sustentados", "entidades",
+                            "causas visíveis"]
+```
+
+**S03** — Textura em luz baixa
+```
+prompt: "Cinematic vertical medium shot of a subtly textured surface in low light.
+         Slow, gentle push-in to create tension. Focus on atmosphere and subtle movement."
+negative_prompt: "people, faces, objects, rooms, entities, ghosts, shadows,
+                  sharp details, bright colors, explicit causes."
+shot_type: "medium_shot"
+framing: "vertical 9:16 framing, fact-safe"
+camera_movement: "slow_push_in"
+composition: "Simple vertical composition with neutral space and subtle depth.
+              Focus on a central area without identifiable objects."
+subject: "b-roll atmospheric compatible with the scene"
+environment: "ambiente interno generico"
+lighting: "soft low light"
+color_mood: "contained tension"
+visual_action: "No staged action. Subtle visual texture to represent sound waves
+                or vibrations."
+broll_direction: "Cinematic b-roll of a textured surface with minimal detail.
+                  Focus on atmosphere and subtle movement."
+allowed_visual_elements: ["ambiente interno generico", "textura neutra", "luz baixa",
+                          "espaço vazio"]
+forbidden_visual_elements: ["personagem", "objeto específico", "localização específica",
+                            "causa do ruído", "entidade sobrenatural"]
+```
+
+**S04** — Exterior ao entardecer
+```
+prompt: "Cinematic vertical b-roll of a natural outdoor environment at dusk,
+         soft low light, focus on atmospheric textures like trees and clouds. No people."
+negative_prompt: "people, houses, specific objects, ghosts, entities, bright lights,
+                  clear sky, obvious causes."
+shot_type: "neutral_broll"
+framing: "vertical 9:16 framing, fact-safe"
+camera_movement: "static"
+composition: "Composição vertical simples com foco em espaço negativo e luz baixa
+              para criar uma sensação de isolamento."
+subject: "ambiente externo genérico"
+environment: "ambiente externo generico"
+lighting: "soft low light"
+color_mood: "soft dark"
+visual_action: "sem ação encenada"
+broll_direction: "B-roll atmosférico de ambiente natural com pouca luz e foco
+                  em elementos neutros como árvores ou céu nublado."
+allowed_visual_elements: ["ambiente externo generico", "luz baixa", "espaço negativo",
+                          "textura neutra"]
+forbidden_visual_elements: ["pessoa", "casa", "objeto específico", "causa confirmada",
+                            "entidade"]
+```
+
+**S05** — Interior melancólico
+```
+prompt: "Plano médio estático de um ambiente interno genérico, com iluminação suave
+         e baixa. Foco na atmosfera tranquila e levemente melancólica. Texturas sutis
+         e cores dessaturadas."
+negative_prompt: "pessoas, objetos específicos, imagens de acidente, detalhes gráficos,
+                  rostos, expressões faciais, ações específicas."
+shot_type: "medium_shot"
+framing: "vertical 9:16 framing, fact-safe"
+camera_movement: "static"
+composition: "Simples, com foco no espaço e atmosfera. Profundidade de campo rasa."
+subject: "ambiente interno genérico, levemente iluminado"
+environment: "ambiente interno generico"
+lighting: "soft low light"
+color_mood: "low contrast"
+visual_action: "Nenhuma ação encenada. Apenas a sugestão de um espaço tranquilo."
+broll_direction: "foco em texturas e detalhes neutros do ambiente"
+allowed_visual_elements: ["ambiente interno genérico", "luz baixa", "espaço vazio",
+                          "textura neutra"]
+forbidden_visual_elements: ["pessoas", "objetos específicos", "imagens de acidente",
+                            "imagens de locomoção arrastando", "expressão facial específica",
+                            "cozinhas", "salas"]
+```
+
+**S06** — Cidade diurna
+```
+prompt: "cinematic establishing shot of a bright, modern city street during daylight.
+         Focus on the open sky and the flow of traffic. Neutral colors. Vertical
+         aspect ratio."
+negative_prompt: "people, specific buildings, abandoned structures, emotional expressions,
+                  farms, countryside, sadness, regret, old photographs."
+shot_type: "establishing_shot"
+framing: "vertical 9:16 framing, fact-safe"
+camera_movement: "static"
+composition: "simple vertical composition emphasizing open space and a sense
+              of new beginnings."
+subject: "generic city street scene"
+environment: "city generica"
+lighting: "natural discreet"
+color_mood: "neutral cold"
+visual_action: "no staged action; subtle movement of clouds or distant traffic"
+broll_direction: "cinematic b-roll of a generic city environment with focus
+                  on natural light and open space."
+allowed_visual_elements: ["generic city buildings", "open sky", "distant traffic",
+                          "neutral lighting"]
+forbidden_visual_elements: ["specific faces", "specific landmarks", "emotional expressions",
+                            "any indication of past life at the farm"]
+```
+
+#### 2.3.3 Campo `motion` por Cena
+
+| Cena | camera_movement | motion_rhythm | edit_pacing | transition | transition_audio |
+|---|---|---|---|---|---|
+| S01 | `static` | cena estática com ritmo contido | ritmo contido | corte seco | corte seco com respiro curto |
+| S02 | `slow_push_in` | aproximação perceptual suave | ritmo contido | corte seco | corte seco com respiro curto |
+| S03 | `slow_push_in` | aproximação perceptual suave | ritmo contido | fade curto | corte seco com respiro curto |
+| S04 | `static` | cena estática com ritmo contido | ritmo contido | corte seco | corte seco com respiro curto |
+| S05 | `static` | cena estática com ritmo contido | ritmo contido | corte seco | corte seco com respiro curto |
+| S06 | `static` | cena estática com ritmo contido | ritmo contido | corte seco | corte seco com respiro curto |
+
+**Mapeamento motion → SE9:**
+- `camera_movement` → Ken Burns zoom direction (zoom_in/zoom_out/static)
+- `transition` → FFmpeg xfade transition name
+- `motion_rhythm` → ❌ Não usado (metadado)
+- `edit_pacing` → ❌ Não usado (metadado)
+- `transition_audio` → ❌ Não usado (metadado)
+
+#### 2.3.4 Campo `audio` por Cena
+
+| Cena | ambient_bed | music_bed | sfx_cues (qty) | silence_cues (qty) |
+|---|---|---|---|---|
+| S01 | ambiente rural de baixa presença | sem cama musical | 0 | 1 (0.5-1.0s) |
+| S02 | ambiente interno discreto | sem cama musical | 1 (6.5-7.0s) | 1 (9.0-9.5s) |
+| S03 | ambiente interno discreto | sem cama musical | 2 (10.5-11.2s, 12.8-13.5s) | 1 (14.2-15.0s) |
+| S04 | ambiente neutro de baixa presença | sem cama musical | 1 (16.2-17.8s) | 1 (19.1-20.0s) |
+| S05 | ambiente interno discreto | sem cama musical | 1 (22.5-23.0s) | 1 (21.0-21.5s) |
+| S06 | ambiente neutro de baixa presença | sem cama musical | 0 | 1 (28.0-29.0s) |
+
+**Total de sfx_cues**: 5 em 6 cenas
+**Total de silence_cues**: 6 (1 por cena)
+
+**Mapeamento audio → SE9:**
+- `ambient_bed` → ❌ Não usado (descrição textual — precisa de mapeamento para áudio real)
+- `music_bed` → ❌ Não usado (sempre "sem cama musical")
+- `sfx_cues` → ❌ Não usado (contém timing + descrição — precisa de biblioteca de SFX)
+- `silence_cues` → ❌ Não usado (timing de silêncio — pode ser usado para pausar narração)
+- `mix_notes` → ❌ Não usado (metadado de mixagem)
+- `sound_goal` → ❌ Não usado (metadado)
+
+#### 2.3.5 Campo `captions` por Cena
+
+| Cena | caption_id | text | start | end | global_start | global_end | source |
+|---|---|---|---|---|---|---|---|
+| S01 | VS01-CAP01 | "Meu pai comprou um sítio perto da família materna." | 1.2s | 4.5s | 1.2s | 4.5s | narration_text |
+| S02 | VS02-CAP01 | "Parecia alguém se arrastando." | 2.0s | 3.5s | 7.0s | 8.5s | narration_text |
+| S03 | VS03-CAP01 | "Os ruídos se tornaram frequentes." | 1.5s | 3.0s | 11.5s | 13.0s | narration_text |
+| S04 | VS04-CAP01 | "Comecei a ouvir um canto de mulher." | 1.5s | 3.0s | 16.5s | 18.0s | narration_text |
+| S05 | VS05-CAP01 | "Perdeu os movimentos." | 2.0s | 3.5s | 22.0s | 23.5s | narration_text |
+| S06 | VS06-CAP01 | "Convenci meu pai a vender o sítio." | 0.5s | 2.5s | 25.5s | 27.5s | narration_text |
+| S06 | VS06-CAP02 | "A família voltou para a cidade." | 2.7s | 4.7s | 27.7s | 29.7s | narration_text |
+
+**Total de captions**: 7 (S06 tem 2)
+
+**Mapeamento captions → SE9:**
+- `global_start_seconds` → ❌ SE9 usa `on_screen_text.t` (start_seconds local) — **BUG: ignora timing global**
+- `global_end_seconds` → ❌ SE9 não tem campo end_seconds em OnScreenText — **BUG: captions ficam visíveis indefinidamente**
+- `start_seconds` (local) → ✅ SE9 usa como `t` no OnScreenText
+- `text` → ✅ SE9 usa como `text` no OnScreenText
+- `caption_id` → ❌ Ignorado (metadado)
+- `source` → ❌ Ignorado (sempre "narration_text")
+
+### 2.4 global_style — Limites Criativos
 
 ```json
 {
+  "visual_style": "neutral, cinematic, fact-locked, restrained tension",
+  "tone": "medo, tensão, estranhamento, alívio",
+  "pacing": "Use a clear first frame, simple vertical composition, progressive tension,
+             and short readable overlays without adding facts.",
+  "continuity": "Preserve scene order, beat order, visual consistency, simple transitions,
+                 and restrained palette.",
+  "safety": "Avoid unsupported people, entities, causes, graphic violence,
+             and any visual that turns ambiguity into certainty.",
   "no_supernatural_confirmation": true,
   "no_people_or_faces": true,
-  "no_new_facts": true,
-  "safety": "Avoid unsupported people, entities, causes, graphic violence"
+  "no_new_facts": true
 }
 ```
+
+**Impacto no SE9:**
+- `visual_style` → ❌ Não usado — poderia enriquecer prompts do SE8
+- `tone` → ❌ Não usado — poderia influenciar escolha de transições/cores
+- `pacing` → ❌ Não usado — metadado
+- `continuity` → ❌ Não usado — metadado
+- `safety` → ❌ Não usado — poderia ser adicionado como safety_notes
+- `no_people_or_faces` → ❌ Não usado — **importante**: deve ser adicionado como negative_prompt global
+- `no_supernatural_confirmation` → ❌ Não usado — metadado
+- `no_new_facts` → ❌ Não usado — metadado
 
 ---
 
@@ -96,8 +320,33 @@ Cada cena contém:
       {
         "scene_id": "S01",
         "narration_text": "Meu pai comprou...",
-        "image": { "prompt": "Estabelecing shot vertical...", "negative_prompt": "..." },
-        "captions": [{ "text": "...", "start_seconds": 1.2, "end_seconds": 4.5 }]
+        "image": {
+          "prompt": "Estabelecing shot vertical...",
+          "negative_prompt": "...",
+          "camera_movement": "static",
+          "shot_type": "establishing_shot",
+          "composition": "...",
+          "lighting": "natural discreet",
+          "color_mood": "soft dark"
+        },
+        "motion": {
+          "camera_movement": "static",
+          "transition": "corte seco"
+        },
+        "audio": {
+          "sfx_cues": [...],
+          "silence_cues": [...],
+          "ambient_bed": "..."
+        },
+        "captions": [
+          {
+            "text": "...",
+            "start_seconds": 1.2,
+            "end_seconds": 4.5,
+            "global_start_seconds": 1.2,
+            "global_end_seconds": 4.5
+          }
+        ]
       }
     ],
     "full_narration_text": "Meu pai comprou um sítio..."
@@ -118,30 +367,42 @@ Cada cena contém:
     { "t": 5, "text": "Uma semana depois, ouvi ruídos à noite." }
   ],
   "scene_suggestions": [
-    { "t": 0, "visual": "Estabelecing shot vertical, câmera estática..." }
+    {
+      "t": 0,
+      "visual": "Estabelecing shot vertical, câmera estática...",
+      "negative_prompt": "pessoas, casas, carros...",
+      "camera_movement": "static",
+      "transition": "dissolve"
+    }
   ],
   "on_screen_text": [
-    { "t": 1.2, "text": "Meu pai comprou um sítio perto da família materna." }
+    { "t": 1.2, "text": "Meu pai comprou um sítio perto da família materna.", "end_seconds": 4.5 }
   ],
   "voice_id": "builtin_feminino",
   "aspect_ratio": "9:16"
 }
 ```
 
-### 3.3 Mapeamento Necessário
+### 3.3 Mapeamento Necessário (Completo)
 
-| Campo SE9 | Fonte no JSON | Transformação |
-|---|---|---|
-| `post_id` | `output.post_id` | Direto |
-| `hook` | `output.title` | Direto |
-| `estimated_seconds` | `output.total_duration_seconds` | Direto |
-| `language` | `output.language` | Direto |
-| `narration` | `output.scenes[].narration_text` | `[{t: start_seconds, text: narration_text}]` |
-| `scene_suggestions` | `output.scenes[].image.prompt` | `[{t: start_seconds, visual: prompt}]` |
-| `on_screen_text` | `output.scenes[].captions[].text` | `[{t: global_start_seconds, text}]` |
-| `voice_id` | — | Default `"builtin_feminino"` |
-| `aspect_ratio` | `output.aspect_ratio` | Direto |
-| `zoom_style` | — | Default `"random"` |
+| Campo SE9 | Fonte no JSON | Transformação | Status |
+|---|---|---|---|
+| `post_id` | `output.post_id` | Direto | ✅ Implementado |
+| `hook` | `output.title` | Direto | ✅ Implementado |
+| `estimated_seconds` | `output.total_duration_seconds` | Direto | ✅ Implementado |
+| `language` | `output.language` | Direto | ✅ Implementado |
+| `narration` | `output.scenes[].narration_text` | `[{t: start_seconds, text: narration_text}]` | ✅ Implementado |
+| `scene_suggestions[].visual` | `output.scenes[].image.prompt` | Direto | ✅ Implementado |
+| `scene_suggestions[].negative_prompt` | `output.scenes[].image.negative_prompt` | Direto | ❌ **NÃO implementado** |
+| `scene_suggestions[].camera_movement` | `output.scenes[].motion.camera_movement` | Mapear: "static"→"static", "slow_push_in"→"slow_push_in" | ❌ **NÃO implementado** |
+| `scene_suggestions[].transition` | `output.scenes[].motion.transition` | Mapear: "corte seco"→null, "fade curto"→"fadeblack" | ❌ **NÃO implementado** |
+| `on_screen_text[].t` | `output.scenes[].captions[].global_start_seconds` | Usar global (não local) | ❌ **BUG: usa local** |
+| `on_screen_text[].text` | `output.scenes[].captions[].text` | Direto | ✅ Implementado |
+| `on_screen_text[].end_seconds` | `output.scenes[].captions[].global_end_seconds` | Usar global (não local) | ❌ **NÃO implementado** |
+| `voice_id` | — | Default `"builtin_feminino"` | ✅ Implementado |
+| `aspect_ratio` | `output.aspect_ratio` | Direto | ✅ Implementado |
+| `zoom_style` | — | Default `"random"` | ✅ Implementado |
+| `global_style` | `output.global_style` | Direto | ❌ **NÃO implementado** |
 
 ### 3.4 Texto da Narração para TTS
 
@@ -310,14 +571,14 @@ RETRY_BACKOFF_BASE = 2
 
 ### 6.2 Prompts Extraídos do JSON
 
-| Cena | Prompt (simplificado) |
-|---|---|
-| S01 | "Estabelecing shot vertical, paisagem rural genérica..." |
-| S02 | "Medium shot of a generic interior at night..." |
-| S03 | "Cinematic vertical medium shot of a subtly textured surface..." |
-| S04 | "Vertical medium shot of a softly lit interior..." |
-| S05 | "Vertical establishing shot, generic medical or recovery environment..." |
-| S06 | "Cinematic establishing shot of a bright, modern city street..." |
+| Cena | Prompt (simplificado) | negative_prompt (NO JSON, SE9 ignora) |
+|---|---|---|
+| S01 | "Estabelecing shot vertical, paisagem rural genérica..." | "pessoas, casas, carros, cercas, animais..." |
+| S02 | "Medium shot of a generic interior at night..." | "people, faces, specific objects, entities..." |
+| S03 | "Cinematic vertical medium shot of a subtly textured surface..." | "people, faces, objects, rooms, entities..." |
+| S04 | "Cinematic vertical b-roll of a natural outdoor environment at dusk..." | "people, houses, specific objects, ghosts..." |
+| S05 | "Plano médio estático de um ambiente interno genérico..." | "pessoas, objetos específicos, imagens de acidente..." |
+| S06 | "cinematic establishing shot of a bright, modern city street..." | "people, specific buildings, abandoned structures..." |
 
 ### 6.3 Tempo Estimado
 
@@ -342,7 +603,7 @@ RETRY_BACKOFF_BASE = 2
 | `steps` | 30 | Quality mode usa 60 internamente |
 | `performance` | `"Quality"` | 60 steps, dpmpp_2m_ssd_gpu, karras |
 | `width × height` | 1024 × 1792 | Proporção 9:16 para Fooocus |
-| `negative_prompt` | (do JSON) | Evita pessoas, objetos específicos |
+| `negative_prompt` | **NÃO ENVIADO** | SE9 não passa negative_prompt ao SE8 |
 
 ---
 
@@ -629,15 +890,105 @@ TOTAL estimado:            ~60-100MB
 
 ---
 
-## 11. Conversão Necessária (Script)
+## 11. Gap Analysis Detalhado (JSON vs SE9)
 
-### 11.1 Script de Exemplo
+### 11.1 Resumo de Gaps por Impacto
+
+| # | Gap | Impacto | Prioridade | Estágio |
+|---|---|---|---|---|
+| G1 | `negative_prompt` não enviado ao SE8 | 🔴 Alto | P1 | Imagens |
+| G2 | `camera_movement` ignorado (SE9 usa random) | 🔴 Alto | P1 | Assembly |
+| G3 | `transition` ignorada (SE9 usa random) | 🟡 Médio | P1 | Assembly |
+| G4 | `global_start_seconds` ignorado (usa local) | 🔴 Alto | P1 | Captions |
+| G5 | `end_seconds` não suportado em OnScreenText | 🔴 Alto | P1 | Captions |
+| G6 | `global_style` ignorado | 🟡 Médio | P2 | Metadata |
+| G7 | `sfx_cues` ignorados | 🟡 Médio | P3 | Audio |
+| G8 | `silence_cues` ignorados | 🟡 Médio | P3 | Audio |
+| G9 | `ambient_bed` ignorado | 🟢 Baixo | P3 | Audio |
+| G10 | `shot_type/composition/lighting` ignorados | 🟢 Baixo | P2 | Prompts |
+| G11 | `platform` ignorado (sem presets) | 🟢 Baixo | P4 | Metadata |
+| G12 | `allowed/forbidden_visual_elements` ignorados | 🟢 Baixo | P2 | Prompts |
+
+### 11.2 Impacto por Gap
+
+**G1 — negative_prompt (ALTO)**
+- **Situação atual**: SE9 envia prompt + cinematic_suffix ao SE8, sem negative_prompt
+- **JSON提供**: Cada cena tem negative_prompt específico (ex: "pessoas, casas, carros...")
+- **Impacto**: Imagens podem conter elementos indesejados (pessoas, objetos urbanos)
+- **Correção**: Adicionar campo `negative_prompt` em SceneSuggestion, passar ao SE8Client
+
+**G2 — camera_movement (ALTO)**
+- **Situação atual**: SE9 usa `zoom_style=random` → alterna zoom_in/zoom_out aleatoriamente
+- **JSON提供**: `motion.camera_movement` = "static" ou "slow_push_in" por cena
+- **Impacto**: Cenas que deveriam ser estáticas (S01, S04-S06) recebem zoom desnecessário
+- **Correção**: Mapear `camera_movement` → `zoom_style` por cena
+
+**G3 — transition (MÉDIO)**
+- **Situação atual**: SE9 escolhe transição aleatória de `TRANSITIONS` (30 opções)
+- **JSON提供**: `motion.transition` = "corte seco" (5 cenas) ou "fade curto" (1 cena)
+- **Impacto**: Transições podem ser incompatíveis com o tom da cena
+- **Correção**: Mapear `transition` do JSON → FFmpeg xfade name
+
+**G4 — global_start_seconds (ALTO)**
+- **Situação atual**: SE9 usa `on_screen_text.t` = `start_seconds` local da cena
+- **JSON提供**: `captions[].global_start_seconds` = timestamp global correto
+- **Impacto**: Legendas aparecem no timing errado (ex: S02 caption aparece em 2s em vez de 7s)
+- **Correção**: Usar `global_start_seconds` como `t` na conversão
+
+**G5 — end_seconds (ALTO)**
+- **Situação atual**: `OnScreenText` não tem campo `end_seconds`
+- **JSON提供**: `captions[].global_end_seconds` define quando a legenda some
+- **Impacto**: Legendas ficam visíveis até a próxima legenda ou fim do vídeo
+- **Correção**: Adicionar `end_seconds` ao modelo OnScreenText
+
+### 11.3 Prioridade de Implementação
+
+**Fase 1 — Quick Wins (1-2h):**
+1. G1: negative_prompt → SE8Client.generate_image() + models.py
+2. G2: camera_movement → SceneSuggestion + assembler
+3. G3: transition → SceneSuggestion + assembler
+4. G4+G5: global_start_seconds + end_seconds → OnScreenText
+
+**Fase 2 — Prompt Enrichment (2-4h):**
+5. G6: global_style → negative_prompt global
+6. G10: shot_type/composition → enriquecer prompts
+7. G12: allowed/forbidden → validação de prompts
+
+**Fase 3 — Audio (4-8h):**
+8. G7: sfx_cues → biblioteca de SFX + mixagem
+9. G8: silence_cues → pausas na narração
+10. G9: ambient_bed → camada de ambiente
+
+---
+
+## 12. Conversão Necessária (Script)
+
+### 12.1 Script de Exemplo (Atualizado com Gaps Corrigidos)
 
 ```python
 #!/usr/bin/env python3
-"""Convert make-video.json (upstream format) → CreateVideoRequest (SE9 format)."""
+"""Convert make-video.json (upstream format) → CreateVideoRequest (SE9 format).
+
+v2: Includes negative_prompt, camera_movement, transition, global caption timing.
+"""
 import json
 import sys
+
+# Mapeamento de transições do JSON para FFmpeg xfade
+TRANSITION_MAP = {
+    "corte seco": None,           # No transition (hard cut)
+    "fade curto": "fadeblack",    # Short fade to black
+    "fade": "fadefast",           # Fast fade
+    "dissolve": "dissolve",       # Cross dissolve
+    "corte": None,                # Hard cut
+}
+
+# Mapeamento de camera_movement para Ken Burns zoom
+CAMERA_MOVEMENT_MAP = {
+    "static": "static",
+    "slow_push_in": "slow_push_in",
+    "slow_pull_out": "slow_pull_out",
+}
 
 def convert(input_path: str) -> dict:
     with open(input_path) as f:
@@ -654,22 +1005,44 @@ def convert(input_path: str) -> dict:
             "text": scene["narration_text"]
         })
 
-    # scene_suggestions: [{t, visual}]
+    # scene_suggestions: [{t, visual, negative_prompt, camera_movement, transition}]
     scene_suggestions = []
     for scene in output["scenes"]:
-        scene_suggestions.append({
+        suggestion = {
             "t": scene["start_seconds"],
-            "visual": scene["image"]["prompt"]
-        })
+            "visual": scene["image"]["prompt"],
+        }
+        # G1: Include negative_prompt
+        if scene["image"].get("negative_prompt"):
+            suggestion["negative_prompt"] = scene["image"]["negative_prompt"]
 
-    # on_screen_text: [{t, text}]
+        # G2: Include camera_movement
+        motion = scene.get("motion", {})
+        cam_move = motion.get("camera_movement")
+        if cam_move and cam_move in CAMERA_MOVEMENT_MAP:
+            suggestion["camera_movement"] = CAMERA_MOVEMENT_MAP[cam_move]
+
+        # G3: Include transition
+        transition_raw = motion.get("transition")
+        if transition_raw and transition_raw in TRANSITION_MAP:
+            mapped = TRANSITION_MAP[transition_raw]
+            if mapped:  # None means hard cut (no transition)
+                suggestion["transition"] = mapped
+
+        scene_suggestions.append(suggestion)
+
+    # on_screen_text: [{t, text, end_seconds}] — using GLOBAL timestamps
     on_screen_text = []
     for scene in output["scenes"]:
         for cap in scene.get("captions", []):
-            on_screen_text.append({
-                "t": cap["global_start_seconds"],
-                "text": cap["text"]
-            })
+            entry = {
+                "t": cap["global_start_seconds"],    # G4: Use global timing
+                "text": cap["text"],
+            }
+            # G5: Include end_seconds
+            if "global_end_seconds" in cap:
+                entry["end_seconds"] = cap["global_end_seconds"]
+            on_screen_text.append(entry)
 
     return {
         "post_id": output["post_id"],
@@ -687,6 +1060,8 @@ def convert(input_path: str) -> dict:
         "zoom_style": "random",
         "webhook_url": None,
         "normalize_text": True,
+        # G6: Preserve global_style metadata
+        "global_style": output.get("global_style"),
     }
 
 if __name__ == "__main__":
@@ -694,7 +1069,7 @@ if __name__ == "__main__":
     print(json.dumps(result, indent=2, ensure_ascii=False))
 ```
 
-### 11.2 Envio ao SE9
+### 12.2 Envio ao SE9
 
 ```bash
 # Converter
@@ -717,9 +1092,9 @@ curl -O http://localhost:8009/download/{job_id} \
 
 ---
 
-## 12. Veredicto Final
+## 13. Veredicto Final
 
-### ✅ VIÁVEL
+### ✅ VIÁVEL (com ressalvas)
 
 | Critério | Status | Notas |
 |---|---|---|
@@ -731,6 +1106,14 @@ curl -O http://localhost:8009/download/{job_id} \
 | Disco | ✅ | 8.8GB livres, uso ~100MB |
 | FFmpeg | ✅ | 6 cenas dentro do limite |
 | Tempo estimado | ✅ | ~3-5 minutos |
+| **Dados aproveitados** | **~20%** | **12 campos ignorados** |
+
+### Gaps Críticos (P1)
+
+1. **negative_prompt** → Imagens podem conter elementos indesejados
+2. **camera_movement** → Zoom aleatório em cenas que deveriam ser estáticas
+3. **caption timing** → Legendas no timing errado (local vs global)
+4. **end_seconds** → Legendas ficam visíveis indefinidamente
 
 ### Riscos Restantes
 
@@ -740,8 +1123,11 @@ curl -O http://localhost:8009/download/{job_id} \
 
 ### Próximos Passos (se desejar executar)
 
-1. Criar script de conversão (acima)
-2. Limpar `data/outputs/` de jobs antigos
-3. Executar conversão + POST /jobs
-4. Monitorar progresso via GET /jobs/{id}
-5. Download do MP4 final via GET /download/{id}
+1. **Fase 1**: Implementar gaps P1 (negative_prompt, camera_movement, transitions, captions)
+2. Criar script de conversão v2 (acima)
+3. Limpar `data/outputs/` de jobs antigos
+4. Executar conversão + POST /jobs
+5. Monitorar progresso via GET /jobs/{id}
+6. Download do MP4 final via GET /download/{id}
+7. **Fase 2**: Prompt enrichment (global_style, shot_type, composition)
+8. **Fase 3**: Audio enrichment (sfx_cues, silence_cues, ambient_bed)

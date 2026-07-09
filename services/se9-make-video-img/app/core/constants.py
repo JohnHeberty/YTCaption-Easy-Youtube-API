@@ -11,21 +11,46 @@ ASPECT_RATIOS = {
     "1:1": {"width": 1080, "height": 1080},
 }
 
-ZOOM_STYLES = ["zoom_in", "zoom_out", "random"]
+ZOOM_STYLES = ["zoom_in", "zoom_out", "random", "static"]
 
-# Best-looking xfade transitions (FFmpeg 7.0)
+# All FFmpeg xfade transitions (FFmpeg 7.0, 58 transitions)
+# https://ffmpeg.org/ffmpeg-filters.html#xfade
 TRANSITIONS = [
-    "circleopen", "circleclose",
+    # Fades
+    "fade", "fadeblack", "fadewhite", "fadefast", "fadeslow", "fadegrays",
+    # Wipes
     "wipeleft", "wiperight", "wipeup", "wipedown",
+    "wipetl", "wipetr", "wipebl", "wipebr",
+    # Slides
     "slideleft", "slideright", "slideup", "slidedown",
+    # Smooth
     "smoothleft", "smoothright", "smoothup", "smoothdown",
-    "dissolve", "pixelize",
-    "diagtl", "diagtr", "diagbl", "diagbr",
+    # Circle
+    "circleopen", "circleclose", "circlecrop",
+    # Rect
+    "rectcrop",
+    # Distance
+    "distance",
+    # Radial / Zoom
     "radial", "zoomin",
-    "fadefast", "fadeslow",
-    "coverleft", "coverright", "coverup", "coverdown",
-    "revealleft", "revealright",
+    # Dissolve / Pixelize
+    "dissolve", "pixelize",
+    # Diagonal
+    "diagtl", "diagtr", "diagbl", "diagbr",
+    # Vertical / Horizontal open/close
+    "vertopen", "vertclose", "horzopen", "horzclose",
+    # Squeeze
     "squeezeh", "squeezev",
+    # Cover
+    "coverleft", "coverright", "coverup", "coverdown",
+    # Reveal
+    "revealleft", "revealright", "revealup", "revealdown",
+    # Slice
+    "hlslice", "hrslice", "vuslice", "vdslice",
+    # Wind
+    "hlwind", "hrwind", "vuwind", "vdwind",
+    # Blur
+    "hblur",
 ]
 
 STAGE_NAMES = {
@@ -54,9 +79,73 @@ CAMERA_MOVEMENT_MAP = {
 # Transition name mapping: upstream JSON → FFmpeg xfade names
 # "corte seco" = hard cut (no transition = None)
 TRANSITION_MAP = {
+    # Portuguese
     "corte seco": None,
+    "corte": None,
     "fade curto": "fadeblack",
     "fade": "fadefast",
     "dissolve": "dissolve",
     "crossfade": "dissolve",
+    "radial": "radial",
+    "zoom": "zoomin",
+    "deslizar": "slideleft",
+    "deslizar direita": "slideright",
+    "deslizar cima": "slideup",
+    "deslizar baixo": "slidedown",
+    "wipe": "wipeleft",
+    "wipe direita": "wiperight",
+    "wipe cima": "wipeup",
+    "wipe baixo": "wipedown",
+    "suavizar": "smoothleft",
+    "suavizar direita": "smoothright",
+    "circulo": "circleopen",
+    "circulo fechar": "circleclose",
+    "pixelizar": "pixelize",
+    "squeeze": "squeezeh",
+    "squeeze vertical": "squeezev",
+    "cobrir": "coverleft",
+    "cobrir direita": "coverright",
+    "cobrir cima": "coverup",
+    "cobrir baixo": "coverdown",
+    "revelar": "revealleft",
+    "revelar direita": "revealright",
+    # English
+    "fade to black": "fadeblack",
+    "fade to white": "fadewhite",
+    "fast fade": "fadefast",
+    "slow fade": "fadeslow",
+    "wipe left": "wipeleft",
+    "wipe right": "wiperight",
+    "wipe up": "wipeup",
+    "wipe down": "wipedown",
+    "slide left": "slideleft",
+    "slide right": "slideright",
+    "slide up": "slideup",
+    "slide down": "slidedown",
+    "smooth left": "smoothleft",
+    "smooth right": "smoothright",
+    "smooth up": "smoothup",
+    "smooth down": "smoothdown",
+    "circle open": "circleopen",
+    "circle close": "circleclose",
+    "circle crop": "circlecrop",
+    "rect crop": "rectcrop",
+    "diagonal tl": "diagtl",
+    "diagonal tr": "diagtr",
+    "diagonal bl": "diagbl",
+    "diagonal br": "diagbr",
+    "vertical open": "vertopen",
+    "vertical close": "vertclose",
+    "horizontal open": "horzopen",
+    "horizontal close": "horzclose",
+    "squeeze horizontal": "squeezeh",
+    "squeeze vertical": "squeezev",
+    "cover left": "coverleft",
+    "cover right": "coverright",
+    "cover up": "coverup",
+    "cover down": "coverdown",
+    "reveal left": "revealleft",
+    "reveal right": "revealright",
+    "reveal up": "revealup",
+    "reveal down": "revealdown",
 }

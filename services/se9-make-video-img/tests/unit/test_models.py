@@ -117,10 +117,11 @@ def test_aspect_ratios():
 
 
 def test_zoom_styles():
-    assert len(ZOOM_STYLES) == 3
+    assert len(ZOOM_STYLES) == 4
     assert "random" in ZOOM_STYLES
     assert "zoom_in" in ZOOM_STYLES
     assert "zoom_out" in ZOOM_STYLES
+    assert "static" in ZOOM_STYLES
 
 
 def test_job_id_prefix():

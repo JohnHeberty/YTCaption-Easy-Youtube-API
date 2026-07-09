@@ -15,6 +15,7 @@ from app.core.constants import (
     ASPECT_RATIOS,
     ZOOM_STYLES,
     IMAGE_ASPECT_RATIOS,
+    CAMERA_MOVEMENT_MAP,
 )
 from app.core.models import (
     CreateVideoRequest,
@@ -63,6 +64,7 @@ async def root() -> ServiceInfoResponse:
             "GET /download/{job_id}": "Download completed video (MP4)",
             "GET /config": "Service configuration",
             "GET /transitions": "Available FFmpeg xfade transitions",
+            "GET /camera-movements": "Available Ken Burns camera movements",
             "GET /health": "Health check (SE7 + SE8 + disk + FFmpeg)",
             "GET /ping": "Simple ping",
             "GET /admin/stats": "System statistics",
@@ -133,6 +135,35 @@ async def list_transitions() -> TransitionsResponse:
         total=len(TRANSITIONS),
         default="random",
     )
+
+
+@router.get(
+    "/camera-movements",
+    summary="Available camera movements",
+    description=(
+        "Returns all camera movements available for Ken Burns effect.\n\n"
+        "Use `scene_suggestions[].camera_movement` to specify movement per scene.\n"
+        "- `static` — no zoom (zoom_in with speed=0)\n"
+        "- `slow_push_in` — zoom in from 1.0x to 1.2x\n"
+        "- `slow_pull_out` — zoom out from 1.2x to 1.0x\n"
+        "- `random` — alternates zoom_in/zoom_out per scene"
+    ),
+    responses={
+        200: {"description": "Available camera movements"},
+    },
+)
+async def list_camera_movements() -> dict:
+    return {
+        "movements": list(CAMERA_MOVEMENT_MAP.keys()),
+        "mapping": CAMERA_MOVEMENT_MAP,
+        "description": {
+            "static": "No zoom — camera stays fixed",
+            "slow_push_in": "Zoom in 1.0x → 1.2x — creates tension, focus",
+            "slow_pull_out": "Zoom out 1.2x → 1.0x — reveals context, resolution",
+            "random": "Alternates zoom_in/zoom_out per scene",
+        },
+        "default": "random",
+    }
 
 
 # ─── Jobs CRUD ───────────────────────────────────────────────────────────────

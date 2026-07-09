@@ -8,7 +8,7 @@ import pytest
 import respx
 
 from app.api.webhook import WEBHOOK_MAX_RETRIES, send_webhook
-from app.core.models import CreateVideoRequest, NarrationSegment, VideoJob
+from app.core.models import CreateVideoRequest, NarrationSegment, SceneSuggestion, VideoJob
 
 
 def _make_job(webhook_url: str | None = "https://example.com/hook", **overrides) -> VideoJob:
@@ -17,7 +17,7 @@ def _make_job(webhook_url: str | None = "https://example.com/hook", **overrides)
         hook="Hook",
         estimated_seconds=30,
         narration=[NarrationSegment(t=0.0, text="text")],
-        scene_suggestions=[],
+        scene_suggestions=[SceneSuggestion(t=0.0, visual="A sunset")],
         webhook_url=webhook_url,
         hashtags=["#tag1", "#tag2"],
         title_options=["Title A", "Title B"],

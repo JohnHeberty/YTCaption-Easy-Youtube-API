@@ -111,7 +111,7 @@ async def test_concatenate_narration_single(gen):
 
 @pytest.mark.asyncio
 async def test_generate_concat_removes_chunk_files(gen, mock_se7_client, tmp_path):
-    long_text = "Word " * 3000
+    long_text = "Word " * 900  # 4500 chars, under 5000 limit
     narration = [NarrationSegment(t=0, text=long_text)]
 
     with patch("app.services.audio_generator.get_audio_duration", new_callable=AsyncMock, return_value=10.0):
