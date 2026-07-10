@@ -9,6 +9,7 @@ from common.log_utils import get_logger
 from fastapi import APIRouter, File, Query, UploadFile
 
 from app.api.image_utils import ndarray_to_base64png, read_input_image
+from app.api.schemas import ErrorResponse, UpscaleResult
 from app.domain.models import DescribeImageResponse, GenerateMaskRequest
 
 logger = get_logger(__name__)
@@ -18,13 +19,15 @@ router = APIRouter(tags=["Tools"])
 
 @router.post(
     "/v1/tools/upscale-esrgan",
+    response_model=UpscaleResult,
     summary="Pure ESRGAN upscale (no diffusion). Uses 4x-UltraSharp.",
     tags=["Tools"],
+    responses={400: {"model": ErrorResponse}},
 )
 async def upscale_esrgan(
     file: UploadFile = File(..., description="Image to upscale"),
     scale: float = Query(2.0, ge=1.0, le=4.0, description="Output scale factor"),
-) -> dict:
+) -> UpscaleResult:
     """Pure ESRGAN 4x upscale — no SDXL diffusion, no color distortion.
 
     Loads the image, runs ESRGAN super-resolution, then resizes to
@@ -38,20 +41,19 @@ async def upscale_esrgan(
         nparr = np.frombuffer(img_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
-            return {"success": False, "error": "Failed to decode image"}
+            return UpscaleResult(success=False, error="Failed to decode image")
 
         logger.info("ESRGAN input: shape=%s dtype=%s", img.shape, img.dtype)
 
         from app.services.upscaler import perform_upscale
         upscaled = perform_upscale(img)
 
-        logger.info("ESRGAN output: type=%s shape=%s dtype=%s", type(upscaled).__name__, 
+        logger.info("ESRGAN output: type=%s shape=%s dtype=%s", type(upscaled).__name__,
                      getattr(upscaled, 'shape', 'N/A'), getattr(upscaled, 'dtype', 'N/A'))
 
         if upscaled is None:
-            return {"success": False, "error": "perform_upscale returned None"}
+            return UpscaleResult(success=False, error="perform_upscale returned None")
 
-        # Resize from 4x to requested scale
         orig_h, orig_w = img.shape[:2]
         target_w = max(1, int(orig_w * scale))
         target_h = max(1, int(orig_h * scale))
@@ -63,15 +65,15 @@ async def upscale_esrgan(
 
         logger.info("ESRGAN upscale: %dx%d -> %dx%d (scale=%.1f)",
                      img.shape[1], img.shape[0], target_w, target_h, scale)
-        return {
-            "success": True,
-            "base64": f"data:image/png;base64,{b64}",
-            "width": target_w,
-            "height": target_h,
-        }
+        return UpscaleResult(
+            success=True,
+            base64=f"data:image/png;base64,{b64}",
+            width=target_w,
+            height=target_h,
+        )
     except Exception as e:
         logger.error("ESRGAN upscale failed: %s", e)
-        return {"success": False, "error": str(e)}
+        return UpscaleResult(success=False, error=str(e))
 
 
 @router.post(
@@ -116,6 +118,7 @@ def describe_image(
     "/v1/tools/generate_mask",
     summary="Generate mask endpoint",
     tags=["Tools"],
+    responses={500: {"model": ErrorResponse}},
 )
 async def generate_mask(mask_options: GenerateMaskRequest) -> str:
     """Generate a mask from an image."""

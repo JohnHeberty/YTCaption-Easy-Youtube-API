@@ -7,11 +7,16 @@ from __future__ import annotations
 from common.log_utils import get_logger
 
 import os
-from typing import Any
 
 from fastapi import APIRouter, Response
 
 from app.api.api_utils import generate_async_output
+from app.api.schemas import (
+    ErrorResponse,
+    ListOutputsResponse,
+    OutputDateGroup,
+    OutputFileInfo,
+)
 from app.domain.models import (
     AsyncJobResponse,
     JobHistoryInfo,
@@ -28,7 +33,11 @@ IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 router = APIRouter(tags=["Query"])
 
 
-@router.get("/v1/generation/query-job", response_model=AsyncJobResponse)
+@router.get(
+    "/v1/generation/query-job",
+    response_model=AsyncJobResponse,
+    responses={404: {"model": ErrorResponse}},
+)
 def query_job(job_id: str, require_step_preview: bool = False) -> Response | AsyncJobResponse:
     """Query async generation job status."""
     queue_task = _worker_mod.worker_queue.get_task(job_id, True)
@@ -87,35 +96,35 @@ def job_history(
     return JobHistoryResponse(queue=queue, history=history)
 
 
-@router.get("/v1/generation/outputs")
-def list_outputs() -> dict[str, Any]:
+@router.get("/v1/generation/outputs", response_model=ListOutputsResponse)
+def list_outputs() -> ListOutputsResponse:
     """List all output images grouped by date."""
     from app.core.config import get_settings
 
     settings = get_settings()
     output_dir = settings.output_dir
 
-    days = []
+    days: list[OutputDateGroup] = []
     if not os.path.isdir(output_dir):
-        return {"days": []}
+        return ListOutputsResponse(days=[])
 
     for date_dir in sorted(os.listdir(output_dir), reverse=True):
         full = os.path.join(output_dir, date_dir)
         if not os.path.isdir(full):
             continue
-        files = []
+        files: list[OutputFileInfo] = []
         for fname in sorted(os.listdir(full)):
             ext = os.path.splitext(fname)[1].lower()
             if ext not in IMAGE_EXTS:
                 continue
             fpath = os.path.join(full, fname)
             files.append(
-                {
-                    "name": fname,
-                    "url": f"/files/{date_dir}/{fname}",
-                    "size": os.path.getsize(fpath),
-                }
+                OutputFileInfo(
+                    name=fname,
+                    url=f"/files/{date_dir}/{fname}",
+                    size=os.path.getsize(fpath),
+                )
             )
         if files:
-            days.append({"date": date_dir, "files": files})
-    return {"days": days}
+            days.append(OutputDateGroup(date=date_dir, files=files))
+    return ListOutputsResponse(days=days)

@@ -9,7 +9,6 @@ import base64
 import os
 import uuid
 from datetime import datetime
-from typing import Any
 
 import cv2
 import numpy as np
@@ -74,7 +73,7 @@ def _save_output_image(img_rgb: np.ndarray, suffix: str = "face_restore") -> str
 
 
 @router.post("/restore", response_model=FaceRestoreResponse)
-async def restore_faces(request: FaceRestoreRequest) -> dict[str, Any]:
+async def restore_faces(request: FaceRestoreRequest) -> FaceRestoreResponse:
     """Restore faces in an image using GFPGAN or CodeFormer."""
     try:
         img = read_input_image(request.image)
@@ -82,7 +81,7 @@ async def restore_faces(request: FaceRestoreRequest) -> dict[str, Any]:
             return FaceRestoreResponse(
                 success=False,
                 message="Failed to decode input image",
-            ).model_dump()
+            )
 
         # read_input_image returns BGR (OpenCV convention); restore_face expects RGB
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -105,11 +104,11 @@ async def restore_faces(request: FaceRestoreRequest) -> dict[str, Any]:
             url=url,
             model=request.model,
             faces_detected=faces_detected,
-        ).model_dump()
+        )
 
     except Exception as e:
         logger.error("Face restore endpoint failed: %s", e, exc_info=True)
         return FaceRestoreResponse(
             success=False,
             message=str(e),
-        ).model_dump()
+        )

@@ -2,16 +2,17 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 import time
 
 from fastapi import APIRouter
 
+from app.api.schemas import AdminCleanupResponse, AdminStatsResponse, AdminOutputStats
+
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
-@router.get("/stats")
-async def stats() -> dict[str, Any]:
+@router.get("/stats", response_model=AdminStatsResponse)
+async def stats() -> AdminStatsResponse:
     """System statistics."""
     import app.services.worker as worker_mod
     queue_info = {}
@@ -28,15 +29,18 @@ async def stats() -> dict[str, Any]:
                 output_count += 1
                 output_size += os.path.getsize(fp)
 
-    return {
-        "service": "se8-image-generation",
-        "queue": queue_info,
-        "outputs": {"count": output_count, "size_mb": round(output_size / (1024 * 1024), 1)},
-    }
+    return AdminStatsResponse(
+        service="se8-image-generation",
+        queue=queue_info,
+        outputs=AdminOutputStats(
+            count=output_count,
+            size_mb=round(output_size / (1024 * 1024), 1),
+        ),
+    )
 
 
-@router.post("/cleanup")
-async def cleanup() -> dict[str, Any]:
+@router.post("/cleanup", response_model=AdminCleanupResponse)
+async def cleanup() -> AdminCleanupResponse:
     """Cleanup old output files and job history."""
     cleaned = 0
     output_dir = os.getenv("OUTPUT_DIR", "./data/outputs")
@@ -53,8 +57,8 @@ async def cleanup() -> dict[str, Any]:
     if worker_mod.worker_queue:
         history_cleaned = worker_mod.worker_queue.clear_all_history()
 
-    return {
-        "jobs_removed": history_cleaned,
-        "files_deleted": cleaned,
-        "message": f"Cleaned {history_cleaned} history entries and {cleaned} old output files",
-    }
+    return AdminCleanupResponse(
+        jobs_removed=history_cleaned,
+        files_deleted=cleaned,
+        message=f"Cleaned {history_cleaned} history entries and {cleaned} old output files",
+    )

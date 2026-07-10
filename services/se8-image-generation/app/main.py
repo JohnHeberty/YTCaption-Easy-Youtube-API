@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
+from fastapi.responses import JSONResponse
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import get_logger
@@ -93,3 +94,22 @@ app = create_service_app(
     lifespan=lifespan,
     setup_routers=setup_routers,
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all exception handler — returns consistent ErrorResponse shape."""
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "error_code": "INTERNAL_ERROR"},
+    )
+
+
+@app.exception_handler(422)
+async def validation_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Validation error handler — returns consistent ErrorResponse shape."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc), "error_code": "VALIDATION_ERROR"},
+    )

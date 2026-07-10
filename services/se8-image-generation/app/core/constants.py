@@ -80,14 +80,6 @@ DEFAULT_REFINER_SWAP = 'joint'
 DEFAULT_BASE_MODEL = 'juggernautXL_v8Rundiffusion.safetensors'
 DEFAULT_REFINER_MODEL = 'None'
 
-DEFAULT_LORAS = [
-    {"enabled": True, "model_name": "sd_xl_offset_example-lora_1.0.safetensors", "weight": 0.1},
-    {"enabled": True, "model_name": "None", "weight": 1.0},
-    {"enabled": True, "model_name": "None", "weight": 1.0},
-    {"enabled": True, "model_name": "None", "weight": 1.0},
-    {"enabled": True, "model_name": "None", "weight": 1.0},
-]
-
 DEFAULT_STYLE_SELECTIONS = ["Fooocus V2", "Fooocus Enhance", "Fooocus Sharp"]
 
 # =============================================================================
