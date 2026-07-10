@@ -207,3 +207,63 @@ return JobDetailResponse(**data)
 - **Usar `datetime` nos schemas** quando possível (evita conversão manual).
 - **Se str for necessário** (compatibilidade), converter via `.isoformat()` antes de `model_dump()`.
 - **Testes de response schema** devem validar tipos, não só status code.
+
+---
+
+## 43. Lazy auth dependency for testable closures (2026-07-10)
+
+**Problema:** `create_api_key_dependency(api_key=settings.se8_api_key)` captura o valor no import time. Patchar `settings.se8_api_key` depois não tem efeito — o closure já tem o valor.
+
+**Solução:** Aceitar `Callable[[], str|None]` além de `str|None`:
+```python
+async def _verify(request: Request) -> None:
+    resolved_key = api_key() if callable(api_key) else api_key
+    if not resolved_key: return
+    ...
+```
+Uso: `create_api_key_dependency(api_key=lambda: settings.se8_api_key)`
+
+**Lição:** Sempre que uma dependency captura um valor estático no factory time, oferecerCallable para lazy resolution. Isso torna testável sem dependency_overrides.
+
+---
+
+## 44. Module-level Redis connection blocks test collection (2026-07-10)
+
+**Problema:** SE6 `celery_tasks.py` criava `RedisJobStore(redis_url=...)` no nível do módulo. Qualquer import de `app.infrastructure` (incluindo testes) tentava conectar ao Redis.
+
+**Solução:** Lazy initialization com `_get_job_store()` / `_get_processor()` globals:
+```python
+_job_store: RedisJobStore | None = None
+def _get_job_store() -> RedisJobStore:
+    global _job_store
+    if _job_store is None:
+        _job_store = RedisJobStore(redis_url=...)
+    return _job_store
+```
+
+**Lição:** Nunca criar conexões de rede no nível do módulo. Sempre usar lazy init para infraestrutura (Redis, DB, Celery). O import de um módulo Python deve ser efeito colateral zero.
+
+---
+
+## 45. MockRedis.create_job_store still creates real connection (2026-07-10)
+
+**Problema:** `MockRedis.create_job_store(YouTubeSearchJobStore)` chama o construtor real que conecta ao Redis, depois substitui `store.redis` por fakeredis. O construtor já falhou.
+
+**Solução:** Usar MagicMock puro no conftest em vez de `MockRedis.create_job_store`:
+```python
+mock = MagicMock()
+mock.redis = MagicMock()
+mock.redis.ping.return_value = True
+```
+
+**Lição:** Se o construtor de uma classe tem efeitos colaterais (conexão, ping), um mock puro é mais seguro que instanciar a classe real + patch posterior.
+
+---
+
+## 46. sys.exit(1) em testes mata o pytest runner (2026-07-10)
+
+**Problema:** Testes SE5 usavam `sys.exit(1)` em vez de `pytest.fail()`. O `sys.exit` mata o processo inteiro, impedindo pytest de coletar/reportar resultados.
+
+**Solução:** Substituir todas as ocorrências por `pytest.fail("reason")`.
+
+**Lição:** Nunca usar `sys.exit()` dentro de testes. Sempre usar `pytest.fail()`, `pytest.skip()`, ou `assert`. O `sys.exit` é para CLI entry points, não para testes.

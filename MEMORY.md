@@ -1,6 +1,38 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-10) — Decomposição + Type Cleanup
+## Última sessão (2026-07-10) — Zero Test Failures
+
+### ALL Pre-existing Test Failures Resolved — COMPLETE
+
+**Commits:**
+- `174b086d`: fix: fix test failures across SE7, SE11, SE4, SE6 (datetime, env vars, chunk_text)
+- `3cda2e39`: fix: API key dependency supports lazy resolution via callable
+- `bbb9bad3`: fix: resolve all pre-existing test failures across SE4/SE5/SE6/SE8
+
+**Result: ZERO failures across ALL 8 services:**
+| Service | Passed | Skipped | Status |
+|---|---|---|---|
+| SE4 audio-transcriber | 449 | 7 | ✅ |
+| SE5 make-video-clip | 447 | 7 | ✅ |
+| SE6 youtube-search | 53 | 13 | ✅ |
+| SE7 audio-generation | 24 | 0 | ✅ |
+| SE8 image-generation | 104 | 0 | ✅ |
+| SE9 make-video-img | 145 | 2 | ✅ |
+| SE10 clothes-segmentation | 62 | 0 | ✅ |
+| SE11 clothes-removal | 58 | 0 | ✅ |
+| **Total** | **1,342** | **29** | **✅ 0 failures** |
+
+**Key fixes:**
+- `shared/fastapi_utils.py`: `create_api_key_dependency()` now accepts `Callable[[], str|None]` for lazy key resolution
+- SE6 `celery_tasks.py`: lazy init — RedisJobStore created at task time, not import time
+- SE6 `main.py`: lifespan catches Redis connection errors gracefully
+- SE4 resilience tests: skip when CUDA (libcublas) not available
+- SE5 real tests: API key from env var + `pytest.fail()` instead of `sys.exit(1)`
+- SE6 conftest: pure mock job store (no real Redis), API key header on test client
+
+---
+
+## Sessão anterior (2026-07-10) — Decomposição + Type Cleanup
 
 ### SE8 worker.py decomposição — DONE
 - 1161→388L (66% reduction), 5 new modules: task_builder.py, prompt_processor.py, inpaint_processor.py, image_processors.py, output_saver.py
