@@ -1,6 +1,24 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-10) — PLAN.md Pendências + SE9 Decomposition
+## Última sessão (2026-07-10) — SE5 Phase 2-4 Validation + PLAN.md Pendências
+
+### SE5 DDD Phase 2-4 — All Changes Already Committed
+- Phase 2: `LoadApprovedVideosStage` + `ValidateAVSyncStage` — already in codebase
+- Phase 3: All stage improvements (constants 5s-3600s, select_shorts warning, assemble_video CONCAT_TOLERANCE=2.0, generate_subtitles retry+weighted cues, final_composition subtitle_style fix, trim_video FINAL_TOLERANCE=2.0) — already committed
+- Phase 4: Checkpoints, metrics, cleanup in domain_integration.py — already committed
+- 292 unit tests passing, 0 failures
+
+### PLAN.md Pendências Resolved (#10-16)
+- #10 SE7 VRAM monitoring: `[x]` — check_gpu() in shared/health_utils.py + SE7 health endpoint
+- #11 SE11 composite score: `[x]` — strength_ceiling=0.92 + graduated early stop
+- #13 SE11 Face Restoration: `[x]` — already wired, face_restore_default config added
+- #14 SE11 Poisson blending: `[x]` — poisson_blend() + blend mode option
+- #12 Multi-person: `[ ]` Pendente (needs design)
+- #15 GPU mount: `[ ]` Pendente (infra)
+- #16 RSS retention: `[ ]` Pendente (infra)
+
+### Commits This Session
+- `a4886ead`: docs(se1/se2/se3/se6): comprehensive API_REFERENCE.md + QUICKSTART.md (pushed)
 
 ### SE9 ffmpeg_utils.py Decomposition — DONE (commit `a603a581`)
 - `ffmpeg_utils.py`: 521→57L (86% reduction) — thin re-export module
