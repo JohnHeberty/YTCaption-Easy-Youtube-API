@@ -128,7 +128,7 @@ async def _process_download_pipeline_async(job_id: str) -> None:
             job_logger.warning(f"⚠️ Failed to download {video_id}: {e}")
 
     job_logger.info(f"✅ Downloaded {len(downloaded_ids)}/{total} shorts")
-    await save_checkpoint(job_id, "downloading_shorts_completed")
+    await save_checkpoint(job_id, "load_approved_completed")
 
     if not downloaded_ids:
         raise MakeVideoException("No shorts were downloaded successfully")

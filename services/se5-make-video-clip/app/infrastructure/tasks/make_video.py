@@ -147,7 +147,7 @@ async def _analyze_audio(
     Returns (audio_path, audio_duration, target_duration).
     """
     logger.info("[1/7] Analyzing audio...")
-    await update_job_status(job_id, JobStatus.ANALYZING_AUDIO, progress=5.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=5.0)
 
     audio_dir = Path(settings['audio_upload_dir'])
     audio_path = None
@@ -193,7 +193,7 @@ async def _fetch_approved_shorts(job_id: str, job_logger: Any) -> list[dict[str,
     Returns list of dicts with video_id, url, title, duration keys.
     """
     logger.info("[2/7] Fetching approved shorts from data/approved/videos/...")
-    await update_job_status(job_id, JobStatus.FETCHING_SHORTS, progress=15.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=15.0)
 
     approved_dir = Path("data/approved/videos")
     if not approved_dir.exists():
@@ -247,7 +247,7 @@ async def _load_approved_videos(
     job_logger.info("[3/7] USING APPROVED VIDEOS FROM data/approved/videos/")
     job_logger.info("=" * 60)
     logger.info("[3/7] Using pre-approved videos...")
-    await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=25.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=25.0)
 
     approved_shorts = []
     approved_dir = Path("data/approved/videos")
@@ -290,7 +290,7 @@ async def _load_approved_videos(
     total_available = sum(s['duration_seconds'] for s in approved_shorts)
     logger.info("Total available duration: %.1fs (need %.1fs)", total_available, target_duration)
 
-    await update_job_status(job_id, JobStatus.DOWNLOADING_SHORTS, progress=60.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=60.0)
     await save_checkpoint(job_id, "downloading_shorts_completed")
     return approved_shorts
 
@@ -346,7 +346,7 @@ async def _assemble_video(
     Returns path to assembled video.
     """
     logger.info("[5/7] Assembling video...")
-    await update_job_status(job_id, JobStatus.ASSEMBLING_VIDEO, progress=75.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=75.0)
 
     video_files = [s['file_path'] for s in selected_shorts]
     temp_video_path = Path("/tmp/make-video-temp") / job_id / "video_no_audio.mp4"
@@ -404,7 +404,7 @@ async def _transcribe_with_retry(
     Returns list of transcription segments.
     """
     logger.info("[6/7] Generating subtitles...")
-    await update_job_status(job_id, JobStatus.GENERATING_SUBTITLES, progress=80.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=80.0)
 
     segments: list[dict[str, Any]] = []
     retry_attempt = 0
@@ -417,7 +417,7 @@ async def _transcribe_with_retry(
                 logger.info("Subtitle generation retry #%d", retry_attempt)
                 await update_job_status(
                     job_id,
-                    JobStatus.GENERATING_SUBTITLES,
+                    JobStatus.PROCESSING,
                     progress=80.0,
                     stage_updates={
                         "generating_subtitles": {
@@ -494,7 +494,7 @@ async def _update_retry_status(
     """Update job status with retry metadata."""
     await update_job_status(
         job_id,
-        JobStatus.GENERATING_SUBTITLES,
+        JobStatus.PROCESSING,
         progress=80.0,
         stage_updates={
             "generating_subtitles": {
@@ -649,7 +649,7 @@ async def _compose_final_video(
     Returns path to composed video.
     """
     logger.info("[7/7] Final composition...")
-    await update_job_status(job_id, JobStatus.FINAL_COMPOSITION, progress=85.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=85.0)
 
     video_with_audio_path = Path('/tmp/make-video-temp') / job_id / "video_with_audio.mp4"
     await video_builder.add_audio(
@@ -715,7 +715,7 @@ async def _validate_and_trim(
     Returns (final_video_path, video_info).
     """
     logger.info("[8/8] Trimming video to target duration...")
-    await update_job_status(job_id, JobStatus.FINAL_COMPOSITION, progress=92.0)
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=92.0)
 
     padding_ms = int(settings.get('video_trim_padding_ms', 1000))
     padding_seconds = padding_ms / 1000.0

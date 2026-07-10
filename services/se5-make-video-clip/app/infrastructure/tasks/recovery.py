@@ -196,13 +196,7 @@ def _determine_next_stage(current_stage: str, checkpoint: dict[str, Any]) -> Job
 
     stage_flow = [
         JobStatus.QUEUED,
-        JobStatus.ANALYZING_AUDIO,
-        JobStatus.FETCHING_SHORTS,
-        JobStatus.DOWNLOADING_SHORTS,
-        JobStatus.SELECTING_SHORTS,
-        JobStatus.ASSEMBLING_VIDEO,
-        JobStatus.GENERATING_SUBTITLES,
-        JobStatus.FINAL_COMPOSITION,
+        JobStatus.PROCESSING,
     ]
 
     try:
@@ -234,52 +228,17 @@ async def _validate_job_prerequisites(job: Job, next_stage: JobStatus) -> dict[s
         if next_stage == JobStatus.QUEUED:
             return {"valid": True}
 
-        if next_stage == JobStatus.ANALYZING_AUDIO:
-            audio_path = Path(settings['audio_upload_dir']) / job.job_id / "audio"
-
+        if next_stage == JobStatus.PROCESSING:
+            audio_dir = Path(settings['audio_upload_dir'])
             found = False
-            for ext in ['.mp3', '.wav', '.m4a', '.ogg', '']:
-                test_path = audio_path.parent / f"audio{ext}"
+            for ext in ('.ogg', '.mp3', '.wav', '.m4a'):
+                test_path = audio_dir / f"{job.job_id}{ext}"
                 if test_path.exists():
                     found = True
                     break
 
             if not found:
                 return {"valid": False, "reason": "Audio file not found"}
-            return {"valid": True}
-
-        if next_stage == JobStatus.FETCHING_SHORTS:
-            if not job.audio_duration:
-                return {"valid": False, "reason": "Audio duration not analyzed"}
-            return {"valid": True}
-
-        if next_stage == JobStatus.DOWNLOADING_SHORTS:
-            return {"valid": True}
-
-        if next_stage == JobStatus.SELECTING_SHORTS:
-            shorts_cache_dir = Path(settings['shorts_cache_dir'])
-            job_shorts_dir = shorts_cache_dir / job.job_id
-            if not job_shorts_dir.exists() or not list(job_shorts_dir.glob("*.mp4")):
-                return {"valid": False, "reason": f"No shorts available for job {job.job_id}"}
-            return {"valid": True}
-
-        if next_stage == JobStatus.ASSEMBLING_VIDEO:
-            return {"valid": True}
-
-        if next_stage == JobStatus.GENERATING_SUBTITLES:
-            temp_video = Path('/tmp/make-video-temp') / job.job_id / "video_no_audio.mp4"
-            if not temp_video.exists():
-                return {"valid": False, "reason": "Intermediate video not found"}
-            return {"valid": True}
-
-        if next_stage == JobStatus.FINAL_COMPOSITION:
-            video_with_audio = Path('/tmp/make-video-temp') / job.job_id / "video_with_audio.mp4"
-            subtitle_file = Path('/tmp/make-video-temp') / job.job_id / "subtitles.srt"
-
-            if not video_with_audio.exists():
-                return {"valid": False, "reason": "Video with audio not found"}
-            if not subtitle_file.exists():
-                return {"valid": False, "reason": "Subtitle file not found"}
             return {"valid": True}
 
         return {"valid": True}
@@ -293,12 +252,6 @@ def _stage_to_progress(stage: JobStatus) -> float:
     """Mapeia stage para porcentagem de progresso"""
     stage_progress = {
         JobStatus.QUEUED: 0.0,
-        JobStatus.ANALYZING_AUDIO: 5.0,
-        JobStatus.FETCHING_SHORTS: 15.0,
-        JobStatus.DOWNLOADING_SHORTS: 30.0,
-        JobStatus.SELECTING_SHORTS: 70.0,
-        JobStatus.ASSEMBLING_VIDEO: 75.0,
-        JobStatus.GENERATING_SUBTITLES: 80.0,
-        JobStatus.FINAL_COMPOSITION: 85.0,
+        JobStatus.PROCESSING: 50.0,
     }
     return stage_progress.get(stage, 0.0)

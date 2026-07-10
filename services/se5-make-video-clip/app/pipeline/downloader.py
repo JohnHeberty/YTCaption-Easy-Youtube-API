@@ -233,7 +233,7 @@ class ShortsDownloader:
                     await progress_callback(
                         progress=progress_pct,
                         metadata={
-                            'step': 'downloading_shorts',
+                            'step': 'loading_approved',
                             'downloaded': len(downloaded),
                             'total': max_count,
                             'current_video': video_id,

@@ -2,6 +2,26 @@
 
 ## Última sessão (2026-07-10)
 
+### 🟡 Pendências Restantes — 3 Itens Corrigidos (2026-07-10)
+
+**Itens corrigidos:**
+
+1. **Event publishing type error** — Fix já estava no código (`events.py:158-167` substituiu `flat_data` fragil por campo único `event_json`). Container Docker foi reconstruído para aplicar.
+
+2. **SE4 network persistence** — Já estava corrigido nos compose files. MEMORY.md estava desatualizada — entrada removida.
+
+3. **Stage display names** — Caminho DDD ativo já estava correto. Limpeza de código legado em 6 arquivos:
+   - `tasks/make_video.py`: `JobStatus.ANALYZING_AUDIO/FETCHING_SHORTS/DOWNLOADING_SHORTS/ASSEMBLING_VIDEO/GENERATING_SUBTITLES/FINAL_COMPOSITION` → `JobStatus.PROCESSING`
+   - `tasks/recovery.py`: stage_flow simplificado, validações reduzidas
+   - `timeout.py`: base_timeouts simplificado
+   - `tasks/download.py`: checkpoint string `"downloading_shorts_completed"` → `"load_approved_completed"`
+   - `checkpoint_manager.py`: alias `DOWNLOADING_SHORTS` removido
+   - `pipeline/downloader.py`: step `'downloading_shorts'` → `'loading_approved'`
+
+**Validação:** 447 tests passed, 5 skipped, 0 failures (excluindo 1 teste integração real pré-existente).
+
+**Docker:** SE5 containers reconstruídos e reiniciados (`ytcaption-make-video-clip`, `ytcaption-make-video-clip-celery`). Health check: OK.
+
 ### 🟢 SE5 TRSD Activation — PT Shorts OCR Fix COMPLETE (2026-07-10)
 
 **Objetivo:** Ativar TRSD (Temporal Region Subtitle Detector) para permitir PT motivational shorts serem aprovados no pipeline de validação.
@@ -174,8 +194,7 @@
 ```
 
 ### Known non-blocking issues
-- Event publishing type error (dict passed to methods expecting bytes) — observability only
-- Stage display names in API response still show old names (fetching_shorts, downloading_shorts)
+- Stage display names in API response — FIXED (2026-07-10): legacy code cleaned, DDD path correct.
 
 ---
 

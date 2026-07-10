@@ -146,15 +146,20 @@ class EventPublisher:
             channel = f"events:{event.type.value}"
             
             # Publish no canal (Redis Pub/Sub)
-            await self.redis.publish(channel, event.to_json())
+            event_json = event.to_json()
+            await self.redis.publish(channel, event_json)
             
             # Também salvar em stream para histórico (Redis Streams)
             # Streams são persistentes e podem ser consumidos com offset
             stream_name = f"event_stream:{event.type.value.split('.')[0]}"
-            flat_data = {k: str(v) if not isinstance(v, str) else v
-                         for k, v in event.to_dict().items()
-                         if k != "data"}
-            flat_data["data_json"] = json.dumps(event.data)
+
+            # Build flat_data with ONLY primitive values for Redis Streams.
+            # redis.xadd requires all field values to be str|bytes|int|float|bool.
+            # Use event_json (the full serialized event) as the single stream field
+            # to avoid any risk of dict/nested-object values leaking through.
+            flat_data: dict[str, str] = {
+                "event_json": event_json,
+            }
             await self.redis.xadd(
                 stream_name,
                 flat_data,

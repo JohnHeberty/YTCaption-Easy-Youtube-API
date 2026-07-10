@@ -14,27 +14,13 @@ def calculate_stage_timeout(
 
     base_timeouts = {
         JobStatus.QUEUED: 10,
-        JobStatus.ANALYZING_AUDIO: 30,
-        JobStatus.FETCHING_SHORTS: 60,
-        JobStatus.DOWNLOADING_SHORTS: 300,
-        JobStatus.SELECTING_SHORTS: 10,
-        JobStatus.ASSEMBLING_VIDEO: 120,
-        JobStatus.GENERATING_SUBTITLES: 180,
-        JobStatus.FINAL_COMPOSITION: 300,
+        JobStatus.PROCESSING: 300,
     }
 
     base = base_timeouts.get(stage, 300)
 
-    if stage == JobStatus.ANALYZING_AUDIO:
-        timeout = base + int(audio_duration * 2)
-    elif stage == JobStatus.FETCHING_SHORTS:
-        timeout = base + (max_shorts * 5)
-    elif stage == JobStatus.DOWNLOADING_SHORTS:
-        timeout = base + (max_shorts * 10)
-    elif stage == JobStatus.GENERATING_SUBTITLES:
+    if stage == JobStatus.PROCESSING:
         timeout = base + int(audio_duration * 30)
-    elif stage == JobStatus.FINAL_COMPOSITION:
-        timeout = base + int(audio_duration * 10)
     else:
         timeout = base
 

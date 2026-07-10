@@ -28,8 +28,6 @@ class CheckpointStage(str, Enum):
     TRIM_VIDEO = "trim_video"
     VALIDATE_AV_SYNC = "validate_av_sync"
     COMPLETED = "completed"
-    # Legacy aliases (used by legacy download path)
-    DOWNLOADING_SHORTS = "downloading_shorts"
 
 @dataclass
 class CheckpointData:
@@ -268,7 +266,7 @@ async def save_download_checkpoint(
     ):
         await checkpoint_manager.save_checkpoint(
             job_id=job_id,
-            stage=CheckpointStage.DOWNLOADING_SHORTS,
+            stage=CheckpointStage.LOAD_APPROVED,
             completed_items=len(downloaded_shorts),
             total_items=total_shorts,
             item_ids=[s.video_id for s in downloaded_shorts],
