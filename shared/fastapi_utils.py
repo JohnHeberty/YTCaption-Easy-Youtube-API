@@ -224,14 +224,16 @@ _DEFAULT_EXEMPT_PATHS = frozenset({"/", "/health", "/health/deep", "/ping"})
 
 
 def create_api_key_dependency(
-    api_key: Optional[str],
+    api_key: str | None | Callable[[], str | None],
     exempt_paths: Optional[list[str]] = None,
 ) -> Callable[[Request], Any]:
     """Create a FastAPI dependency that validates ``X-API-Key`` header.
 
     Args:
         api_key: Expected API key value.  When ``None``, authentication is
-            **disabled** (all requests pass through).
+            **disabled** (all requests pass through).  A callable
+            (e.g. ``lambda: settings.api_key``) is called at request time
+            to support dynamic key resolution and testing.
         exempt_paths: URL paths that bypass authentication.  Defaults to
             common health endpoints (``/``, ``/health``, ``/health/deep``,
             ``/ping``).
@@ -244,7 +246,11 @@ def create_api_key_dependency(
 
         from common.fastapi_utils import create_api_key_dependency
 
+        # Static key (captured at creation time):
         verify = create_api_key_dependency(api_key=settings.api_key)
+
+        # Lazy key (resolved at request time, useful for testing):
+        verify = create_api_key_dependency(api_key=lambda: settings.api_key)
 
         app = create_service_app(
             ...,
@@ -254,12 +260,13 @@ def create_api_key_dependency(
     paths = frozenset(exempt_paths) if exempt_paths is not None else _DEFAULT_EXEMPT_PATHS
 
     async def _verify(request: Request) -> None:
-        if not api_key:
+        resolved_key = api_key() if callable(api_key) else api_key
+        if not resolved_key:
             return
         if request.url.path in paths:
             return
         key = request.headers.get("X-API-Key")
-        if key != api_key:
+        if key != resolved_key:
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
     return _verify

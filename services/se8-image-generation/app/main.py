@@ -14,7 +14,7 @@ from app.core.config import get_settings
 logger = get_logger(__name__)
 settings = get_settings()
 
-verify_api_key = create_api_key_dependency(api_key=settings.se8_api_key)
+verify_api_key = create_api_key_dependency(api_key=lambda: settings.se8_api_key)
 
 
 @asynccontextmanager
