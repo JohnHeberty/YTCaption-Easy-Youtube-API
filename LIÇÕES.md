@@ -164,3 +164,46 @@ Todos os services devem seguir o padrão SE9/SE11:
 - **Testes que patcham `module.os.path`** — se o código usa `__import__("os")` ou `import os as _os`, o patch não funciona. Usar `import os` no nível do módulo para que patches funcionem.
 - **`face_routes.py` retornava `dict` via `.model_dump()`** — quando `response_model=FaceRestoreResponse` está definido, retornar o modelo diretamente (não `.model_dump()`) para validação automática.
 - **DEFAULT_LORAS duplicado** — `models.py` (Lora instances) + `constants.py` (dict literals) com mesmos dados. Consolidação: manter APENAS em `models.py`.
+
+---
+
+## 41. Testes precisam de env vars em conftest.py (2026-07-10)
+
+**Problema:** Quando pytest roda da raiz do repo (`python3 -m pytest services/seX/tests/`), o `cwd` é a raiz e o `.env` do serviço não é encontrado pelo pydantic-settings. Settings com `Field(...)` (required) falham com `ValidationError: missing`.
+
+**Serviços afetados:** SE4, SE6, SE7, SE11
+
+**Solução:** Adicionar `os.environ.setdefault()` no topo de `tests/conftest.py` de cada serviço, ANTES de qualquer import que dispare settings loading:
+```python
+os.environ.setdefault("APP_NAME", "Service Name")
+os.environ.setdefault("REDIS_URL", "redis://192.168.1.110:6379/X")
+```
+
+**Lições:**
+- **Sempre setar `APP_NAME` e `REDIS_URL`** em conftest.py — são os campos required do `BaseServiceSettings`.
+- **Rodar pytest do diretório do serviço** é a forma mais robusta — `.env` é encontrado naturalmente.
+- **Se rodar da raiz**, conftest env vars são essenciais — sem elas, TODOS os testes do serviço falham na collection phase.
+- **Testes de e2e/integration** que dependem de Redis real ou serviços live continuam falhando independente do env var.
+
+---
+
+## 42. Pydantic datetime vs str em API responses (2026-07-10)
+
+**Problema:** `model_dump()` retorna `datetime` objects, mas `response_model` schemas definem `created_at: str`. Pydantic v2 lança `ValidationError: Input should be a valid string`.
+
+**Serviço:** SE7 (audio-generation), jobs_routes.py
+
+**Solução:** Converter explicitamente antes de instanciar o schema:
+```python
+data = job.model_dump()
+for key in ("created_at", "started_at", "completed_at"):
+    val = data.get(key)
+    if hasattr(val, "isoformat"):
+        data[key] = val.isoformat()
+return JobDetailResponse(**data)
+```
+
+**Lições:**
+- **Usar `datetime` nos schemas** quando possível (evita conversão manual).
+- **Se str for necessário** (compatibilidade), converter via `.isoformat()` antes de `model_dump()`.
+- **Testes de response schema** devem validar tipos, não só status code.
