@@ -18,7 +18,7 @@ from app.domain.models import AudioTranscriptionJob, JobStatus
 logger = get_logger(__name__)
 
 
-class RedisJobStore(IJobStore):
+class RedisJobStore(IJobStore[AudioTranscriptionJob]):
     def __init__(self, redis_url: str = "redis://localhost:6379/0"):
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,

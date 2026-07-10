@@ -12,28 +12,30 @@ when it only needs a subset of operations (adapter pattern / dependency inversio
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, TypeVar, Generic
 
 # Note: we avoid importing Job here to prevent circular imports at domain level.
 # Callers that need concrete types should use the models directly; these interfaces
 # remain generic so they can be composed freely.
 
+JobT = TypeVar("JobT")
 
-class IJobRepository(ABC):
+
+class IJobRepository(ABC, Generic[JobT]):
     """Core CRUD operations for individual jobs."""
 
     @abstractmethod
-    def save_job(self, job: Any) -> None:  # noqa: ANN401
+    def save_job(self, job: JobT) -> None:
         """Save (create or update) a single job to the store."""
         pass
 
     @abstractmethod
-    def get_job(self, job_id: str) -> Any | None:  # noqa: ANN401
+    def get_job(self, job_id: str) -> JobT | None:
         """Load a single job by ID. Returns None when not found."""
         pass
 
     @abstractmethod
-    def update_job(self, job: Any) -> None:  # noqa: ANN401
+    def update_job(self, job: JobT) -> None:
         """Update an existing job in the store."""
         pass
 
@@ -71,7 +73,7 @@ class IJobQuery(ABC):
         pass
 
 
-class IJobStore(IJobRepository, IJobQuery):  # type: ignore[misc]
+class IJobStore(IJobRepository[JobT], IJobQuery):  # type: ignore[misc]
     """Composite interface — combines CRUD + Query for backward compatibility.
 
     Existing code that depends on the monolithic IJobStore continues to work
