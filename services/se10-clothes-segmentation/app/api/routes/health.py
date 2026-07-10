@@ -8,7 +8,7 @@ from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.state import get_segmentor
-from app.domain.models import HealthResponse, DeepHealthResponse
+from app.domain.models import HealthResponse, DeepHealthResponse, PingResponse
 
 router = APIRouter(tags=["Health"])
 
@@ -64,6 +64,6 @@ async def health_deep() -> DeepHealthResponse:
     )
 
 
-@router.get("/ping")
-async def ping() -> dict[str, bool]:
-    return {"pong": True}
+@router.get("/ping", response_model=PingResponse)
+async def ping() -> PingResponse:
+    return PingResponse(pong=True)

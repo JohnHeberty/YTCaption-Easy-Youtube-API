@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 
 from common.log_utils import get_logger
 
-from app.api.schemas import JobResponse, DeleteJobResponse
+from app.api.schemas import (
+    ErrorResponse,
+    JobListResponse,
+    JobResponse,
+    DeleteJobResponse,
+    JobDetailResponse,
+)
 from app.core.constants import DEFAULT_EXAGGERATION, DEFAULT_CFG_WEIGHT, DEFAULT_TEMPERATURE
 from app.domain.models import AudioGenerationJob, JobStatus
 from app.domain.interfaces import IJobStore, ITTSGenerator, IVoiceStore
@@ -19,7 +24,12 @@ logger = get_logger(__name__)
 router = APIRouter(tags=["Jobs"])
 
 
-@router.post("/jobs", response_model=JobResponse, status_code=201)
+@router.post(
+    "/jobs",
+    response_model=JobResponse,
+    status_code=201,
+    responses={422: {"model": ErrorResponse}},
+)
 async def create_generation_job(
     text: str = Form(...),
     voice_id: str | None = Form(None),
@@ -67,29 +77,33 @@ async def create_generation_job(
     )
 
 
-@router.get("/jobs")
+@router.get("/jobs", response_model=JobListResponse)
 async def list_jobs(
     limit: int = Query(20, ge=1, le=100),
     store: IJobStore = Depends(job_store),
-) -> dict[str, Any]:
+) -> JobListResponse:
     jobs = store.list_jobs(limit)
-    return {
-        "jobs": [j.model_dump() for j in jobs],
-        "total": len(jobs),
-    }
+    return JobListResponse(
+        jobs=[JobDetailResponse(**j.model_dump()) for j in jobs],
+        total=len(jobs),
+    )
 
 
-@router.get("/jobs/{job_id}")
+@router.get(
+    "/jobs/{job_id}",
+    response_model=JobDetailResponse,
+    responses={404: {"model": ErrorResponse}},
+)
 async def get_job_status(
     job_id: str,
     store: IJobStore = Depends(job_store),
-) -> dict[str, Any]:
+) -> JobDetailResponse:
     job = store.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     if job.is_expired:
         raise HTTPException(status_code=410, detail="Job expired")
-    return job.model_dump()
+    return JobDetailResponse(**job.model_dump())
 
 
 @router.get("/jobs/{job_id}/download")
@@ -116,7 +130,11 @@ async def download_audio(
     )
 
 
-@router.delete("/jobs/{job_id}")
+@router.delete(
+    "/jobs/{job_id}",
+    response_model=DeleteJobResponse,
+    responses={404: {"model": ErrorResponse}},
+)
 async def delete_job(
     job_id: str,
     store: IJobStore = Depends(job_store),

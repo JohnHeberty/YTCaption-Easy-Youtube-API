@@ -14,7 +14,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.domain.models import ErrorResponse
+from app.domain.models import DeleteJobResponse, ErrorResponse
 
 logger = get_logger(__name__)
 
@@ -135,21 +135,20 @@ async def get_job(job_id: str) -> Any:
 
 @router.delete(
     "/{job_id}",
-    response_model=None,
+    response_model=DeleteJobResponse,
     responses={
-        200: {"description": "Job deleted"},
         404: {"model": ErrorResponse, "description": "Job not found"},
         503: {"model": ErrorResponse, "description": "Redis unavailable"},
     },
 )
-async def delete_job(job_id: str) -> Any:
+async def delete_job(job_id: str) -> DeleteJobResponse:
     """Delete a job by ID."""
     from common.job_utils.exceptions import JobNotFoundError
 
     try:
         mgr = _get_job_manager()
         mgr.delete_job(job_id)
-        return {"message": f"Job {job_id} deleted", "job_id": job_id}
+        return DeleteJobResponse(message=f"Job {job_id} deleted", job_id=job_id)
     except JobNotFoundError:
         return JSONResponse(status_code=404, content=ErrorResponse(error="JOB_NOT_FOUND", message=f"Job {job_id} not found").model_dump())
     except Exception as e:

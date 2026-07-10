@@ -3,7 +3,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
+from fastapi.responses import JSONResponse
 from starlette.applications import Starlette
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
@@ -49,3 +50,13 @@ app = create_service_app(
     setup_routers=setup_routers,
     dependencies=[Depends(verify_api_key)],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all exception handler — returns consistent ErrorResponse shape."""
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "INTERNAL_ERROR", "message": str(exc)},
+    )

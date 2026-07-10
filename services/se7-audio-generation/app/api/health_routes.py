@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from common.health_utils import ServiceHealthChecker
 from common.datetime_utils import now_brazil
 
+from app.api.schemas import HealthResponse
 from app.core.config import get_settings
 from app.domain.interfaces import IModelManager, IJobStore
 from app.infrastructure.dependencies import model_manager, job_store
@@ -14,10 +15,14 @@ from app.infrastructure.dependencies import model_manager, job_store
 router = APIRouter(tags=["Health"])
 
 
-@router.get("/")
-async def root() -> dict[str, str]:
+@router.get("/", response_model=HealthResponse)
+async def root() -> HealthResponse:
     settings = get_settings()
-    return {"service": settings.app_name, "version": settings.app_version, "status": "running"}
+    return HealthResponse(
+        status="running",
+        service=settings.app_name,
+        version=settings.app_version,
+    )
 
 
 def _check_redis(store: IJobStore) -> dict[str, str]:
@@ -28,11 +33,11 @@ def _check_redis(store: IJobStore) -> dict[str, str]:
         return {"name": "redis", "status": "error", "detail": str(e)}
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthResponse)
 async def health(
     model_mgr: IModelManager = Depends(model_manager),
     store: IJobStore = Depends(job_store),
-) -> dict[str, Any]:
+) -> HealthResponse:
     settings = get_settings()
     checker = ServiceHealthChecker("audio-generation", version=settings.app_version)
 
@@ -57,4 +62,4 @@ async def health(
 
     result = await checker.check_all()
     result["timestamp"] = now_brazil().isoformat()
-    return result
+    return HealthResponse(**result)

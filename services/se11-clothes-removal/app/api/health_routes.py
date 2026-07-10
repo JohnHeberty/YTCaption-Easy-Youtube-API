@@ -9,7 +9,6 @@ from fastapi import APIRouter
 from app.api.schemas import (
     DeepHealthCheck,
     DeepHealthResponse,
-    ErrorResponse,
     HealthResponse,
     PingResponse,
 )

@@ -6,7 +6,7 @@ import shutil
 
 from fastapi import APIRouter
 
-from app.api.schemas import AdminCleanupResponse, AdminStatsResponse
+from app.api.schemas import AdminCleanupResponse, AdminStatsResponse, ErrorResponse
 from app.core.config import settings
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 
@@ -19,6 +19,7 @@ store = ClothesRemovalJobStore()
     response_model=AdminStatsResponse,
     summary="System statistics",
     description="Returns job counts by status and disk usage.",
+    responses={500: {"model": ErrorResponse}},
 )
 async def stats() -> AdminStatsResponse:
     jobs = store.list_jobs()
@@ -55,6 +56,7 @@ async def stats() -> AdminStatsResponse:
     response_model=AdminCleanupResponse,
     summary="Cleanup jobs",
     description="Remove completed/failed jobs and their output files.",
+    responses={500: {"model": ErrorResponse}},
 )
 async def cleanup() -> AdminCleanupResponse:
     jobs = store.list_jobs()

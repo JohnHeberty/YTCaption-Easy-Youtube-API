@@ -691,3 +691,15 @@ class ErrorResponse(FlexibleSchema):
         default=None,
         description="Additional error details (validation errors, stack traces, etc.)",
     )
+
+
+# =============================================================================
+# Response — Service Info
+# =============================================================================
+
+class ServiceInfoResponse(FlexibleSchema):
+    """Service information response."""
+    service: str = Field(default="clothes-removal", description="Service name")
+    version: str = Field(default="1.0.0", description="Service version")
+    description: str = Field(default="AI-powered clothes removal with SE10 detection + SE8 inpainting", description="Service description")
+    endpoints: dict[str, str] = Field(default_factory=dict, description="Available endpoint descriptions")

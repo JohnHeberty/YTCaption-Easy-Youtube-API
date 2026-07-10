@@ -8,7 +8,6 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
@@ -29,6 +28,7 @@ from app.api.schemas import (
     ModeInfo,
     ModesResponse,
     RemovalMode,
+    ServiceInfoResponse,
 )
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 from app.worker import get_worker
@@ -38,12 +38,6 @@ store = ClothesRemovalJobStore()
 
 
 # ─── Service Info ────────────────────────────────────────────────────────────
-
-class ServiceInfoResponse(BaseModel):
-    service: str = "clothes-removal"
-    version: str = "1.0.0"
-    description: str = "AI-powered clothes removal with SE10 detection + SE8 inpainting"
-    endpoints: dict[str, str]
 
 
 @router.get(

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from common.log_utils import get_logger
 
-from app.api.schemas import VoiceProfileCreateResponse, DeleteVoiceResponse
+from app.api.schemas import (
+    DeleteVoiceResponse,
+    ErrorResponse,
+    VoiceProfileCreateResponse,
+    VoiceProfileListResponse,
+    VoiceProfileResponse,
+)
 from app.domain.exceptions import InvalidVoiceSample, VoiceProfileNotFound
 from app.services.voice_manager import VoiceProfileManager
 from app.infrastructure.dependencies import voice_manager
@@ -16,7 +20,12 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/voices", tags=["Voices"])
 
 
-@router.post("", response_model=VoiceProfileCreateResponse, status_code=201)
+@router.post(
+    "",
+    response_model=VoiceProfileCreateResponse,
+    status_code=201,
+    responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
+)
 async def create_voice_profile(
     name: str = Form(...),
     description: str = Form(""),
@@ -48,25 +57,48 @@ async def create_voice_profile(
         raise HTTPException(status_code=422, detail=str(e))
 
 
-@router.get("")
+@router.get("", response_model=VoiceProfileListResponse)
 async def list_voice_profiles(
     mgr: VoiceProfileManager = Depends(voice_manager),
-) -> dict[str, Any]:
+) -> VoiceProfileListResponse:
     profiles = mgr.list_profiles()
-    return {
-        "profiles": [p.model_dump() for p in profiles],
-        "total": len(profiles),
-    }
+    return VoiceProfileListResponse(
+        profiles=[
+            VoiceProfileResponse(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                created_at=p.created_at.isoformat(),
+                duration_seconds=p.duration_seconds,
+                sample_rate=p.sample_rate,
+                status=p.status,
+            )
+            for p in profiles
+        ],
+        total=len(profiles),
+    )
 
 
-@router.get("/{voice_id}")
+@router.get(
+    "/{voice_id}",
+    response_model=VoiceProfileResponse,
+    responses={404: {"model": ErrorResponse}},
+)
 async def get_voice_profile(
     voice_id: str,
     mgr: VoiceProfileManager = Depends(voice_manager),
-) -> dict[str, Any]:
+) -> VoiceProfileResponse:
     try:
         profile = mgr.get_profile(voice_id)
-        return profile.model_dump()
+        return VoiceProfileResponse(
+            id=profile.id,
+            name=profile.name,
+            description=profile.description,
+            created_at=profile.created_at.isoformat(),
+            duration_seconds=profile.duration_seconds,
+            sample_rate=profile.sample_rate,
+            status=profile.status,
+        )
     except VoiceProfileNotFound:
         raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
 
@@ -87,7 +119,11 @@ async def download_voice_sample(
         raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
 
 
-@router.delete("/{voice_id}")
+@router.delete(
+    "/{voice_id}",
+    response_model=DeleteVoiceResponse,
+    responses={404: {"model": ErrorResponse}},
+)
 async def delete_voice_profile(
     voice_id: str,
     mgr: VoiceProfileManager = Depends(voice_manager),
