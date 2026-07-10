@@ -7,6 +7,10 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
 
+# Set required env vars before any module imports trigger settings loading
+os.environ.setdefault("APP_NAME", "Audio Transcription Service")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/4")
+
 from common.test_utils.mock_redis import MockRedis
 from common.test_utils.mock_celery import mock_celery_app
 

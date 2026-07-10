@@ -1,6 +1,11 @@
 """Shared test fixtures for SE11 Clothes Removal tests."""
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+# Set required env vars before any module imports trigger settings loading
+os.environ.setdefault("APP_NAME", "Clothes Removal")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/11")
 
 
 @pytest.fixture

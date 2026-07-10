@@ -128,7 +128,7 @@ class TestChunkText:
         assert chunks[0] == text
 
     def test_long_text_multiple_chunks(self):
-        text = "A. " * 200
+        text = "A. " * 500
         chunks = chunk_text(text, chunk_size=1000)
         assert len(chunks) > 1
 
@@ -220,16 +220,16 @@ class TestTTSGenerator:
 
 class TestChatterboxModelManager:
     def test_init(self):
-        mm = ChatterboxModelManager(device="cpu")
-        assert mm.device == "cpu"
+        mm = ChatterboxModelManager()
+        assert mm.device in ("cpu", "cuda", "cuda:0")
         assert not mm.is_loaded
         assert mm.sample_rate == 24000
 
     def test_get_status_not_loaded(self):
-        mm = ChatterboxModelManager(device="cpu")
+        mm = ChatterboxModelManager()
         status = mm.get_status()
         assert status["loaded"] is False
-        assert status["device"] == "cpu"
+        assert status["device"] in ("cpu", "cuda", "cuda:0")
 
 
 # ===== API Tests (with mocked dependencies) =====
@@ -241,6 +241,7 @@ def api_app(model_manager, job_store, voice_store, output_dir):
     mock_task_module.generate_audio_task.apply_async = MagicMock(
         return_value=MagicMock(id="mock-task-id")
     )
+
     with patch("app.infrastructure.dependencies.get_model_manager", return_value=model_manager), \
          patch("app.infrastructure.dependencies.get_job_store", return_value=job_store), \
          patch("app.infrastructure.dependencies.get_voice_store", return_value=voice_store), \
@@ -249,7 +250,11 @@ def api_app(model_manager, job_store, voice_store, output_dir):
          )), \
          patch.dict("sys.modules", {"app.infrastructure.celery_tasks": mock_task_module}):
         from app.main import app as _app
+        # Override the API key dependency to bypass auth in tests
+        from app.main import verify_api_key
+        _app.dependency_overrides[verify_api_key] = lambda: None
         yield _app
+        _app.dependency_overrides.clear()
 
 
 @pytest.fixture

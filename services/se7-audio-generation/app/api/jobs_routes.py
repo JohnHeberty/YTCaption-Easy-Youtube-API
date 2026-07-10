@@ -83,10 +83,15 @@ async def list_jobs(
     store: IJobStore = Depends(job_store),
 ) -> JobListResponse:
     jobs = store.list_jobs(limit)
-    return JobListResponse(
-        jobs=[JobDetailResponse(**j.model_dump()) for j in jobs],
-        total=len(jobs),
-    )
+    details: list[JobDetailResponse] = []
+    for j in jobs:
+        data = j.model_dump()
+        for key in ("created_at", "started_at", "completed_at"):
+            val = data.get(key)
+            if hasattr(val, "isoformat"):
+                data[key] = val.isoformat()
+        details.append(JobDetailResponse(**data))
+    return JobListResponse(jobs=details, total=len(jobs))
 
 
 @router.get(
@@ -103,7 +108,13 @@ async def get_job_status(
         raise HTTPException(status_code=404, detail="Job not found")
     if job.is_expired:
         raise HTTPException(status_code=410, detail="Job expired")
-    return JobDetailResponse(**job.model_dump())
+    data = job.model_dump()
+    # Convert datetime objects to ISO strings for schema compatibility
+    for key in ("created_at", "started_at", "completed_at"):
+        val = data.get(key)
+        if hasattr(val, "isoformat"):
+            data[key] = val.isoformat()
+    return JobDetailResponse(**data)
 
 
 @router.get("/jobs/{job_id}/download")

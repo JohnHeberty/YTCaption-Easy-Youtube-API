@@ -1,10 +1,15 @@
 """
 Pytest configuration for YouTube Search Service tests
 """
+import os
 import pytest
 import asyncio
 from typing import Generator
 from unittest.mock import MagicMock
+
+# Set required env vars before any module imports trigger settings loading
+os.environ.setdefault("APP_NAME", "YouTube Search Service")
+os.environ.setdefault("REDIS_URL", "redis://localhost:6379/6")
 
 from common.test_utils.mock_redis import MockRedis
 from common.test_utils.mock_celery import mock_celery_app
