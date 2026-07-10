@@ -222,7 +222,6 @@ def clear_all_caches():
 @torch.inference_mode()
 def prepare_text_encoder(async_call=True):
     if async_call:
-        # TODO: make sure that this is always called in an async way so that users cannot feel it.
         pass
     assert_model_integrity()
     ldm_patched.modules.model_management.load_models_gpu([final_clip.patcher, final_expansion.patcher])
