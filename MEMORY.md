@@ -1,6 +1,30 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-10) — AI Detection + Show Volume Fix
+## Última sessão (2026-07-10) — PLAN.md Pendências + SE9 Decomposition
+
+### SE9 ffmpeg_utils.py Decomposition — DONE (commit `a603a581`)
+- `ffmpeg_utils.py`: 521→57L (86% reduction) — thin re-export module
+- 5 new modules: `ffmpeg_runner.py` (31L), `ffmpeg_probes.py` (46L), `ffmpeg_segments.py` (117L), `ffmpeg_concat.py` (202L), `ffmpeg_assembly.py` (54L), `ffmpeg_captions.py` (124L)
+- 136 tests pass (9 pre-existing fixture failures)
+
+### PLAN.md Updates
+- #18 SE11 Redis cleanup: `[x]` — already handled by 2-day TTL + stale cleanup in `list_jobs()`
+- #19-20 SE11 lazy-load: `[x]` — already lazy-loaded on demand (IP-Adapter via `extras/ip_adapter.py`, ControlNet via `pipeline.loaded_controlnets`)
+- #21 SE9 ffmpeg_utils: `[x]` — 521→57L + 5 modules
+- #22 Docker orphans: `[x]` — N/A (4 containers are MCP servers: repomix + serena)
+
+### PLAN.md Remaining Items
+- #2 SE11 test with more images: `[ ]` Pendente (user explicitly requested to leave pending)
+- #4 SE11 ghost face on neck: `[ ]` Pendente (complex visual artifact)
+- #5 SE11 edge artifacts: `[ ]` Pendente (complex visual artifact)
+- #10 SE7 VRAM leak monitoring: `[ ]` Pendente
+- #11-14 SE11 pipeline optimizations: `[ ]` Pendente
+- #15-16 SE8 GPU/RSS: `[ ]` Pendente (infrastructure)
+- #23-24 CHECK.md: `[ ]` Pendente (DevOps/infra)
+
+---
+
+## Sessão anterior (2026-07-10) — AI Detection + Show Volume Fix
 
 ### SE11 AI Image Detection — DONE (commit `22f4e6f6`)
 - `app/services/ai_image_detector.py` — Bombek1/ai-image-detector-siglip-dinov2 (99.1% AUC)

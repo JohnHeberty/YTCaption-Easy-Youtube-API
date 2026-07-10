@@ -533,7 +533,7 @@ async def create_nsfw_test_job(
     ),
     face_blend_mode: str = Form(
         default="laplacian",
-        description="Face-body blending: `laplacian` (smoother) or `alpha` (legacy).",
+        description="Face-body blending: `laplacian` (smoother), `poisson` (gradient-domain), or `alpha` (legacy).",
     ),
     face_restore: bool = Form(
         default=False,

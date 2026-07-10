@@ -19,6 +19,7 @@ class NSFWConfig:
     max_attempts: int = 5
     base_strength: float = 0.86
     strength_step: float = 0.03
+    strength_ceiling: float = 0.92
     inter_attempt_delay: int = 10
     inter_attempt_multiplier: bool = False
     inpaint_respective_field: float = 0.618
@@ -372,6 +373,7 @@ def _load_nsfw_config(profile: str) -> NSFWConfig:
         max_attempts=inpaint.get("max_attempts", defaults.max_attempts),
         base_strength=inpaint.get("base_strength", defaults.base_strength),
         strength_step=inpaint.get("strength_step", defaults.strength_step),
+        strength_ceiling=inpaint.get("strength_ceiling", defaults.strength_ceiling),
         inter_attempt_delay=inpaint.get("inter_attempt_delay", defaults.inter_attempt_delay),
         inter_attempt_multiplier=inpaint.get("inter_attempt_multiplier", defaults.inter_attempt_multiplier),
         inpaint_respective_field=inpaint.get("inpaint_respective_field", defaults.inpaint_respective_field),

@@ -222,3 +222,34 @@ class ServiceHealthChecker:
             return CheckResult(name="celery", status="warning", detail="No active workers")
         except Exception as e:
             return CheckResult(name="celery", status="warning", detail=str(e))
+
+    @staticmethod
+    def check_gpu(device: int = 0) -> CheckResult:
+        """Check GPU memory status.
+
+        Args:
+            device: CUDA device index (default 0)
+
+        Returns:
+            CheckResult with ok/warning/error status and VRAM details
+        """
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                return CheckResult(name="gpu", status="warning", detail="CUDA not available")
+            free, total = torch.cuda.mem_get_info(device)
+            allocated = torch.cuda.memory_allocated(device)
+            reserved = torch.cuda.memory_reserved(device)
+            free_mb = free / (1024**2)
+            total_mb = total / (1024**2)
+            used_pct = ((total - free) / total) * 100
+            status = "ok" if used_pct < 90 else ("warning" if used_pct < 95 else "error")
+            return CheckResult(
+                name="gpu", status=status,
+                detail=f"Free: {free_mb:.0f}/{total_mb:.0f} MB ({used_pct:.1f}% used) | "
+                       f"Allocated: {allocated/(1024**2):.0f} MB | Reserved: {reserved/(1024**2):.0f} MB"
+            )
+        except ImportError:
+            return CheckResult(name="gpu", status="warning", detail="torch not installed")
+        except Exception as e:
+            return CheckResult(name="gpu", status="warning", detail=str(e))

@@ -102,7 +102,7 @@ class CreateClothesRemovalRequest(BaseModel):
     per_garment: bool = False
     webhook_url: str | None = None
     detector: str = "groundingdino"
-    face_blend_mode: Literal["alpha", "laplacian"] = "laplacian"
+    face_blend_mode: Literal["alpha", "laplacian", "poisson"] = "laplacian"
     face_restore: bool = False
     face_restore_model: Literal["CodeFormer", "GFPGAN"] = "CodeFormer"
     face_restore_fidelity: float = 0.5

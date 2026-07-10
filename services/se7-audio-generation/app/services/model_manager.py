@@ -169,7 +169,7 @@ class ChatterboxModelManager(IModelManager):
             p = self._model_dir / f
             model_files[f] = p.exists()
 
-        return {
+        status: dict[str, Any] = {
             "loaded": self.is_loaded,
             "model": self._model_name,
             "device": self._device,
@@ -179,3 +179,17 @@ class ChatterboxModelManager(IModelManager):
             "model_files": model_files,
             "all_files_present": all(model_files.values()),
         }
+
+        if torch.cuda.is_available() and self._device == "cuda":
+            try:
+                free, total = torch.cuda.mem_get_info(0)
+                status["vram_free_mb"] = round(free / 1024**2, 2)
+                status["vram_total_mb"] = round(total / 1024**2, 2)
+                status["vram_allocated_mb"] = round(torch.cuda.memory_allocated(0) / 1024**2, 2)
+                status["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / 1024**2, 2)
+                if self._last_used:
+                    status["last_used"] = self._last_used
+            except Exception:
+                pass
+
+        return status

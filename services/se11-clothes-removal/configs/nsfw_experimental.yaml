@@ -35,6 +35,7 @@ inpaint:
   max_attempts: 5
   base_strength: 0.86
   strength_step: 0.03
+  strength_ceiling: 0.92
   inter_attempt_delay: 3
   inter_attempt_multiplier: true
   inpaint_respective_field: 0.55

@@ -34,6 +34,9 @@ class ClothesRemovalSettings(BaseServiceSettings):
     # === AI Image Detection ===
     ai_detection_enabled: bool = True
 
+    # === Face Restoration ===
+    face_restore_default: bool = False
+
     def __getitem__(self, key: str) -> object:
         return getattr(self, key, None)
 

@@ -60,6 +60,8 @@ async def health(
         lambda: ServiceHealthChecker.check_disk(settings.output_dir, min_free_gb=0.5),
     )
 
+    checker.add_check("gpu", lambda: ServiceHealthChecker.check_gpu())
+
     result = await checker.check_all()
     result["timestamp"] = now_brazil().isoformat()
     return HealthResponse(**result)

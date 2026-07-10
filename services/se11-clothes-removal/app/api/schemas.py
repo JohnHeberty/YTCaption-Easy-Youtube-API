@@ -192,11 +192,12 @@ class CreateClothesRemovalRequest(BaseModel):
         ),
         examples=["groundingdino"],
     )
-    face_blend_mode: Literal["alpha", "laplacian"] = Field(
+    face_blend_mode: Literal["alpha", "laplacian", "poisson"] = Field(
         default="laplacian",
         description=(
             "**Face-body blending mode:**\n"
             "- `laplacian` — Multi-scale Laplacian pyramid blend (smoother transitions).\n"
+            "- `poisson` — Poisson gradient-domain fusion (best seamlessness).\n"
             "- `alpha` — Simple alpha/feather blend (legacy v23.4)."
         ),
         examples=["laplacian"],
@@ -367,9 +368,9 @@ class CreateClothesRemovalTestRequest(BaseModel):
         description="Base SDXL checkpoint. LustifyNSFW (recommended) or JuggernautXL.",
         examples=["lustifySDXLNSFW_v20-inpainting.safetensors", "juggernautXL_v8Rundiffusion.safetensors"],
     )
-    face_blend_mode: Literal["alpha", "laplacian"] = Field(
+    face_blend_mode: Literal["alpha", "laplacian", "poisson"] = Field(
         default="laplacian",
-        description="Face-body blending mode: `laplacian` (smoother) or `alpha` (legacy).",
+        description="Face-body blending mode: `laplacian` (smoother), `poisson` (gradient-domain), or `alpha` (legacy).",
     )
     upscale: bool = Field(
         default=True,

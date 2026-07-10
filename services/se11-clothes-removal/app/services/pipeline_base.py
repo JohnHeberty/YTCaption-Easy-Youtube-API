@@ -259,7 +259,10 @@ class NSFWPipelineBase(ABC):
                     delay *= attempt
                 await _asyncio.sleep(delay)
 
-            strength = base_strength + nsfw_cfg.strength_step * (attempt - 1)
+            strength = min(
+                base_strength + nsfw_cfg.strength_step * (attempt - 1),
+                nsfw_cfg.strength_ceiling,
+            )
             cfg = {"strength": strength, "field": nsfw_cfg.inpaint_respective_field, "erode": 0, "seed": -1}
 
             logger.info("Job %s: attempt %d/%d — strength=%.2f field=%.2f",
@@ -310,7 +313,8 @@ class NSFWPipelineBase(ABC):
             composited = inpainted_img.copy()
 
             # Optional face restore
-            face_restore = getattr(self.job.request, "face_restore", False)
+            from app.core.config import get_settings
+            face_restore = getattr(self.job.request, "face_restore", get_settings().face_restore_default)
             if face_restore:
                 restored = await self._do_face_restore(composited, try_dir)
                 if restored is not None:
@@ -374,7 +378,7 @@ class NSFWPipelineBase(ABC):
                 best_composited = composited.copy()
 
             # Early stop
-            if self._should_early_stop(attempt, composite_score, pose_changed):
+            if self._should_early_stop(attempt, composite_score, pose_changed, max_landmark):
                 break
 
         # Store results for finalize
@@ -575,7 +579,7 @@ class NSFWPipelineBase(ABC):
             return restored
         return None
 
-    def _should_early_stop(self, attempt: int, composite_score: float, pose_changed: bool) -> bool:
+    def _should_early_stop(self, attempt: int, composite_score: float, pose_changed: bool, max_landmark: float = 0.0) -> bool:
         """Determine if we should stop early based on score and pose."""
         if attempt >= 2 and composite_score < SCORE_EARLY_STOP and not pose_changed:
             logger.info("Job %s: try %d composite=%.3f < %.1f with stable pose, stopping early",
@@ -587,6 +591,11 @@ class NSFWPipelineBase(ABC):
         elif attempt < 2 and composite_score < SCORE_EARLY_STOP:
             logger.info("Job %s: try %d composite=%.3f < %.1f but minimum 2 tries required, continuing",
                         self.job_id, attempt, composite_score, SCORE_EARLY_STOP)
+        # Catastrophic landmark drift — stop regardless of score
+        if max_landmark > 50.0:
+            logger.info("Job %s: landmark drift %.1f%% > 50%%, stopping to prevent further degradation",
+                        self.job_id, max_landmark)
+            return True
         return False
 
     # ─── Abstract methods (subclass MUST implement) ─────────────────────────

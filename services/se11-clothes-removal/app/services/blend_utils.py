@@ -197,3 +197,48 @@ def blend_face_region(
 
     weight_uint8 = (face_weight * 255).astype(np.uint8)
     return result, weight_uint8
+
+
+def poisson_blend(
+    original: np.ndarray,
+    generated: np.ndarray,
+    mask: np.ndarray,
+    method: str = "mixed",
+) -> np.ndarray:
+    """Blend using Poisson editing (cv2.seamlessClone).
+
+    Uses gradient-domain fusion to seamlessly integrate the source region
+    into the destination, preserving gradients while matching illumination.
+
+    Args:
+        original: Source image (uint8, BGR) — region to paste.
+        generated: Destination image (uint8, BGR) — where to paste.
+        mask: Binary mask of the region to blend (uint8, 0/255).
+        method: "normal" (preserve source gradients) or "mixed"
+                (use max gradients from both — better for textured backgrounds).
+
+    Returns:
+        Blended image as uint8.
+    """
+    if mask is None or cv2.countNonZero(mask) == 0:
+        return generated.copy()
+
+    # Find center of the mask
+    moments = cv2.moments(mask)
+    if moments["m00"] == 0:
+        return generated.copy()
+    cx = int(moments["m10"] / moments["m00"])
+    cy = int(moments["m01"] / moments["m00"])
+    center = (cx, cy)
+
+    clone_flag = cv2.MIXED_CLONE if method == "mixed" else cv2.NORMAL_CLONE
+
+    try:
+        result = cv2.seamlessClone(original, generated, mask, center, clone_flag)
+        return result
+    except Exception:
+        # Fallback: simple alpha blend if seamlessClone fails
+        alpha = (mask.astype(np.float32) / 255.0)[:, :, np.newaxis]
+        blended = (original.astype(np.float32) * alpha +
+                   generated.astype(np.float32) * (1.0 - alpha))
+        return np.clip(blended, 0, 255).astype(np.uint8)

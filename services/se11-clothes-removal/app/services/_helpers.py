@@ -51,6 +51,11 @@ from .se8_postprocess import (
     upscale_result,
     restore_face,
 )
+from .blend_utils import (
+    laplacian_blend,
+    blend_face_region,
+    poisson_blend,
+)
 
 __all__ = [
     "NSFWConfig",
