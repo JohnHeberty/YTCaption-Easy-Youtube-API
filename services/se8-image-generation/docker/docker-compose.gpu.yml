@@ -6,6 +6,8 @@ services:
     container_name: image-engine
     ports:
       - "8008:8008"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /root/YTCaption-Easy-Youtube-API/services/se8-image-generation/app:/app/app:ro
       - /root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models:/app/data/models:ro
@@ -28,7 +30,7 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=all
       - NVIDIA_DISABLE_REQUIRE=1
       - CUDA_LAUNCH_BLOCKING=1
-      - REDIS_URL=redis://host.docker.internal:6379/8
+      - REDIS_URL=redis://192.168.1.110:6379/8
       - GPU_MODE=lazy
       - MODEL_DIR=/app/data/models
       - OUTPUT_DIR=/app/data/outputs

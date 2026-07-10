@@ -10,6 +10,8 @@ services:
       - ../.env
     environment:
       - PYTHONPATH=/app
+      - SE8_URL=http://image-engine-api:8008
+      - SE10_URL=http://ytcaption-se10-clothes-segmentation:8010
     volumes:
       - ../../../shared:/app/common
       - ../app:/app/app

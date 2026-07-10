@@ -142,8 +142,18 @@ class NSFWProductionPipeline(NSFWPipelineBase):
         person_expanded = _cv2.dilate(person_binary, expand_kernel, iterations=3)
         inpaint_mask = _cv2.bitwise_and(inpaint_mask, person_expanded)
 
+        # ─── Layer 6b: Ghost face suppression zone ──────────────────────
+        # Erode inpaint mask near face boundary to prevent SE8 from
+        # hallucinating facial features at the mask/protection junction
+        face_zone = _cv2.dilate(protection_mask, expand_kernel, iterations=2)
+        ghost_erosion_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
+        inpaint_near_face = _cv2.bitwise_and(inpaint_mask, face_zone)
+        inpaint_near_face = _cv2.erode(inpaint_near_face, ghost_erosion_k, iterations=1)
+        inpaint_elsewhere = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(face_zone))
+        inpaint_mask = _cv2.bitwise_or(inpaint_elsewhere, inpaint_near_face)
+
         # Morphological closing to fill small holes
-        close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (5, 5))
+        close_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
         inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_k, iterations=2)
 
         self.inpaint_mask = inpaint_mask

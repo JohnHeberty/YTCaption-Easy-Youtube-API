@@ -20,8 +20,8 @@ nsfw:
     wrong anatomy, extra limbs, missing limbs, floating limbs, severed limbs,
     (mutated hands and fingers, extra fingers, missing fingers, webbed fingers:1.4),
     (bad hands, poorly drawn hands, fused fingers, too many fingers:1.3),
-    (extra face, second face, face on body, face on chest, face below neck:1.8),
-    (facial features on torso, eyes on chest, mouth on body:1.6),
+    (extra face, second face, face on body, face on chest, face below neck:2.2),
+    (facial features on torso, eyes on chest, mouth on body:2.0),
     long neck, mutation, ugly, blurry, airbrushed, plastic skin, CGI, 3D, render,
     clothes, fabric, bra, straps, underwear, pattern, floral, textile,
     cartoon, anime, sketch,
@@ -64,7 +64,7 @@ face_protection:
   margin_above: 0.50
   margin_below: 0.70
   margin_sides: 0.40
-  dilation_pct: 0.02
+  dilation_pct: 0.03
   feather_bottom_px: 25
 
 scoring:

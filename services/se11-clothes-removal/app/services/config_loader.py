@@ -42,7 +42,7 @@ class NSFWConfig:
     fp_margin_above: float = 0.50
     fp_margin_below: float = 0.70
     fp_margin_sides: float = 0.40
-    fp_dilation_pct: float = 0.02
+    fp_dilation_pct: float = 0.03
     fp_feather_bottom_px: int = 25
     scoring_skin_weight: float = 0.40
     scoring_head_weight: float = 0.20

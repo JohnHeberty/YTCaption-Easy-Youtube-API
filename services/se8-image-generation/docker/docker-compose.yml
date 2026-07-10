@@ -7,6 +7,8 @@ services:
     container_name: image-engine-api
     ports:
       - "8008:8008"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../../../shared:/app/common:rw
       - ../../../services/se8-image-generation/app/:/app/app:rw
@@ -17,9 +19,9 @@ services:
     env_file:
       - ../.env
     environment:
-      - REDIS_URL=redis://host.docker.internal:6379/8
-      - CELERY_BROKER_URL=redis://host.docker.internal:6379/8
-      - CELERY_RESULT_BACKEND=redis://host.docker.internal:6379/8
+      - REDIS_URL=redis://192.168.1.110:6379/8
+      - CELERY_BROKER_URL=redis://192.168.1.110:6379/8
+      - CELERY_RESULT_BACKEND=redis://192.168.1.110:6379/8
     deploy:
       resources:
         reservations:
@@ -42,6 +44,8 @@ services:
       dockerfile: services/se8-image-generation/docker/Dockerfile.gpu
       target: worker
     container_name: image-engine-worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ../../../shared:/app/common:rw
       - ../../../services/se8-image-generation/app/:/app/app:rw
@@ -52,9 +56,9 @@ services:
     env_file:
       - ../.env
     environment:
-      - REDIS_URL=redis://host.docker.internal:6379/8
-      - CELERY_BROKER_URL=redis://host.docker.internal:6379/8
-      - CELERY_RESULT_BACKEND=redis://host.docker.internal:6379/8
+      - REDIS_URL=redis://192.168.1.110:6379/8
+      - CELERY_BROKER_URL=redis://192.168.1.110:6379/8
+      - CELERY_RESULT_BACKEND=redis://192.168.1.110:6379/8
       - SE8_AUTO_RESTART_IDLE=120
       - SE8_RSS_RESTART_MB=8000
     deploy:
