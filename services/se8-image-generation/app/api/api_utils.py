@@ -18,8 +18,10 @@ from fastapi import Response
 from app.core.config import get_settings
 from app.domain.models import (
     AdvancedParams,
+    AsyncJobResponse,
     CommonRequest,
     EnhanceCtrlNets,
+    GeneratedImageResult,
     ImageEnhanceRequest,
     ImageEnhanceRequestJson,
     ImagePromptJson,
@@ -231,8 +233,14 @@ def _decode_image(data: str) -> Any:
 
 def call_worker(
     req: CommonRequest, accept: str | None = None
-) -> Response | dict[str, Any] | list[dict[str, Any]]:
-    """Enqueue a generation task and return results (sync or async)."""
+) -> Response | AsyncJobResponse | list[GeneratedImageResult]:
+    """Enqueue a generation task and return results (sync or async).
+
+    Returns:
+        - Response: streaming PNG bytes (when accept='image/png')
+        - AsyncJobResponse: async job status (when async_process=True)
+        - list[GeneratedImageResult]: sync generation results
+    """
     streaming_output = False
     if accept and "image/png" in accept:
         streaming_output = True
@@ -247,28 +255,27 @@ def call_worker(
             ImageGenerationResult(
                 im=None,
                 seed="",
-                finish_reason=GenerationFinishReason.queue_is_full,
+                finish_reason=GenerationFinishReason.QUEUE_IS_FULL,
             )
         ]
         if streaming_output:
             return _generate_streaming_output(failure_results)
         if req.async_process:
-            return {
-                "job_id": "",
-                "job_type": task_type.value,
-                "job_stage": "ERROR",
-                "job_progress": 0,
-                "job_status": None,
-                "job_step_preview": None,
-                "job_result": [
-                    {
-                        "base64": None,
-                        "url": None,
-                        "seed": "",
-                        "finish_reason": "QUEUE_IS_FULL",
-                    }
+            return AsyncJobResponse(
+                job_id="",
+                job_type=task_type.value,
+                job_stage="ERROR",
+                job_progress=0,
+                job_status="Queue is full",
+                job_result=[
+                    GeneratedImageResult(
+                        base64=None,
+                        url=None,
+                        seed="",
+                        finish_reason="QUEUE_IS_FULL",
+                    )
                 ],
-            }
+            )
         return _generate_image_result_output(failure_results, False)
 
     if req.async_process:
@@ -283,10 +290,10 @@ def call_worker(
 
 def generate_async_output(
     task: QueueTask, require_step_preview: bool = False
-) -> dict[str, Any]:
+) -> AsyncJobResponse:
     """Generate async job response."""
     job_stage = "RUNNING"
-    job_result = None
+    job_result: list[GeneratedImageResult] | None = None
 
     if task.start_mills == 0:
         job_stage = "WAITING"
@@ -300,15 +307,15 @@ def generate_async_output(
                 task.task_result, task.req_param.get("require_base64", False)
             )
 
-    return {
-        "job_id": task.job_id,
-        "job_type": task.task_type.value,
-        "job_stage": job_stage,
-        "job_progress": task.finish_progress,
-        "job_status": task.task_status,
-        "job_step_preview": task.task_step_preview if require_step_preview else None,
-        "job_result": job_result,
-    }
+    return AsyncJobResponse(
+        job_id=task.job_id,
+        job_type=task.task_type.value,
+        job_stage=job_stage,
+        job_progress=task.finish_progress,
+        job_status=task.task_status,
+        job_step_preview=task.task_step_preview if require_step_preview else None,
+        job_result=job_result,
+    )
 
 
 def _generate_streaming_output(results: list[ImageGenerationResult]) -> Response:
@@ -329,10 +336,10 @@ def _generate_streaming_output(results: list[ImageGenerationResult]) -> Response
 
 def _generate_image_result_output(
     results: list[ImageGenerationResult], require_base64: bool
-) -> list[dict[str, Any]]:
+) -> list[GeneratedImageResult]:
     """Convert ImageGenerationResult list to API response format."""
     settings = get_settings()
-    output = []
+    output: list[GeneratedImageResult] = []
     output_dir = settings.output_dir
     for item in results:
         url = None
@@ -343,12 +350,12 @@ def _generate_image_result_output(
         if require_base64 and item.im:
             b64 = _output_file_to_base64(item.im)
         output.append(
-            {
-                "base64": b64,
-                "url": url,
-                "seed": str(item.seed),
-                "finish_reason": item.finish_reason.value,
-            }
+            GeneratedImageResult(
+                base64=b64,
+                url=url,
+                seed=str(item.seed),
+                finish_reason=item.finish_reason.value,
+            )
         )
     return output
 
