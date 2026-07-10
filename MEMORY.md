@@ -62,12 +62,27 @@
 
 **Testes:** 103 passam, 1 falha pré-existente (auth test)
 
+### 🟢 SE8 Bug Fixes — Field Mapping + Typed Responses (2026-07-10)
+
+**Bugs corrigidos em `_build_async_task` (worker.py):**
+1. `save_extension` → `output_format`: Key mismatch causava sempre `output_format="png"`
+2. `save_meta` → `save_metadata_to_images`: Key mismatch causava sempre `save_metadata_to_images=False`
+3. `meta_scheme` → `metadata_scheme`: Key mismatch causava sempre `metadata_scheme="fooocus"`
+
+**Typed responses em `api_utils.py`:**
+- `generate_async_output()` → retorna `AsyncJobResponse` (era `dict`)
+- `_generate_image_result_output()` → retorna `list[GeneratedImageResult]` (era `list[dict]`)
+- `call_worker()` → tipo: `Response | AsyncJobResponse | list[GeneratedImageResult]`
+
+**Commit:** `af7da944` — refactor(se8): API schemas, response_model, Field descriptions, exception handler
+**Commit:** `cfdfe0e0` — fix(se8): field mapping bugs + typed responses in api_utils
+
 **Commit:** `af7da944` — refactor(se8): API schemas, response_model, Field descriptions, exception handler
 
 **Pendências:**
-- V1/V2 generation routes sem response_model (call_worker retorna tipos diferentes por request mode)
-- DEFAULT_LORAS dict em constants.py removido (não tinha importadores)
-- CommonRequest/AsyncTask duplicação (AsyncTask tem 96 campos, refactor profundo necessário)
+- V1/V2 generation routes sem response_model (call_worker retorna tipos diferentes por request mode) — RESOLVIDO: typed responses em api_utils.py
+- DEFAULT_LORAS dict em constants.py removido (não tinha importadores) — RESOLVIDO
+- CommonRequest/AsyncTask duplicação (AsyncTask tem 96 campos, refactor profundo necessário) — Análise completa feita, bugs corrigidos
 
 ## Sessões anteriores (2026-07-09)
 
@@ -160,7 +175,6 @@
 
 ### Known non-blocking issues
 - Event publishing type error (dict passed to methods expecting bytes) — observability only
-- SE4 network connection temporary (needs docker-compose persistence)
 - Stage display names in API response still show old names (fetching_shorts, downloading_shorts)
 
 ---

@@ -123,6 +123,29 @@ Quando um sistema usa frameworks diferentes para gerenciar modelos (ComfyUI + cu
 
 ---
 
+## 38. Field mapping bugs entre API e Worker — chave de dictionary mismatch
+
+**Data:** 2026-07-10
+**Serviço:** SE8 (image-generation)
+
+### Problema
+Três campos tinham nomes diferentes entre `req_to_params` (API) e `_build_async_task` (worker):
+- `save_extension` (API) → `output_format` (worker) — sempre "png"
+- `save_meta` (API) → `save_metadata_to_images` (worker) — sempre False
+- `meta_scheme` (API) → `metadata_scheme` (worker) — sempre "fooocus"
+
+### Lição
+- **Quando um dict passa por camadas intermediárias, o nome da chave deve ser idêntico** — qualquer renomeação silenciosa causa default value
+- **Testes não detectaram porque testavam apenas o output HTTP**, não o estado interno do worker
+- **Bug de 4+ anos** — nunca foi reportado porque o default era aceitável (png, fooocus, False)
+
+### Fix
+- `_build_async_task`: trocar `req.get("output_format")` → `req.get("save_extension")`
+- `_build_async_task`: trocar `adv.get("save_metadata_to_images")` → `req.get("save_meta")`
+- `_build_async_task`: trocar `adv.get("metadata_scheme")` → `req.get("meta_scheme")`
+
+---
+
 ## 37. SE8 API Refactoring — Schemas, response_model, Field descriptions
 
 **Data:** 2026-07-10
