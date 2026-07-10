@@ -105,6 +105,24 @@ class SE7Client(ServiceClient):
         response = await self._request_with_retry("GET", f"/jobs/{job_id}/download")
         return response.content
 
+    async def list_voices(self) -> list[dict[str, Any]]:
+        """List available voice profiles from SE7.
+
+        Returns list of dicts with 'id' and 'name' keys.
+        Falls back to builtin voices if SE7 is unreachable.
+        """
+        try:
+            response = await self._request_with_retry("GET", "/voices", max_retries=1)
+            data = response.json()
+            profiles = data.get("profiles", [])
+            return [{"id": p["id"], "name": p["name"]} for p in profiles if p.get("status") == "active"]
+        except Exception as e:
+            logger.warning("Failed to fetch voices from SE7: %s, using defaults", e)
+            return [
+                {"id": "builtin_feminino", "name": "Feminino"},
+                {"id": "builtin_masculino", "name": "Masculino"},
+            ]
+
 
 class SE8Client(ServiceClient):
     """Client for SE8 Image Generation service.

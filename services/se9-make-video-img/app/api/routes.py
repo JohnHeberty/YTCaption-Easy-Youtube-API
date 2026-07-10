@@ -30,9 +30,11 @@ from app.api.schemas import (
     ServiceInfoResponse,
     ConfigResponse,
     TransitionsResponse,
+    VoicesResponse,
     ErrorResponse,
     VideoJobStatus,
 )
+from app.infrastructure.http_client import SE7Client
 from app.infrastructure.redis_store import get_video_job_store
 from app.worker import get_worker
 
@@ -65,6 +67,7 @@ async def root() -> ServiceInfoResponse:
             "GET /config": "Service configuration",
             "GET /transitions": "Available FFmpeg xfade transitions",
             "GET /camera-movements": "Available Ken Burns camera movements",
+            "GET /voices": "Available TTS voices",
             "GET /health": "Health check (SE7 + SE8 + disk + FFmpeg)",
             "GET /ping": "Simple ping",
             "GET /admin/stats": "System statistics",
@@ -164,6 +167,33 @@ async def list_camera_movements() -> dict:
         },
         "default": "random",
     }
+
+
+@router.get(
+    "/voices",
+    response_model=VoicesResponse,
+    summary="Available TTS voices",
+    description=(
+        "Returns all available TTS voices from SE7 (Chatterbox).\n\n"
+        "Use `voice_id` in `POST /jobs` to specify which voice to use.\n"
+        "Built-in voices: `builtin_feminino` (default), `builtin_masculino`.\n"
+        "Custom voices can be created via SE7's `POST /voices` endpoint."
+    ),
+    responses={
+        200: {"description": "Available voices"},
+    },
+)
+async def list_voices() -> VoicesResponse:
+    se7 = SE7Client()
+    try:
+        voices = await se7.list_voices()
+    finally:
+        await se7.close()
+
+    return VoicesResponse(
+        voices=[{"voice_id": v["id"], "name": v["name"]} for v in voices],
+        default="builtin_feminino",
+    )
 
 
 # ─── Jobs CRUD ───────────────────────────────────────────────────────────────

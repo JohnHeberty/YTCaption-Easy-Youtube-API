@@ -125,6 +125,7 @@ class VideoPipeline:
             performance=settings.default_image_performance,
             output_dir=output_dir,
             progress_callback=on_image_progress,
+            global_style=job.request.global_style,
         )
         await img_gen.close()
         job.images = image_paths
@@ -151,6 +152,7 @@ class VideoPipeline:
             hook_text=job.request.hook,
             on_screen_text=[t.model_dump() for t in job.request.on_screen_text] or None,
             scene_suggestions=job.request.scene_suggestions,
+            platform=getattr(job.request, 'platform', None),
         )
         await self._update_stage(job, "assembling_video", "complete")
         return final_video

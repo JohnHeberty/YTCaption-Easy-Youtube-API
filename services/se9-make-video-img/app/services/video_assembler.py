@@ -9,7 +9,12 @@ from typing import Any
 from common.log_utils import get_logger
 
 from app.core.config import settings
-from app.core.constants import CAMERA_MOVEMENT_MAP, TRANSITIONS, TRANSITION_MAP
+from app.core.constants import (
+    CAMERA_MOVEMENT_MAP,
+    PLATFORM_PRESETS,
+    TRANSITIONS,
+    TRANSITION_MAP,
+)
 from app.core.models import NarrationSegment, SceneSuggestion
 from app.infrastructure import ffmpeg_utils
 
@@ -131,10 +136,12 @@ class VideoAssembler:
         hook_text: str = "",
         on_screen_text: list[dict[str, Any]] | None = None,
         scene_suggestions: list[SceneSuggestion] | None = None,
+        platform: str | None = None,
     ) -> str:
         """Assemble final video. Returns path to completed video.
 
         Images are looped cyclically to cover the full audio duration.
+        If platform is specified, uses platform presets for caption settings.
         """
         if not image_paths:
             raise ValueError("No images provided for video assembly")
@@ -207,6 +214,7 @@ class VideoAssembler:
             audio_path, padded_audio_path, concat_path,
             title_duration, output_dir, job_id,
             on_screen_text=on_screen_text,
+            platform=platform,
         )
 
         logger.info("Video assembled: %s", final_path)
@@ -280,8 +288,12 @@ class VideoAssembler:
         self, audio_path: str, padded_audio_path: str, concat_path: str,
         title_duration: float, output_dir: str, job_id: str,
         on_screen_text: list[dict[str, Any]] | None = None,
+        platform: str | None = None,
     ) -> str:
-        """Pad audio, add to video, render captions, and trim to final duration."""
+        """Pad audio, add to video, render captions, and trim to final duration.
+
+        If platform is specified, uses platform presets for caption font size.
+        """
         await self._pad_audio_start(audio_path, padded_audio_path, title_duration)
 
         audio_video_path = os.path.join(output_dir, "video_audio.mp4")
@@ -295,11 +307,16 @@ class VideoAssembler:
         # Render captions if provided
         if on_screen_text:
             captioned_path = os.path.join(output_dir, "video_captioned.mp4")
-            logger.info("Rendering %d captions", len(on_screen_text))
+            # Get platform preset for caption settings
+            preset = PLATFORM_PRESETS.get(platform, {}) if platform else {}
+            font_size = preset.get("caption_font_size", 48)
+            logger.info("Rendering %d captions (font_size=%d, platform=%s)",
+                        len(on_screen_text), font_size, platform or "default")
             await ffmpeg_utils.render_captions(
                 video_path=audio_video_path,
                 output_path=captioned_path,
                 captions=on_screen_text,
+                font_size=font_size,
             )
             video_for_trim = captioned_path
         else:

@@ -338,6 +338,19 @@ class CreateVideoRequest(BaseModel):
             }
         ],
     )
+    platform: str | None = Field(
+        default=None,
+        description=(
+            "Target platform for video presets.\n\n"
+            "Affects aspect ratio and caption font size:\n"
+            "- `tiktok_reels_shorts` — 9:16, font 48px\n"
+            "- `youtube` — 16:9, font 42px\n"
+            "- `instagram_feed` — 1:1, font 40px\n"
+            "- `instagram_stories` — 9:16, font 52px, centered\n\n"
+            "If null, uses aspect_ratio and default font size."
+        ),
+        examples=["tiktok_reels_shorts", "youtube"],
+    )
 
 
 # =============================================================================

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from common.log_utils import get_logger
 
@@ -34,6 +35,68 @@ class ImageGenerator:
         """Get width/height from aspect ratio."""
         return IMAGE_ASPECT_RATIOS.get(aspect_ratio, (1024, 1792))
 
+    def _enrich_prompt(self, visual: str, global_style: dict[str, Any] | None) -> str:
+        """Enrich visual prompt with global_style metadata.
+
+        Appends visual_style and tone to create more coherent images.
+        """
+        if not global_style:
+            return visual
+
+        parts = [visual]
+
+        # Add visual_style if present
+        vs = global_style.get("visual_style")
+        if vs:
+            parts.append(f", {vs}")
+
+        # Add tone if present (helps SDXL understand mood)
+        tone = global_style.get("tone")
+        if tone:
+            parts.append(f", mood: {tone}")
+
+        return "".join(parts)
+
+    def _enrich_scene_prompt(
+        self,
+        scene: SceneSuggestion,
+        global_style: dict[str, Any] | None,
+    ) -> tuple[str, str]:
+        """Enrich prompt and negative_prompt using scene-level metadata.
+
+        Uses shot_type, composition, lighting, color_mood, subject, environment.
+        Returns (enriched_prompt, enriched_negative_prompt).
+        """
+        prompt_parts: list[str] = [scene.visual]
+        neg_parts: list[str] = [scene.negative_prompt] if scene.negative_prompt else []
+
+        # Extract scene-level image metadata (stored as extra fields)
+        # These come from make-video.json but aren't in SceneSuggestion model
+        # We'll use global_style for now and scene.negative_prompt
+        if global_style:
+            # Add visual_style and tone
+            vs = global_style.get("visual_style")
+            if vs:
+                prompt_parts.append(f", {vs}")
+            tone = global_style.get("tone")
+            if tone:
+                prompt_parts.append(f", mood: {tone}")
+
+            # Boolean flags → negative terms
+            if global_style.get("no_people_or_faces"):
+                neg_parts.append("people, faces, humans, persons, crowds")
+            if global_style.get("no_supernatural_confirmation"):
+                neg_parts.append("ghosts, spirits, supernatural entities, paranormal")
+            if global_style.get("no_new_facts"):
+                neg_parts.append("text, letters, words, signage, documents")
+
+            # Safety rules
+            safety = global_style.get("safety")
+            if safety and isinstance(safety, str):
+                neg_parts.append(safety)
+
+        return "".join(prompt_parts), ", ".join(neg_parts) if neg_parts else ""
+
     async def generate_all(
         self,
         scenes: list[SceneSuggestion],
@@ -42,6 +105,7 @@ class ImageGenerator:
         performance: str = "Quality",
         output_dir: str = "/tmp",
         progress_callback: Callable[[float], Awaitable[None]] | None = None,
+        global_style: dict[str, Any] | None = None,
     ) -> list[str]:
         """Generate images for all scenes. Returns list of image paths."""
         width, height = self._get_dimensions(aspect_ratio)
@@ -50,8 +114,9 @@ class ImageGenerator:
         sorted_scenes = sorted(scenes, key=lambda s: s.t)
 
         for i, scene in enumerate(sorted_scenes):
-            # Frente C: Add cinematic suffix for depth and visual quality
-            enhanced_prompt = scene.visual + self.cinematic_suffix
+            # Enrich prompt and negative_prompt with scene metadata
+            enriched_prompt, enriched_negative = self._enrich_scene_prompt(scene, global_style)
+            enhanced_prompt = enriched_prompt + self.cinematic_suffix
             logger.info("Generating image %d/%d: %s...", i + 1, len(sorted_scenes), scene.visual[:50])
 
             images = await self.client.generate_image(
@@ -60,7 +125,7 @@ class ImageGenerator:
                 height=height,
                 steps=steps,
                 performance=performance,
-                negative_prompt=scene.negative_prompt,
+                negative_prompt=enriched_negative if enriched_negative else None,
             )
 
             first = images[0]

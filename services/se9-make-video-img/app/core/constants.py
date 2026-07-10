@@ -149,3 +149,37 @@ TRANSITION_MAP = {
     "reveal up": "revealup",
     "reveal down": "revealdown",
 }
+
+# Platform presets — aspect ratio and caption settings per platform
+PLATFORM_PRESETS = {
+    "tiktok_reels_shorts": {
+        "aspect_ratio": "9:16",
+        "caption_position": "bottom",
+        "caption_font_size": 48,
+        "max_caption_length": 150,
+        "description": "TikTok, Instagram Reels, YouTube Shorts — vertical 9:16",
+    },
+    "youtube": {
+        "aspect_ratio": "16:9",
+        "caption_position": "bottom",
+        "caption_font_size": 42,
+        "max_caption_length": 200,
+        "description": "YouTube — horizontal 16:9",
+    },
+    "instagram_feed": {
+        "aspect_ratio": "1:1",
+        "caption_position": "bottom",
+        "caption_font_size": 40,
+        "max_caption_length": 125,
+        "description": "Instagram Feed — square 1:1",
+    },
+    "instagram_stories": {
+        "aspect_ratio": "9:16",
+        "caption_position": "center",
+        "caption_font_size": 52,
+        "max_caption_length": 100,
+        "description": "Instagram Stories — vertical 9:16, centered captions",
+    },
+}
+
+DEFAULT_PLATFORM = "tiktok_reels_shorts"

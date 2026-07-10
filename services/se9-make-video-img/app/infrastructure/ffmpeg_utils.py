@@ -384,6 +384,41 @@ async def trim_to_duration(video_path: str, duration: float, output_path: str) -
     await run_ffmpeg(args)
 
 
+async def get_video_duration(video_path: str) -> float:
+    """Get video duration in seconds using ffprobe."""
+    proc = await asyncio.create_subprocess_exec(
+        "ffprobe",
+        "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        video_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError("ffprobe failed to get video duration")
+    return float(stdout.decode().strip())
+
+
+def _escape_drawtext(text: str) -> str:
+    """Escape special characters for FFmpeg drawtext filter.
+
+    Handles: backslash, single quote, colon, percent, newline,
+    semicolon, square brackets.
+    """
+    escaped = text.replace("\\", "\\\\")
+    escaped = escaped.replace("'", "\\'")
+    escaped = escaped.replace(":", "\\:")
+    escaped = escaped.replace("%", "%%")
+    escaped = escaped.replace("\n", " ")
+    escaped = escaped.replace("\r", "")
+    escaped = escaped.replace(";", "\\;")
+    escaped = escaped.replace("[", "\\[")
+    escaped = escaped.replace("]", "\\]")
+    return escaped
+
+
 async def render_captions(
     video_path: str,
     output_path: str,
@@ -392,6 +427,8 @@ async def render_captions(
     font_color: str = "white",
     border_width: int = 3,
     position_y: str = "h-th-80",
+    font: str = "Sans",
+    ffmpeg_bin: str = "/usr/bin/ffmpeg",
 ) -> None:
     """Render on-screen captions using FFmpeg drawtext filter.
 
@@ -402,29 +439,50 @@ async def render_captions(
 
     Captions are centered horizontally at the bottom of the video.
     Text has a black border for readability over any background.
+
+    Captions with timing outside video duration are silently skipped.
+    Note: Uses system FFmpeg (/usr/bin/ffmpeg) which has libfreetype
+    drawtext support. Static FFmpeg may lack this filter.
     """
     if not captions:
-        # No captions — just copy
         import shutil
         shutil.copy2(video_path, output_path)
         return
 
+    # Get actual video duration for timing validation
+    video_duration = await get_video_duration(video_path)
+
     # Build drawtext filter chain
     drawtext_filters: list[str] = []
+    skipped = 0
     for cap in captions:
-        text = cap.get("text", "")
+        text = cap.get("text", "").strip()
+        if not text:
+            skipped += 1
+            continue
+
         start = cap.get("t", 0.0)
         end = cap.get("end_seconds") or (start + 3.0)
 
-        # Escape special characters for FFmpeg drawtext
-        escaped = text.replace("\\", "\\\\")
-        escaped = escaped.replace("'", "\\'")
-        escaped = escaped.replace(":", "\\:")
-        escaped = escaped.replace("%", "%%")
+        # Skip captions that start after video ends
+        if start >= video_duration:
+            skipped += 1
+            continue
 
+        # Clamp end to video duration
+        if end > video_duration:
+            end = video_duration
+
+        # Skip if no visible duration left after clamping
+        if end <= start:
+            skipped += 1
+            continue
+
+        escaped = _escape_drawtext(text)
         enable = f"between(t\\,{start:.3f}\\,{end:.3f})"
         dt = (
             f"drawtext=text='{escaped}'"
+            f":font={font}"
             f":fontsize={font_size}"
             f":fontcolor={font_color}"
             f":borderw={border_width}"
@@ -435,10 +493,19 @@ async def render_captions(
         )
         drawtext_filters.append(dt)
 
+    if skipped:
+        logger.warning("Skipped %d captions (outside video duration or empty text)", skipped)
+
+    if not drawtext_filters:
+        # All captions skipped — just copy
+        import shutil
+        shutil.copy2(video_path, output_path)
+        return
+
     vf = ",".join(drawtext_filters)
 
     args = [
-        "ffmpeg", "-y",
+        ffmpeg_bin, "-y",
         "-i", video_path,
         "-vf", vf,
         "-c:v", "libx264",
