@@ -45,12 +45,12 @@
 
 | # | Serviço | Problema | Status |
 |---|---------|----------|--------|
-| 17 | SE11 | show/ permission denied no container | `[ ]` Pendente |
-| 18 | SE11 | Old stuck jobs no Redis | `[ ]` Pendente |
-| 19 | SE11 | Lazy-load IP-Adapter/ControlNet (~2.7GB RAM) | `[ ]` Pendente |
-| 20 | SE11 | Lazy-load ControlNet Union (~2.4GB RAM) | `[ ]` Pendente |
-| 21 | SE9 | `ffmpeg_utils.py` 521 linhas — 10 responsabilidades | `[ ]` Pendente |
-| 22 | Docker | 4 containers órfãos rodando (build leftovers) | `[ ]` Pendente |
+| 17 | SE11 | show/ permission denied no container | `[x]` Volume mount added 2026-07-10 |
+| 18 | SE11 | Old stuck jobs no Redis | `[x]` TTL 2d + stale cleanup in list_jobs |
+| 19 | SE11 | Lazy-load IP-Adapter/ControlNet (~2.7GB RAM) | `[x]` Already lazy-loaded on demand |
+| 20 | SE11 | Lazy-load ControlNet Union (~2.4GB RAM) | `[x]` Already lazy-loaded on demand |
+| 21 | SE9 | `ffmpeg_utils.py` 521 linhas — 10 responsabilidades | `[x]` 521→57L + 5 modules 2026-07-10 |
+| 22 | Docker | 4 containers órfãos rodando (build leftovers) | `[x]` N/A — MCP servers (repomix+serena) |
 | 23 | CHECK.md | P2: CI/CD lint rule para bloquear datetime.now() | `[ ]` Pendente |
 | 24 | CHECK.md | P3: Monitoring de datetime errors no Grafana | `[ ]` Pendente |
 

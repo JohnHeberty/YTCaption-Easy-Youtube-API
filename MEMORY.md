@@ -1,6 +1,20 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-10) — Zero Test Failures
+## Última sessão (2026-07-10) — AI Detection + Show Volume Fix
+
+### SE11 AI Image Detection — DONE (commit `22f4e6f6`)
+- `app/services/ai_image_detector.py` — Bombek1/ai-image-detector-siglip-dinov2 (99.1% AUC)
+- `app/api/routes.py` — pre-check on `/jobs/nsfw` and `/jobs/nsfw-test`
+- `app/core/config.py` — `ai_detection_enabled` toggle (default True)
+- `requirements.txt` — added `timm>=1.0.0`
+- 3 unit tests, 61 total SE11 tests passing
+
+### SE11 show/ volume mount — DONE (commit `8f7bac0e`)
+- `docker/docker-compose.yml` — added `../../../show:/app/show` volume mount
+
+---
+
+## Sessão anterior (2026-07-10) — Zero Test Failures
 
 ### ALL Pre-existing Test Failures Resolved — COMPLETE
 
