@@ -192,3 +192,58 @@ def _face_ellipse_fallback(orig_h: int, orig_w: int) -> "_np.ndarray":
     ell_h = (body_y2 - body_y1) // 2
     _cv2.ellipse(body_mask, (ell_cx, ell_cy), (ell_w, ell_h), 0, 0, 360, 255, -1)
     return body_mask
+
+
+async def detect_all_persons(
+    se10,
+    image_bytes: bytes,
+    job_id: str,
+    orig_h: int,
+    orig_w: int,
+    min_area_pct: float = 5.0,
+    include_pose: bool = True,
+) -> tuple[list, dict, str | None]:
+    """Detect ALL persons in the image (multi-person support).
+
+    Unlike detect_person_with_fallbacks which returns only the largest person,
+    this returns all detected persons above min_area_pct as PersonData objects.
+
+    Returns:
+        (persons, person_seg, pose_cn_b64) — persons is a list of PersonData,
+        or ([], {}, None) if no persons detected.
+    """
+    from .person_data import PersonData, create_persons_from_se10
+
+    # Primary detection
+    person_seg = await se10.segment(
+        image_bytes=image_bytes, filename=f"{job_id}_person.jpg",
+        classes="person, woman, man", box_threshold=0.20, text_threshold=0.15,
+        mode="person", detector="ensemble", include_pose=include_pose,
+    )
+    pose_cn_b64 = person_seg.get("controlnet_image") if include_pose else None
+
+    if not person_seg.get("detected") or not person_seg.get("masks"):
+        return [], person_seg, pose_cn_b64
+
+    persons = create_persons_from_se10(person_seg, orig_h, orig_w, min_area_pct)
+
+    if not persons:
+        # Retry with lower thresholds
+        logger.warning("Job %s: no persons above %.1f%%, retrying with lower thresholds",
+                       job_id, min_area_pct)
+        person_seg_retry = await se10.segment(
+            image_bytes=image_bytes, filename=f"{job_id}_person_retry.jpg",
+            classes="person, woman, man", box_threshold=0.10, text_threshold=0.08,
+            mode="person", detector="ensemble", include_pose=include_pose,
+        )
+        if person_seg_retry.get("detected") and person_seg_retry.get("masks"):
+            persons = create_persons_from_se10(person_seg_retry, orig_h, orig_w, min_area_pct)
+            if persons:
+                person_seg = person_seg_retry
+                if include_pose and person_seg_retry.get("controlnet_image"):
+                    pose_cn_b64 = person_seg_retry["controlnet_image"]
+
+    logger.info("Job %s: detected %d person(s) above %.1f%% threshold",
+                job_id, len(persons), min_area_pct)
+
+    return persons, person_seg, pose_cn_b64

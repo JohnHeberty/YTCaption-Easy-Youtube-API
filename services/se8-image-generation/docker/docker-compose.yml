@@ -55,6 +55,8 @@ services:
       - REDIS_URL=redis://host.docker.internal:6379/8
       - CELERY_BROKER_URL=redis://host.docker.internal:6379/8
       - CELERY_RESULT_BACKEND=redis://host.docker.internal:6379/8
+      - SE8_AUTO_RESTART_IDLE=120
+      - SE8_RSS_RESTART_MB=8000
     deploy:
       resources:
         reservations:

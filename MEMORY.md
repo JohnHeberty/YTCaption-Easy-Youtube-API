@@ -1,6 +1,48 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-10) — SE5 Phase 2-4 Validation + PLAN.md Pendências
+## Última sessão (2026-07-10) — PLAN.md MÉDIO Items (#12, #15, #16) + CI/CD Removal
+
+### CI/CD References Removed
+- `docs/ARCHITECTURE.md:376` — removed "CI/CD pipeline com GitHub Actions"
+- `docs/PROJECT_STRUCTURE.md:167-170` — removed "CI/CD Otimizado" section
+- `PLAN.md:54-55` — removed items #23/#24 (CI/CD lint rule + Grafana monitoring)
+- `docs/history/CHECK.md:16-17` — removed P2/P3 CI/CD items
+- Commit `69717d05`
+
+### #16 SE8 RSS Retention — DONE
+- `worker.py:318-331` — replaced inline cleanup with `cleanup_cuda()` from `shared/gpu_utils.py` (adds `ipc_collect`)
+- `worker.py:360-376` — added RSS-based restart trigger (`SE8_RSS_RESTART_MB` env var)
+- `docker-compose.gpu.yml:37` — `SE8_AUTO_RESTART_IDLE=120` (was 300), `SE8_RSS_RESTART_MB=8000`
+- `docker-compose.yml` (non-GPU) — added same env vars to worker service
+- 38 SE8 unit tests passing
+
+### #15 SE8 GPU Mount Workaround — Documented
+- Proper fix requires host access: `apt install --only-upgrade nvidia-container-toolkit && nvidia-ctk runtime configure --runtime=docker && systemctl restart docker`
+- 4 different strategies across 7 compose files (inconsistent but functional)
+- Marked as `[!]` Requires host in PLAN.md
+
+### #12 SE11 Multi-Person Foundation — DONE (pipeline integration pending)
+**New files:**
+- `app/services/person_data.py` — `PersonData` dataclass, `compute_centroid()`, `compute_bbox()`, `match_by_centroid()`, `create_persons_from_se10()`
+
+**Modified files:**
+- `app/services/detection_fallbacks.py` — added `detect_all_persons()` function (returns all persons above min_area_pct)
+- `app/services/head_detector.py` — changed `max_num_faces=1` → `max_num_faces=10`, added `detect_faces_all()` and `match_faces_to_persons()`
+- `app/services/faceid_extractor.py` — added `extract_all_faceid_embeddings()` (returns per-face embeddings with bboxes)
+- `app/validators/pose_detector.py` — added `detect_all_poses()` (returns all poses sorted by confidence)
+
+**What's done:** All detection subsystems now support multi-person. Data structures and matching utilities are ready.
+**What's pending:** Pipeline integration (build_masks per-person, sequential inpainting, per-person scoring). This is the HIGH effort part (3-5 days).
+
+### PLAN.md Updated
+- #12 Multi-person: `[!]` Foundation done, pipeline integration pending
+- #15 GPU mount: `[!]` Requires host access
+- #16 RSS retention: `[x]` cleanup + RSS-based restart
+
+### 6 → 3 pendências remaining
+- #2 SE11 test with more images
+- #4 SE11 ghost face on neck
+- #5 SE11 edge artifacts
 
 ### SE5 DDD Phase 2-4 — All Changes Already Committed
 - Phase 2: `LoadApprovedVideosStage` + `ValidateAVSyncStage` — already in codebase

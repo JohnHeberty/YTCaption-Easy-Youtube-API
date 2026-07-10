@@ -136,3 +136,35 @@ def extract_face_bbox(
 
     face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
     return tuple(face.bbox.astype(int))
+
+
+def extract_all_faceid_embeddings(
+    orig_img: np.ndarray,
+    person_binary: np.ndarray | None = None,
+) -> list[tuple[list[list[float]], tuple[int, int, int, int]]]:
+    """Extract FaceID embeddings for ALL detected faces.
+
+    Returns list of (embedding, bbox) tuples, sorted by face area descending.
+    Each embedding is [[float, ...]] (512-d). Bbox is (x1, y1, x2, y2).
+    """
+    app = _get_insightface_app()
+    if app is None:
+        return []
+
+    try:
+        faces = app.get(orig_img)
+    except Exception:
+        return []
+
+    if not faces:
+        return []
+
+    results = []
+    for face in sorted(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]), reverse=True):
+        embedding = face.normed_embedding
+        if embedding is not None:
+            emb = [[float(v) for v in embedding.astype(np.float32)]]
+            bbox = tuple(face.bbox.astype(int))
+            results.append((emb, bbox))
+
+    return results

@@ -33,10 +33,10 @@
 |---|---------|----------|--------|
 | 10 | SE7 | VRAM leak — fix aplicado mas precisa monitoramento | `[x]` GPU check + VRAM tracking in health 2026-07-10 |
 | 11 | SE11 | Composite score optimization — landmark drift | `[x]` strength_ceiling=0.92 + graduated early stop 2026-07-10 |
-| 12 | SE11 | Multi-person support — pipeline assume 1 pessoa | `[ ]` Pendente (needs design) |
+| 12 | SE11 | Multi-person support — pipeline assume 1 pessoa | `[!]` Foundation done: PersonData, detect_all_persons, match_faces_to_persons, detect_all_poses, extract_all_faceid_embeddings. Pipeline integration pending. |
 | 13 | SE11 | Face Restoration — modelos baixados, não integrados | `[x]` Already wired, added face_restore_default config 2026-07-10 |
 | 14 | SE11 | Advanced Blending — Poisson editing planejado não implementado | `[x]` poisson_blend added, blend mode option added 2026-07-10 |
-| 15 | SE8 | GPU mount workaround para driver 590.x | `[ ]` Pendente (infra) |
+| 15 | SE8 | GPU mount workaround para driver 590.x | `[!]` Requires host: `apt install --only-upgrade nvidia-container-toolkit && nvidia-ctk runtime configure --runtime=docker && systemctl restart docker` |
 | 16 | SE8 | Python RSS retention: 13.64GB não retornados ao OS | `[ ]` Pendente (infra) |
 
 ---

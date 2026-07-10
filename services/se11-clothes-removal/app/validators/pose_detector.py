@@ -276,6 +276,89 @@ def detect_pose(
     )
 
 
+def detect_all_poses(
+    image: np.ndarray,
+    min_detection_confidence: float = 0.3,
+) -> list[PoseResult]:
+    """Detect ALL poses in the image (multi-person support).
+
+    Unlike detect_pose which returns only the first/most confident person,
+    this returns all detected poses sorted by confidence descending.
+
+    Args:
+        image: BGR or RGB image.
+        min_detection_confidence: Minimum keypoint confidence threshold.
+
+    Returns:
+        List of PoseResult objects, sorted by detection_confidence descending.
+        Empty list if no poses detected.
+    """
+    from ..app.services.dwpose import DWposeDetector
+
+    detector = DWposeDetector()
+
+    rgb = image
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        # Assume BGR, convert to RGB
+        rgb = image[:, :, ::-1].copy()
+
+    poses = detector.detect_poses(rgb)
+    if not poses:
+        return []
+
+    results = []
+    h, w = image.shape[:2]
+
+    for pose in poses:
+        landmarks = []
+        hand_left = []
+        hand_right = []
+        face_lms = []
+
+        for idx, kp in enumerate(pose.body.keypoints):
+            if kp is None:
+                continue
+            if kp.score < min_detection_confidence * 0.5:
+                continue
+            landmarks.append(Landmark(
+                x=kp.x / w, y=kp.y / h, visibility=kp.score,
+                group=POSE_CONNECTIONS.get(idx, ("BODY",))[0] if idx < 18 else "BODY",
+            ))
+
+        # Hands
+        if pose.left_hand is not None:
+            for kp in pose.left_hand.keypoints:
+                if kp is not None and kp.score >= min_detection_confidence * 0.3:
+                    hand_left.append(Landmark(x=kp.x/w, y=kp.y/h, visibility=kp.score, group="HAND_LEFT"))
+
+        if pose.right_hand is not None:
+            for kp in pose.right_hand.keypoints:
+                if kp is not None and kp.score >= min_detection_confidence * 0.3:
+                    hand_right.append(Landmark(x=kp.x/w, y=kp.y/h, visibility=kp.score, group="HAND_RIGHT"))
+
+        if pose.face is not None:
+            for kp in pose.face.keypoints:
+                if kp is not None and kp.score >= min_detection_confidence * 0.3:
+                    face_lms.append(Landmark(x=kp.x/w, y=kp.y/h, visibility=kp.score, group="FACE"))
+
+        key_vis = [lm.visibility for lm in landmarks]
+        avg_confidence = sum(key_vis) / len(key_vis) if key_vis else 0.0
+
+        results.append(PoseResult(
+            landmarks=landmarks,
+            hand_left_landmarks=hand_left,
+            hand_right_landmarks=hand_right,
+            face_landmarks=face_lms,
+            image_width=w,
+            image_height=h,
+            detection_confidence=avg_confidence,
+        ))
+
+    # Sort by confidence descending
+    results.sort(key=lambda r: r.detection_confidence, reverse=True)
+    return results
+
+
 def render_pose_stick_figure(
     pose_result: PoseResult,
     output_size: tuple[int, int] | None = None,

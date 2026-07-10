@@ -315,20 +315,14 @@ def process_generate(async_job: QueueTask) -> None:
             model_management.soft_empty_cache()
         except Exception as exc:
             logger.debug("GPU model offload failed (non-fatal): %s", exc)
-        import gc
-        gc.collect()
+
+        # Full CUDA cleanup (gc → sync → cache → ipc → malloc_trim)
         try:
-            import ctypes
-            ctypes.CDLL("libc.so.6").malloc_trim(0)
+            from common.gpu_utils import cleanup_cuda
+            cleanup_cuda()
         except Exception as exc:
-            logger.debug("malloc_trim failed (non-fatal): %s", exc)
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-        except Exception as exc:
-            logger.debug("CUDA cleanup failed (non-fatal): %s", exc)
+            logger.debug("cleanup_cuda failed (non-fatal): %s", exc)
+
         if worker_queue:
             worker_queue.finish_task(async_job.job_id)
 
@@ -337,11 +331,13 @@ def task_schedule_loop() -> None:
     """Main worker loop. Processes tasks one at a time from the queue.
 
     When idle for AUTO_RESTART_IDLE_SECONDS, restarts the process via os.execv
-    to reclaim all PyTorch mmap'd memory.
+    to reclaim all PyTorch mmap'd memory. Also restarts if RSS exceeds
+    SE8_RSS_RESTART_MB after a job completes.
     """
     logger.info("Worker task loop started")
 
     auto_restart_idle = int(os.environ.get("SE8_AUTO_RESTART_IDLE", "0"))
+    rss_restart_mb = int(os.environ.get("SE8_RSS_RESTART_MB", "0"))
     last_task_finish_time = time.monotonic()
     had_tasks = False
 
@@ -365,6 +361,23 @@ def task_schedule_loop() -> None:
                 process_generate(current_task)
                 had_tasks = True
                 last_task_finish_time = time.monotonic()
+
+                # RSS-based restart: reclaim memory if process RSS exceeds threshold
+                if rss_restart_mb > 0:
+                    try:
+                        import resource
+                        rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+                        rss_mb = rss_bytes / (1024 * 1024)
+                        if rss_mb > rss_restart_mb:
+                            logger.info(
+                                "RSS restart: %.0f MB > %d MB threshold, restarting process",
+                                rss_mb, rss_restart_mb,
+                            )
+                            import sys
+                            os.execv(sys.executable, ["python3.11", "-m", "uvicorn", "app.main:app",
+                                                       "--host", "0.0.0.0", "--port", "8008"])
+                    except Exception as exc:
+                        logger.debug("RSS check failed (non-fatal): %s", exc)
             except Exception as e:
                 logger.exception("Task failed: %s", e)
                 current_task.set_result([], True, str(e))

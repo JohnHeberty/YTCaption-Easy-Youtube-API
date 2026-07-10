@@ -219,7 +219,7 @@ def _get_face_mesh():
         import mediapipe as mp
         _FACE_MESH = mp.solutions.face_mesh.FaceMesh(
             static_image_mode=True,
-            max_num_faces=1,
+            max_num_faces=10,
             refine_landmarks=True,
             min_detection_confidence=0.5,
         )
@@ -367,3 +367,89 @@ def detect_face_oval_mask(
 
     logger.debug("Face oval mask: pts=%d bottom=%d", len(pts), face_bottom)
     return face_mask
+
+
+def detect_faces_all(orig_img) -> list[tuple[int, int, int, int]]:
+    """Detect ALL faces in the image (not just the largest).
+
+    Returns list of (x, y, w, h) tuples for all detected faces, sorted by area descending.
+    """
+    faces = _detect_faces(orig_img)
+    if not faces:
+        return []
+    # Sort by area descending
+    return sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+
+
+def match_faces_to_persons(
+    faces: list[tuple[int, int, int, int]],
+    persons: list,
+) -> dict[int, int]:
+    """Match detected faces to persons by spatial overlap.
+
+    For each face, finds the person whose binary_mask contains the face center.
+    If no person contains the face center, falls back to nearest centroid.
+
+    Args:
+        faces: List of (x, y, w, h) face bounding boxes.
+        persons: List of PersonData objects with binary_mask and centroid.
+
+    Returns:
+        Dict mapping person_id -> face index in the faces list.
+    """
+    import numpy as np
+
+    if not faces or not persons:
+        return {}
+
+    matched: dict[int, int] = {}
+    used_faces: set[int] = set()
+
+    for person in persons:
+        mask = person.binary_mask
+        h, w = mask.shape[:2]
+
+        best_fi = -1
+        best_score = -1.0
+
+        for fi, (fx, fy, fw, fh) in enumerate(faces):
+            if fi in used_faces:
+                continue
+
+            # Check if face center is inside person mask
+            fcx = fx + fw // 2
+            fcy = fy + fh // 2
+            if 0 <= fcy < h and 0 <= fcx < w:
+                in_mask = mask[fcy, fcx] > 0
+            else:
+                in_mask = False
+
+            if in_mask:
+                # Face center is inside person mask — strong match
+                face_area = fw * fh
+                if face_area > best_score:
+                    best_score = face_area
+                    best_fi = fi
+
+        if best_fi >= 0:
+            matched[person.person_id] = best_fi
+            used_faces.add(best_fi)
+        else:
+            # Fallback: nearest centroid
+            import numpy as np
+            pc = person.centroid
+            best_dist = float("inf")
+            for fi, (fx, fy, fw, fh) in enumerate(faces):
+                if fi in used_faces:
+                    continue
+                fcx = fx + fw / 2.0
+                fcy = fy + fh / 2.0
+                dist = ((pc[0] - fcx) ** 2 + (pc[1] - fcy) ** 2) ** 0.5
+                if dist < best_dist:
+                    best_dist = dist
+                    best_fi = fi
+            if best_fi >= 0 and best_dist < 500:
+                matched[person.person_id] = best_fi
+                used_faces.add(best_fi)
+
+    return matched
