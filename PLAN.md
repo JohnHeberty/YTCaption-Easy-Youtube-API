@@ -51,8 +51,6 @@
 | 20 | SE11 | Lazy-load ControlNet Union (~2.4GB RAM) | `[x]` Already lazy-loaded on demand |
 | 21 | SE9 | `ffmpeg_utils.py` 521 linhas — 10 responsabilidades | `[x]` 521→57L + 5 modules 2026-07-10 |
 | 22 | Docker | 4 containers órfãos rodando (build leftovers) | `[x]` N/A — MCP servers (repomix+serena) |
-| 23 | CHECK.md | P2: CI/CD lint rule para bloquear datetime.now() | `[ ]` Pendente |
-| 24 | CHECK.md | P3: Monitoring de datetime errors no Grafana | `[ ]` Pendente |
 
 ---
 

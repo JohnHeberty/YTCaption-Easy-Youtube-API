@@ -164,12 +164,7 @@ Esses movimentos nao esgotam a organizacao do repositório. Eles registram apena
 - Documentação em `docs/`
 - Scripts em `scripts/`
 
-### 3. **CI/CD Otimizado**
-- Paths previsíveis para automação
-- Test discovery automático
-- Build consistency
-
-### 4. **Onboarding Rápido**
+### 3. **Onboarding Rápido**
 - Novos desenvolvedores entendem a estrutura imediatamente
 - Documentação centralizada e acessível
 

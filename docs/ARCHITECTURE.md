@@ -373,7 +373,6 @@ make calibrate        # Otimização de parâmetros
 - 🔄 Implementar event sourcing para auditoria
 - 🔄 Adicionar OpenTelemetry para tracing distribuído
 - 🔄 Implementar rate limiting distribuído (Redis)
-- 🔄 CI/CD pipeline com GitHub Actions
 
 ---
 

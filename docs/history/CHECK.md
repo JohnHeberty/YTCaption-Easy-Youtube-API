@@ -13,5 +13,4 @@
 - [x] 4.3. Script de validação CI/CD (detecta datetime.now() / utcnow()) — resolvido via lint rules
 
 ### Backlog (baixa prioridade)
-- [ ] P2: CI/CD lint rule para bloquear datetime.now() — considerar no futuro
-- [ ] P3: Monitoring de datetime errors no Grafana — considerar no futuro
+- Nenhuma pendência restante

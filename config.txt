@@ -1,0 +1,20 @@
+{
+    "path_checkpoints": [
+        "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/checkpoints"
+    ],
+    "path_loras": [
+        "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/loras"
+    ],
+    "path_embeddings": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/embeddings",
+    "path_vae_approx": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/vae_approx",
+    "path_vae": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/vae",
+    "path_upscale_models": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/upscale_models",
+    "path_inpaint": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/inpaint",
+    "path_controlnet": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/controlnet",
+    "path_clip_vision": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/clip_vision",
+    "path_fooocus_expansion": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/prompt_expansion/fooocus_expansion",
+    "path_wildcards": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/wildcards",
+    "path_safety_checker": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/safety_checker",
+    "path_sam": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/models/sam",
+    "path_outputs": "/root/YTCaption-Easy-Youtube-API/services/se8-image-generation/data/outputs"
+}
