@@ -12,6 +12,7 @@ Conceito:
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 import httpx
@@ -36,7 +37,14 @@ class RealAudioTranscriberClient:
     def __init__(self, base_url: str = "https://yttranscriber.loadstask.com"):
         self.base_url = base_url
         self.timeout = httpx.Timeout(300.0, connect=10.0)  # 5min para transcrição
-    
+        self.api_key = os.environ.get("TRANSCRIBER_API_KEY", "")
+
+    @property
+    def _headers(self) -> dict:
+        if self.api_key:
+            return {"X-API-Key": self.api_key}
+        return {}
+
     async def transcribe_audio(self, audio_path: Path, language: str = "pt") -> dict:
         """
         Transcreve áudio chamando API real
@@ -58,6 +66,7 @@ class RealAudioTranscriberClient:
             with open(audio_path, "rb") as f:
                 response = await client.post(
                     f"{self.base_url}/jobs",
+                    headers=self._headers,
                     files={"file": (audio_path.name, f, "audio/ogg")},
                     data={"language_in": language}
                 )
@@ -78,7 +87,7 @@ class RealAudioTranscriberClient:
             for attempt in range(1, max_polls + 1):
                 await asyncio.sleep(poll_interval)
                 
-                response = await client.get(f"{self.base_url}/jobs/{job_id}")
+                response = await client.get(f"{self.base_url}/jobs/{job_id}", headers=self._headers)
                 
                 if response.status_code != 200:
                     raise Exception(f"Falha ao verificar status: {response.status_code}")
@@ -103,7 +112,7 @@ class RealAudioTranscriberClient:
             # 3. Buscar transcrição (GET /jobs/{job_id}/transcription)
             print(f"📥 Baixando transcrição...")
             
-            response = await client.get(f"{self.base_url}/jobs/{job_id}/transcription")
+            response = await client.get(f"{self.base_url}/jobs/{job_id}/transcription", headers=self._headers)
             
             if response.status_code != 200:
                 raise Exception(f"Falha ao baixar transcrição: {response.status_code}")
@@ -127,8 +136,8 @@ class RealAudioTranscriberClient:
 @pytest.mark.external
 @pytest.mark.slow
 @pytest.mark.skipif(
-    not (Path(__file__).parent.parent.parent / "assets" / "TEST-.ogg").exists(),
-    reason="Test audio file not found"
+    not os.environ.get("TRANSCRIBER_API_KEY"),
+    reason="TRANSCRIBER_API_KEY not set — skipping real API test",
 )
 async def test_real_audio_transcription():
     """
@@ -160,9 +169,7 @@ async def test_real_audio_transcription():
     audio_path = test_dir / "TEST-.ogg"
     
     if not audio_path.exists():
-        print(f"❌ ERRO: Áudio não encontrado: {audio_path}")
-        print(f"   Execute: cp /root/YTCaption-Easy-Youtube-API/services/make-video/tests/TEST-.ogg {test_dir}/")
-        sys.exit(1)
+        pytest.fail(f"Áudio não encontrado: {audio_path}")
     
     print(f"📁 Áudio: {audio_path}")
     print(f"   Tamanho: {audio_path.stat().st_size / 1024:.1f} KB")
@@ -266,7 +273,7 @@ async def test_real_audio_transcription():
             print("="*80)
             for error in errors:
                 print(error)
-            sys.exit(1)
+            pytest.fail(f"Validation failed: {len(errors)} errors")
         else:
             print("="*80)
             print("🎉 TESTE PASSOU")
@@ -290,7 +297,7 @@ async def test_real_audio_transcription():
         print("   3. API retornou erro inesperado")
         print()
         print("💡 Se falha aqui, VAI FALHAR EM PRODUÇÃO também!")
-        sys.exit(1)
+        pytest.fail(f"Transcription test failed: {e}")
 
 
 if __name__ == "__main__":

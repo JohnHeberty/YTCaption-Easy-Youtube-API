@@ -3,6 +3,20 @@ End-to-end tests for YouTube Search Service
 These tests require Redis to be running
 """
 import pytest
+import redis
+
+
+def _redis_available() -> bool:
+    try:
+        r = redis.Redis(host="localhost", port=6379, db=6, socket_connect_timeout=2)
+        r.ping()
+        return True
+    except (redis.ConnectionError, ConnectionRefusedError, redis.TimeoutError):
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _redis_available(), reason="Redis not available at localhost:6379")
+
 import time
 from fastapi.testclient import TestClient
 from app.main import app

@@ -14,12 +14,6 @@ def _cuda_available() -> bool:
     return ctypes.util.find_library("cublas") is not None
 
 
-pytestmark = pytest.mark.skipif(
-    not _cuda_available(),
-    reason="CUDA libraries (libcublas) not available — skipping real transcription tests",
-)
-
-
 @pytest.fixture(scope="module")
 def test_audio_real() -> Path:
     """

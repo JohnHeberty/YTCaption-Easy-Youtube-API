@@ -9,13 +9,24 @@ Teste de Transcrição REAL - SEM MOCKS
 
 Execute com: pytest tests/resilience/test_transcription_real.py -v -s
 """
+import ctypes
+import ctypes.util
 import pytest
 import time
 from pathlib import Path
 
 
+def _cuda_available() -> bool:
+    """Check if CUDA libraries (libcublas) are available."""
+    return ctypes.util.find_library("cublas") is not None
+
+
 # Marca este módulo como "real" e "slow"
-pytestmark = [pytest.mark.real, pytest.mark.slow]
+pytestmark = [
+    pytest.mark.real,
+    pytest.mark.slow,
+    pytest.mark.skipif(not _cuda_available(), reason="CUDA libraries (libcublas) not available"),
+]
 
 
 class TestRealTranscription:

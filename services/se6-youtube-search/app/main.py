@@ -43,19 +43,20 @@ def _get_job_store() -> RedisJobStore:
 
 @asynccontextmanager
 async def lifespan(app: Any) -> Any:  # type: ignore[override]
-    store = _get_job_store()
-    app.state.job_store = store
     try:
+        store = _get_job_store()
+        app.state.job_store = store
         await store.start_cleanup_task()
         logger.info("YouTube Search Service started successfully")
     except Exception as exc:
-        logger.error("Error during startup: %s", exc)
-        raise
+        logger.warning("Could not connect to Redis during startup: %s", exc)
+        app.state.job_store = None
 
     yield
 
     try:
-        await store.stop_cleanup_task()
+        if getattr(app.state, "job_store", None) is not None:
+            await app.state.job_store.stop_cleanup_task()
         logger.info("YouTube Search Service stopped gracefully")
     except Exception as exc:
         logger.error("Error during shutdown: %s", exc)
@@ -92,7 +93,7 @@ async def health_check(request: Request) -> JSONResponse:
     """Deep health check - validates critical resources."""
     import shutil
 
-    job_store = request.app.state.job_store
+    job_store = getattr(request.app.state, "job_store", None)
 
     health_status = {
         "status": "healthy",
@@ -106,6 +107,8 @@ async def health_check(request: Request) -> JSONResponse:
 
     # Check Redis
     try:
+        if job_store is None:
+            raise RuntimeError("Job store not initialized")
         job_store.redis.ping()
         stats = job_store.get_stats()
         health_status["checks"]["redis"] = {

@@ -2,7 +2,21 @@
 Integration tests for API endpoints
 """
 import pytest
+import redis
 from fastapi.testclient import TestClient
+
+
+def _redis_available() -> bool:
+    try:
+        r = redis.Redis(host="localhost", port=6379, db=6, socket_connect_timeout=2)
+        r.ping()
+        return True
+    except (redis.ConnectionError, ConnectionRefusedError, redis.TimeoutError):
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _redis_available(), reason="Redis not available at localhost:6379")
+
 from app.main import app
 from app.core.config import get_settings
 

@@ -34,14 +34,26 @@ def task_failure_handler(task_id: Any, exception: Any, args: Any, kwargs: Any, t
         task_id, exception, exc_info=einfo.exc_info if einfo else None
     )
 
-# Initialize processor and store
-settings = get_settings()
-processor = YouTubeSearchProcessor()
-redis_url = settings['redis_url']
-job_store = RedisJobStore(redis_url=redis_url)
+# Lazy initialization — avoids Redis connection at import time
+_job_store: RedisJobStore | None = None
+_processor: YouTubeSearchProcessor | None = None
 
-# Inject job_store into processor
-processor.job_store = job_store
+
+def _get_job_store() -> RedisJobStore:
+    global _job_store
+    if _job_store is None:
+        settings = get_settings()
+        redis_url = settings['redis_url']
+        _job_store = RedisJobStore(redis_url=redis_url)
+    return _job_store
+
+
+def _get_processor() -> YouTubeSearchProcessor:
+    global _processor
+    if _processor is None:
+        _processor = YouTubeSearchProcessor()
+        _processor.job_store = _get_job_store()
+    return _processor
 
 @celery_app.task(
     name='youtube_search_task',
@@ -73,10 +85,10 @@ def youtube_search_task(self, job_dict: dict[str, Any]) -> dict[str, Any]:
         # Update job status
         job.status = JobStatus.PROCESSING
         job.started_at = now_brazil()
-        job_store.update_job(job)
+        _get_job_store().update_job(job)
 
         # Process job asynchronously
-        updated_job = asyncio.run(processor.process_search_job(job))
+        updated_job = asyncio.run(_get_processor().process_search_job(job))
 
         logger.info("Job %s completed by Celery worker", job.id)
         return updated_job.model_dump(mode='json')
@@ -85,7 +97,7 @@ def youtube_search_task(self, job_dict: dict[str, Any]) -> dict[str, Any]:
         logger.error("Soft time limit exceeded for job %s", job.id)
         job.status = JobStatus.FAILED
         job.error_message = f"Task timed out after {CELERY_TASK_TIMEOUT_SECONDS}s"
-        job_store.update_job(job)
+        _get_job_store().update_job(job)
 
         # Retry if we haven't exceeded max retries
         try:
@@ -101,7 +113,7 @@ def youtube_search_task(self, job_dict: dict[str, Any]) -> dict[str, Any]:
         logger.error("Celery worker error for job %s: %s", job.id, e, exc_info=True)
         job.status = JobStatus.FAILED
         job.error_message = str(e)
-        job_store.update_job(job)
+        _get_job_store().update_job(job)
         return job.model_dump(mode='json')
 
 @celery_app.task(
@@ -118,7 +130,7 @@ def cleanup_expired_jobs() -> dict[str, Any]:
     try:
         logger.info("Running periodic cleanup of expired jobs")
 
-        expired_count = asyncio.run(job_store.cleanup_expired())
+        expired_count = asyncio.run(_get_job_store().cleanup_expired())
 
         result = {
             "status": "success",

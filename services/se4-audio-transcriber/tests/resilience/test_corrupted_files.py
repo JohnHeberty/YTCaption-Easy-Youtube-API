@@ -11,6 +11,8 @@ Valida comportamento do sistema ao receber:
 ✅ Valida error handling apropriado
 ✅ Garante que sistema não trava
 """
+import ctypes
+import ctypes.util
 import pytest
 from pathlib import Path
 
@@ -217,6 +219,10 @@ class TestCorruptedFileshHandling:
         # Cleanup
         manager.unload_model()
     
+    @pytest.mark.skipif(
+        ctypes.util.find_library("cublas") is None,
+        reason="CUDA libraries (libcublas) not available",
+    )
     def test_system_recovers_after_corrupted_file(self, corrupted_audio_file, test_audio_real, temp_work_dir):
         """
         Teste 5: Sistema se recupera após processar arquivo corrompido.

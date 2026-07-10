@@ -19,6 +19,7 @@ Objetivo:
 """
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 import httpx
@@ -43,6 +44,13 @@ class RealAudioTranscriberClient:
     def __init__(self, base_url: str = "https://yttranscriber.loadstask.com"):
         self.base_url = base_url
         self.timeout = httpx.Timeout(300.0, connect=10.0)
+        self.api_key = os.environ.get("TRANSCRIBER_API_KEY", "")
+
+    @property
+    def _headers(self) -> dict:
+        if self.api_key:
+            return {"X-API-Key": self.api_key}
+        return {}
     
     async def transcribe_audio(self, audio_path: Path, language: str = "pt") -> list:
         """
@@ -59,6 +67,7 @@ class RealAudioTranscriberClient:
             with open(audio_path, "rb") as f:
                 response = await client.post(
                     f"{self.base_url}/jobs",
+                    headers=self._headers,
                     files={"file": (audio_path.name, f, "audio/ogg")},
                     data={"language_in": language}
                 )
@@ -79,7 +88,7 @@ class RealAudioTranscriberClient:
             for attempt in range(1, max_polls + 1):
                 await asyncio.sleep(poll_interval)
                 
-                response = await client.get(f"{self.base_url}/jobs/{job_id}")
+                response = await client.get(f"{self.base_url}/jobs/{job_id}", headers=self._headers)
                 
                 if response.status_code != 200:
                     raise Exception(f"Falha ao verificar status: {response.status_code}")
@@ -103,7 +112,7 @@ class RealAudioTranscriberClient:
                     raise Exception(f"Timeout: {max_polls * poll_interval}s")
             
             # 3. Buscar transcrição
-            response = await client.get(f"{self.base_url}/jobs/{job_id}/transcription")
+            response = await client.get(f"{self.base_url}/jobs/{job_id}/transcription", headers=self._headers)
             
             if response.status_code != 200:
                 raise Exception(f"Falha ao baixar transcrição: {response.status_code}")
@@ -120,8 +129,8 @@ class RealAudioTranscriberClient:
 @pytest.mark.external
 @pytest.mark.slow
 @pytest.mark.skipif(
-    not (Path(__file__).parent.parent.parent / "assets" / "TEST-.ogg").exists(),
-    reason="Test audio file not found"
+    not os.environ.get("TRANSCRIBER_API_KEY"),
+    reason="TRANSCRIBER_API_KEY not set — skipping real API test",
 )
 async def test_real_pipeline_complete():
     """
@@ -163,8 +172,7 @@ async def test_real_pipeline_complete():
             f.unlink()
     
     if not audio_path.exists():
-        print(f"❌ ERRO: Áudio não encontrado: {audio_path}")
-        sys.exit(1)
+        pytest.fail(f"Áudio não encontrado: {audio_path}")
     
     print(f"📁 Áudio: {audio_path}")
     print(f"   Tamanho: {audio_path.stat().st_size / 1024:.1f} KB")
@@ -208,8 +216,7 @@ async def test_real_pipeline_complete():
         result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
-            print(f"❌ FFmpeg falhou: {result.stderr}")
-            sys.exit(1)
+            pytest.fail(f"FFmpeg falhou: {result.stderr}")
         
         video_size_mb = video_path.stat().st_size / (1024 * 1024)
         print(f"   ✅ Vídeo criado: {video_size_mb:.2f} MB")
@@ -273,8 +280,7 @@ async def test_real_pipeline_complete():
             raise
         
         if not output_path.exists():
-            print(f"   ❌ ERRO: Vídeo final não foi criado")
-            sys.exit(1)
+            pytest.fail("Vídeo final não foi criado")
         
         output_size_mb = output_path.stat().st_size / (1024 * 1024)
         print(f"   ✅ Vídeo final criado: {output_size_mb:.2f} MB")
@@ -330,7 +336,7 @@ async def test_real_pipeline_complete():
             print("="*80)
             for error in errors:
                 print(error)
-            sys.exit(1)
+            pytest.fail(f"Validation failed: {len(errors)} errors")
         else:
             print("="*80)
             print("🎉 TESTE PASSOU - PIPELINE COMPLETO FUNCIONAL")
@@ -362,7 +368,7 @@ async def test_real_pipeline_complete():
         print("   - Whisper retornou transcrição vazia")
         print()
         print("💡 Em produção, esse job seria marcado como FAILED (correto)")
-        sys.exit(1)
+        pytest.fail("Transcrição vazia — Whisper não processou o áudio")
     
     except Exception as e:
         print()
@@ -380,7 +386,7 @@ async def test_real_pipeline_complete():
         print("💡 Se falha aqui, VAI FALHAR EM PRODUÇÃO também!")
         import traceback
         traceback.print_exc()
-        sys.exit(1)
+        pytest.fail(f"Pipeline test failed: {e}")
 
 
 if __name__ == "__main__":
