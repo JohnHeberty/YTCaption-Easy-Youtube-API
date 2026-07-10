@@ -1,5 +1,37 @@
 # Estado Atual — Monorepo YTCaption
 
+## Última sessão (2026-07-10) — SE11 Fixes (#2,#4,#5) + SE8/SE11 Docker Networking + Toolkit Investigation
+
+### SE11 Ghost Face Fix (#4)
+- Negative prompt weight: 1.8→2.2 for `(extra face, second face, face on body, face on chest, face below neck)`
+- Added ghost face suppression zone: erode inpaint mask near face boundary (15x15 kernel)
+- Both YAML configs updated (production + experimental)
+
+### SE11 Edge Artifacts Fix (#5)
+- `fp_dilation_pct`: 0.02→0.03 (3% dilation for better coverage)
+- Closing kernel: 5x5→7x7 for filling larger gaps
+- `config_loader.py` default updated
+
+### SE8/SE11 Docker Networking
+- SE8: Redis URL changed from `host.docker.internal` to `192.168.1.110` (direct IP)
+- SE8: Added `extra_hosts: ["host.docker.internal:host-gateway"]` to both compose files
+- SE11: `SE8_URL` changed from `host.docker.internal:8008` to `image-engine-api:8008`
+- SE11: `SE10_URL` changed from `host.docker.internal:8010` to `ytcaption-se10-clothes-segmentation:8010`
+
+### nvidia-container-toolkit Investigation
+- Current: v1.19.1 — rejects driver 590.48.01 with "unexpected version detected: 590.48.01 != 1"
+- **Fix found: v1.20.0-rc.1** uses `Masterminds/semver` for version parsing (correctly handles `590.48.01`)
+- Also relevant: v1.19.0-rc.7 has `fix: Don't use driver version in ELF header for compat check`
+- Install: `apt install nvidia-container-toolkit=1.20.0~rc.1-1` or compile from GitHub
+
+### Commits
+- `3db396fb`: fix(se11): ghost face suppression + edge artifacts + SE8/SE11 Docker networking
+
+### SE8 SDXL Performance Issue
+- SE8 diffusion stuck at 0/50 steps — GPU utilization 0% despite 8816 MiB allocated
+- Process running on CPU (102% CPU, 16GB RSS)
+- Pre-existing issue, not related to Docker networking changes
+
 ## Última sessão (2026-07-10) — PLAN.md MÉDIO Items (#12, #15, #16) + CI/CD Removal
 
 ### CI/CD References Removed
