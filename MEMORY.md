@@ -1,5 +1,35 @@
 # Estado Atual — Monorepo YTCaption
 
+## Última sessão (2026-07-10) — Decomposição + Type Cleanup
+
+### SE8 worker.py decomposição — DONE
+- 1161→388L (66% reduction), 5 new modules: task_builder.py, prompt_processor.py, inpaint_processor.py, image_processors.py, output_saver.py
+- Commit: `295751e7`
+
+### SE8 bare except fixes — DONE
+- 9 silent `except Exception: pass` blocks → `logger.debug`/`logger.warning`
+- Commit: `1ea5ffe0`
+
+### SE4 type:ignore cleanup — DONE
+- Generic `IJobRepository[JobT]`, typed `RedisJobStore(IJobStore[AudioTranscriptionJob])`, 24/30 suppressions removed
+- Commit: `4b4a8d3c`
+
+### SE6 channel.py decomposição — DONE
+- 848→117L facade (86% reduction), 3 new modules: channel_parsers.py (208L), channel_metadata.py (388L), channel_videos.py (252L)
+
+### SE1 orchestrator fix — DONE
+- Port 8001:8001, Docker DNS names for SE2/SE3/SE4
+- Commit: `9e087497`
+
+### PLAN.md atualizado — 24 itens de backlog
+- #1 SE1 unhealthy → fixed
+- #6 SE8 worker.py → done
+- #7 SE8 bare except → done
+- #8 SE6 channel.py → done
+- #9 SE4 type:ignore → done
+
+---
+
 ## Última sessão (2026-07-10)
 
 ### 🟢 Test Fixes Across All Services — COMPLETE (2026-07-10)

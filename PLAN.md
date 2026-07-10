@@ -8,7 +8,7 @@
 
 | # | Serviço | Problema | Status |
 |---|---------|----------|--------|
-| 1 | SE1 | Container **UNHEALTHY** — orchestrator health check falhando | `[ ]` Pendente |
+| 1 | SE1 | Container **UNHEALTHY** — orchestrator health check falhando | `[x]` Fix 2026-07-10 |
 
 ---
 
@@ -20,10 +20,10 @@
 | 3 | SE11 | **AI Image Detection** não implementado — fotos reais entram no NSFW pipeline | `[ ]` Pendente |
 | 4 | SE11 | Ghost face no pescoço — artefato visual | `[ ]` Pendente |
 | 5 | SE11 | Edge artifacts — restos de roupa nas bordas | `[ ]` Pendente |
-| 6 | SE8 | `worker.py` ainda 1,161 linhas — precisa decompor mais | `[ ]` Pendente |
-| 7 | SE8 | 74 bare `except Exception:` — engolem erros silenciosamente | `[ ]` Pendente |
-| 8 | SE6 | `channel.py` 848 linhas — precisa decompor | `[ ]` Pendente |
-| 9 | SE4 | `job_state_updater.py` com ~25 `type: ignore` suppressions | `[ ]` Pendente |
+| 6 | SE8 | `worker.py` ainda 1,161 linhas — precisa decompor mais | `[x]` 1161→388L 2026-07-10 |
+| 7 | SE8 | 74 bare `except Exception:` — engolem erros silenciosamente | `[x]` 9 silent blocks fixed 2026-07-10 |
+| 8 | SE6 | `channel.py` 848 linhas — precisa decompor | `[x]` 848→117L 2026-07-10 |
+| 9 | SE4 | `job_state_updater.py` com ~25 `type: ignore` suppressions | `[x]` 24/30 removed 2026-07-10 |
 
 ---
 
