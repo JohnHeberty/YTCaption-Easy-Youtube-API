@@ -20,6 +20,7 @@ def _make_client(store):
     from fastapi.testclient import TestClient
     from app.infrastructure.dependencies import job_store as js_dep, get_job_store
     from app.main import app
+    from app.core.config import get_settings
 
     # Clear lru_cache so factory returns fresh result after override is set
     get_job_store.cache_clear()
@@ -30,8 +31,10 @@ def _make_client(store):
         pass
 
     with patch("app.api.jobs_routes.submit_processing_task", side_effect=mock_submit), \
+         patch("app.api.jobs_routes._get_job_store_dep", return_value=store), \
          patch.object(Path, "exists", return_value=True):
         client = TestClient(app)
+        client.headers["X-API-Key"] = get_settings().api_key
         try:
             yield (client, store)
         finally:

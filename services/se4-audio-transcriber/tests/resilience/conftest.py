@@ -1,10 +1,23 @@
 """
 Fixtures específicas para testes de resiliência.
 """
+import ctypes
+import ctypes.util
 import pytest
 import tempfile
 import shutil
 from pathlib import Path
+
+
+def _cuda_available() -> bool:
+    """Check if CUDA libraries (libcublas) are available."""
+    return ctypes.util.find_library("cublas") is not None
+
+
+pytestmark = pytest.mark.skipif(
+    not _cuda_available(),
+    reason="CUDA libraries (libcublas) not available — skipping real transcription tests",
+)
 
 
 @pytest.fixture(scope="module")
@@ -23,6 +36,9 @@ def test_audio_real() -> Path:
     repo_root = Path(__file__).resolve().parents[4]
     ogg_files = _glob.glob(str(repo_root / "*.ogg"))
     candidates.extend(Path(p) for p in ogg_files)
+    # Also check audios/ subdirectory
+    ogg_files_audios = _glob.glob(str(repo_root / "audios" / "*.ogg"))
+    candidates.extend(Path(p) for p in ogg_files_audios)
 
     audio_path = next((c for c in candidates if c.exists()), None)
     assert audio_path is not None, "Arquivo de áudio de teste não encontrado"
