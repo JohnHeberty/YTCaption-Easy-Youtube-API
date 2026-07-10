@@ -11,9 +11,13 @@ services:
     environment:
       - PYTHONPATH=/app
       - APP_HOST=0.0.0.0
-      - APP_PORT=${CONTAINER_PORT:-8000}
+      - APP_PORT=${HOST_PORT:-8001}
+      - PORT=${HOST_PORT:-8001}
+      - VIDEO_DOWNLOADER_URL=http://video-downloader-api:8002
+      - AUDIO_NORMALIZATION_URL=http://audio-normalization-api:8003
+      - AUDIO_TRANSCRIBER_URL=http://ytcaption-se4-audio-transcriber-api:8004
     ports:
-      - "${HOST_PORT:-8005}:${CONTAINER_PORT:-8000}"
+      - "8001:8001"
     volumes:
       - ../../../shared:/app/common
       - ../app:/app/app
