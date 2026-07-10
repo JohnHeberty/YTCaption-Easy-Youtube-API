@@ -66,8 +66,8 @@ def _load_faceid_adapter(
 
     try:
         ldm_patched.modules.model_management.load_model_gpu(faceid_proj.patcher if hasattr(faceid_proj, 'patcher') else None)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("FaceID proj GPU load failed (non-fatal): %s", exc)
 
     with torch.no_grad():
         projected = faceid_proj(embeds_tensor)

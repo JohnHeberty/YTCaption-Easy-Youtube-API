@@ -198,8 +198,8 @@ def process_generate(async_job: QueueTask) -> None:
                 if get_model_manager().processing_interrupted():
                     async_job.set_result([], True, "Interrupted by user")
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Interrupt check failed (non-fatal): %s", exc)
 
             progress = 20 + int(70 * idx / max(total_tasks, 1))
             async_job.set_progress(progress, f"Generating {idx + 1}/{total_tasks}")
@@ -218,8 +218,8 @@ def process_generate(async_job: QueueTask) -> None:
                             img.save(buf, format="PNG")
                             b64 = base64.b64encode(buf.getvalue()).decode()
                             async_job.set_step_preview(f"data:image/png;base64,{b64}")
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Step preview encode failed (non-fatal): %s", exc)
 
             imgs = _process_diffusion(pipeline, async_task, task, progress_callback, inpaint_state=inpaint_state)
 
@@ -298,37 +298,37 @@ def process_generate(async_job: QueueTask) -> None:
             _p = get_pipeline()
             _p.loaded_controlnets.clear()
             _p._clip_cond_cache.clear()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Pipeline cache clear failed (non-fatal): %s", exc)
 
         # Unload SE8 model_manager
         try:
             from app.services.model_manager import get_model_manager
             get_model_manager().unload_all()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Model manager unload failed (non-fatal): %s", exc)
 
         # Offload GPU models to free VRAM
         try:
             import ldm_patched.modules.model_management as model_management
             model_management.unload_all_models()
             model_management.soft_empty_cache()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("GPU model offload failed (non-fatal): %s", exc)
         import gc
         gc.collect()
         try:
             import ctypes
             ctypes.CDLL("libc.so.6").malloc_trim(0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("malloc_trim failed (non-fatal): %s", exc)
         try:
             import torch
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("CUDA cleanup failed (non-fatal): %s", exc)
         if worker_queue:
             worker_queue.finish_task(async_job.job_id)
 

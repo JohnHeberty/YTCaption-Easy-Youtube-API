@@ -458,5 +458,5 @@ class TaskQueue:
                     path = Path(result.im)
                     if path.exists():
                         os.remove(str(path))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("Failed to cleanup output file %s: %s", result.im, exc)
