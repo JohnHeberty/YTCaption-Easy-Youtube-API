@@ -93,7 +93,7 @@ class VideoValidator:
         
         if self.trsd_enabled:
             self.text_extractor = TextRegionExtractor(self.config)
-            self.classifier = SubtitleClassifierV2(self.config, fps=frames_per_second)
+            self.classifier = SubtitleClassifierV2(self.config, fps=frames_per_second or 3.0)
             self.trsd_frame_extractor = FFmpegFrameExtractor(self.config.trsd_downscale_width)
             self.telemetry = TRSDTelemetry(enabled=True)
             self.debug_saver = DebugArtifactSaver(

@@ -87,7 +87,7 @@ class Settings(BaseServiceSettings):
     ocr_max_frames: int = 240
 
     # TRSD
-    trsd_enabled: bool = False
+    trsd_enabled: bool = True
     trsd_downscale_width: int = 640
     trsd_min_text_length: int = 2
     trsd_min_confidence: float = 0.50
