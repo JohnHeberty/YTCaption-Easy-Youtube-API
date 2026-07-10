@@ -31,6 +31,7 @@ from app.api.schemas import (
     ServiceInfoResponse,
 )
 from app.infrastructure.redis_store import ClothesRemovalJobStore
+from app.services.ai_image_detector import check_image_is_ai_generated
 from app.worker import get_worker
 
 router = APIRouter(tags=["Jobs"])
@@ -394,6 +395,18 @@ async def create_nsfw_job(
     if len(content) > settings.max_file_size_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
+    # ── AI Image Detection (block real photos) ──
+    if settings.ai_detection_enabled:
+        is_ai, confidence = check_image_is_ai_generated(content)
+        if not is_ai:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Real person photo detected (confidence: {confidence:.1%}). "
+                    "NSFW processing is only allowed for AI-generated images."
+                ),
+            )
+
     image_b64 = base64.b64encode(content).decode("utf-8")
     mime = file.content_type or "image/png"
     image_data_uri = f"data:{mime};base64,{image_b64}"
@@ -551,6 +564,18 @@ async def create_nsfw_test_job(
     content = await file.read()
     if len(content) > settings.max_file_size_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
+
+    # ── AI Image Detection (block real photos) ──
+    if settings.ai_detection_enabled:
+        is_ai, confidence = check_image_is_ai_generated(content)
+        if not is_ai:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Real person photo detected (confidence: {confidence:.1%}). "
+                    "NSFW processing is only allowed for AI-generated images."
+                ),
+            )
 
     image_b64 = base64.b64encode(content).decode("utf-8")
     mime = file.content_type or "image/png"

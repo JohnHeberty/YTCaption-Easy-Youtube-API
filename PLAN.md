@@ -17,7 +17,7 @@
 | # | Serviço | Problema | Status |
 |---|---------|----------|--------|
 | 2 | SE11 | Testado com 1 única imagem (TESTE1.jpg) — precisa mais validação | `[ ]` Pendente |
-| 3 | SE11 | **AI Image Detection** não implementado — fotos reais entram no NSFW pipeline | `[ ]` Pendente |
+| 3 | SE11 | **AI Image Detection** não implementado — fotos reais entram no NSFW pipeline | `[x]` Implemented 2026-07-10 |
 | 4 | SE11 | Ghost face no pescoço — artefato visual | `[ ]` Pendente |
 | 5 | SE11 | Edge artifacts — restos de roupa nas bordas | `[ ]` Pendente |
 | 6 | SE8 | `worker.py` ainda 1,161 linhas — precisa decompor mais | `[x]` 1161→388L 2026-07-10 |

@@ -23,7 +23,7 @@ Pipeline funcional: SE10 (SegFormer B2 + YOLO11) → SE11 (head mask, body mask,
 - **Ação:** Rejeitar com erro 400 antes de qualquer processamento
 - **Onde:** Todas as rotas NSFW (`/jobs/nsfw`, `/jobs/nsfw-test`)
 - **Plano detalhado:** `services/se11-clothes-removal/docs/plans/PLAN-AI-DETECT.md`
-- **Status:** PLANEJADO
+- **Status:** IMPLEMENTADO (2026-07-10) — `ai_image_detector.py` + routes.py pre-check + config toggle `AI_DETECTION_ENABLED`
 
 ### 3. Face ghost no pescoço
 - **Problema:** SE8 gera segundo rosto onde máscara de roupa encontra face protegida

@@ -31,6 +31,9 @@ class ClothesRemovalSettings(BaseServiceSettings):
     se8_poll_interval: int = 5
     max_concurrent_jobs: int = 2
 
+    # === AI Image Detection ===
+    ai_detection_enabled: bool = True
+
     def __getitem__(self, key: str) -> object:
         return getattr(self, key, None)
 

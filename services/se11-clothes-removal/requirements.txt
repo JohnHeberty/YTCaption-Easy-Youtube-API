@@ -23,6 +23,9 @@ huggingface_hub
 insightface>=0.7.3
 onnxruntime-gpu>=1.16.0
 
+# AI Image Detection (blocks real photos from NSFW pipeline)
+timm>=1.0.0
+
 python-multipart>=0.0.18
 
 # YAML config loading
