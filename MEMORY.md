@@ -1,6 +1,75 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-09)
+## Última sessão (2026-07-10)
+
+### 🟢 SE5 TRSD Activation — PT Shorts OCR Fix COMPLETE (2026-07-10)
+
+**Objetivo:** Ativar TRSD (Temporal Region Subtitle Detector) para permitir PT motivational shorts serem aprovados no pipeline de validação.
+
+**Problema:** PT motivational shorts tinham texto burned-in → LegacyOCRDetector rejeitava todos (binary: qualquer texto = bloquear).
+
+**Solução:** TRSD usa análise temporal de 6 métricas (rhythm, lifespan, position stability, text uniqueness, vertical bias, temporal density) para distinguir legendas burned-in de texto de cena.
+
+**Bugs corrigidos:**
+1. `.env` tinha `TRSD_ENABLED=false` sobrescrevendo config.py — fix: `TRSD_ENABLED=true`
+2. `SubtitleClassifierV2(fps=frames_per_second)` recebia `None` porque `VideoValidator` default `frames_per_second=None` — fix: `fps=frames_per_second or 3.0`
+3. SE4 `/app/data/temp/` owned by `root:root` — celery worker (appuser) não podia escrever — fix: `chmod 777`
+
+**Files modified:**
+- `services/se5-make-video-clip/app/core/config.py:90` — `trsd_enabled: bool = True`
+- `services/se5-make-video-clip/.env` — `TRSD_ENABLED=true`
+- `services/se5-make-video-clip/app/video_processing/video_validator.py:96` — `fps=frames_per_second or 3.0`
+
+**Validação:**
+- TRSD classifica PT shorts corretamente: `xlKoMVBvKdI.mp4` → `has_subtitles=False, confidence=0.9`
+- `6zxr7MuwV9s.mp4` → `has_subtitles=False, confidence=0.9`
+- E2E job `mv_5NP6aZKbZt`: todos os 8 stages passed, 2.84MB output
+- Output: `/root/YTCaption-Easy-Youtube-API/show/se5_trsd_pt_e2e.mp4`
+- 447 unit tests pass, 0 failures
+
+**Approved videos (4):**
+- `jxF7ocKbmMQ.mp4` (21.3s, EN)
+- `MeTaryZOClQ.mp4` (41.1s, EN)
+- `xlKoMVBvKdI.mp4` (55.0s, PT) — NEW
+- `6zxr7MuwV9s.mp4` (39.6s, PT) — NEW
+
+**Commit:** `3861e70e` — fix(se5): enable TRSD for PT shorts + fix classifier fps=None bug
+
+### 🟢 SE8 API Refactoring — COMPLETE (2026-07-10)
+
+**Objetivo:** Elevar qualidade da API do SE8 (image-generation) ao padrão SE9/SE11: schemas tipados, response_model, ErrorResponse, Field descriptions.
+
+**Alterações:**
+1. **Criado `app/api/schemas.py`** — ErrorResponse, AdminStatsResponse, AdminCleanupResponse, ListOutputsResponse, OutputFileInfo, OutputDateGroup, StyleDetail, VRAMCleanupResponse, ProcessRestartResponse, UpscaleResult
+2. **Handler global de exceções** em `app/main.py` — catch-all Exception + 422 validation
+3. **response_model=** em 14 endpoints (admin, query, models, tools, face)
+4. **Field(description=)** em TODOS os ~100 campos de models.py
+5. **Consolidação DEFAULT_LORAS** — removida versão `dict` duplicada de `constants.py`
+6. **Fix face_routes** — return type dict → FaceRestoreResponse model
+7. **Fix admin_routes** — return type dict → typed response models
+8. **Fix query_routes list_outputs** — return ListOutputsResponse typed model
+
+**Arquivos alterados:**
+- `app/api/schemas.py` (NEW — 130 linhas)
+- `app/main.py` — global exception handlers
+- `app/api/admin_routes.py` — AdminStatsResponse, AdminCleanupResponse
+- `app/api/query_routes.py` — ListOutputsResponse, ErrorResponse
+- `app/api/models_routes.py` — StyleDetail, VRAMCleanupResponse, ProcessRestartResponse
+- `app/api/tools_routes.py` — UpscaleResult
+- `app/api/face_routes.py` — return type fix
+- `app/domain/models.py` — Field(description=) em todos os campos
+- `app/core/constants.py` — DEFAULT_LORAS dict removido
+
+**Testes:** 103 passam, 1 falha pré-existente (auth test)
+
+**Commit:** `af7da944` — refactor(se8): API schemas, response_model, Field descriptions, exception handler
+
+**Pendências:**
+- V1/V2 generation routes sem response_model (call_worker retorna tipos diferentes por request mode)
+- DEFAULT_LORAS dict em constants.py removido (não tinha importadores)
+- CommonRequest/AsyncTask duplicação (AsyncTask tem 96 campos, refactor profundo necessário)
+
+## Sessões anteriores (2026-07-09)
 
 ### 🟢 SE5 Real E2E Test — COMPLETE SUCCESS (2026-07-09)
 

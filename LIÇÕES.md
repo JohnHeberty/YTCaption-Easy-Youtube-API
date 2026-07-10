@@ -1,6 +1,6 @@
 # LIÇÕES.md — Lições Aprendidas (Cross-Service)
 
-**Última atualização:** 2026-07-05
+**Última atualização:** 2026-07-10
 **Nota:** Lições específicas do pipeline NSFW (SE11) foram migradas para `services/se11-clothes-removal/docs/LICOES-NSFW.md`
 
 ---
@@ -120,3 +120,24 @@ Quando um sistema usa frameworks diferentes para gerenciar modelos (ComfyUI + cu
 - ComfyUI: `ldm_patched/modules/model_management.py` — `current_loaded_models` list, `unload_all_models()`
 - SE8: `app/services/model_manager.py` — `_loaded_models` list, `unload_all()`
 - Worker: `app/services/worker.py` — finally block
+
+---
+
+## 37. SE8 API Refactoring — Schemas, response_model, Field descriptions
+
+**Data:** 2026-07-10
+**Serviço:** SE8 (image-generation)
+
+### Padrão estabelecido
+Todos os services devem seguir o padrão SE9/SE11:
+1. `app/api/schemas.py` — response schemas separados do domain
+2. `ErrorResponse` unificado para todos os erros
+3. `response_model=` em TODOS os endpoints (exceto streaming/variável)
+4. `Field(description=...)` em TODOS os campos Pydantic
+5. Handler global de exceções em `app/main.py`
+
+### Lições
+- **`response_model=` não funciona em endpoints com return type variável** — SE8 V1/V2 generation routes retornam `Response | dict | list[dict]` dependendo do modo (sync/async/streaming). Solução: deixar sem `response_model` nesses casos, adicionar apenas nos endpoints de retorno fixo.
+- **Testes que patcham `module.os.path`** — se o código usa `__import__("os")` ou `import os as _os`, o patch não funciona. Usar `import os` no nível do módulo para que patches funcionem.
+- **`face_routes.py` retornava `dict` via `.model_dump()`** — quando `response_model=FaceRestoreResponse` está definido, retornar o modelo diretamente (não `.model_dump()`) para validação automática.
+- **DEFAULT_LORAS duplicado** — `models.py` (Lora instances) + `constants.py` (dict literals) com mesmos dados. Consolidação: manter APENAS em `models.py`.
