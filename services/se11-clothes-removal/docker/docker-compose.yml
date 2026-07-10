@@ -16,6 +16,7 @@ services:
       - ../configs:/app/configs
       - ../data/outputs:/app/data/outputs
       - ../data/logs:/app/data/logs
+      - ../../../show:/app/show
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
