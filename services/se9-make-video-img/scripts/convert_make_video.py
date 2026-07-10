@@ -13,6 +13,9 @@ Handles all gaps identified in INVESTIGATE.md:
 - G4: global_start_seconds for caption timing
 - G5: end_seconds for caption duration
 - G6: global_style preserved as metadata
+- G7: shot_type, composition, lighting, color_mood, subject, environment
+- G8: sfx_cues, silence_cues, ambient_bed
+- G9: allowed_visual_elements, forbidden_visual_elements
 """
 from __future__ import annotations
 
@@ -58,7 +61,7 @@ def convert(input_path: str) -> dict:
             "text": scene["narration_text"],
         })
 
-    # ── scene_suggestions: [{t, visual, negative_prompt, camera_movement, transition}] ──
+    # ── scene_suggestions with cinematic metadata ──
     scene_suggestions = []
     for scene in output.get("scenes", []):
         image = scene.get("image", {})
@@ -86,6 +89,20 @@ def convert(input_path: str) -> dict:
             if mapped is not None:  # None = hard cut, don't include
                 suggestion["transition"] = mapped
 
+        # G7: Include cinematic metadata
+        for field in ["shot_type", "composition", "lighting", "color_mood", "subject", "environment"]:
+            val = image.get(field)
+            if val:
+                suggestion[field] = val
+
+        # G9: Include allowed/forbidden visual elements
+        allowed = image.get("allowed_visual_elements")
+        if allowed:
+            suggestion["allowed_visual_elements"] = allowed
+        forbidden = image.get("forbidden_visual_elements")
+        if forbidden:
+            suggestion["forbidden_visual_elements"] = forbidden
+
         scene_suggestions.append(suggestion)
 
     # ── on_screen_text: [{t, text, end_seconds}] using GLOBAL timestamps ──
@@ -102,6 +119,47 @@ def convert(input_path: str) -> dict:
             elif "end_seconds" in cap:
                 entry["end_seconds"] = cap["end_seconds"]
             on_screen_text.append(entry)
+
+    # ── audio cues: sfx_cues, silence_cues, ambient_bed ──
+    sfx_cues = []
+    silence_cues = []
+    ambient_bed = None
+
+    # Collect from all scenes
+    for scene in output.get("scenes", []):
+        audio = scene.get("audio", {})
+
+        # G8: SFX cues
+        for sfx in audio.get("sfx_cues", []):
+            sfx_entry: dict = {
+                "t": sfx.get("start_seconds", 0),
+                "end_seconds": sfx.get("end_seconds", 0),
+                "cue": sfx.get("cue", ""),
+                "intensity": sfx.get("intensity", "low"),
+                "purpose": sfx.get("purpose", ""),
+            }
+            if "global_start_seconds" in sfx:
+                sfx_entry["global_start_seconds"] = sfx["global_start_seconds"]
+            if "global_end_seconds" in sfx:
+                sfx_entry["global_end_seconds"] = sfx["global_end_seconds"]
+            sfx_cues.append(sfx_entry)
+
+        # G8: Silence cues
+        for silence in audio.get("silence_cues", []):
+            silence_entry: dict = {
+                "t": silence.get("start_seconds", 0),
+                "end_seconds": silence.get("end_seconds", 0),
+                "purpose": silence.get("purpose", ""),
+            }
+            if "global_start_seconds" in silence:
+                silence_entry["global_start_seconds"] = silence["global_start_seconds"]
+            if "global_end_seconds" in silence:
+                silence_entry["global_end_seconds"] = silence["global_end_seconds"]
+            silence_cues.append(silence_entry)
+
+        # G8: Ambient bed (use first non-null)
+        if ambient_bed is None and audio.get("ambient_bed"):
+            ambient_bed = audio["ambient_bed"]
 
     # ── Build request ──
     request: dict = {
@@ -122,6 +180,19 @@ def convert(input_path: str) -> dict:
     global_style = output.get("global_style")
     if global_style:
         request["global_style"] = global_style
+
+    # G8: Add audio cues
+    if sfx_cues:
+        request["sfx_cues"] = sfx_cues
+    if silence_cues:
+        request["silence_cues"] = silence_cues
+    if ambient_bed:
+        request["ambient_bed"] = ambient_bed
+
+    # Add platform from output
+    platform = output.get("platform")
+    if platform:
+        request["platform"] = platform
 
     return request
 

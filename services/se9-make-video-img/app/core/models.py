@@ -18,6 +18,8 @@ from app.api.schemas import (  # noqa: F401
     NarrationSegment,
     SceneSuggestion,
     OnScreenText,
+    SFxCue,
+    SilenceCue,
     CreateVideoRequest,
 )
 

@@ -73,6 +73,7 @@ class SceneSuggestion(BaseModel):
     """Visual prompt for a single scene image.
 
     Sent to SE8 Fooocus for image generation. Each scene maps to one image.
+    Includes cinematic metadata from upstream JSON for richer prompts.
     """
     t: float = Field(
         ...,
@@ -121,6 +122,56 @@ class SceneSuggestion(BaseModel):
         ),
         examples=["dissolve", "fadeblack", "smoothleft"],
     )
+    # Cinematic metadata from upstream JSON
+    shot_type: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Shot type for this scene.\n\n"
+            "Examples: establishing_shot, medium_shot, close_up, wide_shot, over_shoulder."
+        ),
+        examples=["establishing_shot", "medium_shot", "close_up"],
+    )
+    composition: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Composition description for the scene.",
+        examples=["Composição vertical simples com foco no ambiente rural."],
+    )
+    lighting: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Lighting description for the scene.",
+        examples=["natural discreet", "soft low light", "dramatic side lighting"],
+    )
+    color_mood: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Color/mood description for the scene.",
+        examples=["soft dark", "low contrast", "warm tones"],
+    )
+    subject: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Main subject of the scene.",
+        examples=["paisagem rural genérica", "ambiente interno genérico"],
+    )
+    environment: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Environment/setting of the scene.",
+        examples=["ambiente rural genérico", "ambiente interno genérico"],
+    )
+    allowed_visual_elements: list[str] | None = Field(
+        default=None,
+        description="Visual elements allowed in this scene.",
+        examples=[["ambiente rural genérico", "vegetação", "céu"]],
+    )
+    forbidden_visual_elements: list[str] | None = Field(
+        default=None,
+        description="Visual elements forbidden in this scene.",
+        examples=[["pessoas", "veículos", "objetos específicos"]],
+    )
 
 
 class OnScreenText(BaseModel):
@@ -146,6 +197,89 @@ class OnScreenText(BaseModel):
             "If null, the caption stays visible until the next caption or scene end."
         ),
         examples=[4.5],
+    )
+
+
+# =============================================================================
+# Request — Audio Cues (SFX / Silence)
+# =============================================================================
+
+class SFxCue(BaseModel):
+    """Sound effect cue for a specific time range.
+
+    Defines an abstract sound texture to be mixed into the final audio.
+    Used for atmospheric enhancement — not tied to specific visual elements.
+    """
+    t: float = Field(
+        ...,
+        description="Start time in seconds (scene-relative).",
+        examples=[1.5],
+    )
+    end_seconds: float = Field(
+        ...,
+        description="End time in seconds (scene-relative).",
+        examples=[2.0],
+    )
+    cue: str = Field(
+        ...,
+        max_length=500,
+        description="Description of the sound texture.",
+        examples=["textura sonora baixa e abstrata sugerindo ruído"],
+    )
+    intensity: str = Field(
+        default="low",
+        max_length=50,
+        description="Intensity level: low, medium, high.",
+        examples=["low", "medium"],
+    )
+    purpose: str = Field(
+        default="",
+        max_length=500,
+        description="Narrative purpose of this sound cue.",
+        examples=["sutil indicação dos ruídos mencionados na narração"],
+    )
+    global_start_seconds: float | None = Field(
+        default=None,
+        description="Global start time in seconds (from video beginning).",
+        examples=[6.5],
+    )
+    global_end_seconds: float | None = Field(
+        default=None,
+        description="Global end time in seconds (from video beginning).",
+        examples=[7.0],
+    )
+
+
+class SilenceCue(BaseModel):
+    """Silence/pause cue for a specific time range.
+
+    Defines a deliberate pause in audio for dramatic effect or clarity.
+    """
+    t: float = Field(
+        ...,
+        description="Start time in seconds (scene-relative).",
+        examples=[0.5],
+    )
+    end_seconds: float = Field(
+        ...,
+        description="End time in seconds (scene-relative).",
+        examples=[1.0],
+    )
+    purpose: str = Field(
+        default="",
+        max_length=500,
+        description="Purpose of this silence.",
+        examples=["respiro antes da frase principal para clareza"],
+    )
+    global_start_seconds: float | None = Field(
+        default=None,
+        description="Global start time in seconds (from video beginning).",
+        examples=[0.5],
+    )
+    global_end_seconds: float | None = Field(
+        default=None,
+        description="Global end time in seconds (from video beginning).",
+        examples=[1.0],
     )
 
 
@@ -350,6 +484,33 @@ class CreateVideoRequest(BaseModel):
             "If null, uses aspect_ratio and default font size."
         ),
         examples=["tiktok_reels_shorts", "youtube"],
+    )
+    # Audio cues from upstream JSON
+    sfx_cues: list[SFxCue] = Field(
+        default_factory=list,
+        description=(
+            "Sound effect cues for the video.\n\n"
+            "Defines abstract sound textures to mix into the final audio. "
+            "Used for atmospheric enhancement. If empty, no SFX are added."
+        ),
+    )
+    silence_cues: list[SilenceCue] = Field(
+        default_factory=list,
+        description=(
+            "Silence/pause cues for the video.\n\n"
+            "Defines deliberate pauses for dramatic effect or clarity. "
+            "If empty, no silence pauses are added."
+        ),
+    )
+    ambient_bed: str | None = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "Ambient background audio description.\n\n"
+            "Describes the continuous background ambience for the video. "
+            "Stored as metadata for future audio mixing."
+        ),
+        examples=["ambiente rural de baixa presença", "ambiente interno discreto"],
     )
 
 
