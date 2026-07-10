@@ -89,31 +89,47 @@ class JobProcessor:
                 if self._stage_callback:
                     await self._stage_callback(stage.name, "processing", stage.progress_start, 0.0, None)
 
-                # Execute stage
-                result = await stage.run(context)
+                # Execute stage (stage.run() raises on failure)
+                try:
+                    result = await stage.run(context)
+                except Exception as stage_exc:
+                    # stage.run() already added result to context, get it
+                    result = context.get_result(stage.name)
+                    duration = result.duration_seconds if result else 0.0
+                    error_msg = str(stage_exc)
 
-                # Track completed stage for potential compensation
-                if result.success:
-                    self.completed_stages.append(stage)
-                    logger.info(
-                        f"✅ Stage {stage.name} completed in {result.duration_seconds:.2f}s"
-                    )
-                    # Notify callback: stage completed
-                    if self._stage_callback:
-                        await self._stage_callback(stage.name, "completed", 100.0, result.duration_seconds, None)
-                else:
                     # Notify callback: stage failed
-                    error_msg = str(result.error) if result.error else "Unknown error"
                     if self._stage_callback:
-                        await self._stage_callback(stage.name, "failed", result.data.get('progress', 0), result.duration_seconds, error_msg)
+                        await self._stage_callback(
+                            stage.name, "failed", 0.0, duration, error_msg,
+                        )
 
-                    # Stage failed, trigger compensation
-                    raise result.error or EnhancedMakeVideoException(
-                        f"Stage {stage.name} failed",
-                        error_code=ErrorCode.PROCESSING_STAGE_FAILED,
-                        details={'stage': stage.name},
+                    # Compensate and re-raise
+                    logger.error(f"❌ Job {context.job_id} failed: {stage_exc}")
+                    await self._compensate_stages(context)
+                    error = stage_exc if isinstance(stage_exc, EnhancedMakeVideoException) else EnhancedMakeVideoException(
+                        f"Job processing failed: {str(stage_exc)}",
+                        error_code=ErrorCode.PROCESSING_FAILED,
+                        cause=stage_exc,
                         job_id=context.job_id,
                     )
+                    await context.publish_event(
+                        EventType.JOB_FAILED,
+                        {
+                            'error': error.to_dict(),
+                            'completed_stages': [s.name for s in self.completed_stages],
+                        }
+                    )
+                    raise error
+
+                # Track completed stage for potential compensation
+                self.completed_stages.append(stage)
+                logger.info(
+                    f"✅ Stage {stage.name} completed in {result.duration_seconds:.2f}s"
+                )
+                # Notify callback: stage completed
+                if self._stage_callback:
+                    await self._stage_callback(stage.name, "completed", 100.0, result.duration_seconds, None)
 
             # All stages completed successfully
             logger.info(f"🎉 Job {context.job_id} completed successfully")
