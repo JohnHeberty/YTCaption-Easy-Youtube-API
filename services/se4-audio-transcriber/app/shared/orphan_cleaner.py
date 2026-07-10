@@ -174,7 +174,6 @@ class DeadLetterQueueManager:
     
     def __init__(self, job_store: IJobStore) -> None:
         self.job_store = job_store
-        self.dlq_prefix = "dlq:"
     
     def send_to_dlq(self, job: Job, reason: str) -> None:
         """
@@ -189,11 +188,8 @@ class DeadLetterQueueManager:
             job.error_message = f"[DLQ] {reason}"
             job.dlq_at = now_brazil()
             
-            # Salva com prefixo DLQ
-            dlq_job_id = f"{self.dlq_prefix}{job.id}"
-            
-            # TODO: Implementar store separado para DLQ
-            # Por enquanto, usa mesmo store com prefixo
+            # Salva o job original com status FAILED e tag [DLQ] no error_message.
+            # A tag [DLQ] é usada por list_dlq_jobs para filtrar jobs DLQ.
             self.job_store.save_job(job)
             
             logger.warning(f"📪 Job {job.id} enviado para DLQ: {reason}")
@@ -205,6 +201,9 @@ class DeadLetterQueueManager:
         """
         Lista jobs na Dead Letter Queue.
         
+        Filtra jobs com tag [DLQ] no error_message, que são os jobs
+        que passaram pelo send_to_dlq().
+        
         Args:
             limit: Número máximo de jobs a retornar
         
@@ -212,9 +211,9 @@ class DeadLetterQueueManager:
             Lista de jobs na DLQ
         """
         try:
-            # TODO: Implementar busca específica de DLQ
             failed_jobs = self.job_store.list_jobs(status=JobStatus.FAILED)
-            return failed_jobs[:limit]
+            dlq_jobs = [j for j in failed_jobs if j.error_message and j.error_message.startswith("[DLQ]")]
+            return dlq_jobs[:limit]
         except Exception as e:
             logger.error(f"❌ Erro ao listar DLQ: {e}")
             return []

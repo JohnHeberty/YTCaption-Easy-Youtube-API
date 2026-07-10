@@ -10,6 +10,7 @@ from pydantic import BaseModel, field_validator, ConfigDict, Field
 from typing import Any
 from pathlib import Path
 from enum import Enum
+import os
 import re
 
 from common.log_utils import get_logger
@@ -81,17 +82,21 @@ class CreateVideoRequestValidated(BaseModel):
     @classmethod
     def validate_max_shorts(cls, v: int) -> int:
         """
-        Valida max_shorts baseado em lógica de negócio
+        Valida max_shorts baseado em lógica de negócio.
         
-        Business Logic: Diferentes limites para diferentes tiers
+        Tiers via env var USER_TIER (default: "standard"):
+          - free:      max 20 shorts
+          - standard:  max 50 shorts (default)
+          - premium:   max 100 shorts
         """
-        # TODO: Implementar lógica de user tier quando houver autenticação
-        # if user_tier == 'premium':
-        #     return min(v, 100)
-        # elif user_tier == 'free':
-        #     return min(v, 20)
-        
-        return max(ProcessingLimits.MIN_SHORTS_COUNT, min(v, ProcessingLimits.MAX_SHORTS_COUNT))
+        tier = os.getenv("USER_TIER", "standard").lower()
+        tier_limits = {
+            "free": 20,
+            "standard": ProcessingLimits.MAX_SHORTS_COUNT,
+            "premium": 100,
+        }
+        tier_max = tier_limits.get(tier, ProcessingLimits.MAX_SHORTS_COUNT)
+        return max(ProcessingLimits.MIN_SHORTS_COUNT, min(v, tier_max))
     
     @field_validator('aspect_ratio')
     @classmethod

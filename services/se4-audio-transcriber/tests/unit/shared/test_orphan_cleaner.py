@@ -253,7 +253,21 @@ class TestDeadLetterQueueManager:
         _make_job(store, "f2", status=JobStatus.FAILED)
         manager = DeadLetterQueueManager(store)
         dlq = manager.list_dlq_jobs()
+        assert len(dlq) == 0  # FAILED without [DLQ] prefix are not DLQ jobs
+
+    @pytest.mark.asyncio
+    async def test_list_dlq_jobs_with_prefix(self, store):
+        from app.domain.models import AudioTranscriptionJob
+        j1 = AudioTranscriptionJob(id="dlq1", status=JobStatus.FAILED, error_message="[DLQ] timeout")
+        j2 = AudioTranscriptionJob(id="dlq2", status=JobStatus.FAILED, error_message="[DLQ] crash")
+        j3 = AudioTranscriptionJob(id="normal_fail", status=JobStatus.FAILED, error_message="some error")
+        store.save_job(j1)
+        store.save_job(j2)
+        store.save_job(j3)
+        manager = DeadLetterQueueManager(store)
+        dlq = manager.list_dlq_jobs()
         assert len(dlq) == 2
+        assert all(j.error_message.startswith("[DLQ]") for j in dlq)
 
     @pytest.mark.asyncio
     async def test_retry_dlq_success(self, store):
