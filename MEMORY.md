@@ -97,6 +97,31 @@
 **Commit:** `af7da944` — refactor(se8): API schemas, response_model, Field descriptions, exception handler
 **Commit:** `cfdfe0e0` — fix(se8): field mapping bugs + typed responses in api_utils
 
+### 🟢 SE7/SE10/SE11 API Refactoring — COMPLETE (2026-07-10)
+
+**SE7 (audio-generation):**
+- response_model= em TODOS os 14 endpoints (era 2/14)
+- Novos schemas: AdminStatsResponse, AdminCleanupResponse, VoiceProfileListResponse
+- Field(description=) em todos os campos
+- ErrorResponse em responses={} nos endpoints com erro
+- Global exception handler em main.py
+- Return types: dict → modelos tipados
+
+**SE10 (clothes-segmentation):**
+- Field(description=) em HealthResponse, DeepHealthResponse, ErrorResponse
+- Novos schemas: PingResponse, DeleteJobResponse
+- response_model= no DELETE endpoint
+
+**SE11 (clothes-removal):**
+- ServiceInfoResponse movido de routes.py para schemas.py
+- ErrorResponse em admin_routes responses={}
+- Limpeza de imports não utilizados
+
+**Commits:**
+- `af7da944` — refactor(se8): API schemas, response_model, Field descriptions, exception handler
+- `cfdfe0e0` — fix(se8): field mapping bugs + typed responses in api_utils
+- `da244398` — refactor(se7,se10,se11): response_model, ErrorResponse, Field descriptions
+
 **Commit:** `af7da944` — refactor(se8): API schemas, response_model, Field descriptions, exception handler
 
 **Pendências:**
