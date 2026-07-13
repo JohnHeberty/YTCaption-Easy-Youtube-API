@@ -11,7 +11,7 @@
 |---|---------|----------|---------|--------|
 | 1 | SE3 | `cleanup_all()` chama `flushdb()` — apaga TODOS os keys do Redis, não só SE3 | `app/infrastructure/redis_store.py:130` | `[x]` Fix 2026-07-13 |
 | 2 | SE2 | Redis key prefix mismatch: busca `video_job:*` mas dados salvos com `job:*` — nunca encontra | `app/api/admin_routes.py:136,288` | `[x]` Fix 2026-07-13 |
-| 3 | SE9 | `default_zoom_speed=0.004` no config mas hardcoded `0.002` em ffmpeg — config ignorado | `app/infrastructure/ffmpeg_segments.py:27` | `[ ]` |
+| 3 | SE9 | `default_zoom_speed=0.004` no config mas hardcoded `0.002` em ffmpeg — config ignorado | `app/infrastructure/ffmpeg_segments.py:27` | `[x]` Fix 2026-07-13 |
 | 4 | SE2 | Versão inconsistente: `config.py`="2.0.0", `main.py`="3.0.0" | `app/core/config.py:14`, `app/main.py:60` | `[x]` Fix 2026-07-13 |
 
 ---
@@ -33,7 +33,7 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 11 | 42 `except Exception` | 16 em `admin_routes.py`, 7 em `celery_tasks.py` | `[ ]` |
+| 11 | 42 `except Exception` | 16 em `admin_routes.py`, 7 em `celery_tasks.py` | `[x]` 5 silent fixed 2026-07-13 |
 | 12 | 30+ magic numbers | Timeouts `600/1800/2400`, limits `50/100/10000`, weights `0.25` | `[ ]` |
 | 13 | 2 funções >100L | `_perform_total_cleanup` (209L), `_sync_download` (162L) | `[ ]` |
 | 14 | 5 padrões duplicados | File cleanup loops (3x), regex extractions (3x), store instantiations (4x) | `[ ]` |
@@ -43,7 +43,7 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 16 | 70 `except Exception` | 4 bare `except:` sem tipo (captura SystemExit) | `[ ]` |
+| 16 | 70 `except Exception` | 4 bare `except:` sem tipo (captura SystemExit) | `[x]` 5 silent catches fixed 2026-07-13 |
 | 17 | 12 funções >100L | `submit_processing_task` (407L!), `transcribe_audio` (238L) | `[ ]` |
 | 18 | Model size dicts inconsistentes | 5 arquivos com 3 valores diferentes para o mesmo conceito | `[ ]` |
 | 19 | 29x `bytes_to_mb` duplicado | `BYTES_PER_MB` definido mas nunca usado | `[ ]` |
@@ -54,7 +54,7 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 22 | 84 `except Exception` + **4 bare `except:`** | Bare em `subprocess_utils.py:120`, `video_validator.py:562`, `video_compatibility_fixer.py:168,241` | `[ ]` |
+| 22 | 84 `except Exception` + **4 bare `except:`** | Bare em `subprocess_utils.py:120`, `video_validator.py:562`, `video_compatibility_fixer.py:168,241` | `[x]` 4 bare except fixed 2026-07-13 |
 | 23 | 22 funções >100L | `validate_concat_compatibility` (237L), `download_video` (170L) | `[ ]` |
 | 24 | 50+ funções sem return type | `routes.py`, `vad.py`, `vad_utils.py`, `subtitle_processing/` | `[ ]` |
 | 25 | `OCRResult` definido 2x | `ocr_detector_legacy.py` e `ocr_detector_advanced.py` — campos incompatíveis | `[ ]` |
@@ -87,7 +87,7 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 40 | 22 `except Exception` | 6 com tuple redundante `(CircuitBreakerOpenError, Exception)` — subclasse | `[ ]` |
+| 40 | 22 `except Exception` | 6 com tuple redundante `(CircuitBreakerOpenError, Exception)` — subclasse | `[x]` 6 tuples cleaned 2026-07-13 |
 | 41 | 6 unused imports | `Starlette`, `Enum`, `UploadFile`, `BytesIO`, `re`, return type `Any` | `[ ]` |
 | 42 | 9 magic numbers | `24000` sample rate repetido 3x, disk threshold `0.5` | `[ ]` |
 | 43 | 6 padrões duplicados | HuggingFace download logic copiada em `model_manager.py` e `generate_test.py` | `[ ]` |
