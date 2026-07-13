@@ -9,10 +9,10 @@
 
 | # | Serviço | Problema | Arquivo | Status |
 |---|---------|----------|---------|--------|
-| 1 | SE3 | `cleanup_all()` chama `flushdb()` — apaga TODOS os keys do Redis, não só SE3 | `app/infrastructure/redis_store.py:130` | `[ ]` |
-| 2 | SE2 | Redis key prefix mismatch: busca `video_job:*` mas dados salvos com `job:*` — nunca encontra | `app/api/admin_routes.py:136,288` | `[ ]` |
+| 1 | SE3 | `cleanup_all()` chama `flushdb()` — apaga TODOS os keys do Redis, não só SE3 | `app/infrastructure/redis_store.py:130` | `[x]` Fix 2026-07-13 |
+| 2 | SE2 | Redis key prefix mismatch: busca `video_job:*` mas dados salvos com `job:*` — nunca encontra | `app/api/admin_routes.py:136,288` | `[x]` Fix 2026-07-13 |
 | 3 | SE9 | `default_zoom_speed=0.004` no config mas hardcoded `0.002` em ffmpeg — config ignorado | `app/infrastructure/ffmpeg_segments.py:27` | `[ ]` |
-| 4 | SE2 | Versão inconsistente: `config.py`="2.0.0", `main.py`="3.0.0" | `app/core/config.py:14`, `app/main.py:60` | `[ ]` |
+| 4 | SE2 | Versão inconsistente: `config.py`="2.0.0", `main.py`="3.0.0" | `app/core/config.py:14`, `app/main.py:60` | `[x]` Fix 2026-07-13 |
 
 ---
 
@@ -22,11 +22,11 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 5 | 61 `except Exception` catches | Maioria em `main.py` (14), `celery_tasks.py` (13) | `[ ]` |
-| 6 | Duplicação `bytes_to_mb` | `1024*1024` repetido 11x — `BYTES_PER_MB` existe mas não usado | `[ ]` |
+| 5 | 61 `except Exception` catches | Maioria em `main.py` (14), `celery_tasks.py` (13) | `[x]` 3 silent fixed 2026-07-13 |
+| 6 | Duplicação `bytes_to_mb` | `1024*1024` repetido 11x — `BYTES_PER_MB` existe mas não usado | `[x]` FILE_CONSTANTS.BYTES_PER_MB 2026-07-13 |
 | 7 | `AudioNormalizer` definido 2x | `audio_normalizer.py` e `audio_processor.py` — APIs diferentes | `[ ]` |
-| 8 | Dead code | `audio_processor.py:389` `if remove_noise: pass` + `__init__.py` 8 imports mortos | `[ ]` |
-| 9 | Unused imports | `timedelta` em `main.py`, `numpy` em 2 arquivos, `datetime` em `job_manager.py` | `[ ]` |
+| 8 | Dead code | `audio_processor.py:389` `if remove_noise: pass` + `__init__.py` 8 imports mortos | `[x]` Cleaned 2026-07-13 |
+| 9 | Unused imports | `timedelta` em `main.py`, `numpy` em 2 arquivos, `datetime` em `job_manager.py` | `[x]` Removed 2026-07-13 |
 | 10 | Hardcoded HTTP status | ~39x `status_code=400/404/500` — usar `fastapi.status` | `[ ]` |
 
 ### SE2 — Video Downloader
