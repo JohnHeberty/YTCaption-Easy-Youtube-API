@@ -180,6 +180,7 @@ class VideoAssembler:
                 width=width,
                 height=height,
                 fps=fps,
+                zoom_speed=settings.default_zoom_speed,
             )
 
         chosen_seq = random.choice(_STYLE_SEQUENCES)

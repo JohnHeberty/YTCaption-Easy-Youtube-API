@@ -559,7 +559,7 @@ class VideoValidator:
         try:
             num, den = map(int, fps_str.split('/'))
             fps = num / den if den != 0 else 0
-        except:
+        except (ValueError, ZeroDivisionError):
             fps = 0
         
         return {

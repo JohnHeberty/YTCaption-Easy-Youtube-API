@@ -117,7 +117,7 @@ async def run_subprocess_with_timeout(
             try:
                 process.kill()
                 await process.wait()
-            except:
+            except Exception:
                 pass
         
         raise

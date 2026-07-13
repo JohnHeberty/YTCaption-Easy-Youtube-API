@@ -14,17 +14,18 @@ logger = get_logger(__name__)
 async def create_title_card(
     image_path: str,
     output_path: str,
-    duration: float = 0.5,
-    width: int = 1080,
-    height: int = 1920,
+    duration: float,
+    width: int,
+    height: int,
     fps: int = 30,
+    zoom_speed: float = 0.004,
 ) -> None:
     """Create a brief darkened title card (no text overlay)."""
     frames = int(duration * fps)
     vf = (
         f"scale=-2:{height*2}:force_original_aspect_ratio=increase,"
         f"crop={width*2}:{height*2},"
-        f"zoompan=z='1+0.002*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+        f"zoompan=z='1+{zoom_speed}*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
         f":d={frames}:s={width}x{height}:fps={fps},"
         f"format=yuv420p,"
         f"drawbox=x=0:y=0:w=iw:h=ih:color=black@0.5:t=fill"

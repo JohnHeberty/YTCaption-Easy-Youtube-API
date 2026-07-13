@@ -165,7 +165,7 @@ class VideoCompatibilityFixer:
         try:
             import shutil
             shutil.rmtree(temp_dir, ignore_errors=True)
-        except:
+        except Exception:
             pass
 
         logger.info(f"✅ Compatibilização completa: {len(video_paths)} vídeos prontos (originais sobrescritos)")
@@ -238,7 +238,7 @@ class VideoCompatibilityFixer:
                 num, den = fps_str.split('/')
                 return float(num) / float(den)
             return float(fps_str)
-        except:
+        except (ValueError, ZeroDivisionError):
             return 30.0
 
     def _determine_target_spec(

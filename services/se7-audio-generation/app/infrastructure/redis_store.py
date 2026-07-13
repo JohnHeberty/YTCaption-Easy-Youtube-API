@@ -30,7 +30,7 @@ class JobRedisStore(IJobStore):
         try:
             score = job.created_at.timestamp() if job.created_at else 0
             self._store.redis.zadd(self._list_key, {job.id: score})
-        except (CircuitBreakerOpenError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Failed to add job to index: {e}")
 
     def get_job(self, job_id: str) -> AudioGenerationJob | None:
@@ -49,7 +49,7 @@ class JobRedisStore(IJobStore):
     def list_jobs(self, limit: int = 20) -> list[AudioGenerationJob]:
         try:
             job_ids = self._store.redis.zrevrange(self._list_key, 0, limit - 1)
-        except (CircuitBreakerOpenError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Failed to list jobs from index: {e}")
             return []
         jobs: list[AudioGenerationJob] = []
@@ -63,7 +63,7 @@ class JobRedisStore(IJobStore):
         result = self._store.delete(f"{JOB_PREFIX}{job_id}")
         try:
             self._store.redis.zrem(self._list_key, job_id)
-        except (CircuitBreakerOpenError, Exception):
+        except Exception:
             pass
         return result > 0
 
@@ -79,7 +79,7 @@ class VoiceRedisStore(IVoiceStore):
         self._store.set(key, profile.model_dump_json())
         try:
             self._store.redis.sadd(VOICE_INDEX_KEY, profile.id)
-        except (CircuitBreakerOpenError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Failed to add voice to index: {e}")
 
     def get_profile(self, voice_id: str) -> VoiceProfile | None:
@@ -95,7 +95,7 @@ class VoiceRedisStore(IVoiceStore):
     def list_profiles(self) -> list[VoiceProfile]:
         try:
             voice_ids = self._store.redis.smembers(VOICE_INDEX_KEY)
-        except (CircuitBreakerOpenError, Exception) as e:
+        except Exception as e:
             logger.warning(f"Failed to list voices from index: {e}")
             return []
         profiles: list[VoiceProfile] = []
@@ -108,7 +108,7 @@ class VoiceRedisStore(IVoiceStore):
     def delete_profile(self, voice_id: str) -> bool:
         try:
             self._store.redis.srem(VOICE_INDEX_KEY, voice_id)
-        except (CircuitBreakerOpenError, Exception):
+        except Exception:
             pass
         return self._store.delete(f"{VOICE_PREFIX}{voice_id}") > 0
 
