@@ -65,6 +65,8 @@ class JobConstants:
 class FileConstants:
     """Constantes relacionadas a arquivos."""
 
+    BYTES_PER_MB: int = 1024 * 1024
+
     # Diretórios padrão
     DEFAULT_UPLOAD_DIR: Path = Path("./data/uploads")
     DEFAULT_PROCESSED_DIR: Path = Path("./data/processed")

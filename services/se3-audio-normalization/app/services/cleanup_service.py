@@ -16,6 +16,7 @@ from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
 from ..core.config import get_settings
+from ..core.constants import FILE_CONSTANTS
 from ..domain.interfaces import IJobStore
 
 logger = get_logger(__name__)
@@ -161,7 +162,7 @@ class CleanupService:
                 )
 
                 if age > max_age:
-                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    size_mb = file_path.stat().st_size / FILE_CONSTANTS.BYTES_PER_MB
                     await asyncio.to_thread(file_path.unlink)
                     deleted += 1
                     space_freed += size_mb
@@ -186,7 +187,7 @@ class CleanupService:
                 continue
 
             try:
-                size_mb = file_path.stat().st_size / (1024 * 1024)
+                size_mb = file_path.stat().st_size / FILE_CONSTANTS.BYTES_PER_MB
                 await asyncio.to_thread(file_path.unlink)
                 deleted += 1
                 space_freed += size_mb

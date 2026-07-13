@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ..shared.exceptions import AudioNormalizationException
+from ..core.constants import FILE_CONSTANTS
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -23,7 +24,7 @@ class AudioExtractor:
     async def extract_audio_from_video(self, video_path: str, output_dir: Path) -> str:
         """Extrai áudio de arquivo de vídeo"""
         try:
-            video_size_mb = Path(video_path).stat().st_size / (1024 * 1024)
+            video_size_mb = Path(video_path).stat().st_size / FILE_CONSTANTS.BYTES_PER_MB
             logger.info(f"🎬 Starting audio extraction")
             logger.info(f"   └─ Video: {Path(video_path).name} ({video_size_mb:.2f}MB)")
 
@@ -70,7 +71,7 @@ class AudioExtractor:
                     "Audio file not created after extraction"
                 )
 
-            audio_size_mb = audio_path.stat().st_size / (1024 * 1024)
+            audio_size_mb = audio_path.stat().st_size / FILE_CONSTANTS.BYTES_PER_MB
             logger.info(f"✅ Audio extracted in {elapsed:.1f}s")
             logger.info(f"   └─ File: {audio_path.name} ({audio_size_mb:.2f}MB)")
 

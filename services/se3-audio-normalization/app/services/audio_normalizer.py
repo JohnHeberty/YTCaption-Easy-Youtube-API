@@ -5,7 +5,6 @@ Princípio: Single Responsibility + Open/Closed
 from __future__ import annotations
 
 import asyncio
-import numpy as np
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,6 +16,7 @@ import soundfile as sf
 import librosa
 
 from ..shared.exceptions import AudioNormalizationException
+from ..core.constants import FILE_CONSTANTS
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -265,7 +265,7 @@ class AudioNormalizer:
             if not Path(output_path).exists():
                 raise AudioNormalizationException("Output file not created")
 
-            output_size_mb = Path(output_path).stat().st_size / (1024 * 1024)
+            output_size_mb = Path(output_path).stat().st_size / FILE_CONSTANTS.BYTES_PER_MB
             logger.info(f"✅ Output file created: {Path(output_path).name} ({output_size_mb:.2f}MB)")
 
             return output_path

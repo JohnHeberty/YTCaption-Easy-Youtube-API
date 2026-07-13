@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..shared.exceptions import AudioNormalizationException
+from ..core.constants import FILE_CONSTANTS
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -19,7 +20,7 @@ class FileValidator:
 
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
-        self.max_file_size = config.get('max_file_size_mb', 500) * 1024 * 1024
+        self.max_file_size = config.get('max_file_size_mb', 500) * FILE_CONSTANTS.BYTES_PER_MB
         self.max_duration = config.get('max_duration_minutes', 120) * 60
 
     async def validate_file_exists(self, file_path: str) -> bool:
@@ -34,11 +35,11 @@ class FileValidator:
     async def validate_file_size(self, file_path: str) -> bool:
         """Valida tamanho do arquivo"""
         size = Path(file_path).stat().st_size
-        size_mb = size / (1024 * 1024)
+        size_mb = size / FILE_CONSTANTS.BYTES_PER_MB
 
         if size > self.max_file_size:
             raise AudioNormalizationException(
-                f"File too large: {size_mb:.2f}MB exceeds limit of {self.max_file_size/(1024*1024)}MB"
+                f"File too large: {size_mb:.2f}MB exceeds limit of {self.max_file_size/FILE_CONSTANTS.BYTES_PER_MB}MB"
             )
 
         logger.info(f"✅ File size validation passed: {size_mb:.2f}MB")

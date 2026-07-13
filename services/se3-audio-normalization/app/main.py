@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -457,7 +457,7 @@ async def get_stats(
 
     stats["cache"] = {
         "files_count": total_files,
-        "total_size_mb": round(total_size / (1024 * 1024), 2)
+        "total_size_mb": round(total_size / FILE_CONSTANTS.BYTES_PER_MB, 2)
     }
 
     return stats

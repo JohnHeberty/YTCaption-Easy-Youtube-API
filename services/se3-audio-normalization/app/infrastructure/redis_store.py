@@ -3,6 +3,7 @@ Audio-normalization Redis store adapter using common.job_utils.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any
 
@@ -114,7 +115,7 @@ class AudioNormJobStore:
             self._cleanup_task.cancel()
             try:
                 await self._cleanup_task
-            except Exception:
+            except asyncio.CancelledError:
                 pass
             self._cleanup_task = None
 
@@ -128,10 +129,13 @@ class AudioNormJobStore:
                 break
 
     def cleanup_all(self) -> int:
-        total = self.redis.zcard(self.list_key)
+        """Delete all SE3 jobs (keys + sorted set), not the entire Redis DB."""
+        all_ids = self.redis.zrevrange(self.list_key, 0, -1)
+        count = len(all_ids)
+        for jid in all_ids:
+            self.redis.delete(f"{self.key_prefix}{jid.decode()}")
         self.redis.delete(self.list_key)
-        self.redis.flushdb()
-        return total
+        return count
 
     async def get_queue_info(self) -> dict[str, Any]:
         jobs = self.list_jobs(limit=10000)

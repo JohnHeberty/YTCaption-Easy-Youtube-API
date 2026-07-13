@@ -101,7 +101,7 @@ class VideoExtractor:
 
     async def extract_audio(self, video_path: str, output_dir: Path) -> str:
         """Extrai áudio de vídeo usando ffmpeg."""
-        video_size_mb = Path(video_path).stat().st_size / (1024 * 1024)
+        video_size_mb = Path(video_path).stat().st_size / FILE_CONSTANTS.BYTES_PER_MB
         logger.info(f"🎬 Extraindo áudio de vídeo: {Path(video_path).name} ({video_size_mb:.2f}MB)")
 
         audio_path = output_dir / f"extracted_{Path(video_path).stem}.wav"
@@ -260,7 +260,7 @@ class AudioProcessor:
                 self._update_job(job)
 
             # Decide modo de processamento
-            file_size_mb = os.path.getsize(file_to_process) / (1024 * 1024)
+            file_size_mb = os.path.getsize(file_to_process) / FILE_CONSTANTS.BYTES_PER_MB
 
             if file_size_mb > self.config.streaming_threshold_mb:
                 processed_audio = await self._process_with_streaming(job, file_to_process)
@@ -384,10 +384,9 @@ class AudioProcessor:
     ) -> AudioSegment:
         """Aplica operações de processamento."""
 
-        # Remove ruído
+        # Remove ruído (noise reduction delegado ao audio_normalizer)
         if job.remove_noise:
-            # Simplificado - noise reduction é complexo
-            pass
+            pass  # handled by AudioNormalizer pipeline
 
         # Converte para mono
         if job.convert_to_mono:

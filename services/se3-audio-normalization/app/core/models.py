@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 
 from common.job_utils.models import StandardJob, JobStatus
 from common.datetime_utils import now_brazil
+from common.log_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 class AudioNormJob(StandardJob):
@@ -95,8 +98,9 @@ class AudioNormJob(StandardJob):
             from datetime import datetime
             elapsed = (now_brazil() - datetime.fromisoformat(self.last_heartbeat.replace('Z', '+00:00'))).total_seconds() / 60
             return elapsed > 30
-        except Exception:
-            return False
+        except (ValueError, TypeError, OSError) as exc:
+            logger.warning("Job %s: unparseable heartbeat %r, treating as orphaned: %s", self.id, self.last_heartbeat, exc)
+            return True
 
     @property
     def processing_operations(self) -> list[str]:

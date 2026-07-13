@@ -205,8 +205,8 @@ class FileValidator:
             raise ValidationError("Arquivo está vazio", status_code=400)
 
         # Verifica tamanho
-        max_size_bytes = max_size_mb * 1024 * 1024
-        file_size_mb = len(content) / (1024 * 1024)
+        max_size_bytes = max_size_mb * FILE_CONSTANTS.BYTES_PER_MB
+        file_size_mb = len(content) / FILE_CONSTANTS.BYTES_PER_MB
 
         if len(content) > max_size_bytes:
             raise FileTooLargeError(file_size_mb, max_size_mb)

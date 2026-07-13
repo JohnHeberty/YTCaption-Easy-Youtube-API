@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from datetime import datetime
 from common.datetime_utils import now_brazil
 
 from ..core.models import AudioNormJob
