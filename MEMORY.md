@@ -1,6 +1,19 @@
 # Estado Atual — Monorepo YTCaption
 
-## Sessão atual (2026-07-13) — SE11 Multi-Person Pipeline Integration + PLAN items #2 #4 #5 #12
+## Sessão atual (2026-07-13) — SE11 Multi-Person Pipeline Integration + SE8 GPU/Memory Fixes + PLAN items #2 #4 #5 #12 #15 #16
+
+### SE8 Infrastructure Fixes — ITEMS #15 #16 COMPLETE ✅
+
+**#15 GPU mount (driver 590.x):**
+- Added `libnvidia-encode.so.1` + `libnvidia-decode.so.1` mounts to docker-compose.yml (api + worker)
+- Fixed worker Dockerfile healthcheck: was `curl localhost:8009` (wrong), now `celery inspect ping`
+- Host-side fix still needed: `apt install nvidia-container-toolkit=1.20.0~rc.1-1`
+
+**#16 RSS retention (13.64GB not returned):**
+- Added to docker-compose.yml (api + worker): `LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.2`, `MIMALLOC_PURGE_DELAY=0`, `CUDA_LAUNCH_BLOCKING=1`
+- Added `libmimalloc2.0` to Dockerfile.gpu base stage (was only in Dockerfile.gpu-api)
+- Added `ENV LD_PRELOAD` + `ENV MIMALLOC_PURGE_DELAY=0` to Dockerfile.gpu base stage
+- mimalloc aggressively returns freed heap pages to OS, fixing PyTorch C++ allocator retaining 14GB+
 
 ### SE11 Multi-Person Pipeline — ITEM #12 COMPLETE ✅
 - **`pipeline_multi_person.py`**: Full multi-person pipeline class (405 lines)

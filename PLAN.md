@@ -36,8 +36,8 @@
 | 12 | SE11 | Multi-person support — pipeline assume 1 pessoa | `[x]` MultiPersonPipeline + dispatch in run_nsfw (auto-detect >1 person). Tests: 118 pass. 2026-07-13 |
 | 13 | SE11 | Face Restoration — modelos baixados, não integrados | `[x]` Already wired, added face_restore_default config 2026-07-10 |
 | 14 | SE11 | Advanced Blending — Poisson editing planejado não implementado | `[x]` poisson_blend added, blend mode option added 2026-07-10 |
-| 15 | SE8 | GPU mount workaround para driver 590.x | `[!]` Fix: instalar toolkit v1.20.0-rc.1 (usa `Masterminds/semver` para parsing, corrige `590.48.01`). Instalar com `apt install nvidia-container-toolkit=1.20.0~rc.1-1` ou compilar do source. |
-| 16 | SE8 | Python RSS retention: 13.64GB não retornados ao OS | `[ ]` Pendente (infra) |
+| 15 | SE8 | GPU mount workaround para driver 590.x | `[x]` Added libnvidia-encode/decode.so.1 mounts + mimalloc in Dockerfile.gpu + LD_PRELOAD in docker-compose.yml. Host fix: `apt install nvidia-container-toolkit=1.20.0~rc.1-1`. 2026-07-13 |
+| 16 | SE8 | Python RSS retention: 13.64GB não retornados ao OS | `[x]` Added LD_PRELOAD=mimalloc + MIMALLOC_PURGE_DELAY=0 + CUDA_LAUNCH_BLOCKING=1 to docker-compose.yml (api + worker). Mimalloc installed in Dockerfile.gpu base stage. 2026-07-13 |
 
 ---
 

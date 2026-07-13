@@ -11,10 +11,15 @@ ENV LD_LIBRARY_PATH="${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 python3.11-dev python3-pip python3.11-venv \
     build-essential git wget curl ca-certificates \
-    libgl1-mesa-glx libglib2.0-0 && \
+    libgl1-mesa-glx libglib2.0-0 libmimalloc2.0 && \
     rm -rf /var/lib/apt/lists/* && \
     ln -sf /usr/bin/python3.11 /usr/bin/python && \
     python -m pip install --upgrade pip setuptools wheel
+
+# Use mimalloc as system allocator — returns freed pages to OS aggressively
+# Fixes PyTorch C++ allocator retaining 14GB+ of anonymous memory after model unload
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libmimalloc.so.2
+ENV MIMALLOC_PURGE_DELAY=0
 
 # PyTorch + CUDA
 RUN pip install --no-cache-dir \
@@ -105,7 +110,7 @@ RUN useradd -m -u 1000 appuser && \
 USER appuser
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:8009/health || exit 1
+    CMD celery -A app.infrastructure.celery_config.celery_app inspect ping || exit 1
 
 CMD ["celery", "-A", "app.infrastructure.celery_config.celery_app", "worker", \
      "--loglevel=info", "--concurrency=1", "--queues=image_generation_queue", "--pool=solo"]
