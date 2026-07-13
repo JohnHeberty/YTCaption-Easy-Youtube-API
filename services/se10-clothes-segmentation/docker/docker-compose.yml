@@ -13,7 +13,7 @@ services:
       - ../../../shared:/app/common
       - ../app:/app/app
       - ../data:/app/data
-      - /root/YTCaption-Easy-Youtube-API/yolo11m-seg.pt:/app/yolo11m-seg.pt:ro
+      - /root/YTCaption-Easy-Youtube-API/services/se10-clothes-segmentation/data/models/yolo11m-seg.pt:/app/yolo11m-seg.pt:ro
     env_file:
       - ../.env
     extra_hosts:

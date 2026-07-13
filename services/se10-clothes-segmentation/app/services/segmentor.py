@@ -40,7 +40,7 @@ from app.services.segment_helpers import (
 logger = get_logger(__name__)
 
 # YOLO11-seg model path — download if not present
-YOLO_MODEL_PATH = os.environ.get("YOLO_MODEL_PATH", "yolo11m-seg.pt")
+YOLO_MODEL_PATH = os.environ.get("YOLO_MODEL_PATH", str(Path(__file__).resolve().parent.parent.parent / "data" / "models" / "yolo11m-seg.pt"))
 
 
 class ClothesSegmentor:
@@ -128,7 +128,7 @@ class ClothesSegmentor:
         try:
             from app.services.yolo_detector import YOLODetector
             yolo_device = "cuda" if self._device.type == "cuda" else "cpu"
-            yolo_path = os.environ.get("YOLO_MODEL_PATH", "/app/yolo11m-seg.pt")
+            yolo_path = os.environ.get("YOLO_MODEL_PATH", str(Path(__file__).resolve().parent.parent.parent / "data" / "models" / "yolo11m-seg.pt"))
             self._yolo_detector = YOLODetector(
                 model_path=yolo_path, device=yolo_device
             )
