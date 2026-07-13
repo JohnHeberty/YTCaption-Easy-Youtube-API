@@ -114,7 +114,7 @@ class URLValidator:
             result = urlparse(url)
             if not all([result.scheme in ('http', 'https'), result.netloc]):
                 return False
-        except Exception:
+        except (ValueError, TypeError):
             return False
 
         return any(pattern.match(url) for pattern in cls.YOUTUBE_PATTERNS)

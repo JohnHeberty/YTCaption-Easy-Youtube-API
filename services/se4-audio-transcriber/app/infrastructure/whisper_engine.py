@@ -312,8 +312,8 @@ class WhisperEngine(TranscriptionEngine):
                 self._model = None
                 from common.gpu_utils import cleanup_cuda
                 cleanup_cuda()
-        except Exception:
-            pass  # Ignora erros no destructor
+        except Exception as e:
+            logger.debug("Destructor cleanup failed: %s", e)
 
 import datetime
 

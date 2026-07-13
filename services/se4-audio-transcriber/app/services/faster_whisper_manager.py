@@ -146,8 +146,8 @@ ado
                             # Libera CUDA cache antes de tentar CPU
                             try:
                                 torch.cuda.empty_cache()
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.debug("cuda empty_cache failed: %s", e)
                             self.device = "cpu"
                             break  # sai do loop de tentativas → vai tentar na CPU
                         else:

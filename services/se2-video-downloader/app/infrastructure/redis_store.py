@@ -139,8 +139,8 @@ class VideoDownloadJobStore:
                     if fp.exists():
                         try:
                             fp.unlink()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("Failed to delete expired file %s: %s", fp, e)
                 self.delete_job(job.id)
                 expired_count += 1
         return expired_count

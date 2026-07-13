@@ -3,6 +3,10 @@ from __future__ import annotations
 
 import json
 import subprocess as sp  # noqa: F401 – re-exported for convert_to_wav internals
+
+from common.log_utils import get_logger
+
+logger = get_logger(__name__)
 from pathlib import Path
 
 subprocess = sp  # alias used inside try/except blocks
@@ -103,8 +107,8 @@ def convert_to_wav(
             audio = _AudioSegment.from_file(str(input_path))
             if audio.frame_rate == 16000 and audio.channels == 1:
                 return input_path, False
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Probe of %s failed: %s", input_path, e)
         return input_path, False
 
     if ext not in AUDIO_EXTENSIONS_NEEDING_CONVERT and ext not in AUDIO_EXTENSIONS:

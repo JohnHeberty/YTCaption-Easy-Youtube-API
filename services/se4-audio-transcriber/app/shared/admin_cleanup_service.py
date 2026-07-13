@@ -221,8 +221,8 @@ class AdminCleanupService:
                     file_path.unlink()
                     deleted_count += 1
                     freed_mb += size_mb
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to unlink %s: %s", file_path, e)
 
         if deleted_count > 0:
             logger.info(f"🗑️  {dir_label}: {deleted_count} arquivos órfãos removidos")
@@ -285,8 +285,8 @@ class AdminCleanupService:
                     if queue_len > 0:
                         logger.info(f"   Fila '{queue_key}': {queue_len} tasks")
                         tasks_purged += queue_len
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Queue llen failed for %s: %s", queue_key, e)
 
                 deleted = redis_client.delete(queue_key)
                 if deleted:

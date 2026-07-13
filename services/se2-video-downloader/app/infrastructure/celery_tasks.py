@@ -171,8 +171,8 @@ def download_video_task(self: CallbackTask, job_dict: dict[str, Any]) -> dict[st
             job.mark_as_failed(error_msg, error_type="WorkerLostError")
             try:
                 self.job_store.update_job(job)
-            except Exception:
-                pass
+            except Exception as update_err:
+                logger.critical("Failed to persist WorkerLostError for job %s: %s", job_id, update_err)
         
         raise Ignore()
         

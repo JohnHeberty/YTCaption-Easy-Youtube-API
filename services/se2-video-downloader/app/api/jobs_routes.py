@@ -62,8 +62,8 @@ async def create_download_job(request: VideoDownloadJobRequest, store: VideoDown
             active_workers = inspect.active()
             if not active_workers or len(active_workers) == 0:
                 logger.warning("No Celery workers available")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Celery worker inspection failed: %s", e)
 
         new_job = VideoDownloadJob.create_new(request.url, request.quality)
         existing_job = store.get_job(new_job.id)
@@ -141,8 +141,8 @@ async def delete_job(job_id: str, store: VideoDownloadJobStore = Depends(job_sto
             if fp.exists():
                 fp.unlink()
                 files_deleted += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to delete file %s for job %s: %s", job.file_path, job_id, e)
     store.delete_job(job_id)
     return {"message": "Job deleted successfully", "job_id": job_id, "files_deleted": files_deleted}
 

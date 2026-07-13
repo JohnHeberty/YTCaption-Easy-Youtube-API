@@ -147,9 +147,12 @@ class TestWhisperEngine:
             Path(temp_path).unlink(missing_ok=True)
     
     @pytest.mark.asyncio
-    async def test_transcribe_file_not_found(self):
+    @patch("app.infrastructure.whisper_engine.WhisperModel")
+    async def test_transcribe_file_not_found(self, mock_whisper_class):
         """Transcrição com arquivo inexistente."""
+        mock_whisper_class.return_value = MagicMock()
         engine = WhisperEngine()
+        engine._model = mock_whisper_class.return_value
         
         with pytest.raises(Exception) as exc:
             await engine.transcribe("/nonexistent/file.mp3")
