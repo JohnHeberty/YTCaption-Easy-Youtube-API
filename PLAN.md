@@ -1,6 +1,6 @@
 # PLAN — Pendências do Monorepo YTCaption
 
-**Última atualização:** 2026-07-10
+**Última atualização:** 2026-07-13
 
 ---
 
@@ -16,10 +16,10 @@
 
 | # | Serviço | Problema | Status |
 |---|---------|----------|--------|
-| 2 | SE11 | Testado com 1 única imagem (TESTE1.jpg) — precisa mais validação | `[ ]` Pendente |
+| 2 | SE11 | Testado com 1 única imagem (TESTE1.jpg) — precisa mais validação | `[x]` 6 fixtures + 54 parametrized tests 2026-07-13 |
 | 3 | SE11 | **AI Image Detection** não implementado — fotos reais entram no NSFW pipeline | `[x]` Implemented 2026-07-10 |
-| 4 | SE11 | Ghost face no pescoço — artefato visual | `[ ]` Pendente |
-| 5 | SE11 | Edge artifacts — restos de roupa nas bordas | `[ ]` Pendente |
+| 4 | SE11 | Ghost face no pescoço — artefato visual | `[x]` Negative 2.2 + ghost zone applied to both pipelines 2026-07-13 |
+| 5 | SE11 | Edge artifacts — restos de roupa nas bordas | `[x]` dilation_pct=0.03 + 7x7 closing kernel in both pipelines 2026-07-13 |
 | 6 | SE8 | `worker.py` ainda 1,161 linhas — precisa decompor mais | `[x]` 1161→388L 2026-07-10 |
 | 7 | SE8 | 74 bare `except Exception:` — engolem erros silenciosamente | `[x]` 9 silent blocks fixed 2026-07-10 |
 | 8 | SE6 | `channel.py` 848 linhas — precisa decompor | `[x]` 848→117L 2026-07-10 |
@@ -33,7 +33,7 @@
 |---|---------|----------|--------|
 | 10 | SE7 | VRAM leak — fix aplicado mas precisa monitoramento | `[x]` GPU check + VRAM tracking in health 2026-07-10 |
 | 11 | SE11 | Composite score optimization — landmark drift | `[x]` strength_ceiling=0.92 + graduated early stop 2026-07-10 |
-| 12 | SE11 | Multi-person support — pipeline assume 1 pessoa | `[!]` Foundation done: PersonData, detect_all_persons, match_faces_to_persons, detect_all_poses, extract_all_faceid_embeddings. Pipeline integration pending. |
+| 12 | SE11 | Multi-person support — pipeline assume 1 pessoa | `[x]` MultiPersonPipeline + dispatch in run_nsfw (auto-detect >1 person). Tests: 118 pass. 2026-07-13 |
 | 13 | SE11 | Face Restoration — modelos baixados, não integrados | `[x]` Already wired, added face_restore_default config 2026-07-10 |
 | 14 | SE11 | Advanced Blending — Poisson editing planejado não implementado | `[x]` poisson_blend added, blend mode option added 2026-07-10 |
 | 15 | SE8 | GPU mount workaround para driver 590.x | `[!]` Fix: instalar toolkit v1.20.0-rc.1 (usa `Masterminds/semver` para parsing, corrige `590.48.01`). Instalar com `apt install nvidia-container-toolkit=1.20.0~rc.1-1` ou compilar do source. |

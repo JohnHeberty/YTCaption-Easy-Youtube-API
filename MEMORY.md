@@ -1,6 +1,24 @@
 # Estado Atual — Monorepo YTCaption
 
-## Sessão atual (2026-07-13) — PLAN2.md Phases 5-6 (DDD Activation) + GPU toolkit removal
+## Sessão atual (2026-07-13) — SE11 Multi-Person Pipeline Integration + PLAN items #2 #4 #5 #12
+
+### SE11 Multi-Person Pipeline — ITEM #12 COMPLETE ✅
+- **`pipeline_multi_person.py`**: Full multi-person pipeline class (405 lines)
+  - `MultiPersonPipeline.run()`: Detects all persons → processes each individually via `NSFWProductionPipeline._process_single_person()` → composites results
+  - Per-person: SE10 detection, head/face/FaceID extraction, mask refinement, inpainting, scoring
+  - Composite: alpha-blending of all persons into final output
+  - Debug grids: per-person mask + face visualization
+- **Dispatch in `run_nsfw`** (`pipeline_nsfw.py:264-298`):
+  - Pre-scans image for persons via `detect_all_persons()`
+  - >1 person → routes to `MultiPersonPipeline`
+  - 0-1 person → standard `NSFWProductionPipeline` (unchanged behavior)
+- **Tests**: 118 passing (115 + 3 new dispatch tests in `TestMultiPersonDispatch`)
+- **PLAN.md item #12**: Updated to `[x]`
+
+### PLAN items #2, #4, #5 — RESOLVED (commit 97efe348)
+- **#4 Ghost face fix**: Ghost face suppression zone (15x15 kernel erode near face boundary) + negative prompt weight 2.2 applied to **experimental pipeline** (`pipeline_nsfw_experimental.py:173-191`)
+- **#5 Edge artifacts fix**: `dilation_pct: 0.02→0.03` in `nsfw_experimental.yaml` + 7x7 closing kernel + dynamic dilation
+- **#2 Test variety**: 5 new test fixtures + 54 parametrized tests (`test_image_variety.py`)
 
 ### PLAN2.md — ALL 6 PHASES COMPLETE ✅
 - **Phase 1** ✅: `use_domain_driven_architecture: bool = True` in `app/core/config.py:136`

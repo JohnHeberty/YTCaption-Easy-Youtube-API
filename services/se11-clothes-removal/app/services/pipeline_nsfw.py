@@ -262,6 +262,40 @@ class NSFWProductionPipeline(NSFWPipelineBase):
 
 
 async def run_nsfw(job: ClothesRemovalJob, store: ClothesRemovalJobStore) -> None:
-    """Entry point for production NSFW pipeline. Maintains backward compatibility."""
-    pipeline = NSFWProductionPipeline(job, store)
-    await pipeline.run()
+    """Entry point for production NSFW pipeline.
+
+    Pre-scans for multiple persons. If >1 person detected, routes to
+    MultiPersonPipeline for per-person processing.
+    """
+    from app.services.detection_fallbacks import detect_all_persons
+    from app.infrastructure.http_client import SE10Client
+
+    se10 = SE10Client()
+    try:
+        image_bytes = _decode_image(job.request.image)
+        orig_img = _cv2.imdecode(
+            _np.frombuffer(image_bytes, _np.uint8), _cv2.IMREAD_COLOR)
+        if orig_img is None:
+            raise ValueError("Failed to decode image")
+        orig_h, orig_w = orig_img.shape[:2]
+
+        persons, _, _ = await detect_all_persons(
+            se10, image_bytes, job.job_id, orig_h, orig_w,
+            min_area_pct=5.0, include_pose=False,
+        )
+
+        if len(persons) > 1:
+            logger.info("Job %s: %d persons detected, using multi-person pipeline",
+                        job.job_id, len(persons))
+            from app.services.pipeline_multi_person import MultiPersonPipeline
+            mp = MultiPersonPipeline(job, store)
+            await mp.run()
+        else:
+            if persons:
+                logger.info("Job %s: 1 person detected, using standard pipeline", job.job_id)
+            else:
+                logger.info("Job %s: 0 persons detected, using standard pipeline (fallback)", job.job_id)
+            pipeline = NSFWProductionPipeline(job, store)
+            await pipeline.run()
+    finally:
+        await se10.close()

@@ -150,3 +150,95 @@ class TestConstants:
         assert REDIS_KEY_PREFIX == "cr_job:"
         assert REDIS_LIST_KEY == "cr_jobs:list"
         assert REDIS_JOB_TTL == 86400 * 2
+
+
+class TestMultiPersonDispatch:
+    """Tests for multi-person pipeline dispatch logic."""
+
+    def test_multi_person_pipeline_exists(self):
+        from app.services.pipeline_multi_person import MultiPersonPipeline
+        assert MultiPersonPipeline is not None
+
+    def test_run_nsfw_dispatches_to_standard_when_single_person(self):
+        """run_nsfw should use NSFWProductionPipeline when 1 person detected."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+        import asyncio
+        import cv2
+        import numpy as np
+        from app.services.pipeline_nsfw import run_nsfw
+
+        mock_person = MagicMock()
+        mock_person.area_pct = 25.0
+
+        mock_se10 = AsyncMock()
+        mock_se10.close = AsyncMock()
+
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        _, buf = cv2.imencode(".png", img)
+        img_b64 = "data:image/png;base64," + base64.b64encode(buf).decode()
+
+        with patch(
+            "app.services.detection_fallbacks.detect_all_persons",
+            new_callable=AsyncMock,
+            return_value=([mock_person], None, None),
+        ), patch(
+            "app.services.pipeline_nsfw.NSFWProductionPipeline"
+        ) as MockPipeline, patch(
+            "app.infrastructure.http_client.SE10Client",
+            return_value=mock_se10,
+        ):
+            mock_pipeline = AsyncMock()
+            MockPipeline.return_value = mock_pipeline
+
+            job = MagicMock()
+            job.request.image = img_b64
+            job.job_id = "cr_test"
+            store = MagicMock()
+
+            asyncio.run(run_nsfw(job, store))
+
+            MockPipeline.assert_called_once()
+            mock_pipeline.run.assert_called_once()
+
+    def test_run_nsfw_dispatches_to_multi_when_multiple_persons(self):
+        """run_nsfw should use MultiPersonPipeline when >1 person detected."""
+        from unittest.mock import patch, AsyncMock, MagicMock
+        import asyncio
+        import cv2
+        import numpy as np
+        from app.services.pipeline_nsfw import run_nsfw
+
+        mock_person1 = MagicMock()
+        mock_person1.area_pct = 20.0
+        mock_person2 = MagicMock()
+        mock_person2.area_pct = 18.0
+
+        mock_se10 = AsyncMock()
+        mock_se10.close = AsyncMock()
+
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        _, buf = cv2.imencode(".png", img)
+        img_b64 = "data:image/png;base64," + base64.b64encode(buf).decode()
+
+        with patch(
+            "app.services.detection_fallbacks.detect_all_persons",
+            new_callable=AsyncMock,
+            return_value=([mock_person1, mock_person2], None, None),
+        ), patch(
+            "app.services.pipeline_multi_person.MultiPersonPipeline"
+        ) as MockMulti, patch(
+            "app.infrastructure.http_client.SE10Client",
+            return_value=mock_se10,
+        ):
+            mock_multi = AsyncMock()
+            MockMulti.return_value = mock_multi
+
+            job = MagicMock()
+            job.request.image = img_b64
+            job.job_id = "cr_test"
+            store = MagicMock()
+
+            asyncio.run(run_nsfw(job, store))
+
+            MockMulti.assert_called_once()
+            mock_multi.run.assert_called_once()
