@@ -5,7 +5,6 @@ services:
       context: ../../..
       dockerfile: services/se4-audio-transcriber/docker/Dockerfile
     container_name: ytcaption-se4-audio-transcriber-api
-    runtime: nvidia
     ports:
       - "${PORT}:${PORT}"
     volumes:
@@ -16,9 +15,17 @@ services:
       - ../data/models:/app/data/models
       - ../data/temp:/app/data/temp
       - ../data/logs:/app/data/logs
-      - /usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:ro
-      - /dev/nvidia-caps:/dev/nvidia-caps:rwm
-      - /dev/nvidia-modeset:/dev/nvidia-modeset:rwm
+      # GPU libs (LXC passthrough)
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/usr/lib/x86_64-linux-gnu/libcuda.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:ro
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
     env_file:
       - ../.env
     environment:
@@ -26,7 +33,9 @@ services:
       - PYTHONPATH=/app
       - WHISPER_DEVICE=cuda
       - WHISPER_FALLBACK_CPU=true
+      - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_DISABLE_REQUIRE=1
     deploy:
       resources:
         limits:
@@ -48,7 +57,6 @@ services:
       context: ../../..
       dockerfile: services/se4-audio-transcriber/docker/Dockerfile
     container_name: audio-transcriber-celery
-    runtime: nvidia
     command: python -m celery -A app.infrastructure.celery_config worker --loglevel=info --concurrency=1 --pool=solo --queues=audio_transcriber_queue
     volumes:
       - ../../../shared:/app/common
@@ -58,9 +66,17 @@ services:
       - ../data/models:/app/data/models
       - ../data/temp:/app/data/temp
       - ../data/logs:/app/data/logs
-      - /usr/lib/x86_64-linux-gnu:/usr/local/nvidia/lib:ro
-      - /dev/nvidia-caps:/dev/nvidia-caps:rwm
-      - /dev/nvidia-modeset:/dev/nvidia-modeset:rwm
+      # GPU libs (LXC passthrough)
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/lib/x86_64-linux-gnu/libcuda.so.1:ro
+      - /usr/lib/x86_64-linux-gnu/libcuda.so:/usr/lib/x86_64-linux-gnu/libcuda.so:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ptxjitcompiler.so.1:ro
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
     env_file:
       - ../.env
     environment:
@@ -69,7 +85,9 @@ services:
       - C_FORCE_ROOT=true
       - WHISPER_DEVICE=cuda
       - WHISPER_FALLBACK_CPU=true
+      - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      - NVIDIA_DISABLE_REQUIRE=1
     deploy:
       resources:
         limits:

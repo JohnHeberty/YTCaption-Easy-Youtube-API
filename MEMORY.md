@@ -1,6 +1,48 @@
 # Estado Atual — Monorepo YTCaption
 
-## Última sessão (2026-07-10) — SE11 Fixes (#2,#4,#5) + SE8/SE11 Docker Networking + Toolkit Investigation
+## Sessão atual (2026-07-13) — PLAN2.md Phases 5-6 (DDD Activation) + GPU toolkit removal
+
+### PLAN2.md — ALL 6 PHASES COMPLETE ✅
+- **Phase 1** ✅: `use_domain_driven_architecture: bool = True` in `app/core/config.py:136`
+- **Phase 2** ✅: `LoadApprovedVideosStage` + `ValidateAVSyncStage` created + `domain_integration.py` updated
+- **Phase 3** ✅: All stage fixes (constants 5s-3600s, select_shorts warning, assemble_video CONCAT_TOLERANCE, generate_subtitles retry+weighted cues, final_composition subtitle_style fix, trim_video FINAL_TOLERANCE)
+- **Phase 4** ✅: Checkpoints, status, metrics in domain_integration
+- **Phase 5** ✅: 4 test files created/updated:
+  - `tests/unit/domain/stages/test_load_approved_stage.py` — 4 tests ✅
+  - `tests/unit/domain/stages/test_all_stages_integration.py` — 3 tests ✅
+  - `tests/integration/domain/test_full_chain.py` — 6 tests ✅ (new)
+  - `tests/integration/domain/test_saga_compensation.py` — 7 tests ✅ (new)
+  - `tests/unit/domain/stages/test_stages.py` — 22 tests ✅ (updated: removed FetchShortsStage/DownloadShortsStage references, added LoadApprovedVideosStage + ValidateAVSyncStage)
+- **Phase 6** ✅: `use_domain_driven_architecture = True` already set
+- **97/97 domain tests passing**
+
+### GPU Compose — nvidia-container-toolkit removed (devices: directive)
+All 6 GPU services now use `devices:` for cgroup access + volume mounts for GPU libs:
+- SE3: audio-normalization-api + celery → `CUDA: True` ✅
+- SE4: ytcaption-se4-audio-transcriber-api → `CUDA: True` ✅
+- SE5: ytcaption-make-video-clip + celery → `CUDA: True` ✅
+- SE7: audio-generation-api + celery → `CUDA: True` ✅
+- SE8: image-engine-api + worker → `cuInit=0` ✅
+- SE10: ytcaption-se10-clothes-segmentation → `cuInit=0` ✅
+
+**Key finding:** Volume mounts alone don't grant cgroup device access. Must use `devices:` directive.
+**Pre-existing issue:** SE3, SE5, SE7 `.env` use `PORT=800${DIVISOR}` (doesn't expand in Docker Compose).
+
+### Files Modified (GPU)
+- `services/se4-audio-transcriber/docker/docker-compose.yml` — removed `runtime: nvidia`, added `devices:`
+- `services/se8-image-generation/docker/docker-compose.yml` + `docker-compose.gpu.yml` — removed reservations, added `devices:`
+- `services/se10-clothes-segmentation/docker/docker-compose.gpu.yml` — removed reservations, added `devices:`
+- `services/se7-audio-generation/docker/docker-compose.yml` — standardized mounts + `devices:`
+- `services/se3-audio-normalization/docker/docker-compose.gpu.yml` — standardized mounts + `devices:`
+- `services/se5-make-video-clip/docker/docker-compose.gpu.yml` — standardized mounts + `devices:`
+
+### Files Modified (DDD Phases 5-6)
+- `services/se5-make-video-clip/tests/integration/domain/test_full_chain.py` — NEW
+- `services/se5-make-video-clip/tests/integration/domain/test_saga_compensation.py` — NEW
+- `services/se5-make-video-clip/tests/unit/domain/stages/test_stages.py` — UPDATED (removed old stage refs)
+
+### Remaining
+- Commit + push all changes
 
 ### SE11 Ghost Face Fix (#4)
 - Negative prompt weight: 1.8→2.2 for `(extra face, second face, face on body, face on chest, face below neck)`
