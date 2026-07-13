@@ -133,7 +133,7 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
 
             redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
 
-            keys_before = redis.keys("video_job:*")
+            keys_before = redis.keys("job:*")
             report["jobs_removed"] = len(keys_before)
 
             redis.flushdb()
@@ -285,7 +285,7 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
         try:
             redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
 
-            keys_after = redis.keys("video_job:*")
+            keys_after = redis.keys("job:*")
             if keys_after:
                 logger.warning(f"⚠️ {len(keys_after)} jobs foram salvos DURANTE a limpeza! Executando FLUSHDB novamente...")
                 redis.flushdb()
