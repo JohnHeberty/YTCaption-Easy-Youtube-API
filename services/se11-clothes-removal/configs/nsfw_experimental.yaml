@@ -66,7 +66,7 @@ face_protection:
   margin_above: 0.50
   margin_below: 0.70
   margin_sides: 0.40
-  dilation_pct: 0.02
+  dilation_pct: 0.03
   feather_bottom_px: 25
 
 scoring:

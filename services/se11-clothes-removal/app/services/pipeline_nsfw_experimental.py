@@ -170,6 +170,28 @@ class NSFWExperimentalPipeline(NSFWPipelineBase):
             logger.info("Job %s: layered protection applied (hair=%d face=%d)",
                         self.job_id, _cv2.countNonZero(hair_mask), _cv2.countNonZero(face_mask))
 
+            # Smooth edges: dynamic dilation based on fp_dilation_pct
+            dilation_px = max(10, int(min(self.orig_w, self.orig_h) * nsfw_cfg.fp_dilation_pct))
+            expand_kernel = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (dilation_px, dilation_px))
+            inpaint_mask = _cv2.dilate(inpaint_mask, expand_kernel, iterations=2)
+
+            # Clip to expanded person (no background leaking)
+            person_expanded = _cv2.dilate(self.person_binary, expand_kernel, iterations=3)
+            inpaint_mask = _cv2.bitwise_and(inpaint_mask, person_expanded)
+
+            # Ghost face suppression zone: erode near face boundary to prevent
+            # SE8 from hallucinating facial features at mask/protection junction
+            face_zone = _cv2.dilate(protection_mask, expand_kernel, iterations=2)
+            ghost_erosion_k = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (15, 15))
+            inpaint_near_face = _cv2.bitwise_and(inpaint_mask, face_zone)
+            inpaint_near_face = _cv2.erode(inpaint_near_face, ghost_erosion_k, iterations=1)
+            inpaint_elsewhere = _cv2.bitwise_and(inpaint_mask, _cv2.bitwise_not(face_zone))
+            inpaint_mask = _cv2.bitwise_or(inpaint_elsewhere, inpaint_near_face)
+
+            # Morphological closing to fill small holes
+            close_smooth = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (7, 7))
+            inpaint_mask = _cv2.morphologyEx(inpaint_mask, _cv2.MORPH_CLOSE, close_smooth, iterations=2)
+
         self.inpaint_mask = inpaint_mask
 
     def _build_clothes_mask(self) -> None:
