@@ -1,6 +1,18 @@
 # Estado Atual — Monorepo YTCaption
 
-## Sessão atual (2026-07-13) — SE11 Multi-Person Pipeline Integration + SE8 GPU/Memory Fixes + PLAN items #2 #4 #5 #12 #15 #16
+## Sessão atual (2026-07-13) — Clean Code Audit + SE11 Multi-Person + SE8 GPU/Memory
+
+### Clean Code Audit — COMPLETE ✅
+- Scanned all 11 services (SE1-SE11) for code quality issues
+- **282+ `except Exception`** broad catches across all services
+- **41 funções >100 linhas** (SE4: 407L function, SE8: 243L)
+- **4 bugs funcionais** identified:
+  1. SE3 `flushdb()` apaga Redis inteiro — ALTO
+  2. SE2 Redis key prefix mismatch — ALTO
+  3. SE9 zoom speed config ignorado — MEDIO
+  4. SE2 version mismatch — BAIXO
+- **PLAN.md sobrescrito** com 54 itens organizados por severidade
+- Priority order: SE3 → SE2 → SE4 → SE5 → SE8 → SE6 → SE7 → SE9 → SE1/10/11
 
 ### SE8 Infrastructure Fixes — ITEMS #15 #16 COMPLETE ✅
 
@@ -66,6 +78,38 @@ All 6 GPU services now use `devices:` for cgroup access + volume mounts for GPU 
 - `services/se7-audio-generation/docker/docker-compose.yml` — standardized mounts + `devices:`
 - `services/se3-audio-normalization/docker/docker-compose.gpu.yml` — standardized mounts + `devices:`
 - `services/se5-make-video-clip/docker/docker-compose.gpu.yml` — standardized mounts + `devices:`
+
+### SE8 Clean Code Audit — COMPLETE (2026-07-13)
+
+**Scope:** `app/` + `modules/` directories (all .py files, excludes tests/ldm_patched/extras/)
+
+**Findings by category:**
+
+| Category | Count | Severity |
+|---|---|---|
+| Bare `except Exception` / bare `except:` | 59 occurrences (57 + 2 bare) | High |
+| Unused imports | 0 significant | N/A |
+| Dead code | 0 significant | N/A |
+| Magic numbers | ~110 instances across 20 files | High |
+| TODO/FIXME/HACK | 0 in app/modules | N/A |
+| Missing type hints | ~158 functions (108 modules + 50 app) | Critical |
+| Long functions (>100L) | 10 functions | High |
+| God classes (>15M) | 4 classes (ModelManager:44, ModelPatcher:30, Pipeline:27, TaskQueue:21) | High |
+| String literal constants | ~10 distinct repeated strings, 100+ total occurrences | Medium |
+| Duplicate code patterns | 8 distinct patterns (2 critical, 3 high, 2 medium, 1 low) | High |
+
+**Top 5 refactoring targets:**
+1. `Pipeline.process_diffusion` (243L) — decompose by refiner swap strategy
+2. `ModelManager` (44 methods) — split into DeviceManager, MemoryManager, DtypeResolver, InterruptController
+3. `IMAGE_EXTS` duplication — consolidate to `app/core/constants.py`
+4. FaceRestoreHelper singleton — extract shared factory (`face_crop.py` / `face_restoration.py` exact copy)
+5. InpaintWorker utilities — remove `app/services/inpaint_worker.py` copies, import from `modules/`
+
+**Duplicate code critical findings:**
+- `app/services/model_patcher.py` vs `ldm_patched/modules/model_patcher.py` — ~350 lines of duplicated patch math
+- `face_crop.py:18-44` vs `face_restoration.py:16-42` — exact copy of FaceRestoreHelper singleton
+- `modules/inpaint_worker.py` vs `app/services/inpaint_worker.py` — 5 utility functions duplicated
+- `modules/core.py:220-279` vs `app/infrastructure/core_ops.py:349-441` — VAE preview duplicated
 
 ### Files Modified (DDD Phases 5-6)
 - `services/se5-make-video-clip/tests/integration/domain/test_full_chain.py` — NEW

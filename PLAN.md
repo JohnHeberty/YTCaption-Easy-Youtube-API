@@ -1,123 +1,157 @@
-# PLAN — Pendências do Monorepo YTCaption
+# PLAN — Clean Code & Bugs do Monorepo YTCaption
 
 **Última atualização:** 2026-07-13
+**Fase atual:** Clean Code Audit (11 services, 282+ except Exception, 41 funções >100L)
 
 ---
 
-## 🔴 CRÍTICO
+## 🔴 CRÍTICO — Bugs Funcionais
+
+| # | Serviço | Problema | Arquivo | Status |
+|---|---------|----------|---------|--------|
+| 1 | SE3 | `cleanup_all()` chama `flushdb()` — apaga TODOS os keys do Redis, não só SE3 | `app/infrastructure/redis_store.py:130` | `[ ]` |
+| 2 | SE2 | Redis key prefix mismatch: busca `video_job:*` mas dados salvos com `job:*` — nunca encontra | `app/api/admin_routes.py:136,288` | `[ ]` |
+| 3 | SE9 | `default_zoom_speed=0.004` no config mas hardcoded `0.002` em ffmpeg — config ignorado | `app/infrastructure/ffmpeg_segments.py:27` | `[ ]` |
+| 4 | SE2 | Versão inconsistente: `config.py`="2.0.0", `main.py`="3.0.0" | `app/core/config.py:14`, `app/main.py:60` | `[ ]` |
+
+---
+
+## 🟠 ALTO — Clean Code por Serviço
+
+### SE3 — Audio Normalization
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 5 | 61 `except Exception` catches | Maioria em `main.py` (14), `celery_tasks.py` (13) | `[ ]` |
+| 6 | Duplicação `bytes_to_mb` | `1024*1024` repetido 11x — `BYTES_PER_MB` existe mas não usado | `[ ]` |
+| 7 | `AudioNormalizer` definido 2x | `audio_normalizer.py` e `audio_processor.py` — APIs diferentes | `[ ]` |
+| 8 | Dead code | `audio_processor.py:389` `if remove_noise: pass` + `__init__.py` 8 imports mortos | `[ ]` |
+| 9 | Unused imports | `timedelta` em `main.py`, `numpy` em 2 arquivos, `datetime` em `job_manager.py` | `[ ]` |
+| 10 | Hardcoded HTTP status | ~39x `status_code=400/404/500` — usar `fastapi.status` | `[ ]` |
+
+### SE2 — Video Downloader
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 11 | 42 `except Exception` | 16 em `admin_routes.py`, 7 em `celery_tasks.py` | `[ ]` |
+| 12 | 30+ magic numbers | Timeouts `600/1800/2400`, limits `50/100/10000`, weights `0.25` | `[ ]` |
+| 13 | 2 funções >100L | `_perform_total_cleanup` (209L), `_sync_download` (162L) | `[ ]` |
+| 14 | 5 padrões duplicados | File cleanup loops (3x), regex extractions (3x), store instantiations (4x) | `[ ]` |
+| 15 | `import json` dentro de funções | `admin_routes.py:27,419` | `[ ]` |
+
+### SE4 — Audio Transcriber
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 16 | 70 `except Exception` | 4 bare `except:` sem tipo (captura SystemExit) | `[ ]` |
+| 17 | 12 funções >100L | `submit_processing_task` (407L!), `transcribe_audio` (238L) | `[ ]` |
+| 18 | Model size dicts inconsistentes | 5 arquivos com 3 valores diferentes para o mesmo conceito | `[ ]` |
+| 19 | 29x `bytes_to_mb` duplicado | `BYTES_PER_MB` definido mas nunca usado | `[ ]` |
+| 20 | `TorchDeviceManager` duplicado | `app/shared/device_manager.py` e `app/services/device_manager.py` | `[ ]` |
+| 21 | 2 health check modules | `health_checkers.py` (funções) vs `health_checker.py` (classe) | `[ ]` |
+
+### SE5 — Make Video Clip
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 22 | 84 `except Exception` + **4 bare `except:`** | Bare em `subprocess_utils.py:120`, `video_validator.py:562`, `video_compatibility_fixer.py:168,241` | `[ ]` |
+| 23 | 22 funções >100L | `validate_concat_compatibility` (237L), `download_video` (170L) | `[ ]` |
+| 24 | 50+ funções sem return type | `routes.py`, `vad.py`, `vad_utils.py`, `subtitle_processing/` | `[ ]` |
+| 25 | `OCRResult` definido 2x | `ocr_detector_legacy.py` e `ocr_detector_advanced.py` — campos incompatíveis | `[ ]` |
+| 26 | 2 hierarquias de exceção | `exceptions.py` e `exceptions_v2.py` — importadas inconsistentemente | `[ ]` |
+| 27 | 30+ magic numbers | Thresholds OpenCV, scoring weights, progress percentages | `[ ]` |
+
+### SE8 — Image Generation
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 28 | 74 `except Exception` | 12 em `worker.py`, 8 em `task_queue.py`, 6 em `ip_adapter_worker.py` | `[ ]` |
+| 29 | God class `ModelManager` | 44 métodos — 5 responsabilidades misturadas | `[ ]` |
+| 30 | 9 funções >100L | `process_diffusion` (243L), `apply_inpaint` (241L) | `[ ]` |
+| 31 | 158 funções sem type hints | Concentrado em módulos fork do Fooocus | `[ ]` |
+| 32 | Código duplicado | `_get_face_restore_helper()` copiado em 2 arquivos | `[ ]` |
+| 33 | 15 bare `except Exception:` (sem alias) | Erros completamente descartados sem log | `[ ]` |
+
+### SE6 — YouTube Search
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 34 | 55 `except Exception` | Muitos silent `except Exception: pass` em `video.py`, `playlist.py`, `search.py` | `[ ]` |
+| 35 | 7 dead code | Funções nunca chamadas: `get_video_info_oembed()`, `filter_videos_by_type()`, `next_proxie()` | `[ ]` |
+| 36 | InnerTube clientVersion inconsistente | `video.py` usa `"2.20220502.01.00"`, `search.py` usa `"2.20200720.00.00"` | `[ ]` |
+| 37 | ~100L código duplicado em playlist.py | `_extract_playlist_videos` vs `_fetch_continuation_page` | `[ ]` |
+| 38 | 6 unused imports | `datetime`, `timedelta`, `json`, `ProcessingTimeoutError`, `now_brazil` | `[ ]` |
+| 39 | 24 magic numbers | Disk thresholds, progress %, timeouts, thumbnail dimensions | `[ ]` |
+
+### SE7 — Audio Generation
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 40 | 22 `except Exception` | 6 com tuple redundante `(CircuitBreakerOpenError, Exception)` — subclasse | `[ ]` |
+| 41 | 6 unused imports | `Starlette`, `Enum`, `UploadFile`, `BytesIO`, `re`, return type `Any` | `[ ]` |
+| 42 | 9 magic numbers | `24000` sample rate repetido 3x, disk threshold `0.5` | `[ ]` |
+| 43 | 6 padrões duplicados | HuggingFace download logic copiada em `model_manager.py` e `generate_test.py` | `[ ]` |
+
+### SE9 — Make Video Image
+
+| # | Problema | Detalhe | Status |
+|---|----------|---------|--------|
+| 44 | FFmpeg H264 args duplicados 5+ vezes | Mesma string em `ffmpeg_segments.py`, `ffmpeg_captions.py`, `ffmpeg_concat.py` | `[ ]` |
+| 45 | `check_se7`/`check_se8` idênticos | `health_routes.py:33-51` — mesma lógica, URL diferente | `[ ]` |
+| 46 | `"builtin_feminino"` repetido 7x | Deveria ser `DEFAULT_VOICE_ID` em `constants.py` | `[ ]` |
+| 47 | 11 `except Exception` | 2 silent em `redis_store.py:228,255` | `[ ]` |
+| 48 | 12 magic numbers | Zoom speed, CRF quality, crossfade ratios, Redis pool sizes | `[ ]` |
+
+### SE1 / SE10 / SE11 — Menor prioridade
 
 | # | Serviço | Problema | Status |
 |---|---------|----------|--------|
-| 1 | SE1 | Container **UNHEALTHY** — orchestrator health check falhando | `[x]` Fix 2026-07-10 |
+| 49 | SE1 | 25 `except Exception` + 17 magic numbers + factory_reset 105L | `[ ]` |
+| 50 | SE10 | 15 `except Exception` + 4 funções >100L | `[ ]` |
+| 51 | SE11 | 48 `except Exception` + `run_clothes_removal` 286L + mask decode duplicado 8x | `[ ]` |
 
 ---
 
-## 🟠 ALTO
+## 🟡 MÉDIO — Melhorias Transversais
 
-| # | Serviço | Problema | Status |
-|---|---------|----------|--------|
-| 2 | SE11 | Testado com 1 única imagem (TESTE1.jpg) — precisa mais validação | `[x]` 6 fixtures + 54 parametrized tests 2026-07-13 |
-| 3 | SE11 | **AI Image Detection** não implementado — fotos reais entram no NSFW pipeline | `[x]` Implemented 2026-07-10 |
-| 4 | SE11 | Ghost face no pescoço — artefato visual | `[x]` Negative 2.2 + ghost zone applied to both pipelines 2026-07-13 |
-| 5 | SE11 | Edge artifacts — restos de roupa nas bordas | `[x]` dilation_pct=0.03 + 7x7 closing kernel in both pipelines 2026-07-13 |
-| 6 | SE8 | `worker.py` ainda 1,161 linhas — precisa decompor mais | `[x]` 1161→388L 2026-07-10 |
-| 7 | SE8 | 74 bare `except Exception:` — engolem erros silenciosamente | `[x]` 9 silent blocks fixed 2026-07-10 |
-| 8 | SE6 | `channel.py` 848 linhas — precisa decompor | `[x]` 848→117L 2026-07-10 |
-| 9 | SE4 | `job_state_updater.py` com ~25 `type: ignore` suppressions | `[x]` 24/30 removed 2026-07-10 |
+| # | Problema | Escopo | Status |
+|---|----------|--------|--------|
+| 52 | `1024*1024` repetido 40x+ | Todos services — usar `BYTES_PER_MB` constante | `[ ]` |
+| 53 | HTTP status codes hardcoded | Usar `fastapi.status` em vez de inteiros | `[ ]` |
+| 54 | Dead `logging_config.py` | SE2, SE3 — módulos nunca importados | `[ ]` |
 
 ---
 
-## 🟡 MÉDIO
+## ✅ Concluído (referência — sessões anteriores)
 
-| # | Serviço | Problema | Status |
-|---|---------|----------|--------|
-| 10 | SE7 | VRAM leak — fix aplicado mas precisa monitoramento | `[x]` GPU check + VRAM tracking in health 2026-07-10 |
-| 11 | SE11 | Composite score optimization — landmark drift | `[x]` strength_ceiling=0.92 + graduated early stop 2026-07-10 |
-| 12 | SE11 | Multi-person support — pipeline assume 1 pessoa | `[x]` MultiPersonPipeline + dispatch in run_nsfw (auto-detect >1 person). Tests: 118 pass. 2026-07-13 |
-| 13 | SE11 | Face Restoration — modelos baixados, não integrados | `[x]` Already wired, added face_restore_default config 2026-07-10 |
-| 14 | SE11 | Advanced Blending — Poisson editing planejado não implementado | `[x]` poisson_blend added, blend mode option added 2026-07-10 |
-| 15 | SE8 | GPU mount workaround para driver 590.x | `[x]` Added libnvidia-encode/decode.so.1 mounts + mimalloc in Dockerfile.gpu + LD_PRELOAD in docker-compose.yml. Host fix: `apt install nvidia-container-toolkit=1.20.0~rc.1-1`. 2026-07-13 |
-| 16 | SE8 | Python RSS retention: 13.64GB não retornados ao OS | `[x]` Added LD_PRELOAD=mimalloc + MIMALLOC_PURGE_DELAY=0 + CUDA_LAUNCH_BLOCKING=1 to docker-compose.yml (api + worker). Mimalloc installed in Dockerfile.gpu base stage. 2026-07-13 |
+| Data | Descrição |
+|------|-----------|
+| 2026-07-13 | SE11 Multi-person pipeline + SE8 mimalloc/GPU fixes + SE10 model paths |
+| 2026-07-10 | Phase 1-4 SOLID refactoring + AGENTS.md + Config Coherence Cleanup |
+| 2026-07-10 | SE5 DDD architecture (Phases 1-6) |
+| 2026-07-09 | Event publishing + stage tracking + SE5 E2E |
 
 ---
 
-## 🔵 BAIXO
+## Métricas da Auditoria Clean Code
 
-| # | Serviço | Problema | Status |
-|---|---------|----------|--------|
-| 17 | SE11 | show/ permission denied no container | `[x]` Volume mount added 2026-07-10 |
-| 18 | SE11 | Old stuck jobs no Redis | `[x]` TTL 2d + stale cleanup in list_jobs |
-| 19 | SE11 | Lazy-load IP-Adapter/ControlNet (~2.7GB RAM) | `[x]` Already lazy-loaded on demand |
-| 20 | SE11 | Lazy-load ControlNet Union (~2.4GB RAM) | `[x]` Already lazy-loaded on demand |
-| 21 | SE9 | `ffmpeg_utils.py` 521 linhas — 10 responsabilidades | `[x]` 521→57L + 5 modules 2026-07-10 |
-| 22 | Docker | 4 containers órfãos rodando (build leftovers) | `[x]` N/A — MCP servers (repomix+serena) |
+| Métrica | Total |
+|---------|-------|
+| `except Exception` broad catches | **282+** |
+| Bare `except:` (sem tipo) | **8** |
+| Funções >100 linhas | **41** |
+| Magic numbers | **117+** |
+| Código duplicado padrões | **23** |
+| Funções sem type hints | **164+** |
+| Dead code / unused imports | **24+** |
+| God classes (>15 métodos) | **4** |
+| Bugs funcionais | **4** |
 
----
+### Bugs funcionais confirmados
 
-## ✅ Concluído (referência — commits recentes)
-
-| Commit | Data | Descrição |
-|--------|------|-----------|
-| `3861e70e` | 2026-07-10 | TRSD activation + fps bug fix |
-| `39992ec0` | 2026-07-09 | SE5 DDD architecture (Phases 1-6) |
-| `6df49212` | 2026-07-09 | Event publishing fix + stage display names |
-| `6b4eeb54` | 2026-07-09 | 15 unit tests for stage callback |
-| `7edce3cc` | 2026-07-09 | Real-time stage tracking in DDD path |
-| `b12902e5` | 2026-07-09 | SE5 E2E real support |
-| `84d57a44` | 2026-07-09 | SE6 YouTube Shorts extraction fix |
-| `b87b6225` | 2026-07-10 | Event publishing + legacy code cleanup |
-| `ef468235` | 2026-07-10 | SE4 DLQ + SE5 user tier |
-| `11b77c3f` | 2026-07-10 | SE8 TODO cleanup |
-
----
-
-## Refatoração SOLID (histórico)
-
-### Status
-
-| Item | Status |
-|------|--------|
-| Auditoria completa SE6-SE11 | `[x]` Feita |
-| Auditoria detalhada SE1-SE5 | `[x]` Feita |
-| SE5 `celery_tasks.py` refactoring | `[x]` 2,078L → 13 módulos |
-| SE11 `_helpers.py` refactoring | `[x]` 1,045L → 6 módulos |
-| SE10 `segmentor.py` refactoring | `[x]` 457L → 377L |
-| SE9 DIP refactoring | `[x]` singleton |
-| SE6 `ytbpy/` refactoring | `[x]` duration parsing dedup |
-| SE8 `worker.py` refactoring | `[x]` 1,472L → 1,161L |
-| SE11 pipelines Template Method | `[x]` 910L+776L → 257L+307L |
-
-### God Functions restantes
-
-| # | Arquivo | Linhas | Problema |
-|---|---------|--------|----------|
-| 1 | SE8 `worker.py` | 1,161 | Ainda precisa decompor mais |
-| 2 | SE6 `channel.py` | 848 | 3 estratégias de parsing YouTube |
-| 3 | SE9 `ffmpeg_utils.py` | 521 | 10 responsabilidades |
-| 4 | SE11 `pose_detector.py` | 888 | Dataclasses + detector + renderer + CLI |
-
----
-
-## Métricas do Monorepo
-
-| Service | Arquivos | Linhas | Nota | Esforço Est. |
-|---------|----------|--------|------|-------------|
-| SE8 | 37 | ~10,355 | F | 40-60h |
-| SE11 | 16 | ~8,056 | F | 50-70h |
-| SE6 | 33 | 5,382 | D | 18-22h |
-| SE9 | 17 | 2,184 | D | 14-18h |
-| SE10 | 12 | ~1,936 | C+ | 12-18h |
-| SE7 | 20 | 1,860 | B- | 6-8h |
-| SE1-SE5 | — | — | C | ~26h |
-| **Total** | — | — | — | **~160-200h** |
-
-### Bare Except (catch-all)
-
-| Service | Ocorrências |
-|---------|-------------|
-| SE8 | 74 |
-| SE11 | 53 |
-| SE1-SE5 (total) | 98 |
-| SE6 | 12+ |
-| SE7 | 8 |
-| SE10 | 17 |
+| # | Bug | Risco |
+|---|-----|-------|
+| 1 | SE3 `flushdb()` apaga Redis inteiro | **ALTO** — pode apagar jobs de outros serviços |
+| 2 | SE2 Redis key prefix mismatch | **ALTO** — admin cleanup nunca encontra jobs |
+| 3 | SE9 zoom speed config ignorado | **MÉDIO** — video pode ter velocidade errada |
+| 4 | SE2 version mismatch | **BAIXO** — cosmético |
