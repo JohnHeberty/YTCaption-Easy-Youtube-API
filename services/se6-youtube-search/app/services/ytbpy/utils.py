@@ -8,6 +8,9 @@ import socket
 from datetime import datetime
 from typing import Any
 import os
+from common.log_utils import get_logger
+
+logger = get_logger(__name__)
 
 proxys: list[dict[str, Any]] = []
 if os.path.exists("proxies.txt"):
@@ -157,5 +160,6 @@ def get_innertube_api_key() -> str:
     try:
         from app.core.config import get_settings
         return get_settings().youtube_innertube_api_key
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to load innertube API key from settings: %s", e)
         return _DEFAULT_INNERTUBE_KEY

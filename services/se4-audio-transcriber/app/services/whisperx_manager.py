@@ -8,6 +8,8 @@ import gc
 import logging
 import time
 import torch
+
+from ..core.constants import WHISPERX_MODEL_SIZES
 from pathlib import Path
 from typing import Any
 
@@ -149,13 +151,7 @@ class WhisperXManager(IModelManager):
         logger.warning(f"🔥 Descarregando WhisperX '{self.model_name}' do {self.device}")
         
         # Estimativa de memória
-        model_sizes = {
-            'tiny': 100,
-            'base': 200,
-            'small': 600,
-            'medium': 1800,
-            'large': 3500
-        }
+        ram_freed = WHISPERX_MODEL_SIZES.get(self.model_name, 200)
         
         # Limpa modelos
         del self.model
@@ -175,7 +171,7 @@ class WhisperXManager(IModelManager):
         if self.device == 'cuda' and torch.cuda.is_available():
             torch.cuda.empty_cache()
         
-        ram_freed = model_sizes.get(self.model_name, 200)
+        ram_freed = WHISPERX_MODEL_SIZES.get(self.model_name, 200)
         
         logger.info(f"✅ WhisperX descarregado - RAM liberada: ~{ram_freed}MB")
         

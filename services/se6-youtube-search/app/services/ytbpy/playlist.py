@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 import json
 from typing import Any
+
+from common.log_utils import get_logger
+
+logger = get_logger(__name__)
 from urllib.parse import urlparse, parse_qs
 
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
@@ -22,8 +26,8 @@ def extract_playlist_id(url_or_id: str | None) -> str | None:
             query_params = parse_qs(parsed_url.query)
             if "list" in query_params:
                 return query_params["list"][0]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to parse playlist ID from URL: %s", e)
 
     return None
 
@@ -117,7 +121,8 @@ def _extract_playlist_metadata(initial_data: dict[str, Any]) -> dict[str, Any]:
                 )
 
         return playlist_info
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to extract playlist info: %s", e)
         return {}
 
 
@@ -269,8 +274,8 @@ def _extract_playlist_videos(
                             if isinstance(cmd, dict) and "token" in cmd:
                                 continuation_token = cmd["token"]
                                 continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("continuationCommand parse failed: %s", e)
 
                     try:
                         if "commandMetadata" in endpoint:
@@ -284,15 +289,15 @@ def _extract_playlist_videos(
                                             "&continuation="
                                         )[1]
                                         continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("commandMetadata parse failed: %s", e)
 
                     try:
                         if "token" in endpoint:
                             continuation_token = endpoint["token"]
                             continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("token parse failed: %s", e)
 
                     try:
                         if "browseEndpoint" in endpoint:
@@ -300,8 +305,8 @@ def _extract_playlist_videos(
                             if "params" in browse:
                                 continuation_token = browse["params"]
                                 continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug("browseEndpoint parse failed: %s", e)
                 continue
 
             if len(videos) >= max_results:

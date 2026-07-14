@@ -175,8 +175,8 @@ class AudioChunker:
         return merged
 
 
-class AudioNormalizer:
-    """Aplica operações de normalização no áudio."""
+class AudioFilters:
+    """Filtros de áudio simples (highpass, mono, sample rate)."""
 
     def __init__(self, config: AudioConfig) -> None:
         self.config = config
@@ -206,7 +206,7 @@ class AudioProcessor:
     - FileOperations: Gerenciamento de arquivos
     - VideoExtractor: Extração de áudio de vídeo
     - AudioChunker: Divisão/mesclagem de chunks
-    - AudioNormalizer: Aplicação de filtros
+    - AudioFilters: Aplicação de filtros
     """
 
     def __init__(
@@ -215,13 +215,13 @@ class AudioProcessor:
         file_ops: FileOperations | None = None,
         video_extractor: VideoExtractor | None = None,
         chunker: AudioChunker | None = None,
-        normalizer: AudioNormalizer | None = None,
+        normalizer: AudioFilters | None = None,
     ) -> None:
         self.config = config
         self.file_ops = file_ops or FileOperations(config)
         self.video_extractor = video_extractor or VideoExtractor(self.file_ops)
         self.chunker = chunker or AudioChunker(config)
-        self.normalizer = normalizer or AudioNormalizer(config)
+        self.normalizer = normalizer or AudioFilters(config)
         self.job_store: IJobStore | None = None
 
     def set_job_store(self, job_store: IJobStore) -> None:

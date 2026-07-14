@@ -26,8 +26,8 @@ def extract_channel_id_from_input(channel_input: str) -> str | None:
             path_parts = parsed_url.path.strip("/").split("/")
             if len(path_parts) >= 2 and path_parts[0] == "channel":
                 return path_parts[1]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to extract channel ID from URL: %s", e)
 
     return None
 

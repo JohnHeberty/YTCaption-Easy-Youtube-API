@@ -8,6 +8,8 @@ import gc
 import time
 import torch
 from pathlib import Path
+
+from ..core.constants import FASTER_WHISPER_MODEL_SIZES
 from typing import Any
 from faster_whisper import WhisperModel
 
@@ -205,8 +207,7 @@ ado
                 logger.debug("CUDA cache limpo")
             
             # Estima RAM liberada (faster-whisper usa menos memória)
-            model_sizes = {'tiny': 40, 'base': 75, 'small': 250, 'medium': 770, 'large': 1550}
-            result["memory_freed"]["ram_mb"] = model_sizes.get(self.model_name, 75)
+            result["memory_freed"]["ram_mb"] = FASTER_WHISPER_MODEL_SIZES.get(self.model_name, 75)
             
             result["success"] = True
             result["message"] = f"Faster-Whisper {self.model_name} descarregado"

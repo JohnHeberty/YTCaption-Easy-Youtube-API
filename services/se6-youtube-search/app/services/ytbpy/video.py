@@ -3,6 +3,10 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse, parse_qs
 from datetime import timedelta
+
+from common.log_utils import get_logger
+
+logger = get_logger(__name__)
 import json
 from typing import Any
 
@@ -239,8 +243,8 @@ def get_video_info_oembed(url_or_id: str, timeout: int = 5) -> dict[str, Any]:
                 if key not in video_info or not video_info[key]:
                     if key in oembed_response:
                         video_info[key] = oembed_response[key]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("oembed enrichment failed: %s", e)
 
     return video_info
 
@@ -325,8 +329,8 @@ def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) 
                             or f"https://i.ytimg.com/vi/{rel_video_id}/hqdefault.jpg",
                         }
                     )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("related videos extraction failed: %s", e)
 
     return related_videos
 

@@ -165,8 +165,8 @@ def _extract_from_page_header(
                 channel_info["vanity_url"] = (
                     f"https://www.youtube.com/@{handle_name}"
                 )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to extract handle/vanity URL from attribution: %s", e)
 
 
 def _extract_from_c4_header(

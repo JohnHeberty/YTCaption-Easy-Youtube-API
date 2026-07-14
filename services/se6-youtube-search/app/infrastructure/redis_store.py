@@ -80,7 +80,8 @@ class YouTubeSearchJobStore:
     def ping(self) -> bool:
         try:
             return self.redis.ping()
-        except Exception:
+        except Exception as e:
+            logger.debug("Redis ping failed: %s", e)
             return False
 
     def cleanup_expired(self) -> int:

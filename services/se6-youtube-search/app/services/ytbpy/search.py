@@ -6,6 +6,9 @@ from typing import Any
 from urllib.parse import quote_plus
 
 from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
+from common.log_utils import get_logger
+
+logger = get_logger(__name__)
 
 
 def _extract_search_video_details(video_renderer: dict[str, Any]) -> dict[str, Any] | None:
@@ -140,7 +143,8 @@ def _extract_continuation_token(initial_data: dict[str, Any]) -> str | None:
                         ]["continuationCommand"]["token"]
 
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to extract continuation token: %s", e)
         return None
 
 

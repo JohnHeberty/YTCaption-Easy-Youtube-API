@@ -28,7 +28,7 @@ BYTES_PER_MB = 1_048_576
 # Model size estimates (MB) per engine type — used for OOM detection & memory reporting
 FASTER_WHISPER_MODEL_SIZES = {'tiny': 40, 'base': 75, 'small': 250, 'medium': 770, 'large': 1550}
 OPENAI_WHISPER_MODEL_SIZES = {'tiny': 75, 'base': 150, 'small': 384, 'medium': 960, 'large': 2400}
-WHISPERX_MODEL_SIZES = {'tiny': 100, 'base': 200, 'small': 475, 'medium': 1250, 'large': 3150}
+WHISPERX_MODEL_SIZES = {'tiny': 100, 'base': 200, 'small': 600, 'medium': 1800, 'large': 3500}
 
 # Retry defaults (fallback when settings are missing)
 DEFAULT_MAX_RETRIES = 3

@@ -8,6 +8,8 @@ import gc
 import time
 from pathlib import Path
 from typing import Any
+
+from ..core.constants import OPENAI_WHISPER_MODEL_SIZES
 import torch
 import whisper
 
@@ -145,8 +147,7 @@ class WhisperModelManager(IModelManager):
                 result["memory_freed"]["vram_mb"] = round(vram_before - vram_after, 2)
             
             # Estima RAM liberada
-            model_sizes = {'tiny': 75, 'base': 150, 'small': 500, 'medium': 1500, 'large': 3000}
-            result["memory_freed"]["ram_mb"] = model_sizes.get(self.model_name, 150)
+            result["memory_freed"]["ram_mb"] = OPENAI_WHISPER_MODEL_SIZES.get(self.model_name, 150)
             
             result["success"] = True
             result["message"] = f"Modelo {self.model_name} descarregado com sucesso"
