@@ -7,6 +7,7 @@ from typing import Any
 from common.log_utils import get_logger
 
 from app.core.config import settings
+from app.core.constants import H264_ENCODING_ARGS
 from app.infrastructure.ffmpeg_runner import run_ffmpeg
 from app.infrastructure.ffmpeg_probes import get_video_duration
 
@@ -115,13 +116,8 @@ async def render_captions(
         ffmpeg_bin, "-y",
         "-i", video_path,
         "-vf", vf,
-        "-c:v", "libx264",
-        "-profile:v", "main",
-        "-level", "4.0",
-        "-g", "30",
-        "-bf", "2",
+        *H264_ENCODING_ARGS,
         "-c:a", "copy",
-        "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         output_path,
     ]

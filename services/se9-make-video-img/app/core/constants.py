@@ -183,3 +183,13 @@ PLATFORM_PRESETS = {
 }
 
 DEFAULT_PLATFORM = "tiktok_reels_shorts"
+
+# Shared FFmpeg H.264 encoding args — used across segments, captions, concat, assembly
+H264_ENCODING_ARGS = [
+    "-c:v", "libx264",
+    "-profile:v", "main",
+    "-level", "4.0",
+    "-g", "30",
+    "-bf", "2",
+    "-pix_fmt", "yuv420p",
+]

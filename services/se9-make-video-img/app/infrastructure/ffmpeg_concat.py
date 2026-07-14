@@ -8,7 +8,7 @@ import random
 from common.log_utils import get_logger
 
 from app.core.config import settings
-from app.core.constants import TRANSITIONS
+from app.core.constants import H264_ENCODING_ARGS, TRANSITIONS
 from app.infrastructure.ffmpeg_runner import run_ffmpeg
 
 logger = get_logger(__name__)
@@ -30,8 +30,7 @@ async def concat_segments(
     if len(segment_paths) == 1:
         args = [
             "ffmpeg", "-y", "-i", segment_paths[0],
-            "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
-            "-g", "30", "-bf", "2", "-pix_fmt", "yuv420p",
+            *H264_ENCODING_ARGS,
             output_path,
         ]
         await run_ffmpeg(args)
@@ -91,14 +90,7 @@ async def concat_segments(
         *inputs,
         "-filter_complex", ";".join(filter_complex),
         "-map", "[vout]",
-        "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
-        "-profile:v", "main",
-        "-level", "4.0",
-        "-g", "30",
-        "-bf", "2",
-        "-pix_fmt", "yuv420p",
+        *H264_ENCODING_ARGS,
         output_path,
     ]
     await run_ffmpeg(args, timeout=settings.ffmpeg_total_timeout)

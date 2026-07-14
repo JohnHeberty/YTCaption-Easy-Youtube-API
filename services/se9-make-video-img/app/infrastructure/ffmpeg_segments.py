@@ -6,6 +6,7 @@ import random
 from common.log_utils import get_logger
 
 from app.core.config import settings
+from app.core.constants import H264_ENCODING_ARGS
 from app.infrastructure.ffmpeg_runner import run_ffmpeg
 
 logger = get_logger(__name__)
@@ -36,12 +37,7 @@ async def create_title_card(
         "-i", image_path,
         "-t", str(duration),
         "-vf", vf,
-        "-c:v", "libx264",
-        "-profile:v", "main",
-        "-level", "4.0",
-        "-g", "30",
-        "-bf", "2",
-        "-pix_fmt", "yuv420p",
+        *H264_ENCODING_ARGS,
         output_path,
     ]
     await run_ffmpeg(args, timeout=settings.ffmpeg_segment_timeout)
@@ -99,12 +95,7 @@ async def create_segment(
         "-i", image_path,
         "-t", str(duration),
         "-vf", vf,
-        "-c:v", "libx264",
-        "-profile:v", "main",
-        "-level", "4.0",
-        "-g", "30",
-        "-bf", "2",
-        "-pix_fmt", "yuv420p",
+        *H264_ENCODING_ARGS,
         output_path,
     ]
     await run_ffmpeg(args, timeout=settings.ffmpeg_segment_timeout)

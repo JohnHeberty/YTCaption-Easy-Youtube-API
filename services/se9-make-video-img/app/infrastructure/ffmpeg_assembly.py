@@ -1,6 +1,7 @@
 """Audio/video assembly utilities."""
 from __future__ import annotations
 
+from app.core.constants import H264_ENCODING_ARGS
 from app.infrastructure.ffmpeg_runner import run_ffmpeg
 
 
@@ -34,15 +35,10 @@ async def trim_to_duration(video_path: str, duration: float, output_path: str) -
         "ffmpeg", "-y",
         "-i", video_path,
         "-t", f"{duration:.3f}",
-        "-c:v", "libx264",
-        "-profile:v", "main",
-        "-level", "4.0",
-        "-g", "30",
-        "-bf", "2",
+        *H264_ENCODING_ARGS,
         "-c:a", "aac",
         "-profile:a", "aac_low",
         "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         output_path,
     ]
