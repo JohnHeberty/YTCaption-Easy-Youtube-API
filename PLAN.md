@@ -57,8 +57,8 @@
 | 22 | 84 `except Exception` + **4 bare `except:`** | Bare em `subprocess_utils.py:120`, `video_validator.py:562`, `video_compatibility_fixer.py:168,241` | `[x]` 4 bare except fixed 2026-07-13 |
 | 23 | 22 funções >100L | `validate_concat_compatibility` (237L), `download_video` (170L) | `[ ]` |
 | 24 | 50+ funções sem return type | `routes.py`, `vad.py`, `vad_utils.py`, `subtitle_processing/` | `[ ]` |
-| 25 | `OCRResult` definido 2x | `ocr_detector_legacy.py` e `ocr_detector_advanced.py` — campos incompatíveis | `[ ]` |
-| 26 | 2 hierarquias de exceção | `exceptions.py` e `exceptions_v2.py` — importadas inconsistentemente | `[ ]` |
+| 25 | `OCRResult` definido 2x | `ocr_detector_legacy.py` e `ocr_detector_advanced.py` — campos incompatíveis | `[x]` legacy→shim 2026-07-13 |
+| 26 | 2 hierarquias de exceção | `exceptions.py` e `exceptions_v2.py` — importadas inconsistentemente | `[x]` merged + shim 2026-07-13 |
 | 27 | 30+ magic numbers | Thresholds OpenCV, scoring weights, progress percentages | `[ ]` |
 
 ### SE8 — Image Generation
@@ -81,7 +81,7 @@
 | 36 | InnerTube clientVersion inconsistente | `video.py` usa `"2.20220502.01.00"`, `search.py` usa `"2.20200720.00.00"` | `[x]` normalized to INNERTUBE_CLIENT_VERSION 2026-07-13 |
 | 37 | ~100L código duplicado em playlist.py | `_extract_playlist_videos` vs `_fetch_continuation_page` | `[ ]` |
 | 38 | 6 unused imports | `datetime`, `timedelta`, `json`, `ProcessingTimeoutError`, `now_brazil` | `[x]` 5 removed 2026-07-13 |
-| 39 | 24 magic numbers | Disk thresholds, progress %, timeouts, thumbnail dimensions | `[ ]` |
+| 39 | 24 magic numbers | Disk thresholds, progress %, timeouts, thumbnail dimensions | `[x]` 10 constants added 2026-07-13 |
 
 ### SE7 — Audio Generation
 
@@ -100,7 +100,7 @@
 | 45 | `check_se7`/`check_se8` idênticos | `health_routes.py:33-51` — mesma lógica, URL diferente | `[x]` deduplicated 2026-07-13 |
 | 46 | `"builtin_feminino"` repetido 7x | Deveria ser `DEFAULT_VOICE_ID` em `constants.py` | `[x]` constant added 2026-07-13 |
 | 47 | 11 `except Exception` | 2 silent em `redis_store.py:228,255` | `[ ]` |
-| 48 | 12 magic numbers | Zoom speed, CRF quality, crossfade ratios, Redis pool sizes | `[ ]` |
+| 48 | 12 magic numbers | Zoom speed, CRF quality, crossfade ratios, Redis pool sizes | `[x]` 12 constants added 2026-07-13 |
 
 ### SE1 / SE10 / SE11 — Menor prioridade
 
@@ -116,7 +116,7 @@
 
 | # | Problema | Escopo | Status |
 |---|----------|--------|--------|
-| 52 | `1024*1024` repetido 40x+ | Todos services — usar `BYTES_PER_MB` constante | `[ ]` |
+| 52 | `1024*1024` repetido 40x+ | Todos services — usar `BYTES_PER_MB` constante | `[x]` 22 replaced across 6 services 2026-07-13 |
 | 53 | HTTP status codes hardcoded | Usar `fastapi.status` em vez de inteiros | `[ ]` |
 | 54 | Dead `logging_config.py` | SE2, SE3 — módulos nunca importados | `[ ]` |
 
