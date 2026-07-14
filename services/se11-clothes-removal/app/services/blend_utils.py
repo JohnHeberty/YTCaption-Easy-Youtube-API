@@ -5,10 +5,13 @@ to reduce collage artifacts when pasting the original face onto a generated body
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import cv2
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_float(img: np.ndarray) -> np.ndarray:
@@ -236,7 +239,8 @@ def poisson_blend(
     try:
         result = cv2.seamlessClone(original, generated, mask, center, clone_flag)
         return result
-    except Exception:
+    except Exception as e:
+        logger.debug("seamlessClone failed, falling back to alpha blend: %s", e)
         # Fallback: simple alpha blend if seamlessClone fails
         alpha = (mask.astype(np.float32) / 255.0)[:, :, np.newaxis]
         blended = (original.astype(np.float32) * alpha +

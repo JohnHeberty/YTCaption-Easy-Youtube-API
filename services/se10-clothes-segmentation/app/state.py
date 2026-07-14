@@ -1,12 +1,15 @@
 """Shared application state for SE10 Clothes Segmentation."""
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.services.segmentor import ClothesSegmentor
+
+logger = logging.getLogger(__name__)
 
 _segmentor: ClothesSegmentor | None = None
 _idle_timer: threading.Timer | None = None
@@ -48,8 +51,8 @@ def _idle_check_loop() -> None:
     try:
         if _segmentor is not None:
             _segmentor._check_idle_unload()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Idle check failed: %s", e)
     # Schedule next check
     _idle_timer = threading.Timer(_IDLE_CHECK_INTERVAL, _idle_check_loop)
     _idle_timer.daemon = True

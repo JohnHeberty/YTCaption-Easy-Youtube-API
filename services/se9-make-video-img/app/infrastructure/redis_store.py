@@ -225,8 +225,8 @@ class VideoJobStore:
             try:
                 self._zrem(_LIST_KEY, *stale_ids)
                 self._zrem(_QUEUED_KEY, *stale_ids)
-            except Exception:
-                logger.warning("Failed to clean %d stale entries from sorted set", len(stale_ids))
+            except Exception as e:
+                logger.warning("Failed to clean %d stale entries from sorted set: %s", len(stale_ids), e)
 
         return jobs
 
@@ -252,8 +252,8 @@ class VideoJobStore:
         if stale_ids:
             try:
                 self._zrem(_QUEUED_KEY, *stale_ids)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to clean stale queued entries: %s", e)
 
         return None
 

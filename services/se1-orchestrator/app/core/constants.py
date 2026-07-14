@@ -3,3 +3,19 @@ from __future__ import annotations
 """Core constants for Orchestrator Service."""
 
 BYTES_PER_MB = 1024 * 1024
+
+# --- Timeout constants (seconds) ---
+HEALTH_CHECK_TIMEOUT_SECONDS: float = 10.0
+DOWNLOAD_TIMEOUT_SECONDS: float = 300.0
+DOWNLOAD_READ_TIMEOUT_SECONDS: float = 900.0
+DOWNLOAD_WRITE_TIMEOUT_SECONDS: float = 300.0
+DOWNLOAD_CONNECT_TIMEOUT_SECONDS: float = 30.0
+ADMIN_SERVICE_CHECK_TIMEOUT_SECONDS: float = 30.0
+
+# --- Query defaults ---
+WAIT_FOR_JOB_DEFAULT_TIMEOUT: int = 1800
+WAIT_FOR_JOB_MAX_TIMEOUT: int = 7200
+STREAM_DEFAULT_TIMEOUT: int = 600
+STREAM_MAX_TIMEOUT: int = 7200
+WAIT_FOR_JOB_EXAMPLE_TIMEOUTS: list[int] = [300, 1800]
+STREAM_EXAMPLE_TIMEOUTS: list[int] = [600, 1200]

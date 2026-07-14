@@ -13,6 +13,7 @@ from common.datetime_utils import now_brazil
 
 from common.log_utils import get_logger
 from app.core.config import get_settings
+from app.core.constants import ADMIN_SERVICE_CHECK_TIMEOUT_SECONDS
 from app.infrastructure.dependency_injection import get_pipeline_orchestrator
 from app.infrastructure.redis_store import get_store
 from app.domain.models import AdminCleanupResponse, AdminStatsResponse, FactoryResetResponse
@@ -190,7 +191,7 @@ async def factory_reset(
                 ("se4-audio-transcriber", orchestrator.transcription_client),
             ]
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=ADMIN_SERVICE_CHECK_TIMEOUT_SECONDS) as client:
             for service_name, service_client in microservices:
                 try:
                     cleanup_url = f"{service_client.base_url}/admin/cleanup"

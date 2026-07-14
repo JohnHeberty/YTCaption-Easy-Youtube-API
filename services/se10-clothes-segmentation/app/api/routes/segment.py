@@ -65,7 +65,8 @@ async def segment_clothes(
         import io
         img_test = Image.open(io.BytesIO(contents))
         img_test.verify()
-    except Exception:
+    except Exception as e:
+        logger.debug("Image validation failed: %s", e)
         return SegmentResponse(
             success=False,
             message="File is not a valid image (corrupt or unsupported format)",
@@ -110,8 +111,8 @@ async def segment_clothes(
     # Keep SegFormer loaded to avoid reload penalty
     try:
         segmentor.unload_gpu_models()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to unload GPU models: %s", e)
 
     if not result["detected"]:
         label = "persons" if mode == "person" else "clothing items"

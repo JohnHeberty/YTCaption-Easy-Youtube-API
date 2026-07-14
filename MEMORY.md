@@ -2,6 +2,31 @@
 
 ## Sessão atual (2026-07-13) — Clean Code Audit + SE11 Multi-Person + SE8 GPU/Memory
 
+### SE1/SE10/SE11 #49 #50 #51 — Silent Catches + SE1 Magic Numbers ✅
+- **Scope:** Fixed silent `except Exception:` blocks (no `as e`, no logging) across 3 services
+- **SE1 (3 catches + 12 constants):**
+  - `microservice_client.py:343` — health check: `as e` + `logger.debug`
+  - `pipeline_orchestrator.py:447` — progress parse: `as e` + `logger.debug`
+  - `circuit_breaker.py:155` — re-raise: `as e` added (no logging needed)
+  - Added 12 constants to `constants.py`: `HEALTH_CHECK_TIMEOUT_SECONDS`, `DOWNLOAD_TIMEOUT_SECONDS`, `DOWNLOAD_READ_TIMEOUT_SECONDS`, `DOWNLOAD_WRITE_TIMEOUT_SECONDS`, `DOWNLOAD_CONNECT_TIMEOUT_SECONDS`, `ADMIN_SERVICE_CHECK_TIMEOUT_SECONDS`, `WAIT_FOR_JOB_DEFAULT_TIMEOUT`, `WAIT_FOR_JOB_MAX_TIMEOUT`, `STREAM_DEFAULT_TIMEOUT`, `STREAM_MAX_TIMEOUT`, `WAIT_FOR_JOB_EXAMPLE_TIMEOUTS`, `STREAM_EXAMPLE_TIMEOUTS`
+  - Replaced magic numbers in `microservice_client.py`, `admin_routes.py`, `jobs_routes.py`
+- **SE10 (3 catches, 1 skipped):**
+  - `state.py:51` — idle check: added `logging` import + `as e` + `logger.debug`
+  - `segment.py:68` — image validation: `as e` + `logger.debug`
+  - `segment.py:113` — GPU unload: `as e` + `logger.debug`
+  - `main.py:33` — **SKIPPED** (already has `logger.exception(...)`)
+- **SE11 (12 catches, 1 skipped):**
+  - `http_client.py:458` — SE8 URL download: `as e` + `logger.debug`
+  - `pipeline_nsfw_experimental.py:266` — pose overlay: `as e` + `logger.debug`
+  - `debug_utils.py:137,176,212` — 3 debug image/metadata saves: `as e` + `logger.debug`
+  - `health_routes.py:62,73` — SE10/SE8 health checks: added `logging` import + `as e` + `logger.debug`
+  - `faceid_extractor.py:114,156` — face detection: `as e` + `logger.debug`
+  - `blend_utils.py:239` — seamlessClone fallback: added `logging` import + `as e` + `logger.debug`
+  - `detection_fallbacks.py:124,158,171` — face/GrabCut fallbacks: `as e` + `logger.debug`
+  - `redis_store.py:213` — **SKIPPED** (already has `logger.warning(...)`)
+- **Validated:** py_compile 15/15 OK
+- **Files modified:** 15 across SE1/SE10/SE11
+
 ### SE5 #25 — OCRResult Duplicate Definition Consolidated ✅
 - **Problem:** Two `OCRResult` dataclasses with incompatible fields:
   - `ocr_detector_legacy.py`: `text, confidence, word_count, has_subtitle, readable_words` (EasyOCR)

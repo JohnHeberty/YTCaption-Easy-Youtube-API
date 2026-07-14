@@ -17,6 +17,14 @@ from common.log_utils import get_logger
 from app.domain.models import JobListResponse, PipelineStatus, PipelineStatusResponse
 from app.infrastructure.redis_store import get_store
 from app.core.config import get_settings
+from app.core.constants import (
+    WAIT_FOR_JOB_DEFAULT_TIMEOUT,
+    WAIT_FOR_JOB_MAX_TIMEOUT,
+    STREAM_DEFAULT_TIMEOUT,
+    STREAM_MAX_TIMEOUT,
+    WAIT_FOR_JOB_EXAMPLE_TIMEOUTS,
+    STREAM_EXAMPLE_TIMEOUTS,
+)
 from app.domain.builders import StageResponseBuilder
 
 logger = get_logger(__name__)
@@ -127,7 +135,7 @@ async def get_job_status(
 )
 async def wait_for_job_completion(
     job_id: str = Path(..., description="ID do job para aguardar conclusão.", examples=["pipe_abc123"]),
-    timeout: int = Query(1800, ge=1, le=7200, description="Tempo máximo de espera em segundos.", examples=[300, 1800]),
+    timeout: int = Query(WAIT_FOR_JOB_DEFAULT_TIMEOUT, ge=1, le=WAIT_FOR_JOB_MAX_TIMEOUT, description="Tempo máximo de espera em segundos.", examples=WAIT_FOR_JOB_EXAMPLE_TIMEOUTS),
     redis_store: Any = Depends(_get_redis_store),
 ) -> PipelineStatusResponse:
     """Mantém a conexão aberta até o job concluir, falhar ou atingir timeout."""
@@ -216,7 +224,7 @@ async def wait_for_job_completion(
 )
 async def stream_job_progress(
     job_id: str = Path(..., description="ID do job para streaming de progresso.", examples=["pipe_abc123"]),
-    timeout: int = Query(600, ge=1, le=7200, description="Timeout do stream em segundos.", examples=[600, 1200]),
+    timeout: int = Query(STREAM_DEFAULT_TIMEOUT, ge=1, le=STREAM_MAX_TIMEOUT, description="Timeout do stream em segundos.", examples=STREAM_EXAMPLE_TIMEOUTS),
     redis_store: Any = Depends(_get_redis_store),
 ) -> StreamingResponse:
     """Abre um stream SSE para acompanhar o progresso do job em tempo real."""

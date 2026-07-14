@@ -218,7 +218,8 @@ class TaskQueue:
             return 0
         try:
             return self._redis.redis.zcard(HISTORY_LIST_KEY)
-        except Exception:
+        except Exception as e:
+            logger.debug("Redis zcard failed: %s", e)
             return 0
 
     def add_task(

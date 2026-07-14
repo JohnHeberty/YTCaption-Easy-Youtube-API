@@ -111,7 +111,8 @@ def extract_face_bbox(
 
     try:
         faces = app.get(orig_img)
-    except Exception:
+    except Exception as e:
+        logger.debug("Face extraction failed: %s", e)
         return None
 
     if not faces:
@@ -153,7 +154,8 @@ def extract_all_faceid_embeddings(
 
     try:
         faces = app.get(orig_img)
-    except Exception:
+    except Exception as e:
+        logger.debug("FaceID extraction failed: %s", e)
         return []
 
     if not faces:

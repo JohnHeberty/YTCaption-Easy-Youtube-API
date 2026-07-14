@@ -1,6 +1,7 @@
 """Health routes for SE11 Clothes Removal."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -12,6 +13,8 @@ from app.api.schemas import (
     HealthResponse,
     PingResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Health"])
 
@@ -59,7 +62,8 @@ async def health_deep() -> DeepHealthResponse:
         latency = round((time.time() - t0) * 1000, 1)
         await se10.close()
         checks["se10"] = DeepHealthCheck(status="ok", latency_ms=latency).model_dump()
-    except Exception:
+    except Exception as e:
+        logger.debug("SE10 health check failed: %s", e)
         checks["se10"] = DeepHealthCheck(status="unreachable").model_dump()
 
     # SE8 check
@@ -70,7 +74,8 @@ async def health_deep() -> DeepHealthResponse:
         latency = round((time.time() - t0) * 1000, 1)
         await se8.close()
         checks["se8"] = DeepHealthCheck(status="ok", latency_ms=latency).model_dump()
-    except Exception:
+    except Exception as e:
+        logger.debug("SE8 health check failed: %s", e)
         checks["se8"] = DeepHealthCheck(status="unreachable").model_dump()
 
     all_ok = all(c.get("status") == "ok" for c in checks.values())

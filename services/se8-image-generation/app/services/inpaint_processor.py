@@ -158,8 +158,8 @@ def apply_inpaint(async_task, tasks: list, pipeline: Any = None) -> tuple[list, 
         try:
             import torch.cuda
             torch.cuda.ipc_collect()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("CUDA ipc_collect failed (non-fatal): %s", e)
 
         # Patch UNet with InpaintHead CNN
         inpaint_head_path = None

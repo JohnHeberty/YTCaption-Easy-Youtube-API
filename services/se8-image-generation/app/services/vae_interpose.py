@@ -105,8 +105,8 @@ def _resolve_model_path() -> str:
             p = os.path.join(path_vae_approx, name)
             if os.path.exists(p):
                 return p
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("modules.config.path_vae_approx not available: %s", e)
 
     for p in candidates:
         if os.path.exists(p):

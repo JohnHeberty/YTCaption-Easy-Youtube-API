@@ -121,7 +121,8 @@ def _grabcut_fallback(person_binary: "_np.ndarray", orig_h: int, orig_w: int) ->
     try:
         from app.services.head_detector import _detect_faces
         faces = _detect_faces(_np.zeros((orig_h, orig_w, 3), _np.uint8))
-    except Exception:
+    except Exception as e:
+        logger.debug("Face detection for GrabCut failed: %s", e)
         faces = []
 
     if not faces:
@@ -155,8 +156,8 @@ def _grabcut_fallback(person_binary: "_np.ndarray", orig_h: int, orig_w: int) ->
         gc_coverage = (gc_fg > 0).sum() / gc_fg.size * 100
         if gc_coverage > (person_binary > 0).sum() / person_binary.size * 100:
             return gc_fg
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("GrabCut failed: %s", e)
     return person_binary
 
 
@@ -168,7 +169,8 @@ def _face_ellipse_fallback(orig_h: int, orig_w: int) -> "_np.ndarray":
     try:
         from app.services.head_detector import _detect_faces
         faces = _detect_faces(_np.zeros((orig_h, orig_w, 3), _np.uint8))
-    except Exception:
+    except Exception as e:
+        logger.debug("Face detection for ellipse fallback failed: %s", e)
         faces = []
 
     if not faces:

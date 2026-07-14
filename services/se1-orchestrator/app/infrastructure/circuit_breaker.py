@@ -152,7 +152,7 @@ permite execução limitada para testar se o serviço recuperou.
             result = await func(*args, **kwargs)
             self._on_success()
             return result
-        except Exception:
+        except Exception as e:
             self._on_failure()
             raise
 

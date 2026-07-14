@@ -58,7 +58,8 @@ def _load_faceid_adapter(
         if ip_adapter_mod.clip_vision is None:
             ip_adapter_mod.load_ip_adapter(clip_vision_path, ip_negative_path, "/dev/null")
         ip_negative = ip_adapter_mod.ip_negative
-    except Exception:
+    except Exception as e:
+        logger.debug("IP-Adapter negative embedding load failed: %s", e)
         ip_negative = None
 
     embeds_np = np.array(faceid_embeds, dtype=np.float32)

@@ -259,7 +259,8 @@ def process_generate(async_job: QueueTask) -> None:
                         finish_reason=GenerationFinishReason.SUCCESS,
                     ))
                     results[-1].im = f"data:image/png;base64,{b64}"
-                except Exception:
+                except Exception as e:
+                    logger.debug("Failed to base64-encode result image: %s", e)
                     results.append(ImageGenerationResult(
                         im=path, seed=str(seed),
                         finish_reason=GenerationFinishReason.SUCCESS,

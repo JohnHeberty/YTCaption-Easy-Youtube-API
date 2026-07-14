@@ -444,8 +444,8 @@ class PipelineOrchestrator:
                     try:
                         p = float(status["progress"])
                         stage.progress = p * 100.0 if p <= 1.0 else p
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Failed to parse progress value: {e}")
 
                 state = (status.get("status") or status.get("state") or "").lower()
                 if state in {"completed", "success", "done", "finished"}:

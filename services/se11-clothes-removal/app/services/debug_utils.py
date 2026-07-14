@@ -134,8 +134,8 @@ def save_mask_overlay(
                      f"Inpaint mask: {inpaint_pct:.1f}%",
                      (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         save_debug_image(output_dir, num, name, mask_overlay)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to save inpaint mask overlay: %s", e)
 
 
 def save_detection_metadata(
@@ -173,8 +173,8 @@ def save_detection_metadata(
             seg_meta["base_model"] = base_model
         with open(os.path.join(output_dir, filename), "w") as f:
             json.dump(seg_meta, f, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Failed to save detection metadata: %s", e)
 
 
 def save_garment_masks(
@@ -209,5 +209,5 @@ def save_garment_masks(
                 _cv2.putText(gm_color, f"{gclass} ({garea:.1f}%)", (10, 25),
                              _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 save_debug_image(output_dir, 20 + gi, f"garment_{gi}_{gclass}", gm_color)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to save garment mask %d: %s", gi, e)

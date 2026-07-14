@@ -14,7 +14,7 @@ from typing import Any, Callable
 import httpx
 from common.log_utils import get_logger
 
-from app.core.constants import BYTES_PER_MB
+from app.core.constants import BYTES_PER_MB, HEALTH_CHECK_TIMEOUT_SECONDS, DOWNLOAD_TIMEOUT_SECONDS, DOWNLOAD_READ_TIMEOUT_SECONDS, DOWNLOAD_WRITE_TIMEOUT_SECONDS, DOWNLOAD_CONNECT_TIMEOUT_SECONDS
 from app.core.config import get_microservice_config, get_settings
 from app.core.ssl_config import get_ssl_context
 from app.domain.interfaces import MicroserviceClientInterface
@@ -92,7 +92,7 @@ class MicroserviceClient(MicroserviceClientInterface):
         try:
             url = f"{self.base_url}/health"
             ssl_verify = get_ssl_context()
-            async with httpx.AsyncClient(timeout=10.0, verify=ssl_verify) as client:
+            async with httpx.AsyncClient(timeout=HEALTH_CHECK_TIMEOUT_SECONDS, verify=ssl_verify) as client:
                 response = await client.get(url, headers=self._headers)
                 response.raise_for_status()
                 return response.json()
@@ -259,7 +259,7 @@ class MicroserviceClient(MicroserviceClientInterface):
         url = self._url("download", job_id=job_id)
         service_settings = get_settings()
         max_size_bytes = service_settings.max_file_size_mb * 1024 * 1024
-        download_timeout = httpx.Timeout(300.0, read=900.0, write=300.0, connect=30.0)
+        download_timeout = httpx.Timeout(DOWNLOAD_TIMEOUT_SECONDS, read=DOWNLOAD_READ_TIMEOUT_SECONDS, write=DOWNLOAD_WRITE_TIMEOUT_SECONDS, connect=DOWNLOAD_CONNECT_TIMEOUT_SECONDS)
         ssl_verify = get_ssl_context()
 
         async def _download() -> tuple[bytes, str]:
@@ -340,5 +340,6 @@ class MicroserviceClient(MicroserviceClientInterface):
         try:
             result = await self.check_health()
             return result.get("status") == "healthy"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[{self.service_name}] Health check simple failed: {e}")
             return False

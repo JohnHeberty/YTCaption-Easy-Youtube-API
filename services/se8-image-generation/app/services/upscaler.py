@@ -66,8 +66,8 @@ def _resolve_upscale_model() -> str:
                     p = os.path.join(d, name)
                     if os.path.exists(p):
                         return p
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("modules.config.paths_upscale_models not available: %s", e)
 
     for p in candidates:
         if os.path.exists(p):

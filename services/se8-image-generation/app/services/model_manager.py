@@ -125,7 +125,8 @@ class LoadedModel:
 
         try:
             self.real_model = self.model.patch_model(device_to=patch_model_to)
-        except Exception:
+        except Exception as e:
+            logger.debug("patch_model failed, rolling back: %s", e)
             self.model.unpatch_model(self.model.offload_device)
             self._unload_acceleration()
             raise
@@ -717,8 +718,8 @@ class ModelManager:
                     props = torch.cuda.get_device_properties(self.device)
                     if props.major >= 8:
                         return torch.bfloat16
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("bf16 detection failed: %s", e)
         return torch.float32
 
     def intermediate_device(self):

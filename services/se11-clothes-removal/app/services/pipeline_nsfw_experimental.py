@@ -263,8 +263,8 @@ class NSFWExperimentalPipeline(NSFWPipelineBase):
             _cv2.putText(pose_overlay, f"Pose: {total} keypoints (body+hands)",
                         (10, 25), _cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             save_debug_image(self.output_dir, 6, "pose_landmarks", pose_overlay)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to save pose overlay: %s", e)
 
     def _save_attempts_metadata(self) -> None:
         """Save v2_meta.json with custom experimental format."""

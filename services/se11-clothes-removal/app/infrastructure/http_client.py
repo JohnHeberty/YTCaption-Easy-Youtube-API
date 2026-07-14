@@ -455,8 +455,8 @@ class SE8Client(ServiceClient):
             try:
                 dl_resp = await self._request_with_retry("GET", url_val)
                 item["base64"] = base64.b64encode(dl_resp.content).decode("utf-8")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Failed to download SE8 URL as base64: %s", e)
 
         if not item.get("base64") and item.get("url"):
             url_val = item["url"]

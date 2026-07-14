@@ -227,7 +227,8 @@ def _decode_image(data: str) -> Any:
             data = data.split(",", 1)[1]
         img_bytes = base64.b64decode(data)
         return img_bytes
-    except Exception:
+    except Exception as e:
+        logger.debug("base64 decode failed, returning raw data: %s", e)
         return data
 
 
@@ -369,7 +370,8 @@ def _output_file_to_base64(filepath: str) -> str | None:
     try:
         with open(full_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to read output file %s: %s", full_path, e)
         return None
 
 
@@ -382,5 +384,6 @@ def _output_file_to_bytes(filepath: str) -> bytes | None:
     try:
         with open(full_path, "rb") as f:
             return f.read()
-    except Exception:
+    except Exception as e:
+        logger.debug("Failed to read output file %s: %s", full_path, e)
         return None
