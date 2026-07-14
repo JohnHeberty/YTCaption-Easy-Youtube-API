@@ -10,6 +10,9 @@ to improve maintainability and readability.
 # File Size Limits
 # =============================================================================
 
+# Bytes per MB constant
+BYTES_PER_MB = 1024 * 1024
+
 # Maximum file size in MB (10GB)
 MAX_FILE_SIZE_MB = 10240
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024

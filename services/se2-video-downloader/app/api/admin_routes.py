@@ -16,6 +16,7 @@ from common.job_utils import JobStatus
 
 from app.infrastructure.dependencies import job_store, get_settings_dep
 from app.infrastructure.redis_store import VideoDownloadJobStore
+from app.core.constants import BYTES_PER_MB
 from app.core.config import Settings
 from app.core.models import CleanupResponse, FixStuckJobsResponse, QueueInfoResponse, StatsResponse
 
@@ -78,7 +79,7 @@ async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Setting
                         file_path.stat().st_mtime, tz=timezone.utc
                     )
                     if age > timedelta(hours=24):
-                        size_mb = file_path.stat().st_size / (1024 * 1024)
+                        size_mb = file_path.stat().st_size / BYTES_PER_MB
                         await asyncio.to_thread(file_path.unlink)
                         deleted_count += 1
                         report["space_freed_mb"] += size_mb
@@ -222,7 +223,7 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
                     continue
 
                 try:
-                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    size_mb = file_path.stat().st_size / BYTES_PER_MB
                     await asyncio.to_thread(file_path.unlink)
                     deleted_count += 1
                     report["space_freed_mb"] += size_mb
@@ -244,7 +245,7 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
                     continue
 
                 try:
-                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    size_mb = file_path.stat().st_size / BYTES_PER_MB
                     await asyncio.to_thread(file_path.unlink)
                     deleted_count += 1
                     report["space_freed_mb"] += size_mb
@@ -266,7 +267,7 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
                     continue
 
                 try:
-                    size_mb = file_path.stat().st_size / (1024 * 1024)
+                    size_mb = file_path.stat().st_size / BYTES_PER_MB
                     await asyncio.to_thread(file_path.unlink)
                     deleted_count += 1
                     report["space_freed_mb"] += size_mb
@@ -366,7 +367,7 @@ async def get_stats(
 
         stats["cache"] = {
             "files_count": len(files),
-            "total_size_mb": round(total_size / (1024 * 1024), 2)
+            "total_size_mb": round(total_size / BYTES_PER_MB, 2)
         }
 
     try:

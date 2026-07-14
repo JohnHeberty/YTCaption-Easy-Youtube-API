@@ -12,6 +12,7 @@ from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
 
 from app.domain.models import YouTubeSearchJob, JobStatus, JobListResponse
+from app.core.constants import REDIS_MAX_CONNECTIONS
 
 logger = get_logger(__name__)
 
@@ -20,7 +21,7 @@ class YouTubeSearchJobStore:
     def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
-            max_connections=50,
+            max_connections=REDIS_MAX_CONNECTIONS,
             circuit_breaker_enabled=True,
         )
         self.redis = self._resilient.redis

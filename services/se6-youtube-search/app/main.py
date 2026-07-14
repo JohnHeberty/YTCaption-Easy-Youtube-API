@@ -23,6 +23,7 @@ from app.infrastructure.redis_store import YouTubeSearchJobStore as RedisJobStor
 from app.infrastructure.celery_config import celery_app
 from app.infrastructure.dependencies import get_job_store
 from app.domain.models import HealthResponse, RootResponse
+from app.core.constants import DISK_WARNING_PERCENT, DISK_CRITICAL_PERCENT
 
 from app.api import routes as api_routes
 
@@ -128,8 +129,8 @@ async def health_check(request: Request) -> JSONResponse:
         free_gb = disk_stats.free / (1024**3)
         percent_free = (disk_stats.free / disk_stats.total) * 100
 
-        disk_status = "ok" if percent_free > 10 else "warning" if percent_free > 5 else "critical"
-        if percent_free <= 5:
+        disk_status = "ok" if percent_free > DISK_WARNING_PERCENT else "warning" if percent_free > DISK_CRITICAL_PERCENT else "critical"
+        if percent_free <= DISK_CRITICAL_PERCENT:
             is_healthy = False
 
         health_status["checks"]["disk_space"] = {

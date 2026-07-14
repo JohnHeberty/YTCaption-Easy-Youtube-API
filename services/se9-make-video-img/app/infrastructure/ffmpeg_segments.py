@@ -6,7 +6,7 @@ import random
 from common.log_utils import get_logger
 
 from app.core.config import settings
-from app.core.constants import H264_ENCODING_ARGS
+from app.core.constants import H264_ENCODING_ARGS, ZOOM_MIN, ZOOM_MAX, ZOOM_SPEED_DEFAULT, TITLE_CARD_DURATION_DEFAULT
 from app.infrastructure.ffmpeg_runner import run_ffmpeg
 
 logger = get_logger(__name__)
@@ -19,7 +19,7 @@ async def create_title_card(
     width: int,
     height: int,
     fps: int = 30,
-    zoom_speed: float = 0.004,
+    zoom_speed: float = ZOOM_SPEED_DEFAULT,
 ) -> None:
     """Create a brief darkened title card (no text overlay)."""
     frames = int(duration * fps)
@@ -69,8 +69,7 @@ async def create_segment(
     n_frames = frames
     progress = f"on/{n_frames}"
 
-    ZOOM_MAX = 1.20
-    ZOOM_MIN = 1.0
+
     x_expr = "iw/2-(iw/zoom/2)"
     y_expr = "ih/2-(ih/zoom/2)"
 

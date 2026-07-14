@@ -34,14 +34,14 @@ def get_thumbnail_urls(video_id: str) -> dict[str, dict[str, Any]]:
     """Generate thumbnail URLs for a YouTube video"""
     base_url = f"https://img.youtube.com/vi/{video_id}"
     return {
-        "default": {"url": f"{base_url}/default.jpg", "width": 120, "height": 90},
-        "medium": {"url": f"{base_url}/mqdefault.jpg", "width": 320, "height": 180},
-        "high": {"url": f"{base_url}/hqdefault.jpg", "width": 480, "height": 360},
-        "standard": {"url": f"{base_url}/sddefault.jpg", "width": 640, "height": 480},
+        "default": {"url": f"{base_url}/default.jpg", "width": THUMBNAIL_DEFAULT_WIDTH, "height": THUMBNAIL_DEFAULT_HEIGHT},
+        "medium": {"url": f"{base_url}/mqdefault.jpg", "width": THUMBNAIL_MEDIUM_WIDTH, "height": THUMBNAIL_MEDIUM_HEIGHT},
+        "high": {"url": f"{base_url}/hqdefault.jpg", "width": THUMBNAIL_HIGH_WIDTH, "height": THUMBNAIL_HIGH_HEIGHT},
+        "standard": {"url": f"{base_url}/sddefault.jpg", "width": THUMBNAIL_STANDARD_WIDTH, "height": THUMBNAIL_STANDARD_HEIGHT},
         "maxres": {
             "url": f"{base_url}/maxresdefault.jpg",
-            "width": 1280,
-            "height": 720,
+            "width": THUMBNAIL_MAXRES_WIDTH,
+            "height": THUMBNAIL_MAXRES_HEIGHT,
         },
     }
 

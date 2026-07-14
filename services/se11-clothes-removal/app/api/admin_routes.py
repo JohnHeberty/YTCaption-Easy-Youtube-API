@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from app.api.schemas import AdminCleanupResponse, AdminStatsResponse, ErrorResponse
 from app.core.config import settings
+from app.core.constants import BYTES_PER_MB
 from app.infrastructure.redis_store import ClothesRemovalJobStore
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -36,7 +37,7 @@ async def stats() -> AdminStatsResponse:
             for f in files:
                 fp = os.path.join(root, f)
                 total_files += 1
-                total_size_mb += os.path.getsize(fp) / (1024 * 1024)
+                total_size_mb += os.path.getsize(fp) / BYTES_PER_MB
 
     return AdminStatsResponse(
         jobs={

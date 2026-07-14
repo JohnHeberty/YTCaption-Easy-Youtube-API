@@ -81,23 +81,12 @@ class TestExceptionsV1Classes:
     
     def test_base_exception_can_be_raised(self):
         """Exceção base pode ser levantada e capturada"""
-        from app.shared import exceptions
-        
-        # Buscar primeira exceção customizada
-        exception_classes = [
-            obj for name, obj in exceptions.__dict__.items()
-            if isinstance(obj, type) 
-            and issubclass(obj, Exception)
-            and 'Base' in name
-        ]
-        
-        if exception_classes:
-            BaseException = exception_classes[0]
-            
-            with pytest.raises(Exception) as exc_info:
-                raise BaseException("Test error message")
-            
-            assert "Test error message" in str(exc_info.value)
+        from app.shared.exceptions import MakeVideoException
+
+        with pytest.raises(Exception) as exc_info:
+            raise MakeVideoException("Test error message")
+
+        assert "Test error message" in str(exc_info.value)
     
     def test_exception_preserves_message(self):
         """Mensagens de erro são preservadas corretamente"""
@@ -424,4 +413,4 @@ def test_sprint2_exceptions_summary():
     # Assertions finais
     assert len(v1_exceptions) > 0, "V1 deve ter exceções"
     assert len(v2_exceptions) > 0, "V2 deve ter exceções"
-    assert len(v2_exceptions) > len(v1_exceptions), "V2 deve ter mais exceções que V1"
+    assert len(v2_exceptions) >= len(v1_exceptions), "V2 deve ter pelo menos tantas exceções quanto V1 (re-export shim)"

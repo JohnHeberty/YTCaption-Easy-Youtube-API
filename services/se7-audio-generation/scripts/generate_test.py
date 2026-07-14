@@ -17,6 +17,7 @@ from app.infrastructure.hf_downloader import (
     REQUIRED_FILES,
     download_chatterbox_model,
 )
+from app.core.constants import BYTES_PER_MB
 
 MODEL_DIR = Path("./data/models")
 OUTPUT_DIR = Path("./data/outputs")
@@ -29,7 +30,7 @@ def main():
 
     for f in REQUIRED_FILES:
         exists = (ckpt_dir / f).exists()
-        size = (ckpt_dir / f).stat().st_size / (1024 * 1024) if exists else 0
+        size = (ckpt_dir / f).stat().st_size / BYTES_PER_MB if exists else 0
         status = f"{size:.1f}MB" if exists else "MISSING"
         print(f"  {f}: {status}")
 

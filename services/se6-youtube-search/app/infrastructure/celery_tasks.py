@@ -16,6 +16,10 @@ from ..core.constants import (
     CELERY_TASK_TIMEOUT_SECONDS,
     CELERY_TASK_MAX_RETRIES,
     CELERY_TASK_RETRY_DELAY_SECONDS,
+    CELERY_HARD_LIMIT_OFFSET_SECONDS,
+    CLEANUP_TASK_TIMEOUT_SECONDS,
+    BEAT_SCHEDULE_INTERVAL_SECONDS,
+    BEAT_TASK_EXPIRES_SECONDS,
 )
 from app.domain.models import Job, JobStatus
 from ..domain.processor import YouTubeSearchProcessor
@@ -58,7 +62,7 @@ def _get_processor() -> YouTubeSearchProcessor:
 @celery_app.task(
     name='youtube_search_task',
     bind=True,
-    time_limit=CELERY_TASK_TIMEOUT_SECONDS + 30,  # Hard limit
+    time_limit=CELERY_TASK_TIMEOUT_SECONDS + CELERY_HARD_LIMIT_OFFSET_SECONDS,  # Hard limit
     soft_time_limit=CELERY_TASK_TIMEOUT_SECONDS,  # Soft limit (can catch)
     max_retries=CELERY_TASK_MAX_RETRIES,
     default_retry_delay=CELERY_TASK_RETRY_DELAY_SECONDS,
@@ -118,7 +122,7 @@ def youtube_search_task(self, job_dict: dict[str, Any]) -> dict[str, Any]:
 
 @celery_app.task(
     name='cleanup_expired_jobs',
-    time_limit=60,  # 1 minute
+    time_limit=CLEANUP_TASK_TIMEOUT_SECONDS,  # 1 minute
 )
 def cleanup_expired_jobs() -> dict[str, Any]:
     """
@@ -153,9 +157,9 @@ def cleanup_expired_jobs() -> dict[str, Any]:
 celery_app.conf.beat_schedule = {
     'cleanup-expired-jobs': {
         'task': 'cleanup_expired_jobs',
-        'schedule': 1800.0,  # Every 30 minutes
+        'schedule': BEAT_SCHEDULE_INTERVAL_SECONDS,  # Every 30 minutes
         'options': {
-            'expires': 60,  # Task expires after 1 minute
+            'expires': BEAT_TASK_EXPIRES_SECONDS,  # Task expires after 1 minute
         },
     },
 }

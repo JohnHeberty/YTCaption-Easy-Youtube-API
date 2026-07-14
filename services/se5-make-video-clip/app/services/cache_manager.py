@@ -15,6 +15,7 @@ import shutil
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
+from ..core.constants import BYTES_PER_MB
 
 logger = get_logger(__name__)
 
@@ -66,7 +67,7 @@ class CacheManager:
                 for item in self.cache_dir.iterdir():
                     if item.is_file() and item.suffix == ".mp4":
                         stats["total_shorts"] += 1
-                        stats["total_size_mb"] += item.stat().st_size / (1024 * 1024)
+                        stats["total_size_mb"] += item.stat().st_size / BYTES_PER_MB
 
             # Contar vídeos aprovados
             if self.approved_dir.exists():
@@ -217,4 +218,4 @@ class CacheManager:
         except Exception as e:
             logger.error(f"Error calculating cache size: {e}")
 
-        return round(total_bytes / (1024 * 1024), 2)
+        return round(total_bytes / BYTES_PER_MB, 2)

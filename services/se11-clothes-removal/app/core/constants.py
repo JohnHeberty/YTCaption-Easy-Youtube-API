@@ -1,6 +1,8 @@
 """Constants for SE11 Clothes Removal service."""
 from __future__ import annotations
 
+BYTES_PER_MB = 1024 * 1024
+
 # Job ID
 JOB_ID_PREFIX = "cr_"
 

@@ -14,6 +14,7 @@ from common.log_utils import get_logger
 from ..celery_config import celery_app
 from ...core.config import get_settings
 from ...core.models import Job, JobStatus, ShortInfo, JobResult
+from ...core.constants import BYTES_PER_MB
 from ...shared.exceptions import MakeVideoException
 from ...shared.exceptions_v2 import (
     AudioException as AudioProcessingException,
@@ -833,7 +834,7 @@ def _build_result(
         video_url=f"/download/{job_id}",
         video_file=final_video_path.name,
         file_size=file_size,
-        file_size_mb=round(file_size / (1024 * 1024), 2),
+        file_size_mb=round(file_size / BYTES_PER_MB, 2),
         duration=video_info['duration'],
         resolution=video_info['resolution'],
         aspect_ratio=job.aspect_ratio,

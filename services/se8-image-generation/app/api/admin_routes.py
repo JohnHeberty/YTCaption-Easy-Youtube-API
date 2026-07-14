@@ -7,6 +7,7 @@ import time
 from fastapi import APIRouter
 
 from app.api.schemas import AdminCleanupResponse, AdminStatsResponse, AdminOutputStats
+from app.core.constants import BYTES_PER_MB
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -34,7 +35,7 @@ async def stats() -> AdminStatsResponse:
         queue=queue_info,
         outputs=AdminOutputStats(
             count=output_count,
-            size_mb=round(output_size / (1024 * 1024), 1),
+            size_mb=round(output_size / BYTES_PER_MB, 1),
         ),
     )
 

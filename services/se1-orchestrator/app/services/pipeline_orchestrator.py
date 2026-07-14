@@ -12,6 +12,7 @@ from typing import Any
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
 
+from app.core.constants import BYTES_PER_MB
 from app.core.config import get_microservice_config, get_settings
 from app.domain.interfaces import MicroserviceClientInterface
 from app.domain.models import PipelineJob, PipelineStatus, StageStatus
@@ -107,7 +108,7 @@ class PipelineOrchestrator:
             audio_bytes, audio_name = dl
             logger.info(
                 f"[PIPELINE:{job.id}] DOWNLOAD completed: {audio_name} "
-                f"({len(audio_bytes) / (1024 * 1024):.1f}MB)"
+                f"({len(audio_bytes) / BYTES_PER_MB:.1f}MB)"
             )
 
             # 2) NORMALIZAÇÃO
@@ -126,7 +127,7 @@ class PipelineOrchestrator:
             job.audio_file = norm_name
             logger.info(
                 f"[PIPELINE:{job.id}] NORMALIZATION completed: {norm_name} "
-                f"({len(norm_bytes) / (1024 * 1024):.1f}MB)"
+                f"({len(norm_bytes) / BYTES_PER_MB:.1f}MB)"
             )
 
             # 3) TRANSCRIÇÃO

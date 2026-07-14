@@ -15,6 +15,7 @@ import re
 
 from common.log_utils import get_logger
 from ..core.constants import (
+    BYTES_PER_MB,
     ProcessingLimits,
     FileExtensions,
     AspectRatios,
@@ -158,7 +159,7 @@ class AudioFileValidator:
             )
         
         # 4. Verificar tamanho
-        size_mb = file_path.stat().st_size / (1024 * 1024)
+        size_mb = file_path.stat().st_size / BYTES_PER_MB
         
         MAX_FILE_SIZE_MB = 50
         MIN_FILE_SIZE_KB = 10

@@ -8,7 +8,7 @@ import random
 from common.log_utils import get_logger
 
 from app.core.config import settings
-from app.core.constants import H264_ENCODING_ARGS, TRANSITIONS
+from app.core.constants import H264_ENCODING_ARGS, TRANSITIONS, CROSSFADE_RATIO_MAX, CROSSFADE_MIN_DURATION, CROSSFADE_DURATION_DEFAULT, CONCAT_BATCH_SIZE
 from app.infrastructure.ffmpeg_runner import run_ffmpeg
 
 logger = get_logger(__name__)
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 async def concat_segments(
     segment_paths: list[str],
     output_path: str,
-    crossfade_duration: float = 0.5,
+    crossfade_duration: float = CROSSFADE_DURATION_DEFAULT,
     first_transition: str = "fade",
     other_transitions: str = "fade",
     transitions: list[str] | None = None,
@@ -61,8 +61,8 @@ async def concat_segments(
     xfade_durations: list[float] = []
     chain_output = seg_durs[0]
     for i in range(n - 1):
-        effective_xfade = min(crossfade_duration, seg_durs[i] * 0.15)
-        effective_xfade = max(effective_xfade, 0.05)
+        effective_xfade = min(crossfade_duration, seg_durs[i] * CROSSFADE_RATIO_MAX)
+        effective_xfade = max(effective_xfade, CROSSFADE_MIN_DURATION)
         xfade_durations.append(effective_xfade)
 
         offset = chain_output - effective_xfade
@@ -131,9 +131,9 @@ async def concat_simple(segment_paths: list[str], output_path: str) -> None:
 async def concat_batched(
     segment_paths: list[str],
     output_path: str,
-    crossfade_duration: float = 0.5,
+    crossfade_duration: float = CROSSFADE_DURATION_DEFAULT,
     transitions: list[str] | None = None,
-    batch_size: int = 8,
+    batch_size: int = CONCAT_BATCH_SIZE,
 ) -> None:
     """Concatenate segments in batches of `batch_size` with xfade, then concat batches."""
     n = len(segment_paths)

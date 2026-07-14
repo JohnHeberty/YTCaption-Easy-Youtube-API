@@ -12,7 +12,7 @@ from typing import Any
 from common.log_utils import get_logger
 
 from app.core.config import get_settings
-from app.core.constants import JOB_PREFIX, JOB_TTL
+from app.core.constants import JOB_PREFIX, JOB_TTL, REDIS_MAX_CONNECTIONS, REDIS_SOCKET_CONNECT_TIMEOUT, REDIS_SOCKET_TIMEOUT, REDIS_HEALTH_CHECK_INTERVAL
 
 logger = get_logger(__name__)
 
@@ -32,11 +32,11 @@ def get_redis() -> Any:
         settings = get_settings()
         _redis_store = ResilientRedisStore(
             redis_url=settings.redis_url,
-            max_connections=10,
-            socket_connect_timeout=5,
-            socket_timeout=5,
+            max_connections=REDIS_MAX_CONNECTIONS,
+            socket_connect_timeout=REDIS_SOCKET_CONNECT_TIMEOUT,
+            socket_timeout=REDIS_SOCKET_TIMEOUT,
             retry_on_timeout=True,
-            health_check_interval=30,
+            health_check_interval=REDIS_HEALTH_CHECK_INTERVAL,
             circuit_breaker_enabled=True,
         )
         _redis_store.ping()

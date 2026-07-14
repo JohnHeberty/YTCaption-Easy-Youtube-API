@@ -14,6 +14,7 @@ from pathlib import Path
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 from ..core.models import Job, JobStatus, JobResult, StageInfo
+from ..core.constants import BYTES_PER_MB
 from ..infrastructure.redis_store import MakeVideoJobStore as RedisJobStore
 
 logger = get_logger(__name__)
@@ -198,7 +199,7 @@ class JobManager:
                 video_url=video_url,
                 video_file=video_file,
                 file_size=file_size,
-                file_size_mb=round(file_size / (1024 * 1024), 2),
+                file_size_mb=round(file_size / BYTES_PER_MB, 2),
                 duration=duration,
                 resolution=resolution,
                 aspect_ratio=job.aspect_ratio,

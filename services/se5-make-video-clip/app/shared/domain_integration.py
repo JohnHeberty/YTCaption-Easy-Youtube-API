@@ -15,6 +15,7 @@ from common.datetime_utils import now_brazil
 from typing import Any
 
 from ..domain.job_processor import JobProcessor
+from ..core.constants import BYTES_PER_MB
 from ..domain.job_stage import StageContext, JobStage
 from ..domain.stages.analyze_audio_stage import AnalyzeAudioStage
 from ..domain.stages.load_approved_stage import LoadApprovedVideosStage
@@ -345,7 +346,7 @@ class DomainJobProcessor:
             video_url=f"/download/{job.id}",
             video_file=final_video_path.name,
             file_size=file_size,
-            file_size_mb=round(file_size / (1024 * 1024), 2),
+            file_size_mb=round(file_size / BYTES_PER_MB, 2),
             duration=video_info.get('duration', audio_duration),
             resolution=video_info.get('resolution', '1920x1080'),
             aspect_ratio=job.aspect_ratio,

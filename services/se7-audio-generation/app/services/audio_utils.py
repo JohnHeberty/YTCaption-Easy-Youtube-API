@@ -8,7 +8,7 @@ import numpy as np
 
 from common.log_utils import get_logger
 
-from app.core.constants import SUPPORTED_AUDIO_EXTENSIONS, VOICE_SAMPLE_RATE_TARGET
+from app.core.constants import BYTES_PER_MB, SUPPORTED_AUDIO_EXTENSIONS, VOICE_SAMPLE_RATE_TARGET
 from app.domain.exceptions import InvalidVoiceSample
 
 INT16_MAX = 32767
@@ -22,7 +22,7 @@ def validate_voice_sample(file_path: str, min_duration: float = 5.0,
     if not path.exists():
         raise InvalidVoiceSample("File not found")
 
-    size_mb = path.stat().st_size / (1024 * 1024)
+    size_mb = path.stat().st_size / BYTES_PER_MB
     if size_mb > max_size_mb:
         raise InvalidVoiceSample(
             f"File too large: {size_mb:.1f}MB (max {max_size_mb}MB)"

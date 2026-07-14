@@ -14,6 +14,7 @@ from typing import Any, Callable
 import httpx
 from common.log_utils import get_logger
 
+from app.core.constants import BYTES_PER_MB
 from app.core.config import get_microservice_config, get_settings
 from app.core.ssl_config import get_ssl_context
 from app.domain.interfaces import MicroserviceClientInterface
@@ -280,7 +281,7 @@ class MicroserviceClient(MicroserviceClientInterface):
                         if len(file_content) > max_size_bytes:
                             raise RuntimeError(f"Downloaded file too large: {len(file_content)} bytes")
 
-                        logger.info(f"[{self.service_name}] Downloaded {extracted_filename}: {len(file_content) / (1024 * 1024):.1f}MB")
+                        logger.info(f"[{self.service_name}] Downloaded {extracted_filename}: {len(file_content) / BYTES_PER_MB:.1f}MB")
                         return file_content, extracted_filename
 
             except asyncio.TimeoutError as timeout_error:

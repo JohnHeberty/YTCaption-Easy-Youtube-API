@@ -25,6 +25,7 @@ from typing import Any
 import re
 from common.log_utils import get_logger
 from common.datetime_utils import now_brazil
+from ..core.constants import BYTES_PER_MB
 
 logger = get_logger(__name__)
 
@@ -241,7 +242,7 @@ class CleanupService:
                 retry_count=0,
                 metadata={
                     "cleanup_timestamp": now_brazil().isoformat(),
-                    "file_size_mb": file_path.stat().st_size / (1024 * 1024)
+                    "file_size_mb": file_path.stat().st_size / BYTES_PER_MB
                 }
             )
             
@@ -301,7 +302,7 @@ class CleanupService:
             except Exception as e:
                 logger.error(f"Error calculating size for {directory}: {e}")
         
-        return total_bytes / (1024 * 1024)  # Convert to MB
+        return total_bytes / BYTES_PER_MB  # Convert to MB
     
     async def manual_cleanup(self) -> dict[str, Any]:
         """

@@ -14,6 +14,7 @@ from app.core.constants import (
     PLATFORM_PRESETS,
     TRANSITIONS,
     TRANSITION_MAP,
+    CROSSFADE_DURATION_DEFAULT,
 )
 from app.core.models import NarrationSegment, SceneSuggestion
 from app.infrastructure import ffmpeg_utils
@@ -132,7 +133,7 @@ class VideoAssembler:
         height: int = 1920,
         fps: int = 30,
         zoom_style: str = "random",
-        crossfade_duration: float = 0.5,
+        crossfade_duration: float = CROSSFADE_DURATION_DEFAULT,
         hook_text: str = "",
         on_screen_text: list[dict[str, Any]] | None = None,
         scene_suggestions: list[SceneSuggestion] | None = None,

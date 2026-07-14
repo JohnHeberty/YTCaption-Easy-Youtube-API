@@ -195,3 +195,30 @@ H264_ENCODING_ARGS = [
     "-bf", "2",
     "-pix_fmt", "yuv420p",
 ]
+
+# Ken Burns zoom limits
+ZOOM_MIN = 1.0
+ZOOM_MAX = 1.20
+
+# Default zoom speed (used as fallback when not provided by config)
+ZOOM_SPEED_DEFAULT = 0.004
+
+# Crossfade transition constraints
+CROSSFADE_RATIO_MAX = 0.15  # max crossfade as fraction of segment duration
+CROSSFADE_MIN_DURATION = 0.05  # minimum crossfade duration in seconds
+CROSSFADE_DURATION_DEFAULT = 0.5  # default crossfade duration when not from config
+
+# Concat batch size (segments per batch for xfade to avoid OOM)
+CONCAT_BATCH_SIZE = 8
+
+# Redis connection pool settings
+REDIS_MAX_CONNECTIONS = 10
+REDIS_SOCKET_CONNECT_TIMEOUT = 5
+REDIS_SOCKET_TIMEOUT = 5
+REDIS_HEALTH_CHECK_INTERVAL = 30
+
+# Title card default duration
+TITLE_CARD_DURATION_DEFAULT = 0.5
+
+# Image generation defaults
+IMAGE_STEPS_DEFAULT = 30

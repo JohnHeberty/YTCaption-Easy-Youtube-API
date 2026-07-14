@@ -2,6 +2,27 @@
 
 ## Sessão atual (2026-07-13) — Clean Code Audit + SE11 Multi-Person + SE8 GPU/Memory
 
+### SE5 #25 — OCRResult Duplicate Definition Consolidated ✅
+- **Problem:** Two `OCRResult` dataclasses with incompatible fields:
+  - `ocr_detector_legacy.py`: `text, confidence, word_count, has_subtitle, readable_words` (EasyOCR)
+  - `ocr_detector_advanced.py`: `text, confidence, bbox, engine` (PaddleOCR)
+- **Root cause:** Legacy EasyOCR detector was superseded by PaddleOCR but never cleaned up
+- **Fix:** Replaced `ocr_detector_legacy.py` (330L) with thin re-export shim (16L) pointing to `ocr_detector_advanced.py`
+- **Files modified:**
+  - `services/se5-make-video-clip/app/video_processing/ocr_detector_legacy.py` — REWRITTEN as re-export shim
+- **Validated:** py_compile 5/5 OK, 271 unit tests pass (238 non-shared + 23 exceptions + 10 details conflict)
+
+### SE5 #26 — Exception Hierarchies Consolidated ✅
+- **Problem:** Two exception files with overlapping hierarchies:
+  - `exceptions.py`: base classes (ErrorCode, EnhancedMakeVideoException, AudioProcessingException, VideoProcessingException, MicroserviceException, SystemException, helpers, MakeVideoException)
+  - `exceptions_v2.py`: re-exports from exceptions.py + adds 25 new subclasses + aliases
+- **Fix:** Moved all 25 exception subclasses + 3 aliases from `exceptions_v2.py` into `exceptions.py`. Made `exceptions_v2.py` a pure re-export shim.
+- **Files modified:**
+  - `services/se5-make-video-clip/app/shared/exceptions.py` — added 25 subclasses + 3 aliases + `__all__`
+  - `services/se5-make-video-clip/app/shared/exceptions_v2.py` — REWRITTEN as pure re-export shim
+  - `services/se5-make-video-clip/tests/unit/shared/test_exceptions.py` — fixed fragile dynamic class search test + updated summary assertion
+- **Validated:** py_compile 5/5 OK, 33 exception tests pass (23 + 10 details conflict)
+
 ### SE6 #36 — InnerTube clientVersion Normalized ✅
 - **Problem:** `clientVersion` inconsistent across 3 files in `services/se6-youtube-search/app/services/ytbpy/`:
   - `video.py` used `"2.20220502.01.00"` (2022)
@@ -23,6 +44,44 @@
   - `services/se7-audio-generation/app/services/model_manager.py` — imports from `hf_downloader`, `_ensure_model_files()` delegates to shared function
   - `services/se7-audio-generation/scripts/generate_test.py` — imports from `hf_downloader`, removed inline download logic
 - **Validated:** py_compile 3/3 OK, 24 unit tests pass, 0 regressions
+
+### SE6 #39 — Magic Numbers Extracted to Constants ✅
+- **Problem:** Hardcoded numeric literals for disk thresholds, timeouts, beat schedule, Redis pool, and thumbnail dimensions scattered across SE6 app
+- **Fix:** Added named constants to `app/core/constants.py`, replaced magic numbers in 5 files
+- **Constants added:**
+  - `DISK_WARNING_PERCENT` (10), `DISK_CRITICAL_PERCENT` (5) — health check thresholds
+  - `CELERY_HARD_LIMIT_OFFSET_SECONDS` (30) — hard/soft limit delta
+  - `CLEANUP_TASK_TIMEOUT_SECONDS` (60) — cleanup task timeout
+  - `BEAT_SCHEDULE_INTERVAL_SECONDS` (1800), `BEAT_TASK_EXPIRES_SECONDS` (60) — periodic task config
+  - `CELERY_TASK_TIME_LIMIT_SECONDS` (600), `CELERY_TASK_SOFT_TIME_LIMIT_SECONDS` (500), `CELERY_WORKER_MAX_TASKS_PER_CHILD` (100) — Celery config
+  - `REDIS_MAX_CONNECTIONS` (50) — Redis pool size
+- **Note:** Thumbnail dimensions defined locally in `utils.py` to avoid circular import (constants.py → domain.models → ytbpy → utils → constants)
+- **Files modified:**
+  - `services/se6-youtube-search/app/core/constants.py` — added 10 new constants
+  - `services/se6-youtube-search/app/main.py` — replaced disk threshold magic numbers
+  - `services/se6-youtube-search/app/infrastructure/celery_tasks.py` — replaced hard limit offset, cleanup timeout, beat schedule/expires
+  - `services/se6-youtube-search/app/infrastructure/celery_config.py` — replaced Celery config limits
+  - `services/se6-youtube-search/app/infrastructure/redis_store.py` — replaced max_connections
+- **Validated:** py_compile 6/6 OK, 40 unit tests pass (13 skipped, same as before)
+
+### SE9 #48 — Magic Numbers Extracted to Constants ✅
+- **Problem:** Hardcoded numeric literals for zoom limits, crossfade ratios, Redis pool, batch size, and defaults scattered across SE9 app
+- **Fix:** Added named constants to `app/core/constants.py`, replaced magic numbers in 4 files
+- **Constants added:**
+  - `ZOOM_MIN` (1.0), `ZOOM_MAX` (1.20) — Ken Burns zoom limits
+  - `ZOOM_SPEED_DEFAULT` (0.004) — default zoom speed
+  - `CROSSFADE_RATIO_MAX` (0.15), `CROSSFADE_MIN_DURATION` (0.05), `CROSSFADE_DURATION_DEFAULT` (0.5) — crossfade constraints
+  - `CONCAT_BATCH_SIZE` (8) — segments per xfade batch to avoid OOM
+  - `REDIS_MAX_CONNECTIONS` (10), `REDIS_SOCKET_CONNECT_TIMEOUT` (5), `REDIS_SOCKET_TIMEOUT` (5), `REDIS_HEALTH_CHECK_INTERVAL` (30) — Redis pool
+  - `TITLE_CARD_DURATION_DEFAULT` (0.5) — title card fallback duration
+  - `IMAGE_STEPS_DEFAULT` (30) — image generation steps fallback
+- **Files modified:**
+  - `services/se9-make-video-img/app/core/constants.py` — added 12 new constants
+  - `services/se9-make-video-img/app/infrastructure/ffmpeg_segments.py` — replaced zoom speed default, removed local ZOOM_MIN/ZOOM_MAX
+  - `services/se9-make-video-img/app/infrastructure/ffmpeg_concat.py` — replaced crossfade defaults, ratio constraints, batch size
+  - `services/se9-make-video-img/app/infrastructure/redis_store.py` — replaced Redis pool settings
+  - `services/se9-make-video-img/app/services/video_assembler.py` — replaced crossfade_duration default
+- **Validated:** py_compile 5/5 OK, 131 unit tests pass (13 FFmpeg tests skipped due to pre-existing missing fixture, same as before)
 
 ### Clean Code Audit — COMPLETE ✅
 - Scanned all 11 services (SE1-SE11) for code quality issues
@@ -1884,3 +1943,35 @@ Files (44): `app/__init__.py`, `app/main.py`, `args_manager.py`, `app/api/__init
 All 44 py_compile OK, no logic changes.
 
 > **SE11 details:** Ver `services/se11-clothes-removal/docs/LICOES-NSFW.md` e `services/se11-clothes-removal/docs/ROADMAP.md`
+
+## Item #52 — Replace remaining inline bytes-to-MB conversions (2026-07-13)
+
+**Pattern:** `/ (1024 * 1024)`, `/ 1024**2`, `/ 1048576`
+
+**Constants added:** `BYTES_PER_MB = 1024 * 1024` in each service's `constants.py`
+
+| Service | Files Modified | Occurrences Fixed | Notes |
+|---------|---------------|-------------------|-------|
+| SE1 | `app/core/constants.py` (NEW), `app/infrastructure/microservice_client.py`, `app/services/pipeline_orchestrator.py` | 3 | Created constants.py |
+| SE2 | `app/core/constants.py`, `app/api/admin_routes.py` | 5 | |
+| SE3 | — | 0 | Only GPU context in tests |
+| SE4 | — | 0 | Already fixed (19 occ). Note: `admin_cleanup_service.py` has 3 remaining, flagged for future |
+| SE5 | `app/core/constants.py`, `app/infrastructure/tasks/make_video.py`, `app/shared/domain_integration.py`, `app/shared/validation.py`, `app/services/cache_manager.py`, `app/services/cleanup_service.py`, `app/services/file_operations.py`, `app/services/job_manager.py` | 10 | |
+| SE6 | — | 0 | Clean |
+| SE7 | `app/core/constants.py`, `app/services/audio_utils.py`, `scripts/generate_test.py` | 2 | VRAM in model_manager.py skipped (GPU context) |
+| SE8 | `app/core/constants.py`, `app/api/admin_routes.py` | 1 | GPU/RAM/RSS conversions skipped |
+| SE9 | — | 0 | Only test files |
+| SE10 | — | 0 | External dependency (SAM2) |
+| SE11 | `app/core/constants.py`, `app/api/admin_routes.py` | 1 | |
+
+**Total:** 22 inline conversions replaced across 6 services (20 files modified/created).
+
+**Skipped (GPU/VRAM/RSS context):**
+- SE7 `model_manager.py:146-149` — `torch.cuda` VRAM stats
+- SE8 `model_manager.py:134,329,330` — VRAM + RAM auto-detect
+- SE8 `ldm_patched/modules/model_management.py:121,122` — VRAM + RAM init
+- SE8 `worker.py:370` — RSS process memory
+- SE3 test files — GPU memory logging
+- SE10 `external/segment-anything-2/` — external code
+
+**Validated:** py_compile 20/20 OK

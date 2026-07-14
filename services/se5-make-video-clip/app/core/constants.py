@@ -10,6 +10,9 @@ from __future__ import annotations
 from enum import Enum
 
 
+BYTES_PER_MB = 1024 * 1024
+
+
 class ProcessingLimits:
     """Limites de processamento"""
     MIN_AUDIO_DURATION_SECONDS = 5

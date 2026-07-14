@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 from datetime import datetime
 from common.log_utils import get_logger
+from ..core.constants import BYTES_PER_MB
 
 logger = get_logger(__name__)
 
@@ -228,7 +229,7 @@ class FileOperations:
         return {
             "exists": True,
             "path": str(file_path),
-            "size_mb": stat.st_size / (1024 * 1024),
+            "size_mb": stat.st_size / BYTES_PER_MB,
             "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
             "stage": self._detect_stage(file_path)
         }
