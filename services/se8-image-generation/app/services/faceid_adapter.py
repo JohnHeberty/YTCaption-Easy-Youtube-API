@@ -21,7 +21,7 @@ class FaceIDProj(torch.nn.Module):
     using a linear projection + Perceiver Resampler.
     """
 
-    def __init__(self, state_dict: dict):
+    def __init__(self, state_dict: dict) -> None:
         super().__init__()
         # Linear projection: 512 → 1024 → 8192
         self.proj = torch.nn.Sequential(
@@ -64,7 +64,7 @@ class FaceIDProj(torch.nn.Module):
 class FaceIDIPAdapter(torch.nn.Module):
     """FaceID Plus v2 with LoRA modifications + standard IP-Adapter KV injection."""
 
-    def __init__(self, state_dict: dict, cross_attention_dim: int = 2048):
+    def __init__(self, state_dict: dict, cross_attention_dim: int = 2048) -> None:
         super().__init__()
         self.cross_attention_dim = cross_attention_dim
 

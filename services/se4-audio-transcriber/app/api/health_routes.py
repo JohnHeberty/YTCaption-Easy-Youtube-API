@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse, Response
 
 from common.datetime_utils import now_brazil
@@ -52,7 +52,7 @@ async def health_check(
 
     result = await checker.check_all()
 
-    status_code = 200 if result["status"] == "healthy" else 503
+    status_code = status.HTTP_200_OK if result["status"] == "healthy" else status.HTTP_503_SERVICE_UNAVAILABLE
 
     return JSONResponse(content=result, status_code=status_code)
 
@@ -63,7 +63,7 @@ async def health_check_detailed(
     processor: TranscriptionProcessor = Depends(processor),
 ) -> JSONResponse:
     """Perform a detailed health check of Redis, Celery, and model components."""
-    from app.health_checker import (
+    from app.shared.health_checker import (
         CeleryHealthChecker,
         RedisHealthChecker,
         ModelHealthChecker,
@@ -83,7 +83,7 @@ async def health_check_detailed(
         health_result["service"] = "audio-transcription"
         health_result["version"] = "2.0.0"
 
-        status_code = 200 if health_result["overall_healthy"] else 503
+        status_code = status.HTTP_200_OK if health_result["overall_healthy"] else status.HTTP_503_SERVICE_UNAVAILABLE
 
         return JSONResponse(content=health_result, status_code=status_code)
 
@@ -95,7 +95,7 @@ async def health_check_detailed(
                 "error": str(e),
                 "timestamp": now_brazil().isoformat()
             },
-            status_code=503
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE
         )
 
 

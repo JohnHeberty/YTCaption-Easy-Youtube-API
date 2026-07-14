@@ -15,7 +15,7 @@ from app.services.task_builder import parse_aspect_ratio, apply_performance_defa
 def wildcards(text: str, seed: int) -> str:
     """Simple wildcard replacement: {random|option1|option2} -> random pick."""
 
-    def replace_wildcard(match):
+    def replace_wildcard(match: re.Match) -> str:
         options = match.group(1).split("|")
         rng = random.Random(seed)
         return rng.choice(options)

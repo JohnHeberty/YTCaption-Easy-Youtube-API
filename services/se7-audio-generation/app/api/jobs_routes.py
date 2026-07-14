@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, status
 from fastapi.responses import FileResponse
 
 from common.log_utils import get_logger
@@ -27,7 +27,7 @@ router = APIRouter(tags=["Jobs"])
 @router.post(
     "/jobs",
     response_model=JobResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     responses={422: {"model": ErrorResponse}},
 )
 async def create_generation_job(
@@ -44,7 +44,7 @@ async def create_generation_job(
     if voice_id:
         profile = voice_store_dep.get_profile(voice_id)
         if not profile:
-            raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Voice profile not found: {voice_id}")
 
     try:
         job = AudioGenerationJob.create_new(
@@ -56,7 +56,7 @@ async def create_generation_job(
             normalize_text=normalize_text,
         )
     except TextValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
     store.save_job(job)
 
@@ -105,9 +105,9 @@ async def get_job_status(
 ) -> JobDetailResponse:
     job = store.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expired")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expired")
     data = job.model_dump()
     # Convert datetime objects to ISO strings for schema compatibility
     for key in ("created_at", "started_at", "completed_at"):
@@ -124,15 +124,15 @@ async def download_audio(
 ) -> FileResponse:
     job = store.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expired")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expired")
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
-            status_code=425, detail=f"Audio not ready. Status: {job.status.value}"
+            status_code=status.HTTP_425_TOO_EARLY, detail=f"Audio not ready. Status: {job.status.value}"
         )
     if not job.output_file or not Path(job.output_file).exists():
-        raise HTTPException(status_code=404, detail="Audio file not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Audio file not found")
 
     return FileResponse(
         path=job.output_file,
@@ -152,7 +152,7 @@ async def delete_job(
 ) -> DeleteJobResponse:
     job = store.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     files_deleted = 0
     if job.output_file:

@@ -2,7 +2,8 @@
 Testes dos modelos do Video Downloader
 """
 import pytest
-from app.models import Job, JobStatus
+from app.core.models import VideoDownloadJob as Job
+from common.job_utils.models import JobStatus
 
 
 @pytest.mark.unit

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 
-from app.models import Job, JobStatus, AudioNormalizationRequest
+from app.core.models import Job, JobStatus, AudioNormalizationRequest
 
 
 class TestJob:

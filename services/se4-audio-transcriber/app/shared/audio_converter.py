@@ -60,6 +60,61 @@ def has_audio_stream(input_path: Path) -> tuple[bool, str]:
         return True, f"erro na verificação: {e}, assumindo que tem áudio"
 
 
+def _validate_wav_input(input_path: Path) -> None:
+    """Raise AudioTranscriptionException if input file doesn't exist."""
+    if not input_path.exists():
+        raise AudioTranscriptionException(
+            f"Arquivo de entrada não encontrado: '{input_path}'"
+        )
+
+
+def _run_ffmpeg_conversion(
+    input_path: Path,
+    wav_path: Path,
+    settings: dict[str, object],
+) -> None:
+    """Run ffmpeg to convert audio to WAV 16kHz mono pcm_s16le."""
+    from ..shared.exceptions import AudioTranscriptionException
+
+    sample_rate = str(settings.get('ffmpeg_sample_rate', '16000'))
+    threads = str(settings.get('ffmpeg_threads', '0'))
+
+    cmd = [
+        'ffmpeg', '-i', str(input_path), '-vn',
+        '-acodec', 'pcm_s16le', '-ar', sample_rate, '-ac', '1',
+        '-threads', threads, '-y', str(wav_path),
+    ]
+
+    try:
+        result = sp.run(cmd, capture_output=True, text=True, timeout=300)
+        if result.returncode != 0:
+            stderr_preview = result.stderr[:500] if result.stderr else "no stderr"
+            raise AudioTranscriptionException(
+                f"Falha ao converter áudio para WAV (ffmpeg exit code {result.returncode}): {stderr_preview}"
+            )
+        if not wav_path.exists() or wav_path.stat().st_size < 100:
+            if wav_path.exists():
+                wav_path.unlink(missing_ok=True)
+            raise AudioTranscriptionException(
+                f"O arquivo '{input_path.name}' não pôde ser convertido para WAV. "
+                f"Isso geralmente ocorre quando o arquivo não contém stream de áudio válido "
+                f"(ex: vídeo sem áudio, arquivo corrompido, ou formato não suportado). "
+                f"Verifique se o arquivo contém áudio antes de enviar para transcrição."
+            )
+    except sp.TimeoutExpired:
+        if wav_path.exists():
+            wav_path.unlink(missing_ok=True)
+        raise AudioTranscriptionException(
+            f"Timeout ao converter áudio para WAV (limite: 300s): {input_path.name}"
+        )
+    except AudioTranscriptionException:
+        raise
+    except Exception as e:
+        if wav_path.exists():
+            wav_path.unlink(missing_ok=True)
+        raise AudioTranscriptionException(f"Erro ao converter áudio para WAV: {str(e)}")
+
+
 def convert_to_wav(
     input_path: Path,
     settings: dict[str, object] | None = None,
@@ -129,44 +184,7 @@ def convert_to_wav(
     wav_filename = f"{input_path.stem}_converted.wav"
     wav_path = temp_dir / wav_filename
 
-    sample_rate = str(settings.get('ffmpeg_sample_rate', '16000'))
-    threads = str(settings.get('ffmpeg_threads', '0'))
+    _validate_wav_input(input_path)
+    _run_ffmpeg_conversion(input_path, wav_path, settings)
 
-    cmd = [
-        'ffmpeg', '-i', str(input_path), '-vn',
-        '-acodec', 'pcm_s16le', '-ar', sample_rate, '-ac', '1',
-        '-threads', threads, '-y', str(wav_path)
-    ]
-
-    try:
-        result = sp.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            stderr_preview = result.stderr[:500] if result.stderr else "no stderr"
-            raise AudioTranscriptionException(
-                f"Falha ao converter áudio para WAV (ffmpeg exit code {result.returncode}): {stderr_preview}"
-            )
-
-        if not wav_path.exists() or wav_path.stat().st_size < 100:
-            if wav_path.exists():
-                wav_path.unlink(missing_ok=True)
-            raise AudioTranscriptionException(
-                f"O arquivo '{input_path.name}' não pôde ser convertido para WAV. "
-                f"Isso geralmente ocorre quando o arquivo não contém stream de áudio válido "
-                f"(ex: vídeo sem áudio, arquivo corrompido, ou formato não suportado). "
-                f"Verifique se o arquivo contém áudio antes de enviar para transcrição."
-            )
-
-        return wav_path, True
-
-    except sp.TimeoutExpired:
-        if wav_path.exists():
-            wav_path.unlink(missing_ok=True)
-        raise AudioTranscriptionException(
-            f"Timeout ao converter áudio para WAV (limite: 300s): {input_path.name}"
-        )
-    except AudioTranscriptionException:
-        raise
-    except Exception as e:
-        if wav_path.exists():
-            wav_path.unlink(missing_ok=True)
-        raise AudioTranscriptionException(f"Erro ao converter áudio para WAV: {str(e)}")
+    return wav_path, True

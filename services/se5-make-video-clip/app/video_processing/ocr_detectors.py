@@ -58,6 +58,104 @@ class TRSDDetector:
         self.debug_saver = debug_saver
         self._get_video_info = get_video_info
 
+    def _run_ocr_frame_loop(
+        self,
+        extraction_result: Any,
+        timeout: int,
+    ) -> tuple[Any, int, int, Any, Any]:
+        """Run OCR on extracted frames.
+
+        Returns (tracker, frames_analyzed, total_lines_detected, early_result_or_none, early_tracks).
+        """
+        tracker = TemporalTracker(self.config)
+        self.telemetry.start_timer('ocr')
+
+        frames_analyzed = 0
+        total_lines_detected = 0
+
+        for frame_idx, (frame, ts) in enumerate(extraction_result.frames):
+            frames_analyzed += 1
+            text_lines = self.text_extractor.extract_from_frame(frame, ts, frame_idx)
+            total_lines_detected += len(text_lines)
+            tracker.update(text_lines, frame_idx)
+
+            if frames_analyzed >= 10 and frame_idx % 5 == 0:
+                partial_tracks = tracker.active_tracks
+                for track in partial_tracks:
+                    track.compute_metrics(frames_analyzed)
+
+                self.telemetry.start_timer('classification')
+                result = self.classifier.decide(partial_tracks)
+                self.telemetry.stop_timer('classification')
+
+                if result.has_subtitles and result.confidence >= 0.85:
+                    return (tracker, frames_analyzed, total_lines_detected, result, partial_tracks)
+
+        return (tracker, frames_analyzed, total_lines_detected, None, None)
+
+    def _build_performance_metrics(
+        self,
+        total_ms: float,
+        frame_extraction_ms: float,
+        ocr_time_ms: float,
+        classification_ms: float,
+        frames_analyzed: int,
+        tracks_count: int,
+        lines_detected: int,
+    ) -> PerformanceMetrics:
+        """Build a PerformanceMetrics instance."""
+        return PerformanceMetrics(
+            total_time_ms=total_ms,
+            frame_extraction_ms=frame_extraction_ms,
+            ocr_time_ms=ocr_time_ms,
+            tracking_time_ms=0.0,
+            classification_time_ms=classification_ms,
+            frames_analyzed=frames_analyzed,
+            tracks_created=tracks_count,
+            lines_detected=lines_detected
+        )
+
+    def _record_and_return(
+        self,
+        result: Any,
+        video_id: str,
+        extraction_result: Any,
+        tracks: Any,
+        metrics: PerformanceMetrics,
+        frames_analyzed: int,
+        total_lines_detected: int,
+        early_exit: bool,
+    ) -> tuple[bool, float, str, dict[str, Any]]:
+        """Record telemetry and debug artifacts, then return detection tuple."""
+        self.telemetry.record_decision(
+            video_id=video_id,
+            decision='block' if result.has_subtitles else 'approve',
+            confidence=result.confidence,
+            reason=result.reason,
+            method='TRSD',
+            metrics=metrics,
+            tracks_by_category=result.tracks_by_category,
+            decision_logic=result.decision_logic,
+            early_exit=early_exit,
+            debug_info={'extraction_method': extraction_result.method}
+        )
+
+        self.debug_saver.save_detection_artifacts(
+            video_id, extraction_result.frames, tracks, result, metrics
+        )
+
+        return (
+            result.has_subtitles,
+            result.confidence,
+            result.reason,
+            {
+                'method': 'TRSD',
+                'early_exit': early_exit,
+                'frames_analyzed': frames_analyzed,
+                'tracks_by_category': result.tracks_by_category
+            }
+        )
+
     def detect(self, video_path: str, timeout: int = 60) -> tuple[bool, float, str, dict[str, Any]]:
         start_time = time.time()
 
@@ -66,7 +164,6 @@ class TRSDDetector:
 
             info = self._get_video_info(video_path)
             duration = info['duration']
-
             timestamps = _get_sample_timestamps(duration)
 
             logger.info(f"TRSD: Analyzing {len(timestamps)} frames from {duration:.1f}s video")
@@ -83,82 +180,38 @@ class TRSDDetector:
                 f"{len(extraction_result.frames)} frames"
             )
 
-            tracker = TemporalTracker(self.config)
+            tracker, frames_analyzed, total_lines_detected, early_result, early_tracks = \
+                self._run_ocr_frame_loop(extraction_result, timeout)
 
-            self.telemetry.start_timer('ocr')
-
-            frames_analyzed = 0
-            total_lines_detected = 0
-
-            for frame_idx, (frame, ts) in enumerate(extraction_result.frames):
-                frames_analyzed += 1
-
-                text_lines = self.text_extractor.extract_from_frame(frame, ts, frame_idx)
-                total_lines_detected += len(text_lines)
-
-                tracker.update(text_lines, frame_idx)
-
-                if frames_analyzed >= 10 and frame_idx % 5 == 0:
-                    partial_tracks = tracker.active_tracks
-                    for track in partial_tracks:
-                        track.compute_metrics(frames_analyzed)
-
-                    self.telemetry.start_timer('classification')
-                    result = self.classifier.decide(partial_tracks)
-                    classification_ms = self.telemetry.stop_timer('classification')
-
-                    if result.has_subtitles and result.confidence >= 0.85:
-                        ocr_time_ms = self.telemetry.stop_timer('ocr')
-                        total_ms = self.telemetry.stop_timer('total')
-                        elapsed_ms = (time.time() - start_time) * 1000
-
-                        video_id = Path(video_path).stem
-                        metrics = PerformanceMetrics(
-                            total_time_ms=total_ms,
-                            frame_extraction_ms=frame_extraction_ms,
-                            ocr_time_ms=ocr_time_ms,
-                            tracking_time_ms=0.0,
-                            classification_time_ms=classification_ms,
-                            frames_analyzed=frames_analyzed,
-                            tracks_created=len(partial_tracks),
-                            lines_detected=total_lines_detected
-                        )
-
-                        self.telemetry.record_decision(
-                            video_id=video_id,
-                            decision='block',
-                            confidence=result.confidence,
-                            reason=result.reason,
-                            method='TRSD',
-                            metrics=metrics,
-                            tracks_by_category=result.tracks_by_category,
-                            decision_logic=result.decision_logic,
-                            early_exit=True,
-                            debug_info={'extraction_method': extraction_result.method}
-                        )
-
-                        self.debug_saver.save_detection_artifacts(
-                            video_id, extraction_result.frames, partial_tracks, result, metrics
-                        )
-
-                        logger.warning(
-                            f"TRSD EARLY EXIT: Detected subtitles @ frame {frame_idx} "
-                            f"(conf={result.confidence:.2f}, {elapsed_ms:.0f}ms)"
-                        )
-
-                        return (
-                            result.has_subtitles,
-                            result.confidence,
-                            result.reason,
-                            {
-                                'method': 'TRSD',
-                                'early_exit': True,
-                                'frames_analyzed': frames_analyzed,
-                                'tracks': len(result.subtitle_tracks)
-                            }
-                        )
-
+            video_id = Path(video_path).stem
             ocr_time_ms = self.telemetry.stop_timer('ocr')
+
+            if early_result is not None:
+                total_ms = self.telemetry.stop_timer('total')
+                elapsed_ms = (time.time() - start_time) * 1000
+
+                metrics = self._build_performance_metrics(
+                    total_ms, frame_extraction_ms, ocr_time_ms,
+                    0.0, frames_analyzed, len(early_result.subtitle_tracks),
+                    total_lines_detected
+                )
+
+                logger.warning(
+                    f"TRSD EARLY EXIT: Detected subtitles @ frame {frames_analyzed} "
+                    f"(conf={early_result.confidence:.2f}, {elapsed_ms:.0f}ms)"
+                )
+
+                ret = self._record_and_return(
+                    early_result, video_id, extraction_result, early_tracks,
+                    metrics, frames_analyzed, total_lines_detected, early_exit=True
+                )
+                # Override tracks key for early exit
+                return (
+                    ret[0], ret[1], ret[2],
+                    {**ret[3], 'tracks': len(early_result.subtitle_tracks)}
+                )
+
+            # No early exit — finalize
             final_tracks = tracker.finalize()
 
             self.telemetry.start_timer('classification')
@@ -168,33 +221,10 @@ class TRSDDetector:
             total_ms = self.telemetry.stop_timer('total')
             elapsed_ms = (time.time() - start_time) * 1000
 
-            video_id = Path(video_path).stem
-            metrics = PerformanceMetrics(
-                total_time_ms=total_ms,
-                frame_extraction_ms=frame_extraction_ms,
-                ocr_time_ms=ocr_time_ms,
-                tracking_time_ms=0.0,
-                classification_time_ms=classification_ms,
-                frames_analyzed=frames_analyzed,
-                tracks_created=len(final_tracks),
-                lines_detected=total_lines_detected
-            )
-
-            self.telemetry.record_decision(
-                video_id=video_id,
-                decision='block' if result.has_subtitles else 'approve',
-                confidence=result.confidence,
-                reason=result.reason,
-                method='TRSD',
-                metrics=metrics,
-                tracks_by_category=result.tracks_by_category,
-                decision_logic=result.decision_logic,
-                early_exit=False,
-                debug_info={'extraction_method': extraction_result.method}
-            )
-
-            self.debug_saver.save_detection_artifacts(
-                video_id, extraction_result.frames, final_tracks, result, metrics
+            metrics = self._build_performance_metrics(
+                total_ms, frame_extraction_ms, ocr_time_ms,
+                classification_ms, frames_analyzed, len(final_tracks),
+                total_lines_detected
             )
 
             logger.info(
@@ -202,16 +232,9 @@ class TRSDDetector:
                 f"(conf={result.confidence:.2f}, {frames_analyzed} frames, {elapsed_ms:.0f}ms)"
             )
 
-            return (
-                result.has_subtitles,
-                result.confidence,
-                result.reason,
-                {
-                    'method': 'TRSD',
-                    'early_exit': False,
-                    'frames_analyzed': frames_analyzed,
-                    'tracks_by_category': result.tracks_by_category
-                }
+            return self._record_and_return(
+                result, video_id, extraction_result, final_tracks,
+                metrics, frames_analyzed, total_lines_detected, early_exit=False
             )
 
         except Exception as e:

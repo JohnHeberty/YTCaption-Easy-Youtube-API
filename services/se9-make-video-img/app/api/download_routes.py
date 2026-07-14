@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
@@ -32,17 +32,17 @@ store = get_video_job_store()
 async def download_video(job_id: str) -> FileResponse:
     job_data = store.get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     if job_data["status"] != VideoJobStatus.COMPLETED.value:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job is not completed. Current status: {job_data['status']}",
         )
 
     video_path = job_data.get("video_path")
     if not video_path or not os.path.exists(video_path):
-        raise HTTPException(status_code=404, detail="Video file not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found")
 
     return FileResponse(
         path=video_path,

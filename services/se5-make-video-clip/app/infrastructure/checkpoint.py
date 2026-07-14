@@ -10,7 +10,7 @@ from common.log_utils import get_logger
 logger = get_logger(__name__)
 
 
-def _get_store():
+def _get_store() -> Any:
     from .instances import get_instances
     store, _, _, _, _ = get_instances()
     return store

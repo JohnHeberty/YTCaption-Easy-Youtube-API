@@ -54,118 +54,135 @@ class DownloadShortsStage(JobStage):
                 job_id=context.job_id,
             )
     
+    async def _check_cache_for_shorts(
+        self,
+        shorts_list: list[dict[str, Any]],
+        processed_ids: set[str],
+        context: StageContext,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+        """Check cache for existing shorts. Returns (to_download, downloaded, cache_hits)."""
+        to_download: list[dict[str, Any]] = []
+        downloaded: list[dict[str, Any]] = []
+        cache_hits = 0
+
+        for short in shorts_list:
+            video_id = short['video_id']
+
+            if video_id in processed_ids:
+                continue
+            processed_ids.add(video_id)
+
+            if self.blacklist.is_blacklisted(video_id):
+                logger.warning(f"🚫 BLACKLIST: {video_id} - skipping")
+                continue
+
+            cached = self.shorts_cache.get(video_id)
+            if cached:
+                try:
+                    file_path = Path(cached['file_path'])
+                    logger.debug(f"💾 Cache hit: {video_id}, validating...")
+
+                    self.video_validator.validate_video_integrity(str(file_path), timeout=5)
+
+                    has_subs, confidence, reason = self.video_validator.has_embedded_subtitles(str(file_path))
+                    if has_subs:
+                        logger.warning(
+                            f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f})"
+                        )
+                        self.blacklist.add(video_id, reason, confidence, metadata={
+                            'title': short.get('title', ''),
+                            'duration': short.get('duration_seconds', 0)
+                        })
+                        self.shorts_cache.remove(video_id)
+                        continue
+
+                    self.shorts_cache.mark_validated(video_id, False, confidence)
+                    downloaded.append(cached)
+                    cache_hits += 1
+                    logger.info(f"✅ Cache HIT: {video_id} (conf={confidence:.2f})")
+
+                except Exception as e:
+                    logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Re-downloading.")
+                    self.shorts_cache.remove(video_id)
+                    to_download.append(short)
+            else:
+                to_download.append(short)
+
+        return to_download, downloaded, cache_hits
+
+    async def _download_shorts_batch(
+        self,
+        to_download: list[dict[str, Any]],
+        context: StageContext,
+        downloaded: list[dict[str, Any]],
+    ) -> int:
+        """Download a batch of shorts. Returns number of successful downloads."""
+        downloads = 0
+        batch_size = 5
+        for i in range(0, len(to_download), batch_size):
+            batch = to_download[i:i+batch_size]
+            tasks = [self._download_with_retry(short, context) for short in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in results:
+                if result and not isinstance(result, Exception):
+                    downloaded.append(result)
+                    downloads += 1
+                elif isinstance(result, Exception):
+                    logger.debug(f"Download failed: {result}")
+
+            if to_download:
+                progress = 30.0 + (40.0 * min(i + batch_size, len(to_download)) / len(to_download))
+            else:
+                progress = 70.0
+
+            await context.publish_event(
+                EventType.VIDEO_DOWNLOADING,
+                {'progress': progress}
+            )
+        return downloads
+
     async def execute(self, context: StageContext) -> dict[str, Any]:
         """
         Download shorts with cache checking and OCR validation
-        
+
         Returns:
             Dict with downloaded_shorts, cache_hits, downloads, failures
         """
         logger.info(f"⬇️  Downloading shorts (target: {context.target_video_duration:.1f}s)")
-        
-        downloaded_shorts = []
-        failed_downloads = []
+
+        downloaded_shorts: list[dict[str, Any]] = []
+        failed_downloads: list[str] = []
         cache_hits = 0
         downloads = 0
-        processed_ids = set()
-        
+        processed_ids: set[str] = set()
+
         max_rounds = context.settings.get('max_fetch_rounds', 3)
         base_request = max(context.max_shorts, 10)
-        
+
         shorts_list = context.shorts_list.copy()
-        
+
         for round_idx in range(1, max_rounds + 1):
             logger.info(f"📦 Round {round_idx}/{max_rounds}")
-            
-            to_download = []
-            
-            # Check cache first
-            for short in shorts_list:
-                video_id = short['video_id']
-                
-                if video_id in processed_ids:
-                    continue
-                processed_ids.add(video_id)
-                
-                # Check blacklist
-                if self.blacklist.is_blacklisted(video_id):
-                    logger.warning(f"🚫 BLACKLIST: {video_id} - skipping")
-                    failed_downloads.append(video_id)
-                    continue
-                
-                # Check cache
-                cached = self.shorts_cache.get(video_id)
-                if cached:
-                    try:
-                        file_path = Path(cached['file_path'])
-                        logger.debug(f"💾 Cache hit: {video_id}, validating...")
-                        
-                        # Validate integrity
-                        self.video_validator.validate_video_integrity(str(file_path), timeout=5)
-                        
-                        # Check for embedded subtitles
-                        has_subs, confidence, reason = self.video_validator.has_embedded_subtitles(str(file_path))
-                        if has_subs:
-                            logger.warning(
-                                f"🚫 EMBEDDED SUBTITLES (cache): {video_id} (conf: {confidence:.2f})"
-                            )
-                            self.blacklist.add(video_id, reason, confidence, metadata={
-                                'title': short.get('title', ''),
-                                'duration': short.get('duration_seconds', 0)
-                            })
-                            self.shorts_cache.remove(video_id)
-                            continue
-                        
-                        # Valid cached video
-                        self.shorts_cache.mark_validated(video_id, False, confidence)
-                        downloaded_shorts.append(cached)
-                        cache_hits += 1
-                        logger.info(f"✅ Cache HIT: {video_id} (conf={confidence:.2f})")
-                        
-                    except Exception as e:
-                        logger.warning(f"⚠️ Cache invalid: {video_id} - {e}. Re-downloading.")
-                        self.shorts_cache.remove(video_id)
-                        to_download.append(short)
-                else:
-                    to_download.append(short)
-            
+
+            to_download, round_downloaded, round_cache_hits = await self._check_cache_for_shorts(
+                shorts_list, processed_ids, context
+            )
+            downloaded_shorts.extend(round_downloaded)
+            cache_hits += round_cache_hits
+
             logger.info(f"💾 Cache: {cache_hits} hits, {len(to_download)} need download")
-            
-            # Download missing videos
+
             if len(downloaded_shorts) < min(10, base_request) and to_download:
                 logger.info(f"⬇️  Downloading {len(to_download)} videos...")
-                
-                batch_size = 5
-                for i in range(0, len(to_download), batch_size):
-                    batch = to_download[i:i+batch_size]
-                    tasks = [self._download_with_retry(short, context) for short in batch]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    
-                    for result in results:
-                        if result and not isinstance(result, Exception):
-                            downloaded_shorts.append(result)
-                            downloads += 1
-                        elif isinstance(result, Exception):
-                            logger.debug(f"Download failed: {result}")
-                    
-                    # Update progress
-                    if to_download:
-                        progress = 30.0 + (40.0 * min(i + batch_size, len(to_download)) / len(to_download))
-                    else:
-                        progress = 70.0
-                    
-                    await context.publish_event(
-                        EventType.VIDEO_DOWNLOADING,
-                        {'progress': progress}
-                    )
-            
-            # Check if we have enough duration
+                downloads += await self._download_shorts_batch(to_download, context, downloaded_shorts)
+
             total_duration = sum(s.get('duration_seconds', 0) for s in downloaded_shorts)
             logger.info(
                 f"📦 Round {round_idx} done: {len(downloaded_shorts)} videos, "
                 f"duration {total_duration:.1f}s / target {context.target_video_duration:.1f}s"
             )
-            
+
             if total_duration >= context.target_video_duration:
                 logger.info("✅ Sufficient duration reached")
                 break
@@ -185,22 +202,21 @@ class DownloadShortsStage(JobStage):
                     f"⚠️ Insufficient duration ({total_duration:.1f}/{context.target_video_duration:.1f}s). "
                     f"Starting round {round_idx + 1}..."
                 )
-        
+
         if not downloaded_shorts:
             raise VideoProcessingException(
                 "No shorts could be downloaded",
                 error_code=ErrorCode.NO_VALID_SHORTS,
                 job_id=context.job_id,
             )
-        
+
         logger.info(
             f"📦 Download complete: {len(downloaded_shorts)} videos "
             f"({cache_hits} cache hits, {downloads} downloads, {len(failed_downloads)} failures)"
         )
-        
-        # Update context
+
         context.downloaded_shorts = downloaded_shorts
-        
+
         return {
             'downloaded_count': len(downloaded_shorts),
             'cache_hits': cache_hits,

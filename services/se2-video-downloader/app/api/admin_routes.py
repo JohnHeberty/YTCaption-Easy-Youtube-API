@@ -9,7 +9,7 @@ from typing import Any, List
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 from fastapi.responses import JSONResponse
 
 from common.job_utils import JobStatus
@@ -22,6 +22,41 @@ from app.core.models import CleanupResponse, FixStuckJobsResponse, QueueInfoResp
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 logger = get_logger(__name__)
+
+
+async def _cleanup_directory(
+    dir_path: Path,
+    report: dict[str, Any],
+    *,
+    max_age_hours: int | None = None,
+    label: str = "Cache",
+) -> None:
+    """Delete files in dir_path, tracking count and space freed."""
+    if not dir_path.exists():
+        return
+    deleted_count = 0
+    for file_path in dir_path.iterdir():
+        if not file_path.is_file():
+            continue
+        try:
+            if max_age_hours is not None:
+                age = now_brazil() - datetime.fromtimestamp(
+                    file_path.stat().st_mtime, tz=timezone.utc
+                )
+                if age <= timedelta(hours=max_age_hours):
+                    continue
+            size_mb = file_path.stat().st_size / BYTES_PER_MB
+            await asyncio.to_thread(file_path.unlink)
+            deleted_count += 1
+            report["space_freed_mb"] += size_mb
+        except Exception as e:
+            logger.error(f"❌ Erro ao remover {label.lower()} {file_path.name}: {e}")
+            report["errors"].append(f"{label}/{file_path.name}: {str(e)}")
+    report["files_deleted"] += deleted_count
+    if deleted_count > 0:
+        logger.info(f"🗑️  {label}: {deleted_count} arquivos removidos")
+    else:
+        logger.info(f"✓ {label}: nenhum arquivo encontrado")
 
 
 async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Settings) -> dict[str, Any]:
@@ -67,29 +102,7 @@ async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Setting
             logger.error(f"❌ Erro ao limpar Redis: {e}")
             report["errors"].append(f"Redis: {str(e)}")
 
-        cache_dir = Path(settings.cache_dir)
-        if cache_dir.exists():
-            deleted_count = 0
-            for file_path in cache_dir.iterdir():
-                if not file_path.is_file():
-                    continue
-
-                try:
-                    age = now_brazil() - datetime.fromtimestamp(
-                        file_path.stat().st_mtime, tz=timezone.utc
-                    )
-                    if age > timedelta(hours=24):
-                        size_mb = file_path.stat().st_size / BYTES_PER_MB
-                        await asyncio.to_thread(file_path.unlink)
-                        deleted_count += 1
-                        report["space_freed_mb"] += size_mb
-                except Exception as e:
-                    logger.error(f"❌ Erro ao remover {file_path.name}: {e}")
-                    report["errors"].append(f"Cache/{file_path.name}: {str(e)}")
-
-            report["files_deleted"] += deleted_count
-            if deleted_count > 0:
-                logger.info(f"🗑️  Cache: {deleted_count} arquivos órfãos removidos")
+        await _cleanup_directory(Path(settings.cache_dir), report, max_age_hours=24, label="Cache")
 
         report["space_freed_mb"] = round(report["space_freed_mb"], 2)
         report["message"] = f"✓ Limpeza básica concluída: {report['jobs_removed']} jobs + {report['files_deleted']} arquivos ({report['space_freed_mb']}MB)"
@@ -105,10 +118,166 @@ async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Setting
         return {"error": str(e)}
 
 
-async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Settings, purge_celery_queue: bool = False) -> dict[str, Any]:
-    from redis import Redis
+def _parse_redis_url(redis_url: str) -> tuple[str, int, int]:
+    """Parse Redis URL into (host, port, db) components."""
     from urllib.parse import urlparse
 
+    parsed = urlparse(redis_url)
+    host = parsed.hostname or 'localhost'
+    port = parsed.port or 6379
+    db = int(parsed.path.strip('/')) if parsed.path else 0
+    return host, port, db
+
+
+async def _flush_redis_db(
+    redis_host: str, redis_port: int, redis_db: int, report: dict[str, Any]
+) -> None:
+    """Flush the entire Redis database, removing all jobs and keys."""
+    from redis import Redis
+
+    try:
+        logger.warning(
+            f"🔥 Executando FLUSHDB no Redis {redis_host}:{redis_port} DB={redis_db}"
+        )
+        redis = Redis(
+            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
+        )
+        keys_before = redis.keys("job:*")
+        report["jobs_removed"] = len(keys_before)
+        redis.flushdb()
+        report["redis_flushed"] = True
+        logger.info(
+            f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs "
+            f"+ todas as outras keys removidas"
+        )
+    except Exception as e:
+        logger.error(f"❌ Erro ao limpar Redis: {e}")
+        report["errors"].append(f"Redis FLUSHDB: {str(e)}")
+
+
+async def _revoke_celery_tasks() -> None:
+    """Revoke active and scheduled Celery tasks."""
+    try:
+        from celery import current_app
+
+        logger.warning("🔥 Revogando tasks Celery ativas e agendadas...")
+
+        try:
+            inspect = current_app.control.inspect()
+            active_tasks = inspect.active()
+
+            if active_tasks:
+                for worker, tasks in active_tasks.items():
+                    for task in tasks:
+                        task_id = task.get('id')
+                        logger.warning(f"   🛑 Revogando task ativa: {task_id}")
+                        current_app.control.revoke(
+                            task_id, terminate=True, signal='SIGKILL'
+                        )
+                logger.info(
+                    f"   ✓ {sum(len(t) for t in active_tasks.values())} "
+                    f"tasks ativas revogadas"
+                )
+
+            scheduled_tasks = inspect.scheduled()
+            if scheduled_tasks:
+                for worker, tasks in scheduled_tasks.items():
+                    for task in tasks:
+                        task_id = (
+                            task.get('id') or task.get('request', {}).get('id')
+                        )
+                        if task_id:
+                            logger.warning(
+                                f"   🛑 Revogando task agendada: {task_id}"
+                            )
+                            current_app.control.revoke(task_id, terminate=True)
+                logger.info(
+                    f"   ✓ {sum(len(t) for t in scheduled_tasks.values())} "
+                    f"tasks agendadas revogadas"
+                )
+
+        except Exception as e:
+            logger.warning(f"   ⚠️ Não foi possível revogar tasks: {e}")
+
+    except Exception as e:
+        logger.error(f"❌ Erro ao revogar tasks Celery: {e}")
+
+
+async def _purge_celery_queues(
+    redis_url: str, report: dict[str, Any]
+) -> None:
+    """Delete Celery queue keys and task result keys from Redis."""
+    from redis import Redis
+
+    try:
+        redis_celery = Redis.from_url(redis_url)
+
+        queue_keys = [
+            "video_downloader_queue",
+            "celery",
+            "_kombu.binding.video_downloader_queue",
+            "_kombu.binding.celery",
+            "unacked",
+            "unacked_index",
+        ]
+
+        tasks_purged = 0
+        for queue_key in queue_keys:
+            queue_len = redis_celery.llen(queue_key)
+            if queue_len > 0:
+                logger.info(f"   Fila '{queue_key}': {queue_len} tasks")
+                tasks_purged += queue_len
+
+            deleted = redis_celery.delete(queue_key)
+            if deleted:
+                logger.info(f"   ✓ Fila '{queue_key}' removida")
+
+        celery_result_keys = redis_celery.keys("celery-task-meta-*")
+        if celery_result_keys:
+            redis_celery.delete(*celery_result_keys)
+            logger.info(
+                f"   ✓ {len(celery_result_keys)} resultados Celery removidos"
+            )
+
+        report["celery_queue_purged"] = True
+        report["celery_tasks_purged"] = tasks_purged
+        logger.warning(f"🔥 Fila Celery purgada: {tasks_purged} tasks removidas")
+
+    except Exception as e:
+        logger.error(f"❌ Erro ao limpar fila Celery: {e}")
+        report["errors"].append(f"Celery: {str(e)}")
+
+
+async def _recheck_and_flush_redis(
+    redis_host: str, redis_port: int, redis_db: int, report: dict[str, Any]
+) -> None:
+    """Re-check for new jobs after cleanup and flush again if needed."""
+    from redis import Redis
+
+    try:
+        redis = Redis(
+            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
+        )
+        keys_after = redis.keys("job:*")
+        if keys_after:
+            logger.warning(
+                f"⚠️ {len(keys_after)} jobs foram salvos DURANTE a limpeza! "
+                f"Executando FLUSHDB novamente..."
+            )
+            redis.flushdb()
+            report["jobs_removed"] += len(keys_after)
+            logger.info(
+                f"✅ SEGUNDO FLUSHDB executado: "
+                f"{len(keys_after)} jobs adicionais removidos"
+            )
+        else:
+            logger.info("✓ Nenhum job novo detectado após limpeza")
+    except Exception as e:
+        logger.error(f"❌ Erro no segundo FLUSHDB: {e}")
+        report["errors"].append(f"Segundo FLUSHDB: {str(e)}")
+
+
+async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Settings, purge_celery_queue: bool = False) -> dict[str, Any]:
     try:
         report = {
             "jobs_removed": 0,
@@ -123,181 +292,23 @@ async def _perform_total_cleanup(store: VideoDownloadJobStore, settings: Setting
         logger.warning("🔥 INICIANDO LIMPEZA TOTAL DO SISTEMA - TUDO SERÁ REMOVIDO!")
 
         redis_url = settings.redis_url
+        redis_host, redis_port, redis_db = _parse_redis_url(redis_url)
 
-        try:
-            parsed = urlparse(redis_url)
-            redis_host = parsed.hostname or 'localhost'
-            redis_port = parsed.port or 6379
-            redis_db = int(parsed.path.strip('/')) if parsed.path else 0
-
-            logger.warning(f"🔥 Executando FLUSHDB no Redis {redis_host}:{redis_port} DB={redis_db}")
-
-            redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
-
-            keys_before = redis.keys("job:*")
-            report["jobs_removed"] = len(keys_before)
-
-            redis.flushdb()
-            report["redis_flushed"] = True
-
-            logger.info(f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs + todas as outras keys removidas")
-
-        except Exception as e:
-            logger.error(f"❌ Erro ao limpar Redis: {e}")
-            report["errors"].append(f"Redis FLUSHDB: {str(e)}")
+        await _flush_redis_db(redis_host, redis_port, redis_db, report)
 
         if purge_celery_queue:
-            try:
-                from redis import Redis
-                from celery import current_app
-
-                logger.warning("🔥 Limpando fila Celery 'video_downloader_queue'...")
-
-                redis_celery = Redis.from_url(redis_url)
-
-                try:
-                    inspect = current_app.control.inspect()
-                    active_tasks = inspect.active()
-
-                    if active_tasks:
-                        for worker, tasks in active_tasks.items():
-                            for task in tasks:
-                                task_id = task.get('id')
-                                logger.warning(f"   🛑 Revogando task ativa: {task_id}")
-                                current_app.control.revoke(task_id, terminate=True, signal='SIGKILL')
-                        logger.info(f"   ✓ {sum(len(t) for t in active_tasks.values())} tasks ativas revogadas")
-
-                    scheduled_tasks = inspect.scheduled()
-                    if scheduled_tasks:
-                        for worker, tasks in scheduled_tasks.items():
-                            for task in tasks:
-                                task_id = task.get('id') or task.get('request', {}).get('id')
-                                if task_id:
-                                    logger.warning(f"   🛑 Revogando task agendada: {task_id}")
-                                    current_app.control.revoke(task_id, terminate=True)
-                        logger.info(f"   ✓ {sum(len(t) for t in scheduled_tasks.values())} tasks agendadas revogadas")
-
-                except Exception as e:
-                    logger.warning(f"   ⚠️ Não foi possível revogar tasks: {e}")
-
-                queue_keys = [
-                    "video_downloader_queue",
-                    "celery",
-                    "_kombu.binding.video_downloader_queue",
-                    "_kombu.binding.celery",
-                    "unacked",
-                    "unacked_index",
-                ]
-
-                tasks_purged = 0
-                for queue_key in queue_keys:
-                    queue_len = redis_celery.llen(queue_key)
-                    if queue_len > 0:
-                        logger.info(f"   Fila '{queue_key}': {queue_len} tasks")
-                        tasks_purged += queue_len
-
-                    deleted = redis_celery.delete(queue_key)
-                    if deleted:
-                        logger.info(f"   ✓ Fila '{queue_key}' removida")
-
-                celery_result_keys = redis_celery.keys("celery-task-meta-*")
-                if celery_result_keys:
-                    redis_celery.delete(*celery_result_keys)
-                    logger.info(f"   ✓ {len(celery_result_keys)} resultados Celery removidos")
-
-                report["celery_queue_purged"] = True
-                report["celery_tasks_purged"] = tasks_purged
-                logger.warning(f"🔥 Fila Celery purgada: {tasks_purged} tasks removidas")
-
-            except Exception as e:
-                logger.error(f"❌ Erro ao limpar fila Celery: {e}")
-                report["errors"].append(f"Celery: {str(e)}")
+            await _revoke_celery_tasks()
+            await _purge_celery_queues(redis_url, report)
         else:
             logger.info("⏭️  Fila Celery NÃO será limpa (purge_celery_queue=false)")
 
-        cache_dir = Path(settings.cache_dir)
-        if cache_dir.exists():
-            deleted_count = 0
-            for file_path in cache_dir.iterdir():
-                if not file_path.is_file():
-                    continue
-
-                try:
-                    size_mb = file_path.stat().st_size / BYTES_PER_MB
-                    await asyncio.to_thread(file_path.unlink)
-                    deleted_count += 1
-                    report["space_freed_mb"] += size_mb
-                except Exception as e:
-                    logger.error(f"❌ Erro ao remover cache {file_path.name}: {e}")
-                    report["errors"].append(f"Cache/{file_path.name}: {str(e)}")
-
-            report["files_deleted"] += deleted_count
-            if deleted_count > 0:
-                logger.info(f"🗑️  Cache: {deleted_count} arquivos removidos")
-            else:
-                logger.info("✓ Cache: nenhum arquivo encontrado")
-
-        downloads_dir = Path("./downloads")
-        if downloads_dir.exists():
-            deleted_count = 0
-            for file_path in downloads_dir.iterdir():
-                if not file_path.is_file():
-                    continue
-
-                try:
-                    size_mb = file_path.stat().st_size / BYTES_PER_MB
-                    await asyncio.to_thread(file_path.unlink)
-                    deleted_count += 1
-                    report["space_freed_mb"] += size_mb
-                except Exception as e:
-                    logger.error(f"❌ Erro ao remover download {file_path.name}: {e}")
-                    report["errors"].append(f"Downloads/{file_path.name}: {str(e)}")
-
-            report["files_deleted"] += deleted_count
-            if deleted_count > 0:
-                logger.info(f"🗑️  Downloads: {deleted_count} arquivos removidos")
-            else:
-                logger.info("✓ Downloads: nenhum arquivo encontrado")
-
-        temp_dir = Path("./data/temp")
-        if temp_dir.exists():
-            deleted_count = 0
-            for file_path in temp_dir.iterdir():
-                if not file_path.is_file():
-                    continue
-
-                try:
-                    size_mb = file_path.stat().st_size / BYTES_PER_MB
-                    await asyncio.to_thread(file_path.unlink)
-                    deleted_count += 1
-                    report["space_freed_mb"] += size_mb
-                except Exception as e:
-                    logger.error(f"❌ Erro ao remover temp {file_path.name}: {e}")
-                    report["errors"].append(f"Temp/{file_path.name}: {str(e)}")
-
-            report["files_deleted"] += deleted_count
-            if deleted_count > 0:
-                logger.info(f"🗑️  Temp: {deleted_count} arquivos removidos")
-            else:
-                logger.info("✓ Temp: nenhum arquivo encontrado")
+        await _cleanup_directory(Path(settings.cache_dir), report, label="Cache")
+        await _cleanup_directory(Path("./downloads"), report, label="Downloads")
+        await _cleanup_directory(Path("./data/temp"), report, label="Temp")
 
         report["space_freed_mb"] = round(report["space_freed_mb"], 2)
 
-        try:
-            redis = Redis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
-
-            keys_after = redis.keys("job:*")
-            if keys_after:
-                logger.warning(f"⚠️ {len(keys_after)} jobs foram salvos DURANTE a limpeza! Executando FLUSHDB novamente...")
-                redis.flushdb()
-                report["jobs_removed"] += len(keys_after)
-                logger.info(f"✅ SEGUNDO FLUSHDB executado: {len(keys_after)} jobs adicionais removidos")
-            else:
-                logger.info("✓ Nenhum job novo detectado após limpeza")
-
-        except Exception as e:
-            logger.error(f"❌ Erro no segundo FLUSHDB: {e}")
-            report["errors"].append(f"Segundo FLUSHDB: {str(e)}")
+        await _recheck_and_flush_redis(redis_host, redis_port, redis_db, report)
 
         report["message"] = (
             f"🔥 LIMPEZA TOTAL CONCLUÍDA: "
@@ -347,7 +358,7 @@ async def manual_cleanup(
 
     except Exception as e:
         logger.error(f"❌ ERRO na limpeza {cleanup_type}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao fazer cleanup: {str(e)}")
 
 
 @router.get("/stats", summary="Get stats", response_model=StatsResponse)
@@ -401,7 +412,7 @@ async def get_queue_info_endpoint(store: VideoDownloadJobStore = Depends(job_sto
 
     except Exception as e:
         logger.error(f"Error getting queue info: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get queue info: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get queue info: {str(e)}")
 
 
 @router.post("/fix-stuck-jobs", summary="Fix stuck jobs", response_model=FixStuckJobsResponse, responses={500: {"description": "Internal server error"}})
@@ -461,4 +472,4 @@ async def fix_stuck_jobs(
 
     except Exception as e:
         logger.error(f"❌ Erro ao corrigir jobs travados: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

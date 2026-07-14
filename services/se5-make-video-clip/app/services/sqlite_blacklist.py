@@ -12,6 +12,11 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
 from common.log_utils import get_logger
+from ..core.constants import (
+    SQLITE_BLACKLIST_CONNECTION_TIMEOUT,
+    SQLITE_BLACKLIST_BUSY_TIMEOUT_MS,
+    DEFAULT_LIST_LIMIT,
+)
 
 logger = get_logger(__name__)
 
@@ -51,7 +56,7 @@ class SQLiteBlacklist:
     @contextmanager
     def _get_conn(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager para conexões SQLite"""
-        conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+        conn = sqlite3.connect(str(self.db_path), timeout=SQLITE_BLACKLIST_CONNECTION_TIMEOUT)
         conn.row_factory = sqlite3.Row
         try:
             # Se o arquivo for recriado durante runtime, garante schema antes de uso
@@ -69,7 +74,7 @@ class SQLiteBlacklist:
         """Garante que pragmas e tabela existam (idempotente)"""
         # Habilitar WAL mode (write-ahead logging)
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute(f"PRAGMA busy_timeout={SQLITE_BLACKLIST_BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA synchronous=NORMAL")
 
         # Tabela principal
@@ -184,7 +189,7 @@ class SQLiteBlacklist:
             ).fetchone()
             return row["count"]
     
-    def list_all(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def list_all(self, limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> list[dict[str, Any]]:
         """
         Lista todos vídeos na blacklist
         

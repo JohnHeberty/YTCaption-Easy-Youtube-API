@@ -19,6 +19,28 @@ from ..shared.exceptions_v2 import (
     FFprobeFailedException,
 )
 from common.log_utils import get_logger
+from ..core.constants import (
+    FFMPEG_GOP_SIZE,
+    FFMPEG_B_FRAMES,
+    AUDIO_BITRATE,
+    DEFAULT_VIDEO_FPS,
+    DEFAULT_VIDEO_WIDTH,
+    DEFAULT_VIDEO_HEIGHT,
+    DEFAULT_CRF,
+    CRF_VALIDATION_CROP,
+    TITLE_FONT_SIZE,
+    TITLE_BORDER_WIDTH,
+    DEFAULT_TITLE_CARD_DURATION,
+    DEFAULT_TRANSITION_DURATION,
+    CONCAT_DURATION_TOLERANCE,
+    DURATION_CHANGE_THRESHOLD,
+    FPS_COMPATIBILITY_TOLERANCE,
+    TIMEOUT_TITLE_CARD,
+    TIMEOUT_SUBTITLE_BURN,
+    STEREO_CHANNELS,
+    AUDIO_BITRATE_LOW,
+    TimeoutConstants,
+)
 from .ffmpeg_helpers import (
     run_ffmpeg_cmd,
     run_ffprobe_cmd,
@@ -89,7 +111,7 @@ class VideoBuilder:
                  video_codec: str = "libx264",
                  audio_codec: str = "aac",
                  preset: str = "fast",
-                 crf: int = 23) -> None:
+                 crf: int = DEFAULT_CRF) -> None:
         self.output_dir = Path(output_dir)
         self.ffmpeg_path = "ffmpeg"
         self.ffprobe_path = "ffprobe"
@@ -117,8 +139,8 @@ class VideoBuilder:
             "-c:v", self.video_codec,
             "-profile:v", "main",
             "-level", "4.0",
-            "-g", "30",
-            "-bf", "2",
+            "-g", str(FFMPEG_GOP_SIZE),
+            "-bf", str(FFMPEG_B_FRAMES),
             "-preset", self.preset,
             "-crf", str(self.crf),
             "-c:a", "copy",
@@ -128,7 +150,7 @@ class VideoBuilder:
         ]
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=600, operation="H264 conversion",
+            cmd=cmd, timeout=TimeoutConstants.VIDEO_PROCESSING, operation="H264 conversion",
             details={"input": input_path, "output": output_path},
         )
 
@@ -200,8 +222,8 @@ class VideoBuilder:
             "-c:v", self.video_codec,
             "-profile:v", "main",
             "-level", "4.0",
-            "-g", "30",
-            "-bf", "2",
+            "-g", str(FFMPEG_GOP_SIZE),
+            "-bf", str(FFMPEG_B_FRAMES),
             "-preset", self.preset,
             "-crf", str(self.crf),
         ])
@@ -209,14 +231,14 @@ class VideoBuilder:
         if remove_audio:
             cmd.append("-an")
         else:
-            cmd.extend(["-map", "[aout]", "-c:a", self.audio_codec, "-b:a", "192k"])
+            cmd.extend(["-map", "[aout]", "-c:a", self.audio_codec, "-b:a", AUDIO_BITRATE])
 
         cmd.append(str(output_path))
 
         logger.info(f"Running FFmpeg concatenation...")
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=1800, operation="video concatenation",
+            cmd=cmd, timeout=TimeoutConstants.VIDEO_PROCESSING * 3, operation="video concatenation",
             details={"video_count": len(resolved_video_files)},
         )
 
@@ -264,7 +286,7 @@ class VideoBuilder:
                 video_files=video_files,
                 video_builder=self,
                 strict=True,
-                fps_tolerance=0.1,
+                fps_tolerance=FPS_COMPATIBILITY_TOLERANCE,
             )
             logger.info(
                 f"Compatibility check passed: all {compat_result['total_videos']} videos compatible",
@@ -295,7 +317,7 @@ class VideoBuilder:
         logger.info(f"  Actual: {actual_duration:.2f}s")
         logger.info(f"  Difference: {abs(actual_duration - expected_duration):.2f}s")
 
-        tolerance = 2.0
+        tolerance = CONCAT_DURATION_TOLERANCE
         if abs(actual_duration - expected_duration) > tolerance:
             logger.error(
                 f"CONCATENATION BUG DETECTED! "
@@ -346,14 +368,14 @@ class VideoBuilder:
             "-an",
             "-c:v", self.video_codec,
             "-preset", "ultrafast",
-            "-crf", "28",
+            "-crf", str(CRF_VALIDATION_CROP),
             str(output_path),
         ]
 
         logger.info(f"Running FFmpeg crop...")
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=300, operation="video crop for validation",
+            cmd=cmd, timeout=TimeoutConstants.FFMPEG_OPERATION, operation="video crop for validation",
             details={"video_path": str(video_path)},
         )
 
@@ -380,14 +402,14 @@ class VideoBuilder:
             "-c:v", "copy",
             "-c:a", self.audio_codec,
             "-profile:a", "aac_low",
-            "-b:a", "192k",
+            "-b:a", AUDIO_BITRATE,
             str(output_path),
         ]
 
         logger.info(f"Running FFmpeg audio addition...")
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=600, operation="audio addition to video",
+            cmd=cmd, timeout=TimeoutConstants.VIDEO_PROCESSING, operation="audio addition to video",
             details={"video_path": str(video_path), "audio_path": str(audio_path)},
         )
 
@@ -437,7 +459,7 @@ class VideoBuilder:
         logger.info(f"Running FFmpeg subtitle burn-in...")
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=900, operation="subtitle burn-in",
+            cmd=cmd, timeout=TIMEOUT_SUBTITLE_BURN, operation="subtitle burn-in",
             details={"video_path": str(video_path), "subtitle_path": str(subtitle_path)},
         )
 
@@ -457,7 +479,7 @@ class VideoBuilder:
         logger.info(f"  Input: {input_duration:.2f}s")
         logger.info(f"  Output: {output_duration:.2f}s")
 
-        if abs(output_duration - input_duration) > 1.0:
+        if abs(output_duration - input_duration) > DURATION_CHANGE_THRESHOLD:
             logger.warning(
                 f"Duration changed after subtitle burn: "
                 f"{input_duration:.2f}s -> {output_duration:.2f}s "
@@ -472,9 +494,9 @@ class VideoBuilder:
         first_frame_path: str,
         text: str,
         output_path: str,
-        duration: float = 0.2,
-        width: int = 1080,
-        height: int = 1920,
+        duration: float = DEFAULT_TITLE_CARD_DURATION,
+        width: int = DEFAULT_VIDEO_WIDTH,
+        height: int = DEFAULT_VIDEO_HEIGHT,
     ) -> str:
         """Cria title card curto com texto sobre primeira imagem."""
         logger.info(f"Creating title card ({duration}s)")
@@ -493,22 +515,22 @@ class VideoBuilder:
                 f"scale={width}:{height}:force_original_aspect_ratio=increase,"
                 f"crop={width}:{height},"
                 f"drawtext=text='{escaped_text}'"
-                f":fontsize=48:fontcolor=white:borderw=3:bordercolor=black"
+                f":fontsize={TITLE_FONT_SIZE}:fontcolor=white:borderw={TITLE_BORDER_WIDTH}:bordercolor=black"
                 f":x=(w-text_w)/2:y=(h-text_h)/2"
             ),
             "-c:v", "libx264",
             "-profile:v", "main",
             "-level", "4.0",
-            "-g", "30",
-            "-bf", "2",
-            "-r", "30",
+            "-g", str(FFMPEG_GOP_SIZE),
+            "-bf", str(FFMPEG_B_FRAMES),
+            "-r", str(DEFAULT_VIDEO_FPS),
             "-pix_fmt", "yuv420p",
             "-an",
             output_path,
         ]
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=60, operation="title card creation",
+            cmd=cmd, timeout=TIMEOUT_TITLE_CARD, operation="title card creation",
             details={"output": output_path},
         )
 
@@ -529,7 +551,7 @@ class VideoBuilder:
         segments: list[str],
         output_path: str,
         transition: str = "circleopen",
-        transition_duration: float = 0.2,
+        transition_duration: float = DEFAULT_TRANSITION_DURATION,
         aspect_ratio: str = "9:16",
     ) -> str:
         """Concatena segmentos com transicoes xfade."""
@@ -557,13 +579,13 @@ class VideoBuilder:
         cmd.extend(["-map", "[vout]"])
 
         if len(segments) >= 2:
-            cmd.extend(["-map", "1:a?", "-c:a", self.audio_codec, "-profile:a", "aac_low", "-b:a", "192k"])
+            cmd.extend(["-map", "1:a?", "-c:a", self.audio_codec, "-profile:a", "aac_low", "-b:a", AUDIO_BITRATE])
             cmd.extend(["-shortest"])
 
         cmd.append(output_path)
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=300, operation="concat with transitions",
+            cmd=cmd, timeout=TimeoutConstants.FFMPEG_OPERATION, operation="concat with transitions",
             details={"segment_count": len(segments)},
         )
 
@@ -640,12 +662,12 @@ class VideoBuilder:
             "-c:v", "libx264",
             "-profile:v", "main",
             "-level", "4.0",
-            "-g", "30",
-            "-bf", "2",
+            "-g", str(FFMPEG_GOP_SIZE),
+            "-bf", str(FFMPEG_B_FRAMES),
             "-c:a", "aac",
             "-profile:a", "aac_low",
             "-preset", "fast",
-            "-crf", "23",
+            "-crf", str(DEFAULT_CRF),
             "-map", "0:v:0",
             "-map", "0:a:0",
             "-avoid_negative_ts", "make_zero",
@@ -656,7 +678,7 @@ class VideoBuilder:
         logger.info(f"Running FFmpeg trim (re-encode for precision)...")
 
         returncode, stdout, stderr = await run_ffmpeg_cmd(
-            cmd=cmd, timeout=600, operation="video trim",
+            cmd=cmd, timeout=TimeoutConstants.VIDEO_PROCESSING, operation="video trim",
             details={"video_path": str(video_path), "max_duration": max_duration},
         )
 
@@ -729,11 +751,11 @@ class VideoBuilder:
                 if len(fps_parts) == 2:
                     result["fps"] = int(fps_parts[0]) / int(fps_parts[1])
                 else:
-                    result["fps"] = float(fps_parts[0]) if fps_parts else 30
+                    result["fps"] = float(fps_parts[0]) if fps_parts else DEFAULT_VIDEO_FPS
             except (ValueError, ZeroDivisionError):
-                result["fps"] = 30
+                result["fps"] = DEFAULT_VIDEO_FPS
         else:
-            result["fps"] = 30
+            result["fps"] = DEFAULT_VIDEO_FPS
 
         return result
 

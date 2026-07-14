@@ -97,7 +97,7 @@ async def run_subprocess_with_timeout(
             # Try graceful termination first
             try:
                 process.terminate()
-                await asyncio.wait_for(process.wait(), timeout=5)
+                await asyncio.wait_for(process.wait(), timeout=SIGTERM_GRACE_PERIOD)
                 logger.info(f"Process terminated gracefully: PID {process.pid}")
             except asyncio.TimeoutError:
                 # Force kill
@@ -171,7 +171,7 @@ def run_subprocess_sync_with_timeout(
 
 async def run_ffmpeg_with_timeout(
     args: list[str],
-    timeout: int = 600,
+    timeout: int = DEFAULT_FFMPEG_TIMEOUT,
     input_file: str | None = None,
     output_file: str | None = None
 ) -> tuple[int, bytes, bytes]:

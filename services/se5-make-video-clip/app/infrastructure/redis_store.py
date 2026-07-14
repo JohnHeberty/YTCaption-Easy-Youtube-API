@@ -12,6 +12,13 @@ from common.job_utils.store import JobRedisStore
 from common.datetime_utils import now_brazil
 
 from app.core.models import MakeVideoJob
+from app.core.constants import (
+    REDIS_MAX_CONNECTIONS,
+    REDIS_JOB_TTL_SECONDS,
+    DEFAULT_LIST_LIMIT,
+    ORPHAN_AGE_MINUTES,
+    ORPHAN_SCAN_MAX_JOBS,
+)
 
 logger = get_logger(__name__)
 
@@ -19,7 +26,7 @@ class MakeVideoJobStore:
     def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
-            max_connections=50,
+            max_connections=REDIS_MAX_CONNECTIONS,
             circuit_breaker_enabled=True,
         )
         self._store = JobRedisStore(
@@ -34,7 +41,7 @@ class MakeVideoJobStore:
     def save_job(self, job: MakeVideoJob) -> MakeVideoJob:
         data = job.model_dump_json()
         key = f"{self.key_prefix}{job.id}"
-        ttl = 24 * 3600
+        ttl = REDIS_JOB_TTL_SECONDS
         self._resilient.setex(key, ttl, data)
         self.redis.zadd(self.list_key, {job.id: job.created_at.timestamp()})
         return job
@@ -57,7 +64,7 @@ class MakeVideoJobStore:
         self.redis.zrem(self.list_key, job_id)
         return self._resilient.delete(f"{self.key_prefix}{job_id}") > 0
 
-    def list_jobs(self, limit: int = 100) -> list[MakeVideoJob]:
+    def list_jobs(self, limit: int = DEFAULT_LIST_LIMIT) -> list[MakeVideoJob]:
         all_ids = self.redis.zrevrange(self.list_key, 0, -1)
         jobs = []
         for jid in all_ids[:limit]:
@@ -77,8 +84,8 @@ class MakeVideoJobStore:
                 by_status[s] = by_status.get(s, 0) + 1
         return {"total_jobs": total, "by_status": by_status}
 
-    def find_orphaned_jobs(self, max_age_minutes: int = 10) -> list[MakeVideoJob]:
-        all_jobs = self.list_jobs(limit=1000)
+    def find_orphaned_jobs(self, max_age_minutes: int = ORPHAN_AGE_MINUTES) -> list[MakeVideoJob]:
+        all_jobs = self.list_jobs(limit=ORPHAN_SCAN_MAX_JOBS)
         orphaned = []
         for job in all_jobs:
             if job is None or job.is_terminal:

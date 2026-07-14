@@ -366,7 +366,152 @@ class TranscriptionProcessor:
             asyncio.run(coroutine)
 
         return job
-    
+
+    # ------------------------------------------------------------------
+    # Helpers for process_transcription_job
+    # ------------------------------------------------------------------
+
+    def _validate_input_file(self, job: Job) -> Path:
+        """Validate input file exists and is not empty. Returns resolved path."""
+        input_path = Path(job.input_file)
+        upload_dir = Path(self.settings.get('upload_dir', './uploads'))
+        possible_paths = [
+            input_path,
+            upload_dir / input_path.name,
+            Path("./data/uploads") / input_path.name,
+        ]
+
+        actual_file_path = None
+        for path in possible_paths:
+            if path.exists() and path.is_file():
+                actual_file_path = path
+                logger.info(f"✅ Arquivo encontrado em: {path}")
+                break
+            else:
+                logger.debug(f"⚠️ Arquivo NÃO encontrado em: {path}")
+
+        if actual_file_path is None:
+            error_msg = (
+                f"Arquivo de entrada não encontrado! "
+                f"Procurado em: {[str(p) for p in possible_paths]}. "
+                f"Verifique se o arquivo foi enviado corretamente."
+            )
+            logger.error(f"❌ {error_msg}")
+            raise AudioTranscriptionException(error_msg)
+
+        file_size = actual_file_path.stat().st_size
+        if file_size == 0:
+            raise AudioTranscriptionException(
+                f"Arquivo de entrada está vazio (0 bytes): {actual_file_path}"
+            )
+
+        logger.info(f"📁 Arquivo validado: {actual_file_path} ({file_size / BYTES_PER_MB:.2f} MB)")
+        job.input_file = str(actual_file_path.absolute())
+        job.file_size_input = file_size
+        return actual_file_path
+
+    def _convert_audio(self, actual_file_path: Path, job: Job) -> tuple[Path | None, bool]:
+        """Convert audio to WAV if needed. Returns (converted_path, is_temp)."""
+        try:
+            converted_file, is_temp_file = convert_to_wav(actual_file_path, self.settings)
+            if is_temp_file:
+                original_ext = actual_file_path.suffix.lower()
+                logger.info(f"Arquivo {original_ext} convertido para WAV: {converted_file.name}")
+                job.input_file = str(converted_file.absolute())
+            return converted_file, is_temp_file
+        except AudioTranscriptionException as e:
+            error_msg = (
+                f"Falha ao preparar arquivo de áudio para transcrição: {e}. "
+                f"O arquivo '{actual_file_path.name}' não pôde ser processado. "
+                f"Verifique se o arquivo contém um stream de áudio válido."
+            )
+            logger.error(f"❌ {error_msg}")
+            raise AudioTranscriptionException(error_msg)
+
+    async def _run_transcription(self, job: Job) -> dict[str, Any]:
+        """Run transcription using chunking or direct mode based on settings."""
+        enable_chunking = self.settings.get('enable_chunking', False)
+
+        if enable_chunking:
+            audio = await asyncio.to_thread(AudioSegment.from_file, job.input_file)
+            duration_seconds = len(audio) / 1000.0
+            min_duration_for_chunks = int(self.settings.get('whisper_min_duration_for_chunks', 300))
+
+            if duration_seconds > min_duration_for_chunks:
+                logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")
+                transcription_timeout = int(self.settings.get("job_processing_timeout_seconds", 3600))
+                chunk_transcriber = ChunkTranscriber(self.settings, self.state)
+                return await self._run_with_timeout(
+                    chunk_transcriber.transcribe(
+                        job.input_file,
+                        job.language_in,
+                        job.language_out,
+                        transcribe_fn=self._transcribe_direct,
+                        job_id=self.current_job_id,
+                        audio=audio,
+                    ),
+                    transcription_timeout,
+                    "transcribe_with_chunking",
+                )
+            else:
+                logger.info(f"Áudio curto ({duration_seconds:.1f}s), transcrição direta")
+
+        if not enable_chunking:
+            logger.info("Chunking desabilitado, transcrição direta")
+
+        direct_timeout = int(self.settings.get("async_timeout_seconds", 1800))
+        return await self._run_with_timeout(
+            asyncio.to_thread(
+                self._transcribe_direct,
+                job.input_file,
+                job.language_in,
+                job.language_out,
+            ),
+            direct_timeout,
+            "transcribe_direct",
+        )
+
+    @staticmethod
+    def _build_segments(result: dict[str, Any]) -> list[TranscriptionSegment]:
+        """Convert raw result segments into TranscriptionSegment objects."""
+        from ..domain.models import TranscriptionWord
+        transcription_segments: list[TranscriptionSegment] = []
+        for seg in result["segments"]:
+            words_list = None
+            if "words" in seg and seg["words"]:
+                words_list = [
+                    TranscriptionWord(
+                        word=w["word"],
+                        start=w["start"],
+                        end=w["end"],
+                        probability=w.get("probability", 1.0),
+                    )
+                    for w in seg["words"]
+                ]
+            segment = TranscriptionSegment(
+                text=seg["text"].strip(),
+                start=seg["start"],
+                end=seg["end"],
+                duration=seg["end"] - seg["start"],
+                words=words_list,
+            )
+            transcription_segments.append(segment)
+        return transcription_segments
+
+    def _save_srt_file(self, job: Job, result: dict[str, Any]) -> Path:
+        """Save transcription as SRT file. Returns output path."""
+        transcription_dir = Path(self.output_dir)
+        transcription_dir.mkdir(parents=True, exist_ok=True)
+        output_path = transcription_dir / f"{job.id}_transcription.srt"
+        srt_content = CaptionFormatter.to_srt(result["segments"])
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(srt_content)
+        return output_path
+
+    # ------------------------------------------------------------------
+    # Main orchestrator
+    # ------------------------------------------------------------------
+
     async def process_transcription_job(self, job: Job) -> None:
         """Processa um job de transcrição"""
         converted_file = None
@@ -374,75 +519,16 @@ class TranscriptionProcessor:
 
         try:
             logger.info(f"Iniciando processamento do job: {job.id}")
-
             self.state.mark_processing(job, started_at=job.started_at or now_brazil())
             self.current_job_id = job.id
-            
-            # ==========================================
-            # VALIDAÇÃO CRÍTICA: Verifica se arquivo existe
-            # ==========================================
-            input_path = Path(job.input_file)
-            
-            # Tenta encontrar arquivo em múltiplos caminhos possíveis
-            upload_dir = Path(self.settings.get('upload_dir', './uploads'))
-            possible_paths = [
-                input_path,  # Caminho original
-                upload_dir / input_path.name,  # Usando upload_dir configurável
-                Path("./data/uploads") / input_path.name,  # ./data/uploads/filename
-            ]
-            
-            actual_file_path = None
-            for path in possible_paths:
-                if path.exists() and path.is_file():
-                    actual_file_path = path
-                    logger.info(f"✅ Arquivo encontrado em: {path}")
-                    break
-                else:
-                    logger.debug(f"⚠️ Arquivo NÃO encontrado em: {path}")
-            
-            if actual_file_path is None:
-                error_msg = (
-                    f"Arquivo de entrada não encontrado! "
-                    f"Procurado em: {[str(p) for p in possible_paths]}. "
-                    f"Verifique se o arquivo foi enviado corretamente."
-                )
-                logger.error(f"❌ {error_msg}")
-                raise AudioTranscriptionException(error_msg)
-            
-            # Valida que o arquivo não está vazio
-            file_size = actual_file_path.stat().st_size
-            if file_size == 0:
-                raise AudioTranscriptionException(
-                    f"Arquivo de entrada está vazio (0 bytes): {actual_file_path}"
-                )
-            
-            logger.info(f"📁 Arquivo validado: {actual_file_path} ({file_size / BYTES_PER_MB:.2f} MB)")
-            
-            # Atualiza job com caminho correto e absoluto
-            job.input_file = str(actual_file_path.absolute())
-            job.file_size_input = file_size
-            
-            # ==========================================
-            # CONVERSÃO AUTOMÁTICA PARA WAV
-            # Converte OGG, MP3, MP4, M4A, WEBM etc. para WAV 16kHz mono
-            # Resolve bug "tuple index out of range" do faster-whisper
-            # ==========================================
+
+            actual_file_path = self._validate_input_file(job)
+
             try:
-                converted_file, is_temp_file = convert_to_wav(actual_file_path, self.settings)
-                if is_temp_file:
-                    original_ext = actual_file_path.suffix.lower()
-                    logger.info(f"Arquivo {original_ext} convertido para WAV: {converted_file.name}")
-                    job.input_file = str(converted_file.absolute())
-            except AudioTranscriptionException as e:
-                error_msg = (
-                    f"Falha ao preparar arquivo de áudio para transcrição: {e}. "
-                    f"O arquivo '{actual_file_path.name}' não pôde ser processado. "
-                    f"Verifique se o arquivo contém um stream de áudio válido."
-                )
-                logger.error(f"❌ {error_msg}")
-                raise AudioTranscriptionException(error_msg)
-            
-            # Carrega modelo do engine especificado no job
+                converted_file, is_temp_file = self._convert_audio(actual_file_path, job)
+            except AudioTranscriptionException:
+                raise
+
             engine = job.engine if hasattr(job, 'engine') else WhisperEngine.FASTER_WHISPER
             logger.info(f"🔧 Usando engine: {engine.value}")
             load_timeout_seconds = int(self.settings.get("async_timeout_seconds", 1800))
@@ -451,110 +537,20 @@ class TranscriptionProcessor:
                 load_timeout_seconds,
                 "load_model",
             )
-            
-            # Atualiza progresso (model loaded)
+
             self.state.set_progress(25.0, job.id)
-            
-            # Decide se usa chunking baseado nas configurações e duração do áudio
-            enable_chunking = self.settings.get('enable_chunking', False)
-            
-            if enable_chunking:
-                # Verifica duração do áudio para decidir se vale a pena usar chunks
-                audio = await asyncio.to_thread(AudioSegment.from_file, job.input_file)
-                duration_seconds = len(audio) / 1000.0
-                
-                # Usa chunking apenas para áudios longos (configurável, padrão 5 min = 300s)
-                min_duration_for_chunks = int(self.settings.get('whisper_min_duration_for_chunks', 300))
-                
-                if duration_seconds > min_duration_for_chunks:
-                    logger.info(f"Áudio longo detectado ({duration_seconds:.1f}s), usando chunking")
-                    transcription_timeout = int(self.settings.get("job_processing_timeout_seconds", 3600))
-                    chunk_transcriber = ChunkTranscriber(self.settings, self.state)
-                    result = await self._run_with_timeout(
-                        chunk_transcriber.transcribe(
-                            job.input_file,
-                            job.language_in,
-                            job.language_out,
-                            transcribe_fn=self._transcribe_direct,
-                            job_id=self.current_job_id,
-                            audio=audio,
-                        ),
-                        transcription_timeout,
-                        "transcribe_with_chunking",
-                    )
-                else:
-                    logger.info(f"Áudio curto ({duration_seconds:.1f}s), transcrição direta")
-                    direct_timeout = int(self.settings.get("async_timeout_seconds", 1800))
-                    result = await self._run_with_timeout(
-                        asyncio.to_thread(
-                            self._transcribe_direct,
-                            job.input_file,
-                            job.language_in,
-                            job.language_out,
-                        ),
-                        direct_timeout,
-                        "transcribe_direct",
-                    )
-            else:
-                logger.info("Chunking desabilitado, transcrição direta")
-                direct_timeout = int(self.settings.get("async_timeout_seconds", 1800))
-                result = await self._run_with_timeout(
-                    asyncio.to_thread(
-                        self._transcribe_direct,
-                        job.input_file,
-                        job.language_in,
-                        job.language_out,
-                    ),
-                    direct_timeout,
-                    "transcribe_direct",
-                )
-            
-            # Atualiza progresso
+
+            result = await self._run_transcription(job)
+
             self.state.set_progress(75.0, job.id)
-            
-            # Converte segments para o formato com start, end, duration E words
-            transcription_segments = []
-            for seg in result["segments"]:
-                # Converte words se presentes
-                words_list = None
-                if "words" in seg and seg["words"]:
-                    from ..domain.models import TranscriptionWord  # 🔧 FIX: Import correto
-                    words_list = [
-                        TranscriptionWord(
-                            word=w["word"],
-                            start=w["start"],
-                            end=w["end"],
-                            probability=w.get("probability", 1.0)
-                        )
-                        for w in seg["words"]
-                    ]
-                
-                segment = TranscriptionSegment(
-                    text=seg["text"].strip(),
-                    start=seg["start"],
-                    end=seg["end"],
-                    duration=seg["end"] - seg["start"],
-                    words=words_list  # ✅ Preserva word-level timestamps!
-                )
-                transcription_segments.append(segment)
-            
-            # Salva arquivo de transcrição
-            transcription_dir = Path(self.output_dir)
-            transcription_dir.mkdir(parents=True, exist_ok=True)
-            
-            output_path = transcription_dir / f"{job.id}_transcription.srt"
-            
-            # Converte para formato SRT
-            srt_content = CaptionFormatter.to_srt(result["segments"])
-            
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(srt_content)
-            
-            # Finaliza job via JobStateUpdater
-            language_detected = None
-            if "language" in result:
-                language_detected = result["language"]
-                logger.info(f"Idioma detectado pelo Whisper: {result['language']}")
+
+            transcription_segments = self._build_segments(result)
+
+            output_path = self._save_srt_file(job, result)
+
+            language_detected = result.get("language")
+            if language_detected:
+                logger.info(f"Idioma detectado pelo Whisper: {language_detected}")
 
             self.state.mark_completed(
                 job,
@@ -564,10 +560,10 @@ class TranscriptionProcessor:
                 file_size_output=output_path.stat().st_size,
                 language_detected=language_detected,
             )
-            
+
             logger.info(f"Job {job.id} transcrito com sucesso")
             logger.info(f"Total de segmentos: {len(transcription_segments)}")
-            
+
         except AudioTranscriptionException as e:
             self.state.mark_failed(job, str(e))
             logger.error("Job %s falhou: %s", job.id, e)
@@ -577,9 +573,8 @@ class TranscriptionProcessor:
             self.state.mark_failed(job, str(e))
             logger.error("Job %s falhou (erro inesperado): %s", job.id, e)
             raise AudioTranscriptionException(f"Erro na transcrição: {str(e)}") from e
-        
+
         finally:
-            # Limpa arquivo WAV temporário convertido — safe_cleanup para Pattern B consistency.
             if is_temp_file and converted_file is not None:
                 temp_path = Path(converted_file) if not isinstance(converted_file, Path) else converted_file
 
@@ -590,7 +585,6 @@ class TranscriptionProcessor:
 
                 safe_cleanup(_remove_temp, label="Remover arquivo temporário")
 
-            # Auto-unload do modelo para liberar VRAM quando ocioso.
             def _unload_model():
                 unload_result = self.model_manager.unload_model()
                 if unload_result.get("success"):

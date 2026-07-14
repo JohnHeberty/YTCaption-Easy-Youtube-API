@@ -8,7 +8,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from fastapi.responses import StreamingResponse
 
 from common.datetime_utils import now_brazil
@@ -68,7 +68,7 @@ async def list_jobs(
 
     except Exception as e:
         logger.error(f"Failed to list jobs: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao listar jobs: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao listar jobs: {str(e)}")
 
 
 @router.get(
@@ -87,7 +87,7 @@ async def get_job_status(
         job = redis_store.get_job(job_id)
 
         if not job:
-            raise HTTPException(status_code=404, detail=f"Job {job_id} nao encontrado")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} nao encontrado")
 
         stages = StageResponseBuilder.build_all_stages(job)
 
@@ -123,7 +123,7 @@ async def get_job_status(
         raise
     except Exception as e:
         logger.error(f"Failed to get job status: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao consultar job: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao consultar job: {str(e)}")
 
 
 @router.get(
@@ -150,7 +150,7 @@ async def wait_for_job_completion(
             job = redis_store.get_job(job_id)
 
             if not job:
-                raise HTTPException(status_code=404, detail=f"Job {job_id} nao encontrado")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} nao encontrado")
 
             if job.status in [PipelineStatus.COMPLETED, PipelineStatus.FAILED, PipelineStatus.CANCELLED]:
                 elapsed = (now_brazil() - start_time).total_seconds()
@@ -192,7 +192,7 @@ async def wait_for_job_completion(
         elapsed = (now_brazil() - start_time).total_seconds()
         logger.warning(f"Timeout waiting for job {job_id} after {elapsed:.1f}s")
         raise HTTPException(
-            status_code=408,
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
             detail=f"Timeout aguardando conclusao do job apos {timeout}s. Use GET /jobs/{job_id} para verificar status atual.",
         )
 
@@ -200,7 +200,7 @@ async def wait_for_job_completion(
         raise
     except Exception as e:
         logger.error(f"Error waiting for job {job_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao aguardar job: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao aguardar job: {str(e)}")
 
 
 @router.get(

@@ -17,7 +17,7 @@ from typing import Any
 
 from common.datetime_utils import now_brazil
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query, Depends, Path as PathParam
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query, Depends, Path as PathParam, status
 from fastapi.responses import FileResponse, JSONResponse, Response
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
@@ -184,7 +184,7 @@ async def create_audio_job(
         raise HTTPException(status_code=e.status_code, detail=str(e.detail))
     except Exception as e:
         logger.error(f"Erro na validação: {e}")
-        raise HTTPException(status_code=400, detail=f"Erro na validação: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Erro na validação: {e}")
 
     # 2. Criação da entidade Job
     try:
@@ -194,7 +194,7 @@ async def create_audio_job(
         )
     except Exception as e:
         logger.error(f"Erro ao criar job: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao criar job: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao criar job: {e}")
 
     # 3. Verifica cache
     try:
@@ -218,7 +218,7 @@ async def create_audio_job(
         raise HTTPException(status_code=e.status_code, detail=str(e.detail))
     except Exception as e:
         logger.error(f"Erro ao salvar arquivo: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao salvar arquivo: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao salvar arquivo: {e}")
 
     # 5. Salva job e submete
     try:
@@ -229,12 +229,12 @@ async def create_audio_job(
         # Limpa arquivo se falhou
         if file_path.exists():
             file_path.unlink()
-        raise HTTPException(status_code=503, detail=f"Erro ao salvar job: {e}")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Erro ao salvar job: {e}")
     except Exception as e:
         if file_path.exists():
             file_path.unlink()
         logger.error(f"Erro ao submeter job: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao submeter job: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao submeter job: {e}")
 
     return new_job
 
@@ -257,14 +257,14 @@ async def get_job_status(
     try:
         job = retrieval_service.get_job(job_id)
     except JobNotFoundError:
-        raise HTTPException(status_code=404, detail=f"Job não encontrado: {job_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job não encontrado: {job_id}")
     except Exception as e:
         logger.error(f"Erro ao buscar job {job_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar job: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao buscar job: {e}")
 
     # Verifica expiração
     if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expirado")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expirado")
 
     return job
 
@@ -287,24 +287,24 @@ async def download_file(
     try:
         job = retrieval_service.get_job_with_expiration_check(job_id)
     except JobNotFoundError:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
     except JobExpiredError:
-        raise HTTPException(status_code=410, detail="Job expirado")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expirado")
 
     # Verifica se está completo
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
-            status_code=425,
+            status_code=status.HTTP_425_TOO_EARLY,
             detail=f"Processamento não pronto. Status: {job.status}"
         )
 
     # Verifica arquivo de saída
     if not job.output_file:
-        raise HTTPException(status_code=404, detail="Arquivo de saída não definido")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo de saída não definido")
 
     file_path = Path(job.output_file)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
 
     return FileResponse(
         path=file_path,
@@ -331,7 +331,7 @@ async def list_jobs(
         return retrieval_service.list_recent_jobs(limit)
     except Exception as e:
         logger.error(f"Erro ao listar jobs: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao listar jobs: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao listar jobs: {e}")
 
 
 @app.delete("/jobs/{job_id}", response_model=DeleteJobResponse)
@@ -352,7 +352,7 @@ async def delete_job(
     try:
         job = retrieval_service.get_job(job_id)
     except JobNotFoundError:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     # Remove arquivos
     files_deleted = 0
@@ -404,7 +404,7 @@ async def update_heartbeat(
     try:
         job = retrieval_service.get_job(job_id)
     except JobNotFoundError:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     # Atualiza heartbeat
     job.update_heartbeat()
@@ -437,7 +437,7 @@ async def get_stats(
         stats = store.get_stats()
     except Exception as e:
         logger.error(f"Erro ao obter stats: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao obter estatísticas: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao obter estatísticas: {e}")
 
     # Adiciona info de cache
     upload_path = Path(settings.get('upload_dir', './uploads'))
@@ -478,7 +478,7 @@ async def get_queue_info(
         return {"status": "success", "queue": queue_info}
     except Exception as e:
         logger.error(f"Erro ao obter queue info: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro ao obter fila: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao obter fila: {e}")
 
 
 @app.post(
@@ -514,7 +514,7 @@ async def manual_cleanup(
 
     except Exception as e:
         logger.error(f"❌ Erro na limpeza: {e}")
-        raise HTTPException(status_code=500, detail=f"Erro na limpeza: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro na limpeza: {e}")
 
 
 # ============================================================================

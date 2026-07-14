@@ -401,7 +401,7 @@ def load_controlnet(ckpt_path: str, model=None) -> ControlBase:
         # Try to detect from state dict
         unet_config = {"model_channels": 320, "use_spatial_transformer": True}
         model_config = type("Config", (), {"unet_config": unet_config, "operations": None})()
-    except Exception as e:
+    except (ImportError, RuntimeError) as e:
         logger.debug("ControlNet config detection failed, using defaults: %s", e)
         model_config = type("Config", (), {
             "unet_config": {"model_channels": 320, "use_spatial_transformer": True},

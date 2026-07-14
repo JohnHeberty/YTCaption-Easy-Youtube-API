@@ -13,8 +13,8 @@ from datetime import datetime, timedelta
 from fastapi.testclient import TestClient
 from fastapi import UploadFile
 
-from app.models import Job, JobStatus
-from app.redis_store_new import RedisJobStore
+from app.core.models import Job, JobStatus
+from app.infrastructure.redis_store import AudioNormJobStore as RedisJobStore
 from app.domain.processor import AudioProcessor
 
 

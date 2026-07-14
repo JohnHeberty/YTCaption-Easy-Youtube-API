@@ -141,13 +141,13 @@ class Pipeline:
             return None
 
     @staticmethod
-    def _no_grad(fn):
+    def _no_grad(fn: Callable[..., Any]) -> Callable[..., Any]:
         """Decorator: torch.no_grad + torch.inference_mode.
 
         Lazy import: torch is imported inside the wrapper, not at class definition time.
         This allows the API container to load without torch installed.
         """
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             import torch
             with torch.no_grad():
                 with torch.inference_mode():
@@ -159,7 +159,7 @@ class Pipeline:
     # -------------------------------------------------------------------------
 
     @_no_grad
-    def refresh_base_model(self, name: str, vae_name: str | None = None):
+    def refresh_base_model(self, name: str, vae_name: str | None = None) -> None:
         """Load or reload the base model.
 
         Skips if the model filename hasn't changed (cache check).
@@ -195,7 +195,7 @@ class Pipeline:
         logger.info(f"Base model loaded: {filename}")
 
     @_no_grad
-    def refresh_refiner_model(self, name: str):
+    def refresh_refiner_model(self, name: str) -> None:
         """Load or reload the refiner model.
 
         If name is 'None', unloads the refiner.
@@ -240,7 +240,7 @@ class Pipeline:
         logger.info(f"Refiner model loaded: {filename}")
 
     @_no_grad
-    def synthesize_refiner_model(self):
+    def synthesize_refiner_model(self) -> None:
         """Create a synthetic refiner from the base model (shared UNet)."""
         from app.services.model_base import StableDiffusionModel
 
@@ -262,7 +262,7 @@ class Pipeline:
         self,
         loras: list[tuple[str, float]],
         base_model_additional_loras: list | None = None,
-    ):
+    ) -> None:
         """Refresh LoRA weights for base and refiner models."""
         if not isinstance(base_model_additional_loras, list):
             base_model_additional_loras = []
@@ -271,7 +271,7 @@ class Pipeline:
         self.model_refiner.refresh_loras(loras)
 
     @_no_grad
-    def refresh_controlnets(self, model_paths: list[str | None]):
+    def refresh_controlnets(self, model_paths: list[str | None]) -> None:
         """Load/cache ControlNet models, unload unused ones."""
         from app.infrastructure.operators import ControlNetApplyAdvanced
 
@@ -285,7 +285,7 @@ class Pipeline:
                         import ldm_patched.modules.controlnet
                         new_cache[p] = ldm_patched.modules.controlnet.load_controlnet(p)
                         logger.info(f"ControlNet loaded: {p}")
-                    except Exception as e:
+                    except (RuntimeError, OSError) as e:
                         logger.warning(f"ControlNet load failed for {p}: {e}")
         self.loaded_controlnets = new_cache
 
@@ -312,7 +312,7 @@ class Pipeline:
     # -------------------------------------------------------------------------
 
     @_no_grad
-    def clip_encode_single(self, text: str, verbose: bool = False):
+    def clip_encode_single(self, text: str, verbose: bool = False) -> tuple[Any, Any] | None:
         """Encode a single text string with CLIP, using cache.
 
         Returns:
@@ -335,7 +335,7 @@ class Pipeline:
         return result
 
     @_no_grad
-    def clip_encode(self, texts: list[str], pool_top_k: int = 1):
+    def clip_encode(self, texts: list[str], pool_top_k: int = 1) -> list[list[Any]] | None:
         """Encode a list of texts with CLIP, concatenating conditions.
 
         Args:
@@ -364,13 +364,13 @@ class Pipeline:
         return [[torch.cat(cond_list, dim=1), {"pooled_output": pooled_acc}]]
 
     @_no_grad
-    def set_clip_skip(self, clip_skip: int):
+    def set_clip_skip(self, clip_skip: int) -> None:
         """Set CLIP skip layers."""
         if self.final_clip is None:
             return
         self.final_clip.clip_layer(-abs(clip_skip))
 
-    def clear_caches(self):
+    def clear_caches(self) -> None:
         """Clear all CLIP encode caches."""
         self._clip_cond_cache.clear()
 
@@ -379,7 +379,7 @@ class Pipeline:
     # -------------------------------------------------------------------------
 
     @_no_grad
-    def prepare_text_encoder(self, async_call: bool = True):
+    def prepare_text_encoder(self, async_call: bool = True) -> None:
         """Load CLIP + Expansion models to GPU for text encoding."""
         from app.services.model_manager import get_model_manager
 
@@ -409,7 +409,7 @@ class Pipeline:
         base_model_additional_loras: list | None = None,
         use_synthetic_refiner: bool = False,
         vae_name: str | None = None,
-    ):
+    ) -> None:
         """Reload all models and apply LoRAs.
 
         This is the main entry point for model switching.
@@ -472,7 +472,7 @@ class Pipeline:
     @_no_grad
     def calculate_sigmas_all(
         self, sampler: str, scheduler: str, steps: int
-    ):
+    ) -> Any:
         """Calculate all sigma values for a sampler/scheduler combination."""
         from ldm_patched.modules.samplers import calculate_sigmas_scheduler
 
@@ -493,7 +493,7 @@ class Pipeline:
     @_no_grad
     def calculate_sigmas(
         self, sampler: str, scheduler: str, steps: int, denoise: float
-    ):
+    ) -> Any:
         """Calculate sigmas with denoise support."""
         if denoise is None or denoise > 0.9999:
             return self.calculate_sigmas_all(sampler, scheduler, steps)
@@ -511,7 +511,7 @@ class Pipeline:
     def get_candidate_vae(
         self, steps: int, switch: int, denoise: float = 1.0,
         refiner_swap_method: str = "joint",
-    ):
+    ) -> tuple[Any, Any]:
         """Select which VAE(s) to use for decoding based on denoise level."""
         assert refiner_swap_method in ('joint', 'separate', 'vae')
 
@@ -563,6 +563,31 @@ class Pipeline:
         """
         from app.infrastructure.core_ops import ksampler, generate_empty_latent, decode_vae
 
+        targets = self._resolve_diffusion_targets(
+            positive_cond, negative_cond, steps, switch, denoise, refiner_swap_method
+        )
+        positive_cond, negative_cond = targets["positive"], targets["negative"]
+
+        logger.info(f"[Sampler] refiner_swap_method = {targets['method']}")
+
+        initial_latent = latent if latent is not None else generate_empty_latent(width=width, height=height, batch_size=1)
+
+        self._init_brownian_noise(initial_latent, image_seed)
+
+        decoded_latent = self._run_sampler_by_method(
+            targets, initial_latent, steps, switch, image_seed, callback,
+            sampler_name, scheduler_name, denoise, tiled, cfg_scale, disable_preview,
+        )
+
+        images = self.pytorch_to_numpy(decoded_latent)
+        self._reset_eps_record()
+        return images
+
+    def _resolve_diffusion_targets(
+        self, positive_cond, negative_cond, steps: int, switch: int,
+        denoise: float, refiner_swap_method: str,
+    ) -> dict:
+        """Determine target UNet/VAE/clip based on denoise level and refiner."""
         target_unet = self.final_unet
         target_vae = self.final_vae
         target_refiner_unet = self.final_refiner_unet
@@ -571,7 +596,6 @@ class Pipeline:
 
         assert refiner_swap_method in ('joint', 'separate', 'vae')
 
-        # Refiner selection based on denoise level
         if self.final_refiner_vae is not None and self.final_refiner_unet is not None:
             if denoise > DENOISE_REFINER_THRESHOLD:
                 refiner_swap_method = 'vae'
@@ -593,179 +617,208 @@ class Pipeline:
                     target_refiner_unet, target_refiner_vae = None, None
                     logger.info("[Sampler] only use Refiner because of partial denoise.")
 
-        logger.info(f"[Sampler] refiner_swap_method = {refiner_swap_method}")
+        return {
+            "positive": positive_cond, "negative": negative_cond,
+            "target_unet": target_unet, "target_vae": target_vae,
+            "target_refiner_unet": target_refiner_unet, "target_refiner_vae": target_refiner_vae,
+            "target_clip": target_clip, "method": refiner_swap_method,
+        }
 
-        if latent is None:
-            initial_latent = generate_empty_latent(width=width, height=height, batch_size=1)
-        else:
-            initial_latent = latent
-
-        # Calculate sigma range
-        from app.services.model_manager import get_model_manager
-        manager = get_model_manager()
-
-        minmax_sigmas = self.calculate_sigmas(
-            sampler=sampler_name, scheduler=scheduler_name,
-            steps=steps, denoise=denoise,
-        )
-        sigma_min = float(minmax_sigmas[minmax_sigmas > 0].min().cpu().numpy())
-        sigma_max = float(minmax_sigmas.max().cpu().numpy())
-        logger.info(f"[Sampler] sigma_min = {sigma_min}, sigma_max = {sigma_max}")
-
-        # Initialize Brownian tree noise sampler
+    def _init_brownian_noise(self, initial_latent: dict, image_seed: int) -> None:
+        """Initialize Brownian tree noise sampler."""
         try:
             import modules.patch
-            device = manager.device
+            from app.services.model_manager import get_model_manager
+            device = get_model_manager().device
             modules.patch.BrownianTreeNoiseSamplerPatched.global_init(
                 initial_latent['samples'].to(device),
-                sigma_min, sigma_max, seed=image_seed, cpu=False,
+                0.0, 1.0, seed=image_seed, cpu=False,
             )
         except (ImportError, AttributeError):
             logger.debug("BrownianTreeNoiseSamplerPatched not available")
 
-        decoded_latent = None
+    def _run_sampler_by_method(
+        self, targets: dict, initial_latent: dict, steps: int, switch: int,
+        image_seed: int, callback: Callable | None, sampler_name: str,
+        scheduler_name: str, denoise: float, tiled: bool, cfg_scale: float,
+        disable_preview: bool,
+    ) -> Any:
+        """Dispatch to the correct sampler strategy."""
+        from app.infrastructure.core_ops import ksampler, decode_vae
 
-        if refiner_swap_method == 'joint':
-            sampled_latent = ksampler(
-                model=target_unet,
-                refiner=target_refiner_unet,
-                positive=positive_cond,
-                negative=negative_cond,
-                latent=initial_latent,
-                steps=steps, start_step=0, last_step=steps,
-                disable_noise=False, force_full_denoise=True,
-                seed=image_seed, denoise=denoise,
-                callback_function=callback,
-                cfg=cfg_scale,
-                sampler_name=sampler_name,
-                scheduler=scheduler_name,
-                refiner_switch=switch,
-                disable_preview=disable_preview,
-            )
-            decoded_latent = decode_vae(vae=target_vae, latent_image=sampled_latent, tiled=tiled)
+        method = targets["method"]
+        t_unet = targets["target_unet"]
+        t_vae = targets["target_vae"]
+        t_ref_unet = targets["target_refiner_unet"]
+        t_ref_vae = targets["target_refiner_vae"]
+        t_clip = targets["target_clip"]
+        pos = targets["positive"]
+        neg = targets["negative"]
 
-        elif refiner_swap_method == 'separate':
-            sampled_latent = ksampler(
-                model=target_unet,
-                positive=positive_cond,
-                negative=negative_cond,
-                latent=initial_latent,
-                steps=steps, start_step=0, last_step=switch,
-                disable_noise=False, force_full_denoise=False,
-                seed=image_seed, denoise=denoise,
-                callback_function=callback,
-                cfg=cfg_scale,
-                sampler_name=sampler_name,
-                scheduler=scheduler_name,
-                disable_preview=disable_preview,
-            )
-            logger.info("Refiner swapped by changing ksampler. Noise preserved.")
+        if method == 'joint':
+            return self._sample_joint(t_unet, t_ref_unet, t_vae, pos, neg,
+                                      initial_latent, steps, image_seed, callback,
+                                      sampler_name, scheduler_name, denoise, tiled,
+                                      cfg_scale, switch, disable_preview)
 
-            target_model = target_refiner_unet or target_unet
+        if method == 'separate':
+            return self._sample_separate(t_unet, t_ref_unet, t_vae, t_ref_vae, t_clip, pos, neg,
+                                         initial_latent, steps, switch, image_seed, callback,
+                                         sampler_name, scheduler_name, denoise, tiled,
+                                         cfg_scale, disable_preview)
 
-            sampled_latent = ksampler(
-                model=target_model,
-                positive=self._clip_separate(positive_cond, target_model.model, target_clip),
-                negative=self._clip_separate(negative_cond, target_model.model, target_clip),
-                latent=sampled_latent,
-                steps=steps, start_step=switch, last_step=steps,
-                disable_noise=True, force_full_denoise=True,
-                seed=image_seed, denoise=denoise,
-                callback_function=callback,
-                cfg=cfg_scale,
-                sampler_name=sampler_name,
-                scheduler=scheduler_name,
-                disable_preview=disable_preview,
-            )
+        if method == 'vae':
+            return self._sample_vae(t_unet, t_ref_unet, t_vae, t_ref_vae, t_clip, pos, neg,
+                                    initial_latent, steps, switch, image_seed, callback,
+                                    sampler_name, scheduler_name, denoise, tiled,
+                                    cfg_scale, disable_preview)
 
-            target_model = target_refiner_vae or target_vae
-            decoded_latent = decode_vae(vae=target_model, latent_image=sampled_latent, tiled=tiled)
+        raise ValueError(f"Unknown refiner_swap_method: {method}")
 
-        elif refiner_swap_method == 'vae':
-            # VAE-based swap
-            try:
-                import modules.patch
-                _pid = os.getpid()
-                if _pid in modules.patch.patch_settings:
-                    modules.patch.patch_settings[_pid].eps_record = 'vae'
-            except (ImportError, AttributeError, KeyError):
-                pass
+    def _sample_joint(
+        self, t_unet, t_ref_unet, t_vae, pos, neg, initial_latent,
+        steps, image_seed, callback, sampler_name, scheduler_name,
+        denoise, tiled, cfg_scale, switch, disable_preview,
+    ) -> Any:
+        """Joint refiner sampling — refiner used during denoising."""
+        from app.infrastructure.core_ops import ksampler, decode_vae
+        sampled_latent = ksampler(
+            model=t_unet, refiner=t_ref_unet, positive=pos, negative=neg,
+            latent=initial_latent, steps=steps, start_step=0, last_step=steps,
+            disable_noise=False, force_full_denoise=True,
+            seed=image_seed, denoise=denoise, callback_function=callback,
+            cfg=cfg_scale, sampler_name=sampler_name, scheduler=scheduler_name,
+            refiner_switch=switch, disable_preview=disable_preview,
+        )
+        return decode_vae(vae=t_vae, latent_image=sampled_latent, tiled=tiled)
 
-            try:
-                import modules.inpaint_worker
-                if modules.inpaint_worker.current_task is not None:
-                    modules.inpaint_worker.current_task.unswap()
-            except (ImportError, AttributeError):
-                pass
+    def _sample_separate(
+        self, t_unet, t_ref_unet, t_vae, t_ref_vae, t_clip, pos, neg,
+        initial_latent, steps, switch, image_seed, callback,
+        sampler_name, scheduler_name, denoise, tiled, cfg_scale, disable_preview,
+    ) -> Any:
+        """Separate refiner — base denoise then refiner denoise (two passes)."""
+        from app.infrastructure.core_ops import ksampler, decode_vae
 
-            sampled_latent = ksampler(
-                model=target_unet,
-                positive=positive_cond,
-                negative=negative_cond,
-                latent=initial_latent,
-                steps=steps, start_step=0, last_step=switch,
-                disable_noise=False, force_full_denoise=True,
-                seed=image_seed, denoise=denoise,
-                callback_function=callback,
-                cfg=cfg_scale,
-                sampler_name=sampler_name,
-                scheduler=scheduler_name,
-                disable_preview=disable_preview,
-            )
-            logger.info("SE8 VAE-based swap.")
+        sampled_latent = ksampler(
+            model=t_unet, positive=pos, negative=neg,
+            latent=initial_latent, steps=steps, start_step=0, last_step=switch,
+            disable_noise=False, force_full_denoise=False,
+            seed=image_seed, denoise=denoise, callback_function=callback,
+            cfg=cfg_scale, sampler_name=sampler_name, scheduler=scheduler_name,
+            disable_preview=disable_preview,
+        )
+        logger.info("Refiner swapped by changing ksampler. Noise preserved.")
 
-            target_model = target_refiner_unet or target_unet
+        target_model = t_ref_unet or t_unet
+        sampled_latent = ksampler(
+            model=target_model,
+            positive=self._clip_separate(pos, target_model.model, t_clip),
+            negative=self._clip_separate(neg, target_model.model, t_clip),
+            latent=sampled_latent, steps=steps, start_step=switch, last_step=steps,
+            disable_noise=True, force_full_denoise=True,
+            seed=image_seed, denoise=denoise, callback_function=callback,
+            cfg=cfg_scale, sampler_name=sampler_name, scheduler=scheduler_name,
+            disable_preview=disable_preview,
+        )
 
-            sampled_latent = self.vae_parse(sampled_latent)
+        target_vae = t_ref_vae or t_vae
+        return decode_vae(vae=target_vae, latent_image=sampled_latent, tiled=tiled)
 
-            k_sigmas = VAE_SIGMA_MULTIPLIER
-            sigmas = self.calculate_sigmas(
-                sampler=sampler_name, scheduler=scheduler_name,
-                steps=steps, denoise=denoise,
-            )[switch:] * k_sigmas
-            len_sigmas = len(sigmas) - 1
+    def _sample_vae(
+        self, t_unet, t_ref_unet, t_vae, t_ref_vae, t_clip, pos, neg,
+        initial_latent, steps, switch, image_seed, callback,
+        sampler_name, scheduler_name, denoise, tiled, cfg_scale, disable_preview,
+    ) -> Any:
+        """VAE-based swap — base denoise then VAE parse + refiner refinement."""
+        from app.infrastructure.core_ops import ksampler, decode_vae
 
-            try:
-                import modules.patch
-                _pid = os.getpid()
-                if _pid in modules.patch.patch_settings and modules.patch.patch_settings[_pid].eps_record is not None:
-                    noise_mean = torch.mean(
-                        modules.patch.patch_settings[_pid].eps_record,
-                        dim=1, keepdim=True,
-                    )
-            except (ImportError, AttributeError):
-                noise_mean = None
+        self._set_eps_record_mode('vae')
+        self._unswap_inpaint_worker()
 
-            try:
-                import modules.inpaint_worker
-                if modules.inpaint_worker.current_task is not None:
-                    modules.inpaint_worker.current_task.swap()
-            except (ImportError, AttributeError):
-                pass
+        sampled_latent = ksampler(
+            model=t_unet, positive=pos, negative=neg,
+            latent=initial_latent, steps=steps, start_step=0, last_step=switch,
+            disable_noise=False, force_full_denoise=True,
+            seed=image_seed, denoise=denoise, callback_function=callback,
+            cfg=cfg_scale, sampler_name=sampler_name, scheduler=scheduler_name,
+            disable_preview=disable_preview,
+        )
+        logger.info("SE8 VAE-based swap.")
 
-            sampled_latent = ksampler(
-                model=target_model,
-                positive=self._clip_separate(positive_cond, target_model.model, target_clip),
-                negative=self._clip_separate(negative_cond, target_model.model, target_clip),
-                latent=sampled_latent,
-                steps=len_sigmas, start_step=0, last_step=len_sigmas,
-                disable_noise=False, force_full_denoise=True,
-                seed=image_seed + 1, denoise=denoise,
-                callback_function=callback,
-                cfg=cfg_scale,
-                sampler_name=sampler_name,
-                scheduler=scheduler_name,
-                sigmas=sigmas,
-                noise_mean=noise_mean,
-                disable_preview=disable_preview,
-            )
+        target_model = t_ref_unet or t_unet
+        sampled_latent = self.vae_parse(sampled_latent)
 
-            target_model = target_refiner_vae or target_vae
-            decoded_latent = decode_vae(vae=target_model, latent_image=sampled_latent, tiled=tiled)
+        k_sigmas = VAE_SIGMA_MULTIPLIER
+        sigmas = self.calculate_sigmas(
+            sampler=sampler_name, scheduler=scheduler_name,
+            steps=steps, denoise=denoise,
+        )[switch:] * k_sigmas
+        len_sigmas = len(sigmas) - 1
 
-        images = self.pytorch_to_numpy(decoded_latent)
+        noise_mean = self._get_eps_noise_mean()
 
-        # Reset eps_record
+        self._swap_inpaint_worker()
+
+        sampled_latent = ksampler(
+            model=target_model,
+            positive=self._clip_separate(pos, target_model.model, t_clip),
+            negative=self._clip_separate(neg, target_model.model, t_clip),
+            latent=sampled_latent, steps=len_sigmas, start_step=0, last_step=len_sigmas,
+            disable_noise=False, force_full_denoise=True,
+            seed=image_seed + 1, denoise=denoise, callback_function=callback,
+            cfg=cfg_scale, sampler_name=sampler_name, scheduler=scheduler_name,
+            sigmas=sigmas, noise_mean=noise_mean, disable_preview=disable_preview,
+        )
+
+        target_vae_model = t_ref_vae or t_vae
+        return decode_vae(vae=target_vae_model, latent_image=sampled_latent, tiled=tiled)
+
+    def _set_eps_record_mode(self, mode: str) -> None:
+        """Set modules.patch eps_record mode for VAE swap."""
+        try:
+            import modules.patch
+            _pid = os.getpid()
+            if _pid in modules.patch.patch_settings:
+                modules.patch.patch_settings[_pid].eps_record = mode
+        except (ImportError, AttributeError, KeyError):
+            pass
+
+    def _get_eps_noise_mean(self) -> Any | None:
+        """Get mean noise from eps_record for VAE swap."""
+        try:
+            import torch
+            import modules.patch
+            _pid = os.getpid()
+            if _pid in modules.patch.patch_settings and modules.patch.patch_settings[_pid].eps_record is not None:
+                return torch.mean(
+                    modules.patch.patch_settings[_pid].eps_record,
+                    dim=1, keepdim=True,
+                )
+        except (ImportError, AttributeError):
+            pass
+        return None
+
+    def _unswap_inpaint_worker(self) -> None:
+        """Call inpaint_worker.unswap() if active."""
+        try:
+            import modules.inpaint_worker
+            if modules.inpaint_worker.current_task is not None:
+                modules.inpaint_worker.current_task.unswap()
+        except (ImportError, AttributeError):
+            pass
+
+    def _swap_inpaint_worker(self) -> None:
+        """Call inpaint_worker.swap() if active."""
+        try:
+            import modules.inpaint_worker
+            if modules.inpaint_worker.current_task is not None:
+                modules.inpaint_worker.current_task.swap()
+        except (ImportError, AttributeError):
+            pass
+
+    def _reset_eps_record(self) -> None:
+        """Reset modules.patch eps_record to None."""
         try:
             import modules.patch
             _pid = os.getpid()
@@ -774,14 +827,12 @@ class Pipeline:
         except (ImportError, AttributeError, KeyError):
             pass
 
-        return images
-
     # -------------------------------------------------------------------------
     # Utility functions
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _clip_separate(cond, target_model, target_clip):
+    def _clip_separate(cond, target_model, target_clip) -> Any:
         """Separate CLIP conditioning for refiner swap."""
         try:
             from modules.sample_hijack import clip_separate
@@ -802,7 +853,7 @@ class Pipeline:
         return [np.clip(255.0 * y.cpu().numpy(), 0, 255).astype(np.uint8) for y in x]
 
     @staticmethod
-    def numpy_to_pytorch(x):
+    def numpy_to_pytorch(x: Any) -> Any:
         """Convert numpy image(s) to PyTorch tensor."""
         import torch
         y = x.astype(np.float32) / 255.0
@@ -833,7 +884,7 @@ def get_pipeline(pipeline: Pipeline | None = None) -> Pipeline:
     return _pipeline
 
 
-def reset_pipeline():
+def reset_pipeline() -> None:
     """Reset the singleton (for testing or model reload)."""
     global _pipeline
     _pipeline = None

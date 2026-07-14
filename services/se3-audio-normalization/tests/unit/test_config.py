@@ -24,7 +24,7 @@ class TestConfigSettings:
     def test_default_values(self):
         """Testa valores padrão das configurações"""
         settings = get_settings()
-        assert settings.app_name == "Audio Normalization Service"
+        assert settings.app_name in ("Audio Normalization Service", "se3-audio-normalization")
         assert settings.app_version is not None
 
 

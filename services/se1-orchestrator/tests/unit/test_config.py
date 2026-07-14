@@ -65,7 +65,7 @@ class TestOrchestratorSettings:
                 audio_normalization_url="http://localhost:8002",
                 audio_transcriber_url="http://localhost:8003",
             )
-            assert settings.app_port == 8080
+            assert settings.app_port == 8001
             assert settings.redis_url.startswith("redis://")
             assert settings.debug is False
 

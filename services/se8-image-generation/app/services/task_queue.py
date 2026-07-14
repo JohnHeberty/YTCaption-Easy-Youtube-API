@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import redis as redis_lib
 
 from app.domain.task_models import (
     AsyncTask,
@@ -140,7 +141,7 @@ class TaskQueue:
             pipe.zremrangebyrank(HISTORY_LIST_KEY, 0, -(self.history_size + 1))
             pipe.execute()
             return True
-        except Exception as e:
+        except redis_lib.RedisError as e:
             logger.warning("Failed to save task %s to Redis history: %s", task.job_id, e)
             return False
 
@@ -153,7 +154,7 @@ class TaskQueue:
             data = self._redis.get(key)
             if data:
                 return _metadata_to_task(json.loads(data))
-        except Exception as e:
+        except (redis_lib.RedisError, ValueError) as e:
             logger.warning("Failed to get task %s from Redis history: %s", job_id, e)
         return None
 
@@ -174,7 +175,7 @@ class TaskQueue:
                 if data:
                     results.append(json.loads(data))
             return results
-        except Exception as e:
+        except (redis_lib.RedisError, ValueError) as e:
             logger.warning("Failed to list Redis history: %s", e)
             return []
 
@@ -189,7 +190,7 @@ class TaskQueue:
             pipe.zrem(HISTORY_LIST_KEY, job_id)
             pipe.execute()
             return True
-        except Exception as e:
+        except redis_lib.RedisError as e:
             logger.warning("Failed to delete task %s from Redis: %s", job_id, e)
             return False
 
@@ -208,7 +209,7 @@ class TaskQueue:
             pipe.delete(HISTORY_LIST_KEY)
             pipe.execute()
             return count
-        except Exception as e:
+        except redis_lib.RedisError as e:
             logger.warning("Failed to clear Redis history: %s", e)
             return 0
 
@@ -218,7 +219,7 @@ class TaskQueue:
             return 0
         try:
             return self._redis.redis.zcard(HISTORY_LIST_KEY)
-        except Exception as e:
+        except redis_lib.RedisError as e:
             logger.debug("Redis zcard failed: %s", e)
             return 0
 
@@ -446,7 +447,7 @@ class TaskQueue:
             }
             httpx.post(url, json=payload, timeout=15.0)
             logger.info("Webhook sent for task %s to %s", task.job_id, url)
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.warning("Webhook failed for task %s: %s", task.job_id, e)
 
     def _cleanup_output_files(self, task: QueueTask) -> None:
@@ -459,5 +460,5 @@ class TaskQueue:
                     path = Path(result.im)
                     if path.exists():
                         os.remove(str(path))
-                except Exception as exc:
+                except OSError as exc:
                     logger.debug("Failed to cleanup output file %s: %s", result.im, exc)

@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse
 
 from common.datetime_utils import now_brazil
@@ -70,7 +70,7 @@ async def manual_cleanup(
 
     except Exception as e:
         logger.error(f"❌ ERRO na limpeza {cleanup_type}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao fazer cleanup: {str(e)}")
 
 
 @router.get(
@@ -122,7 +122,7 @@ async def get_queue_info_endpoint(job_store: IJobStore = Depends(job_store)) -> 
 
     except Exception as e:
         logger.error(f"Error getting queue info: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get queue info: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get queue info: {str(e)}")
 
 
 @router.post(
@@ -153,5 +153,5 @@ async def cleanup_orphan_jobs_endpoint(job_store: IJobStore = Depends(job_store)
                 "success": False,
                 "error": str(e)
             },
-            status_code=500
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

@@ -69,7 +69,7 @@ class TestJobValidator:
     def test_validate_job_completed_failure(self):
         """Test validating incomplete job."""
         job = Job.create_new("https://youtube.com/watch?v=test", "best")
-        job.status = JobStatus.DOWNLOADING
+        job.status = JobStatus.PROCESSING
         is_valid, error = JobValidator.validate_job_completed(job)
         assert is_valid is False
         assert "not completed" in error

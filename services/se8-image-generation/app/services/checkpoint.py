@@ -261,7 +261,7 @@ class VAE:
                     (self.first_stage_model.decode(samples).to(self.output_device).float() + 1.0) / 2.0,
                     min=0.0, max=1.0,
                 )
-        except Exception:
+        except (RuntimeError, torch.cuda.OutOfMemoryError):
             logger.warning("OOM during VAE decode — falling back to tiled decode")
             pixel_samples = self._decode_tiled(samples_in)
 
@@ -291,7 +291,7 @@ class VAE:
                 latent_samples[x:x+batch_number] = self.first_stage_model.encode(
                     (2.0 * samples - 1.0)
                 ).to(self.output_device).float()
-        except Exception:
+        except (RuntimeError, torch.cuda.OutOfMemoryError):
             logger.warning("OOM during VAE encode — falling back to tiled encode")
             latent_samples = self._encode_tiled(pixel_samples)
 
@@ -364,7 +364,6 @@ def load_checkpoint_guess_config(
 
     ldm = _get_ldm()
     utils = ldm["utils"]
-    mm = ldm["model_management"]
     md = ldm["model_detection"]
 
     manager = get_model_manager()
@@ -382,9 +381,6 @@ def load_checkpoint_guess_config(
     load_device = manager.device
     manual_cast_dtype = manager.unet_manual_cast(unet_dtype, load_device)
 
-    class WeightsLoader(torch.nn.Module):
-        pass
-
     model_config = md.model_config_from_unet(sd, "model.diffusion_model.", unet_dtype)
     if model_config is None:
         raise RuntimeError(f"ERROR: Could not detect model type of: {ckpt_path}")
@@ -397,55 +393,107 @@ def load_checkpoint_guess_config(
         )
 
     if output_model:
-        inital_load_device = manager.unet_initial_load_device(parameters, unet_dtype)
-        offload_device = manager.unet_offload_device()
-        model = model_config.get_model(sd, "model.diffusion_model.", device=inital_load_device)
-        model.load_model_weights(sd, "model.diffusion_model.")
+        model = _load_unet_model(model_config, sd, manager, parameters, unet_dtype)
 
     if output_vae:
-        if vae_filename_param is None:
-            vae_sd = utils.state_dict_prefix_replace(
-                sd, {"first_stage_model.": ""}, filter_keys=True
-            )
-            vae_sd = model_config.process_vae_state_dict(vae_sd)
-        else:
-            vae_sd = utils.load_torch_file(vae_filename_param)
-            vae_filename = vae_filename_param
-        vae = VAE(sd=vae_sd)
+        vae, vae_filename = _load_vae(sd, model_config, vae_filename_param, ldm)
 
     if output_clip:
-        clip_target = model_config.clip_target()
-        if clip_target is not None:
-            clip = CLIP(clip_target, embedding_directory=embedding_directory)
-            w = WeightsLoader()
-            w.cond_stage_model = clip.cond_stage_model
-            sd_processed = model_config.process_clip_state_dict(sd)
-            _load_model_weights(w, sd_processed)
+        clip = _load_clip(model_config, sd, embedding_directory, ldm)
 
+    _log_leftover_keys(sd)
+
+    del sd
+    _cleanup_sd_refs(vars())
+
+    if output_model:
+        model_patcher = _create_model_patcher(model, load_device, manager, ldm)
+
+    return model_patcher, clip, vae, vae_filename, clipvision
+
+
+def _load_unet_model(
+    model_config: Any, sd: dict, manager: Any, parameters: int, unet_dtype: Any
+) -> Any:
+    """Load UNet model from state dict."""
+    ldm = _get_ldm()
+    inital_load_device = manager.unet_initial_load_device(parameters, unet_dtype)
+    model = model_config.get_model(sd, "model.diffusion_model.", device=inital_load_device)
+    model.load_model_weights(sd, "model.diffusion_model.")
+    return model
+
+
+def _load_vae(
+    sd: dict, model_config: Any, vae_filename_param: str | None, ldm: dict
+) -> tuple[Any, str | None]:
+    """Load VAE from state dict or separate file."""
+    utils = ldm["utils"]
+    vae_filename = None
+
+    if vae_filename_param is None:
+        vae_sd = utils.state_dict_prefix_replace(
+            sd, {"first_stage_model.": ""}, filter_keys=True
+        )
+        vae_sd = model_config.process_vae_state_dict(vae_sd)
+    else:
+        vae_sd = utils.load_torch_file(vae_filename_param)
+        vae_filename = vae_filename_param
+    vae = VAE(sd=vae_sd)
+    return vae, vae_filename
+
+
+def _load_clip(
+    model_config: Any, sd: dict, embedding_directory: Any, ldm: dict
+) -> Any:
+    """Load CLIP model from state dict."""
+    clip_target = model_config.clip_target()
+    if clip_target is None:
+        return None
+
+    clip = CLIP(clip_target, embedding_directory=embedding_directory)
+
+    class WeightsLoader(torch.nn.Module):
+        pass
+
+    w = WeightsLoader()
+    w.cond_stage_model = clip.cond_stage_model
+    sd_processed = model_config.process_clip_state_dict(sd)
+    _load_model_weights(w, sd_processed)
+    return clip
+
+
+def _log_leftover_keys(sd: dict) -> None:
+    """Log any leftover keys in state dict."""
     left_over = sd.keys()
     if len(left_over) > 0:
         logger.info("Leftover keys: %s", left_over)
 
-    # Release state dict from CPU RAM immediately (~6GB freed)
-    del sd
-    if 'vae_sd' in dir():
-        del vae_sd
-    if 'sd_processed' in dir():
-        del sd_processed
+
+def _cleanup_sd_refs(scope: dict) -> None:
+    """Release large state dict references from scope."""
     import gc
+    for name in ('vae_sd', 'sd_processed'):
+        if name in scope:
+            del scope[name]
     gc.collect()
 
-    if output_model:
-        model_patcher = ldm["model_patcher"].ModelPatcher(
-            model, load_device=load_device,
-            offload_device=manager.unet_offload_device(),
-            current_device=inital_load_device,
-        )
-        if inital_load_device != torch.device("cpu"):
-            logger.info("Loaded straight to GPU")
-            manager.load_models_gpu([model_patcher])
 
-    return model_patcher, clip, vae, vae_filename, clipvision
+def _create_model_patcher(
+    model: Any, load_device: Any, manager: Any, ldm: dict
+) -> Any:
+    """Create ModelPatcher wrapper and optionally load to GPU."""
+    import torch
+
+    model_patcher = ldm["model_patcher"].ModelPatcher(
+        model, load_device=load_device,
+        offload_device=manager.unet_offload_device(),
+        current_device=manager.unet_initial_load_device(0, torch.float32),
+    )
+    inital_load_device = manager.unet_initial_load_device(0, torch.float32)
+    if inital_load_device != torch.device("cpu"):
+        logger.info("Loaded straight to GPU")
+        manager.load_models_gpu([model_patcher])
+    return model_patcher
 
 
 def _load_model_weights(model, sd) -> Any:

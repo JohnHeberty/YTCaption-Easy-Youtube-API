@@ -21,6 +21,11 @@ from datetime import datetime
 from contextlib import contextmanager
 from typing import Any
 from common.log_utils import get_logger
+from ..core.constants import (
+    SQLITE_CONNECTION_TIMEOUT,
+    SQLITE_BUSY_TIMEOUT_MS,
+    DEFAULT_LIST_LIMIT,
+)
 
 logger = get_logger(__name__)
 
@@ -63,7 +68,7 @@ class VideoStatusStore:
     @contextmanager
     def _get_conn(self) -> Any:
         """Context manager para conexões SQLite"""
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+        conn = sqlite3.connect(str(self.db_path), timeout=SQLITE_CONNECTION_TIMEOUT)
         conn.row_factory = sqlite3.Row
         try:
             self._ensure_schema(conn)
@@ -80,7 +85,7 @@ class VideoStatusStore:
         """Garante que pragmas e tabelas existam (idempotente)"""
         # Habilitar WAL mode
         conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=10000")
+        conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA synchronous=NORMAL")
 
         # Tabela de vídeos APROVADOS
@@ -196,7 +201,7 @@ class VideoStatusStore:
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
 
-    def list_approved(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def list_approved(self, limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> list[dict[str, Any]]:
         """Lista todos os vídeos aprovados"""
         with self._get_conn() as conn:
             rows = conn.execute(
@@ -287,7 +292,7 @@ class VideoStatusStore:
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
 
-    def list_rejected(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def list_rejected(self, limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> list[dict[str, Any]]:
         """Lista todos os vídeos reprovados"""
         with self._get_conn() as conn:
             rows = conn.execute(
@@ -395,7 +400,7 @@ class VideoStatusStore:
                 "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
 
-    def list_errors(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def list_errors(self, limit: int = DEFAULT_LIST_LIMIT, offset: int = 0) -> list[dict[str, Any]]:
         """Lista vídeos com erro paginado"""
         with self._get_conn() as conn:
             cursor = conn.execute(

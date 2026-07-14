@@ -10,6 +10,7 @@ Usage in conftest.py:
 """
 try:
     import fakeredis
+    from unittest.mock import patch
 
     class MockRedis:
         """Wrapper around fakeredis for testing."""
@@ -32,9 +33,12 @@ try:
                 Store instance with fake Redis backend
             """
             fake_redis = fakeredis.FakeRedis(decode_responses=True)
-            store = store_class(redis_url=redis_url, **kwargs)
+            with patch("common.redis_utils.resilient_store.ResilientRedisStore._test_connection"):
+                store = store_class(redis_url=redis_url, **kwargs)
             if hasattr(store, 'redis'):
                 store.redis = fake_redis
+            if hasattr(store, '_resilient') and hasattr(store._resilient, 'redis'):
+                store._resilient.redis = fake_redis
             return store
 
 except ImportError:

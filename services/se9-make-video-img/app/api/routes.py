@@ -6,7 +6,7 @@ import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, status
 
 from app.core.config import settings
 from app.core.constants import (
@@ -202,7 +202,7 @@ async def list_voices() -> VoicesResponse:
 @router.post(
     "/jobs",
     response_model=CreateVideoResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     summary="Create video generation job",
     description=(
         "Create a new video generation job.\n\n"
@@ -308,7 +308,7 @@ async def list_jobs(
 async def get_job_status(job_id: str) -> JobStatusResponse:
     job_data = store.get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     return JobStatusResponse(
         job_id=job_data["job_id"],
@@ -337,7 +337,7 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
 async def delete_job(job_id: str) -> DeleteJobResponse:
     job_data = store.get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     output_dir = os.path.join(settings.output_dir, job_id)
     if os.path.exists(output_dir):

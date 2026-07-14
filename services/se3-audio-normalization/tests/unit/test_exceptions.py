@@ -61,7 +61,7 @@ class TestSpecificExceptions:
         """Deve ter valores corretos para arquivo grande."""
         exc = FileTooLarge(100.5, 50)
         assert exc.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
-        assert "100.5MB" in exc.message
+        assert "100.50MB" in exc.message
         assert "50MB" in exc.message
 
     def test_processing_error_has_correct_values(self):

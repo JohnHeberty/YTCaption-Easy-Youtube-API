@@ -170,149 +170,136 @@ class DomainJobProcessor:
             ),
         ]
     
+    async def _setup_job_context(self, job: Job) -> StageContext:
+        """Create and configure the StageContext for processing."""
+        return StageContext(
+            job_id=job.id,
+            query=job.query if job.query else "approved_videos",
+            max_shorts=job.max_shorts,
+            aspect_ratio=job.aspect_ratio,
+            crop_position=getattr(job, 'crop_position', 'center'),
+            subtitle_language=getattr(job, 'subtitle_language', 'pt-BR'),
+            subtitle_style=job.subtitle_style,
+            settings=self.settings,
+            event_publisher=self.event_publisher,
+            hook_text=getattr(job, 'hook_text', None),
+            burn_subtitles=getattr(job, 'burn_subtitles', True),
+        )
+
+    def _finalize_completed_job(self, job: Job, result: JobResult) -> None:
+        """Update job with completed result and persist."""
+        job.result = result
+        job.status = JobStatus.COMPLETED
+        job.progress = 100.0
+        job.completed_at = now_brazil()
+        job.expires_at = job.completed_at + timedelta(hours=24)
+        self.redis_store.save_job(job)
+
+    async def _publish_job_event(self, event_type: str, job_id: str, **kwargs: Any) -> None:
+        """Publish a job lifecycle event (started/completed/failed)."""
+        try:
+            if event_type == 'started':
+                from ..shared.events import publish_job_started
+                await publish_job_started(job_id=job_id, **kwargs)
+            elif event_type == 'completed':
+                from ..shared.events import publish_job_completed
+                await publish_job_completed(job_id=job_id, **kwargs)
+            elif event_type == 'failed':
+                from ..shared.events import publish_job_failed
+                await publish_job_failed(job_id=job_id, **kwargs)
+        except Exception as exc:
+            logger.debug("Failed to publish job_%s event: %s", event_type, exc)
+
+    def _handle_job_error(self, job: Job, job_id: str, e: Exception) -> None:
+        """Update job with failure info and persist."""
+        job.status = JobStatus.FAILED
+        job.error = {
+            "message": str(e),
+            "type": type(e).__name__
+        }
+        if isinstance(e, MakeVideoException):
+            job.error = {
+                "message": str(e),
+                "code": getattr(e, 'error_code', 'UNKNOWN'),
+                "details": getattr(e, 'context', {})
+            }
+        self.redis_store.save_job(job)
+
     async def process_job(self, job_id: str) -> JobResult:
         """
         Processa um job usando Domain-Driven Design.
-        
+
         Args:
             job_id: ID do job a ser processado
-            
+
         Returns:
             JobResult com informações do vídeo final
-            
+
         Raises:
             MakeVideoException: Se houver erro no processamento
         """
-        
-        # Criar logger específico para este job
         job_logger = FileLogger.get_job_logger(job_id)
         job_logger.info("=" * 80)
         job_logger.info(f"🎬 STARTING MAKE-VIDEO JOB (Domain-Driven): {job_id}")
         job_logger.info("=" * 80)
-        
-        # Carregar job do Redis
+
         job = self.redis_store.get_job(job_id)
         if not job:
             job_logger.error(f"❌ Job {job_id} not found in Redis")
             raise MakeVideoException(f"Job {job_id} not found")
-        
+
         job_logger.info(f"Job loaded: max_shorts={job.max_shorts} (no query - uses approved videos)")
-        
-        # Atualizar status inicial
+
         job.status = JobStatus.PROCESSING
         self.redis_store.save_job(job)
-        
+
         try:
-            # Criar contexto compartilhado para todos os stages
-            context = StageContext(
-                job_id=job_id,
-                query=job.query if job.query else "approved_videos",  # Opcional: make-video não usa query
-                max_shorts=job.max_shorts,
-                aspect_ratio=job.aspect_ratio,
-                crop_position=getattr(job, 'crop_position', 'center'),
-                subtitle_language=getattr(job, 'subtitle_language', 'pt-BR'),
-                subtitle_style=job.subtitle_style,
-                settings=self.settings,
-                event_publisher=self.event_publisher,
-                hook_text=getattr(job, 'hook_text', None),
-                burn_subtitles=getattr(job, 'burn_subtitles', True),
-            )
-            
-            # Publicar evento de início
-            try:
-                from ..shared.events import publish_job_started
-                await publish_job_started(
-                    job_id=job_id,
-                    query=job.query if job.query else "approved_videos"
-                )
-            except Exception as exc:
-                logger.debug("Failed to publish job_started event: %s", exc)
-            
-            # Executar processamento através dos stages
+            context = await self._setup_job_context(job)
+
+            await self._publish_job_event('started', job_id, query=job.query or "approved_videos")
+
             logger.info(f"🚀 Starting domain-driven processing for job {job_id}")
             self._current_job = job
             final_context = await self.processor.process(context)
             self._current_job = None
 
-            # Cleanup stale files
             try:
                 from ..pipeline.cleanup import PipelineCleanup
                 PipelineCleanup(settings=self.settings).cleanup_stale_validations()
             except Exception:
                 pass
 
-            # Delete checkpoint on success
             try:
                 await delete_checkpoint(job_id)
             except Exception:
                 pass
 
-            # Extract job result
             result = self._build_job_result(job, final_context)
-            
-            # Atualizar job como completo
-            job.result = result
-            job.status = JobStatus.COMPLETED
-            job.progress = 100.0
-            job.completed_at = now_brazil()
-            job.expires_at = job.completed_at + timedelta(hours=24)
-            self.redis_store.save_job(job)
-            
-            # Publicar evento de sucesso
-            try:
-                from ..shared.events import publish_job_completed
-                await publish_job_completed(
-                    job_id=job_id,
-                    duration_seconds=result.processing_time
-                )
-            except Exception as exc:
-                logger.debug("Failed to publish job_completed event: %s", exc)
-            
+            self._finalize_completed_job(job, result)
+
+            await self._publish_job_event('completed', job_id, duration_seconds=result.processing_time)
+
             logger.info(f"🎉 Job {job_id} completed successfully (Domain-Driven)!")
             logger.info(f"   ├─ Duration: {result.duration:.1f}s")
             logger.info(f"   ├─ Size: {result.file_size_mb}MB")
             logger.info(f"   ├─ Shorts used: {result.shorts_used}")
             logger.info(f"   └─ Processing time: {result.processing_time:.1f}s")
 
-            # Metrics
             simple_metrics.jobs_completed += 1
 
             job_logger.info("=" * 80)
             job_logger.info(f"✅ JOB COMPLETED SUCCESSFULLY")
             job_logger.info("=" * 80)
-            
-            return result
-            
-        except Exception as e:
-            # Atualizar job com erro
-            job.status = JobStatus.FAILED
-            job.error = {
-                "message": str(e),
-                "type": type(e).__name__
-            }
-            if isinstance(e, MakeVideoException):
-                job.error = {
-                    "message": str(e),
-                    "code": getattr(e, 'error_code', 'UNKNOWN'),
-                    "details": getattr(e, 'context', {})
-                }
-            
-            self.redis_store.save_job(job)
 
-            # Publicar evento de erro
-            try:
-                from ..shared.events import publish_job_failed
-                await publish_job_failed(
-                    job_id=job_id,
-                    error=str(job.error)
-                )
-            except Exception as exc:
-                logger.debug("Failed to publish job_failed event: %s", exc)
-            
+            return result
+
+        except Exception as e:
+            self._handle_job_error(job, job_id, e)
+            await self._publish_job_event('failed', job_id, error=str(job.error))
+
             logger.error(f"❌ Job {job_id} failed (Domain-Driven): {e}", exc_info=True)
             job_logger.error(f"❌ JOB FAILED: {e}")
 
-            # Metrics
             simple_metrics.jobs_failed += 1
 
             raise

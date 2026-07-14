@@ -14,7 +14,7 @@ from typing import Any
 
 import shortuuid
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, Depends, status
 from fastapi.responses import FileResponse, JSONResponse
 
 from common.datetime_utils import now_brazil
@@ -74,7 +74,7 @@ def _format_duration(seconds: float) -> str:
 
 @router.post(
     "/download",
-    status_code=202,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Prepare shorts download pipeline",
     description=(
         "Valida a query e retorna a orientação para iniciar o pipeline real de download. "
@@ -151,13 +151,13 @@ async def download_and_validate_shorts(
     except Exception as e:
         logger.error(f"❌ Erro no pipeline de download: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Falha no pipeline: {str(e)}"
         )
 
 @router.post(
     "/make-video",
-    status_code=202,
+    status_code=status.HTTP_202_ACCEPTED,
     summary="Prepare video creation job",
     description=(
         "Valida o áudio e os parâmetros de composição e retorna a orientação para iniciar "
@@ -165,6 +165,68 @@ async def download_and_validate_shorts(
     ),
     response_model=CreateVideoAcceptedResponse,
 )
+def _validate_create_video_params(
+    content: bytes,
+    audio_file: UploadFile,
+    max_shorts: int,
+    aspect_ratio: str,
+    crop_position: str,
+    subtitle_style: str,
+) -> None:
+    """Validate all create_video parameters. Raises HTTPException on failure."""
+    MAX_AUDIO_SIZE = 100 * 1024 * 1024
+
+    if len(content) > MAX_AUDIO_SIZE:
+        raise HTTPException(
+            status_code=HttpStatusCodes.PAYLOAD_TOO_LARGE,
+            detail=f"Audio file too large. Max size: 100MB, received: {len(content) / (1024*1024):.1f}MB"
+        )
+
+    if len(content) == 0:
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail="Audio file is empty"
+        )
+
+    file_ext = Path(audio_file.filename).suffix.lower()
+
+    if not AudioFileValidator.is_valid_extension(audio_file.filename):
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail=f"Formato de áudio não suportado. Use: {', '.join(AudioFileValidator.ALLOWED_EXTENSIONS)}"
+        )
+
+    if not AudioFileValidator.is_valid_content(content, audio_file.filename):
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail=f"Invalid audio file. Not a valid {file_ext} audio file."
+        )
+
+    if not JobParamsValidator.validate_max_shorts(max_shorts):
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail=f"max_shorts deve estar entre {ProcessingLimits.MIN_SHORTS_COUNT} e {ProcessingLimits.MAX_SHORTS_COUNT}"
+        )
+
+    if not JobParamsValidator.validate_aspect_ratio(aspect_ratio):
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail=f"aspect_ratio inválido. Use: {', '.join(JobParamsValidator.VALID_ASPECT_RATIOS)}"
+        )
+
+    if not JobParamsValidator.validate_crop_position(crop_position):
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail="crop_position inválido"
+        )
+
+    if not JobParamsValidator.validate_subtitle_style(subtitle_style):
+        raise HTTPException(
+            status_code=HttpStatusCodes.BAD_REQUEST,
+            detail="subtitle_style inválido"
+        )
+
+
 async def create_video(
     audio_file: UploadFile = File(
         ...,
@@ -222,59 +284,13 @@ async def create_video(
     3. Monta vídeo final com legendas
     """
     try:
-        MAX_AUDIO_SIZE = 100 * 1024 * 1024
-
         content = await audio_file.read()
 
-        if len(content) > MAX_AUDIO_SIZE:
-            raise HTTPException(
-                status_code=HttpStatusCodes.PAYLOAD_TOO_LARGE,
-                detail=f"Audio file too large. Max size: 100MB, received: {len(content) / (1024*1024):.1f}MB"
-            )
-
-        if len(content) == 0:
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail="Audio file is empty"
-            )
+        _validate_create_video_params(
+            content, audio_file, max_shorts, aspect_ratio, crop_position, subtitle_style
+        )
 
         file_ext = Path(audio_file.filename).suffix.lower()
-
-        if not AudioFileValidator.is_valid_extension(audio_file.filename):
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail=f"Formato de áudio não suportado. Use: {', '.join(AudioFileValidator.ALLOWED_EXTENSIONS)}"
-            )
-
-        if not AudioFileValidator.is_valid_content(content, audio_file.filename):
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail=f"Invalid audio file. Not a valid {file_ext} audio file."
-            )
-
-        if not JobParamsValidator.validate_max_shorts(max_shorts):
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail=f"max_shorts deve estar entre {ProcessingLimits.MIN_SHORTS_COUNT} e {ProcessingLimits.MAX_SHORTS_COUNT}"
-            )
-
-        if not JobParamsValidator.validate_aspect_ratio(aspect_ratio):
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail=f"aspect_ratio inválido. Use: {', '.join(JobParamsValidator.VALID_ASPECT_RATIOS)}"
-            )
-
-        if not JobParamsValidator.validate_crop_position(crop_position):
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail="crop_position inválido"
-            )
-
-        if not JobParamsValidator.validate_subtitle_style(subtitle_style):
-            raise HTTPException(
-                status_code=HttpStatusCodes.BAD_REQUEST,
-                detail="subtitle_style inválido"
-            )
 
         job_id = f"mv_{shortuuid.ShortUUID().random(length=10)}"
 
@@ -314,7 +330,7 @@ async def create_video(
     except Exception as e:
         logger.error(f"❌ Error creating video: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create video: {str(e)}"
         )
 
@@ -332,7 +348,7 @@ async def get_job_status(
     try:
         job = store.get_job(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
         return {
             "job_id": job.id,
@@ -348,7 +364,7 @@ async def get_job_status(
         raise
     except Exception as e:
         logger.error(f"❌ Error getting job status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get(
     "/download/{job_id}",
@@ -363,17 +379,17 @@ async def download_video(
     try:
         job = store.get_job(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
         if job.status != JobStatus.COMPLETED:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Job is not completed yet. Status: {job.status.value if hasattr(job.status, 'value') else job.status}"
             )
 
         output_path = Path(settings['output_dir']) / f"{job_id}_final.mp4"
         if not output_path.exists():
-            raise HTTPException(status_code=404, detail="Video file not found on disk")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found on disk")
 
         return FileResponse(
             path=str(output_path),
@@ -384,7 +400,7 @@ async def download_video(
         raise
     except Exception as e:
         logger.error(f"❌ Error downloading video: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get(
     "/jobs",
@@ -423,7 +439,7 @@ async def list_jobs(
         raise
     except Exception as e:
         logger.error(f"❌ Error listing jobs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.delete(
     "/jobs/{job_id}",
@@ -439,7 +455,7 @@ async def delete_job(
     try:
         job = store.get_job(job_id)
         if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
         store.delete_job(job_id)
 
@@ -456,7 +472,7 @@ async def delete_job(
         raise
     except Exception as e:
         logger.error(f"❌ Error deleting job: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get(
     "/cache/stats",
@@ -476,7 +492,7 @@ async def get_cache_stats(
         }
     except Exception as e:
         logger.error(f"❌ Error getting cache stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get(
     "/health",
@@ -493,7 +509,7 @@ async def health_check() -> JSONResponse:
         from common.datetime_utils import now_brazil
 
         return JSONResponse(
-            status_code=200,
+            status_code=status.HTTP_200_OK,
             content={
                 "status": "healthy",
                 "service": "make-video-clip",
@@ -503,7 +519,7 @@ async def health_check() -> JSONResponse:
     except Exception as e:
         logger.error(f"❌ Health check failed: {e}", exc_info=True)
         return JSONResponse(
-            status_code=503,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "status": "unhealthy",
                 "error": str(e),

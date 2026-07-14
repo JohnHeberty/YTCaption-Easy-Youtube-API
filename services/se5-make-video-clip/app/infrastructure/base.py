@@ -8,6 +8,11 @@ from typing import Any
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 from ..core.models import JobStatus
+from ..core.constants import (
+    STATUS_UPDATE_MAX_RETRIES,
+    STATUS_UPDATE_RETRY_DELAY,
+    COMPLETED_JOB_EXPIRY_HOURS,
+)
 
 logger = get_logger(__name__)
 
@@ -23,8 +28,8 @@ async def update_job_status(
     from .instances import get_instances
     store, _, _, _, _ = get_instances()
 
-    max_retries = 3
-    retry_delay = 1
+    max_retries = STATUS_UPDATE_MAX_RETRIES
+    retry_delay = STATUS_UPDATE_RETRY_DELAY
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -56,7 +61,7 @@ async def update_job_status(
 
             if status == JobStatus.COMPLETED:
                 job.completed_at = now_brazil()
-                job.expires_at = job.completed_at + timedelta(hours=24)
+                job.expires_at = job.completed_at + timedelta(hours=COMPLETED_JOB_EXPIRY_HOURS)
 
             store.save_job(job)
 

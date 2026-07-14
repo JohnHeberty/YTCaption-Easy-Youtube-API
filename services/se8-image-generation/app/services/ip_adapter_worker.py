@@ -94,7 +94,7 @@ def _load_faceid_adapter(
     return tasks
 
 
-def _apply_ip_adapter(async_task, pipeline):
+def _apply_ip_adapter(async_task, pipeline) -> None:
     """Apply IP-Adapter conditioning to the UNet.
 
     This wires the parsed cn_tasks into the actual IP-Adapter pipeline:
@@ -120,7 +120,28 @@ def _apply_ip_adapter(async_task, pipeline):
         logger.warning("IP-Adapter imports failed: %s", e)
         return
 
-    adapter_paths = {}
+    adapter_paths = _load_adapter_models(all_ip, async_task, cn_ip, cn_ip_face)
+    if not adapter_paths:
+        return
+
+    ip_tasks = _preprocess_reference_images(all_ip, cn_ip, cn_ip_face, adapter_paths)
+    ip_tasks.extend(_process_faceid(async_task, adapter_paths, files=None))
+
+    if not ip_tasks:
+        logger.warning("IP-Adapter: no valid tasks after preprocessing")
+        return
+
+    try:
+        pipeline.final_unet = ip_adapter.patch_model(pipeline.final_unet, ip_tasks)
+        logger.info("IP-Adapter patched UNet: %d reference images applied", len(ip_tasks))
+    except Exception as e:
+        logger.warning("IP-Adapter patch_model failed: %s", e)
+
+
+def _load_adapter_models(
+    all_ip: list, async_task: Any, cn_ip: list, cn_ip_face: list
+) -> dict[str, str]:
+    """Load IP-Adapter model files and return adapter_paths dict."""
     import os
     from modules.config import path_clip_vision, path_controlnet
 
@@ -141,6 +162,12 @@ def _apply_ip_adapter(async_task, pipeline):
             "adapter": os.path.join(path_controlnet, "ip-adapter-faceid-plusv2_sdxl.bin"),
         },
     }
+
+    adapter_paths = {}
+    try:
+        from extras import ip_adapter
+    except ImportError:
+        return adapter_paths
 
     for adapter_type in ("ip", "face", "faceid"):
         tasks_for_type = cn_ip if adapter_type == "ip" else cn_ip_face if adapter_type == "face" else []
@@ -171,8 +198,22 @@ def _apply_ip_adapter(async_task, pipeline):
             logger.warning("IP-Adapter load failed for type=%s: %s", adapter_type, e)
             continue
 
-    if not adapter_paths:
-        return
+    return adapter_paths
+
+
+def _preprocess_reference_images(
+    all_ip: list, cn_ip: list, cn_ip_face: list, adapter_paths: dict[str, str]
+) -> list:
+    """Preprocess each reference image through CLIP vision."""
+    import base64
+    import io
+    import numpy as np
+    from PIL import Image
+
+    try:
+        from extras import ip_adapter
+    except ImportError:
+        return []
 
     ip_tasks = []
     for img_data, stop, weight in all_ip:
@@ -180,33 +221,15 @@ def _apply_ip_adapter(async_task, pipeline):
             continue
 
         try:
-            if isinstance(img_data, str):
-                raw = img_data
-                if "," in raw and raw.startswith("data:"):
-                    raw = raw.split(",", 1)[1]
-                missing = len(raw) % 4
-                if missing:
-                    raw += "=" * (4 - missing)
-                img_bytes = base64.b64decode(raw)
-            elif isinstance(img_data, bytes):
-                img_bytes = img_data
-            else:
+            img_bytes = _decode_image_bytes(img_data)
+            if img_bytes is None:
                 continue
 
             pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
             pil_img = pil_img.resize((224, 224), Image.LANCZOS)
             img_np = np.array(pil_img).astype(np.float32)
 
-            adapter_type = "ip"
-            for orig_task in cn_ip:
-                if orig_task[0] is img_data:
-                    adapter_type = "ip"
-                    break
-            for orig_task in cn_ip_face:
-                if orig_task[0] is img_data:
-                    adapter_type = "face"
-                    break
-
+            adapter_type = _detect_adapter_type(img_data, cn_ip, cn_ip_face)
             adapter_path = adapter_paths.get(adapter_type) or adapter_paths.get("ip")
             if not adapter_path:
                 continue
@@ -220,34 +243,61 @@ def _apply_ip_adapter(async_task, pipeline):
             logger.warning("IP-Adapter preprocess failed: %s", e)
             continue
 
+    return ip_tasks
+
+
+def _decode_image_bytes(img_data: Any) -> bytes | None:
+    """Decode base64 or raw bytes image data."""
+    import base64
+
+    if isinstance(img_data, str):
+        raw = img_data
+        if "," in raw and raw.startswith("data:"):
+            raw = raw.split(",", 1)[1]
+        missing = len(raw) % 4
+        if missing:
+            raw += "=" * (4 - missing)
+        return base64.b64decode(raw)
+    if isinstance(img_data, bytes):
+        return img_data
+    return None
+
+
+def _detect_adapter_type(img_data: Any, cn_ip: list, cn_ip_face: list) -> str:
+    """Detect which adapter type an image belongs to."""
+    for orig_task in cn_ip:
+        if orig_task[0] is img_data:
+            return "ip"
+    for orig_task in cn_ip_face:
+        if orig_task[0] is img_data:
+            return "face"
+    return "ip"
+
+
+def _process_faceid(async_task: Any, adapter_paths: dict[str, str], files: Any) -> list:
+    """Process FaceID embeddings if available."""
     faceid_embeds = async_task.ip_adapter_faceid_embeds
-    if faceid_embeds and adapter_paths.get("faceid"):
-        try:
-            import torch
-            faceid_weight = async_task.ip_adapter_faceid_weight
-            logger.info("FaceID: processing embedding (dim=%d) with weight=%.2f",
-                        len(faceid_embeds[0]) if faceid_embeds else 0, faceid_weight)
-
-            faceid_path = adapter_paths["faceid"]
-            faceid_tasks = _load_faceid_adapter(
-                faceid_path,
-                files["clip"], files["neg"],
-                faceid_embeds, faceid_weight,
-            )
-            if faceid_tasks:
-                ip_tasks.extend(faceid_tasks)
-                logger.info("FaceID: %d conditioning tasks generated", len(faceid_tasks))
-            else:
-                logger.warning("FaceID: adapter produced no tasks")
-        except Exception as e:
-            logger.warning("FaceID processing failed: %s", e, exc_info=True)
-
-    if not ip_tasks:
-        logger.warning("IP-Adapter: no valid tasks after preprocessing")
-        return
+    if not faceid_embeds or not adapter_paths.get("faceid"):
+        return []
 
     try:
-        pipeline.final_unet = ip_adapter.patch_model(pipeline.final_unet, ip_tasks)
-        logger.info("IP-Adapter patched UNet: %d reference images applied", len(ip_tasks))
+        faceid_weight = async_task.ip_adapter_faceid_weight
+        logger.info("FaceID: processing embedding (dim=%d) with weight=%.2f",
+                    len(faceid_embeds[0]) if faceid_embeds else 0, faceid_weight)
+
+        faceid_path = adapter_paths["faceid"]
+        clip_path = adapter_paths.get("faceid_clip", "")
+        neg_path = adapter_paths.get("faceid_neg", "")
+        faceid_tasks = _load_faceid_adapter(
+            faceid_path, clip_path, neg_path,
+            faceid_embeds, faceid_weight,
+        )
+        if faceid_tasks:
+            logger.info("FaceID: %d conditioning tasks generated", len(faceid_tasks))
+            return faceid_tasks
+        else:
+            logger.warning("FaceID: adapter produced no tasks")
     except Exception as e:
-        logger.warning("IP-Adapter patch_model failed: %s", e)
+        logger.warning("FaceID processing failed: %s", e, exc_info=True)
+
+    return []

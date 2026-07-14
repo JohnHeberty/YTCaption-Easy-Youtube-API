@@ -73,6 +73,54 @@ ado
             pass
         return any(kw in error_msg for kw in oom_keywords)
 
+    def _try_load_on_device(
+        self, device: str, compute_type: str, cb: Any, service_name: str,
+    ) -> bool:
+        """Try loading the model on a device with retries. Returns True on success."""
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                logger.info(
+                    f"Tentativa {attempt}/{self.max_retries} - "
+                    f"Device: {device.upper()}, compute_type: {compute_type}, "
+                    f"modelo: {self.model_name}"
+                )
+                self.model = WhisperModel(
+                    self.model_name,
+                    device=device,
+                    compute_type=compute_type,
+                    download_root=str(self.model_dir),
+                )
+                self.is_loaded = True
+                cb.record_success(service_name)
+                logger.info(
+                    f"✅ Faster-Whisper '{self.model_name}' carregado em "
+                    f"{device.upper()} ({compute_type})"
+                )
+                return True
+            except (RuntimeError, OSError, IOError, Exception) as e:
+                cb.record_failure(service_name)
+                if device == "cuda" and self._is_oom_error(e):
+                    fallback_enabled = str(self.settings.get('whisper_fallback_cpu', 'true')).lower() == 'true'
+                    if fallback_enabled:
+                        logger.warning(
+                            f"⚠️ OOM na GPU ao carregar '{self.model_name}' "
+                            f"({e}) — fallback imediato para CPU com int8"
+                        )
+                        try:
+                            torch.cuda.empty_cache()
+                        except Exception:
+                            pass
+                        return False  # signal caller to try CPU
+                    raise AudioTranscriptionException(
+                        f"OOM na GPU ao carregar {self.model_name} e fallback CPU desabilitado: {e}"
+                    ) from e
+                logger.exception(f"❌ Falha na tentativa {attempt}/{self.max_retries}: {e}")
+                if attempt < self.max_retries:
+                    sleep_time = self.retry_backoff ** attempt
+                    logger.info(f"⏳ Aguardando {sleep_time}s antes de retentar...")
+                    time.sleep(sleep_time)
+        return False
+
     def load_model(self) -> None:
         """Carrega modelo Faster-Whisper com Circuit Breaker e fallback GPU→CPU imediato em OOM"""
         if self.is_loaded and self.model is not None:
@@ -81,95 +129,34 @@ ado
         
         logger.info(f"📦 Carregando Faster-Whisper: {self.model_name}")
         
-        # Detecta melhor dispositivo via IDeviceManager (DIP)
         self.device = self.device_mgr.detect_device()
-        
-        # Garante diretório existe
         self.model_dir.mkdir(parents=True, exist_ok=True)
         
-        # Get circuit breaker
         cb = get_circuit_breaker()
         service_name = f"faster_whisper_load_{self.model_name}"
         
-        # Verifica circuit breaker
         if cb.is_open(service_name):
             raise AudioTranscriptionException(
                 f"Circuit breaker OPEN for {service_name}. Service temporarily unavailable."
             )
         
-        # Tenta carregar: GPU primeiro, fallback imediato para CPU em OOM
         last_error = None
-        attempted_devices = []
+        attempted_devices: list[str] = []
         
         while True:
             if self.device in attempted_devices:
                 break
             attempted_devices.append(self.device)
             
-            # compute_type: float16 na GPU para máxima qualidade, int8 na CPU
             compute_type = "float16" if self.device == "cuda" else "int8"
             
-            for attempt in range(1, self.max_retries + 1):
-                try:
-                    logger.info(
-                        f"Tentativa {attempt}/{self.max_retries} - "
-                        f"Device: {self.device.upper()}, compute_type: {compute_type}, "
-                        f"modelo: {self.model_name}"
-                    )
-                    
-                    self.model = WhisperModel(
-                        self.model_name,
-                        device=self.device,
-                        compute_type=compute_type,
-                        download_root=str(self.model_dir)
-                    )
-                    
-                    self.is_loaded = True
-                    cb.record_success(service_name)
-                    
-                    logger.info(
-                        f"✅ Faster-Whisper '{self.model_name}' carregado em "
-                        f"{self.device.upper()} ({compute_type})"
-                    )
-                    return
-                    
-                except (RuntimeError, OSError, IOError, Exception) as e:
-                    last_error = e
-                    cb.record_failure(service_name)
-                    
-                    # OOM na GPU → fallback imediato para CPU, sem gastar mais tentativas
-                    if self.device == "cuda" and self._is_oom_error(e):
-                        fallback_enabled = str(self.settings.get('whisper_fallback_cpu', 'true')).lower() == 'true'
-                        if fallback_enabled:
-                            logger.warning(
-                                f"⚠️ OOM na GPU ao carregar '{self.model_name}' "
-                                f"({e}) — fallback imediato para CPU com int8"
-                            )
-                            # Libera CUDA cache antes de tentar CPU
-                            try:
-                                torch.cuda.empty_cache()
-                            except Exception as e:
-                                logger.debug("cuda empty_cache failed: %s", e)
-                            self.device = "cpu"
-                            break  # sai do loop de tentativas → vai tentar na CPU
-                        else:
-                            raise AudioTranscriptionException(
-                                f"OOM na GPU ao carregar {self.model_name} e fallback CPU desabilitado: {e}"
-                            ) from e
-                    
-                    logger.exception(f"❌ Falha na tentativa {attempt}/{self.max_retries}: {e}")
-                    
-                    if attempt < self.max_retries:
-                        sleep_time = self.retry_backoff ** attempt
-                        logger.info(f"⏳ Aguardando {sleep_time}s antes de retentar...")
-                        time.sleep(sleep_time)
-                        
-                        # Outro tipo de falha GPU → tenta CPU após esgotar retries da GPU
-                        if self.device == "cuda":
-                            logger.warning("Fallback para CPU após falha na GPU")
-                            self.device = "cpu"
+            if self._try_load_on_device(self.device, compute_type, cb, service_name):
+                return
+            
+            if self.device == "cuda":
+                logger.warning("Fallback para CPU após falha na GPU")
+                self.device = "cpu"
             else:
-                # Loop de tentativas esgotado sem break (OOM) → sai do while
                 break
         
         raise AudioTranscriptionException(
@@ -234,6 +221,44 @@ ado
             "engine": "faster-whisper"
         }
     
+    def _build_transcribe_kwargs(self, language: str, task: str, **kwargs: Any) -> dict[str, Any]:
+        """Build kwargs dict for faster-whisper transcribe call."""
+        transcribe_kwargs: dict[str, Any] = {
+            "word_timestamps": True,
+            "vad_filter": False,
+            "task": task,
+            "beam_size": int(self.settings.get('whisper_beam_size', 5)),
+            "best_of": int(self.settings.get('whisper_best_of', 5)),
+        }
+        if language != "auto" and language:
+            transcribe_kwargs["language"] = language
+        transcribe_kwargs.update(kwargs)
+        return transcribe_kwargs
+
+    @staticmethod
+    def _collect_segments(segments_gen: Any) -> tuple[list[dict[str, Any]], list[str]]:
+        """Collect segments from faster-whisper generator into list of dicts."""
+        segments: list[dict[str, Any]] = []
+        full_text: list[str] = []
+        for segment in segments_gen:
+            words_list = []
+            if hasattr(segment, 'words') and segment.words:
+                for word in segment.words:
+                    words_list.append({
+                        "word": word.word,
+                        "start": word.start,
+                        "end": word.end,
+                        "probability": word.probability,
+                    })
+            segments.append({
+                "start": segment.start,
+                "end": segment.end,
+                "text": segment.text,
+                "words": words_list,
+            })
+            full_text.append(segment.text)
+        return segments, full_text
+
     def transcribe(self, audio_path: Path, language: str = "auto", task: str = "transcribe", **kwargs: Any) -> dict[str, Any]:
         """
         Transcreve áudio usando Faster-Whisper com word timestamps e circuit breaker.
@@ -250,11 +275,9 @@ ado
         if not self.is_loaded:
             self.load_model()
         
-        # Get circuit breaker
         cb = get_circuit_breaker()
         service_name = f"faster_whisper_transcribe_{self.model_name}"
         
-        # Verifica circuit breaker
         if cb.is_open(service_name):
             raise AudioTranscriptionException(
                 f"Circuit breaker OPEN for {service_name}. Service temporarily unavailable."
@@ -263,59 +286,18 @@ ado
         try:
             logger.info(f"🎤 Transcrevendo com Faster-Whisper: {audio_path.name} (lang={language}, task={task})")
             
-            # Configurações de transcrição
-            transcribe_kwargs = {
-                "word_timestamps": True,  # ✅ Timestamps palavra-por-palavra
-                "vad_filter": False,  # Desabilitar VAD interno
-                "task": task,  # transcribe ou translate
-                "beam_size": int(self.settings.get('whisper_beam_size', 5)),
-                "best_of": int(self.settings.get('whisper_best_of', 5)),
-            }
+            transcribe_kwargs = self._build_transcribe_kwargs(language, task, **kwargs)
             
-            if language != "auto" and language:
-                transcribe_kwargs["language"] = language
+            segments_gen, info = self.model.transcribe(str(audio_path), **transcribe_kwargs)
             
-            # Merge kwargs extras (fp16, beam_size, etc)
-            transcribe_kwargs.update(kwargs)
-            
-            # Transcreve (faster-whisper retorna generators)
-            segments_gen, info = self.model.transcribe(
-                str(audio_path),
-                **transcribe_kwargs
-            )
-            
-            # Converte generator para lista e extrai words
-            segments = []
-            full_text = []
-            
-            for segment in segments_gen:
-                # Extrai word-level timestamps
-                words_list = []
-                if hasattr(segment, 'words') and segment.words:
-                    for word in segment.words:
-                        words_list.append({
-                            "word": word.word,
-                            "start": word.start,
-                            "end": word.end,
-                            "probability": word.probability
-                        })
-                
-                segment_dict = {
-                    "start": segment.start,
-                    "end": segment.end,
-                    "text": segment.text,
-                    "words": words_list  # ✅ Word-level timestamps!
-                }
-                
-                segments.append(segment_dict)
-                full_text.append(segment.text)
+            segments, full_text = self._collect_segments(segments_gen)
             
             result = {
                 "success": True,
                 "text": " ".join(full_text),
                 "segments": segments,
                 "language": info.language if hasattr(info, 'language') else language,
-                "duration": info.duration if hasattr(info, 'duration') else 0.0
+                "duration": info.duration if hasattr(info, 'duration') else 0.0,
             }
             
             logger.info(
@@ -324,14 +306,11 @@ ado
                 f"{result['duration']:.1f}s"
             )
             
-            # Registra sucesso no circuit breaker
             cb.record_success(service_name)
-            
             return result
             
-        except Exception as e:  # noqa: BLE001 - catch all to record circuit breaker failure for corrupted files (FFmpegError, EOFError, etc.)
+        except Exception as e:
             logger.exception(f"❌ Erro na transcrição: {e}")
-
             cb.record_failure(service_name)
 
             if isinstance(e, IndexError):

@@ -7,6 +7,21 @@ from celery import Celery
 import os
 from dotenv import load_dotenv
 
+from app.core.constants import (
+    DEFAULT_CELERY_CONCURRENCY,
+    DEFAULT_PREFETCH_MULTIPLIER,
+    DEFAULT_CELERY_TIME_LIMIT,
+    SOFT_LIMIT_RATIO,
+    MAX_TASKS_PER_CHILD,
+    RESULT_EXPIRY_SECONDS,
+    DEFAULT_RETRY_DELAY,
+    BROKER_VISIBILITY_TIMEOUT,
+    CLEANUP_SCHEDULE_SECONDS,
+    SHORTS_CLEANUP_SCHEDULE_SECONDS,
+    ORPHAN_RECOVERY_SCHEDULE_SECONDS,
+    TASK_EXPIRY_SECONDS,
+)
+
 # Load environment variables
 load_dotenv()
 
@@ -26,9 +41,9 @@ def expand_env_vars(value: str) -> str:
 redis_url = expand_env_vars(os.getenv('REDIS_URL', 'redis://localhost:6379/5'))
 
 # Get Celery worker settings from environment
-celery_worker_concurrency = int(os.getenv('CELERY_WORKER_CONCURRENCY', '4'))
-celery_worker_prefetch_multiplier = int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', '1'))
-celery_task_time_limit = int(os.getenv('CELERY_TASK_TIME_LIMIT', '3600'))
+celery_worker_concurrency = int(os.getenv('CELERY_WORKER_CONCURRENCY', str(DEFAULT_CELERY_CONCURRENCY)))
+celery_worker_prefetch_multiplier = int(os.getenv('CELERY_WORKER_PREFETCH_MULTIPLIER', str(DEFAULT_PREFETCH_MULTIPLIER)))
+celery_task_time_limit = int(os.getenv('CELERY_TASK_TIME_LIMIT', str(DEFAULT_CELERY_TIME_LIMIT)))
 
 # Create Celery app
 celery_app = Celery(
@@ -54,26 +69,26 @@ celery_app.conf.update(
     # Task execution
     task_track_started=True,
     task_time_limit=celery_task_time_limit,  # Configurável via env
-    task_soft_time_limit=int(celery_task_time_limit * 0.92),  # 92% do hard limit
+    task_soft_time_limit=int(celery_task_time_limit * SOFT_LIMIT_RATIO),
     
     # Worker settings (configuráveis via env)
     worker_concurrency=celery_worker_concurrency,
     worker_prefetch_multiplier=celery_worker_prefetch_multiplier,
-    worker_max_tasks_per_child=10,  # Restart worker after 10 tasks (prevent memory leaks)
+    worker_max_tasks_per_child=MAX_TASKS_PER_CHILD,
     
     # Result backend
-    result_expires=86400,  # Results expire after 24 hours
+    result_expires=RESULT_EXPIRY_SECONDS,
     result_backend_transport_options={
         'master_name': 'mymaster',
     },
     
     # Retry policy
-    task_default_retry_delay=60,  # Retry after 60 seconds
+    task_default_retry_delay=DEFAULT_RETRY_DELAY,
     task_max_retries=3,
     
     # Broker transport options (Redis)
     broker_transport_options={
-        'visibility_timeout': 3600,  # 1 hour
+        'visibility_timeout': BROKER_VISIBILITY_TIMEOUT,
         'fanout_prefix': True,
         'fanout_patterns': True,
     },
@@ -98,18 +113,18 @@ celery_app.conf.update(
 celery_app.conf.beat_schedule = {
     'cleanup-temp-files': {
         'task': 'app.infrastructure.celery_tasks.cleanup_temp_files',
-        'schedule': 3600.0,  # Every hour
+        'schedule': CLEANUP_SCHEDULE_SECONDS,
     },
     'cleanup-old-shorts': {
         'task': 'app.infrastructure.celery_tasks.cleanup_old_shorts',
-        'schedule': 86400.0,  # Every day
+        'schedule': SHORTS_CLEANUP_SCHEDULE_SECONDS,
     },
     # ✨ Sprint-01: Auto-recovery de jobs órfãos
     'recover-orphaned-jobs': {
         'task': 'app.infrastructure.celery_tasks.recover_orphaned_jobs',
-        'schedule': 120.0,  # A cada 2 minutos
+        'schedule': ORPHAN_RECOVERY_SCHEDULE_SECONDS,
         'options': {
-            'expires': 60,  # Expirar se não executar em 1 min
+            'expires': TASK_EXPIRY_SECONDS,
         },
     },
 }

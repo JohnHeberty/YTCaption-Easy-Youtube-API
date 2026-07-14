@@ -7,7 +7,7 @@ import shutil
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 
 from app.core.config import settings
 from app.core.constants import JOB_ID_PREFIX
@@ -177,7 +177,7 @@ async def get_config() -> ConfigResponse:
 @router.post(
     "/jobs",
     response_model=CreateClothesRemovalResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     summary="Create clothes/person removal job",
     description=(
         "Upload an AI-generated image and start a clothes or person removal pipeline.\n\n"
@@ -261,14 +261,14 @@ async def create_job(
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
     if file.content_type and file.content_type not in allowed_types:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type: {file.content_type}. Allowed: PNG, JPEG, WebP",
         )
 
     # ── Read file → base64 ──
     content = await file.read()
     if len(content) > settings.max_file_size_mb * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
     image_b64 = base64.b64encode(content).decode("utf-8")
     mime = file.content_type or "image/png"
@@ -317,7 +317,7 @@ async def create_job(
 @router.post(
     "/jobs/nsfw",
     response_model=CreateClothesRemovalResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     summary="Create NSFW production job",
     description=(
         "Upload an AI-generated image and start the **production** NSFW pipeline.\n\n"
@@ -386,21 +386,21 @@ async def create_nsfw_job(
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
     if file.content_type and file.content_type not in allowed_types:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type: {file.content_type}. Allowed: PNG, JPEG, WebP",
         )
 
     # ── Read file → base64 ──
     content = await file.read()
     if len(content) > settings.max_file_size_mb * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
     # ── AI Image Detection (block real photos) ──
     if settings.ai_detection_enabled:
         is_ai, confidence = check_image_is_ai_generated(content)
         if not is_ai:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     f"Real person photo detected (confidence: {confidence:.1%}). "
                     "NSFW processing is only allowed for AI-generated images."
@@ -451,7 +451,7 @@ async def create_nsfw_job(
 @router.post(
     "/jobs/nsfw-test",
     response_model=CreateClothesRemovalResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     summary="Create NSFW test job (experimental)",
     description=(
         "Upload an AI-generated image and start an **experimental** nsfw_test pipeline.\n\n"
@@ -556,21 +556,21 @@ async def create_nsfw_test_job(
     allowed_types = {"image/png", "image/jpeg", "image/webp", "image/jpg"}
     if file.content_type and file.content_type not in allowed_types:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid file type: {file.content_type}. Allowed: PNG, JPEG, WebP",
         )
 
     # ── Read file → base64 ──
     content = await file.read()
     if len(content) > settings.max_file_size_mb * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"File too large. Maximum: {settings.max_file_size_mb}MB.")
 
     # ── AI Image Detection (block real photos) ──
     if settings.ai_detection_enabled:
         is_ai, confidence = check_image_is_ai_generated(content)
         if not is_ai:
             raise HTTPException(
-                status_code=400,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
                     f"Real person photo detected (confidence: {confidence:.1%}). "
                     "NSFW processing is only allowed for AI-generated images."
@@ -687,7 +687,7 @@ async def list_jobs(
 async def get_job_status(job_id: str) -> JobStatusResponse:
     job_data = store.get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     return JobStatusResponse(
         job_id=job_data["job_id"],
@@ -718,7 +718,7 @@ async def get_job_status(job_id: str) -> JobStatusResponse:
 async def delete_job(job_id: str) -> DeleteJobResponse:
     job_data = store.get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     output_dir = os.path.join(settings.output_dir, job_id)
     if os.path.exists(output_dir):

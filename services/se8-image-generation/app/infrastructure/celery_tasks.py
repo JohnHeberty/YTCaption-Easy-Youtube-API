@@ -14,7 +14,7 @@ from app.infrastructure.celery_config import celery_app
 logger = get_logger(__name__)
 
 
-def _init_worker():
+def _init_worker() -> None:
     """Initialize the GPU worker on first task."""
     import torch
     from app.services.model_manager import get_model_manager

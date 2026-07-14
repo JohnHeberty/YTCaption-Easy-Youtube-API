@@ -10,12 +10,14 @@ CRÍTICO: Usa redis.from_url() em vez de parsing manual da URL.
 from __future__ import annotations
 
 import shortuuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from urllib.parse import urlparse
 
 import redis.asyncio as aioredis
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
+from ..core.constants import LOCK_REDIS_MAX_CONNECTIONS, DEFAULT_LOCK_TTL
 
 logger = get_logger(__name__)
 
@@ -57,14 +59,14 @@ class DistributedLockManager:
                 self.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                max_connections=10,
+                max_connections=LOCK_REDIS_MAX_CONNECTIONS,
             )
         return self._redis
 
     async def acquire(
         self,
         lock_name: str,
-        timeout_seconds: int = 3600,
+        timeout_seconds: int = DEFAULT_LOCK_TTL,
     ) -> str | None:
         """
         Adquire lock distribuído.
@@ -145,8 +147,8 @@ class DistributedLockManager:
     async def acquire_lock(
         self,
         lock_name: str,
-        timeout_seconds: int = 3600,
-    ):
+        timeout_seconds: int = DEFAULT_LOCK_TTL,
+    ) -> AsyncGenerator[str, None]:
         """
         Context manager para lock distribuído.
 

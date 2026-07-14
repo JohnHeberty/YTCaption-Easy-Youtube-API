@@ -860,6 +860,53 @@ def _build_result(
 #  Main orchestrator (legacy path)
 # ---------------------------------------------------------------------------
 
+def _build_make_video_result(
+    job_id: str,
+    job: Any,
+    selected_shorts: list[Any],
+    segments: list[dict[str, Any]],
+    final_video_path: str,
+    video_info: dict[str, Any],
+) -> JobResult:
+    """Build the final JobResult from processing outputs."""
+    result = _build_result(
+        job_id, job, selected_shorts, segments, final_video_path, video_info
+    )
+    job.result = result
+    job.status = JobStatus.COMPLETED
+    job.progress = 100.0
+    job.completed_at = now_brazil()
+    job.expires_at = job.completed_at + timedelta(hours=24)
+    return result
+
+
+async def _handle_make_video_error(job_id: str, e: Exception) -> None:
+    """Handle errors from make-video processing by updating job status."""
+    logger.error("Error in make-video: %s", e, exc_info=True)
+    _metrics.jobs_failed += 1
+
+    if isinstance(e, MakeVideoException):
+        await update_job_status(
+            job_id,
+            JobStatus.FAILED,
+            error={
+                "message": e.message,
+                "code": e.error_code.value if hasattr(e, 'error_code') else "UNKNOWN",
+                "details": e.details if hasattr(e, 'details') else {}
+            }
+        )
+    else:
+        await update_job_status(
+            job_id,
+            JobStatus.FAILED,
+            error={
+                "message": str(e),
+                "type": type(e).__name__
+            }
+        )
+    raise
+
+
 async def _process_make_video_async(job_id: str) -> None:
     """Processamento assíncrono do vídeo (implementação legada)."""
     job_logger = FileLogger.get_job_logger(job_id)
@@ -887,30 +934,19 @@ async def _process_make_video_async(job_id: str) -> None:
         job_logger.warning("Cleanup warning: %s", e)
 
     try:
-        # Stage 1: Analyze audio
         audio_path, audio_duration, target_duration = await _analyze_audio(
             job_id, job, store, video_builder, settings
         )
-
-        # Stage 2: Fetch approved shorts
         shorts_list = await _fetch_approved_shorts(job_id, job_logger)
-
-        # Stage 3: Load approved videos
         approved_shorts = await _load_approved_videos(
             job_id, shorts_list, video_builder, job_logger, target_duration
         )
-
-        # Stage 4: Select shorts randomly
         selected_shorts = _select_shorts_randomly(
             approved_shorts, target_duration, audio_duration
         )
-
-        # Stage 5: Assemble video (no audio)
         temp_video_path = await _assemble_video(
             job_id, selected_shorts, video_builder, job
         )
-
-        # Stage 6: Generate subtitles (transcribe + VAD + SRT)
         segments = await _transcribe_with_retry(job_id, audio_path, job, api_client)
         raw_cues = _convert_segments_to_cues(segments)
         final_cues, vad_ok = _apply_vad_filtering(audio_path, raw_cues)
@@ -918,30 +954,19 @@ async def _process_make_video_async(job_id: str) -> None:
 
         await save_checkpoint(job_id, "generating_subtitles_completed")
 
-        # Stage 7: Compose final video (add audio + burn subtitles)
         final_video_path = await _compose_final_video(
             job_id, temp_video_path, audio_path, subtitle_path,
             video_builder, settings, job
         )
-
-        # Stage 7.5: Validate A/V sync
         await _validate_av_sync(job_id, final_video_path, audio_path, video_builder)
 
-        # Stage 8: Trim and validate
         final_video_path, video_info = await _validate_and_trim(
             job_id, final_video_path, audio_path, video_builder, settings
         )
 
-        # Build result
-        result = _build_result(
+        result = _build_make_video_result(
             job_id, job, selected_shorts, segments, final_video_path, video_info
         )
-
-        job.result = result
-        job.status = JobStatus.COMPLETED
-        job.progress = 100.0
-        job.completed_at = now_brazil()
-        job.expires_at = job.completed_at + timedelta(hours=24)
         store.save_job(job)
 
         await delete_checkpoint(job_id)
@@ -955,34 +980,8 @@ async def _process_make_video_async(job_id: str) -> None:
 
         return result
 
-    except MakeVideoException as e:
-        logger.error("MakeVideo error: %s", e, exc_info=True)
-        _metrics.jobs_failed += 1
-
-        await update_job_status(
-            job_id,
-            JobStatus.FAILED,
-            error={
-                "message": e.message,
-                "code": e.error_code.value if hasattr(e, 'error_code') else "UNKNOWN",
-                "details": e.details if hasattr(e, 'details') else {}
-            }
-        )
-        raise
-
     except Exception as e:
-        logger.error("Unexpected error: %s", e, exc_info=True)
-        _metrics.jobs_failed += 1
-
-        await update_job_status(
-            job_id,
-            JobStatus.FAILED,
-            error={
-                "message": str(e),
-                "type": type(e).__name__
-            }
-        )
-        raise
+        await _handle_make_video_error(job_id, e)
 
     finally:
         try:

@@ -15,7 +15,7 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Path
+from fastapi import APIRouter, HTTPException, Depends, Query, Path, status
 from fastapi.responses import Response
 
 from app.core.config import get_settings
@@ -61,7 +61,7 @@ async def get_job_status(
     job = store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     return job
 
@@ -91,7 +91,7 @@ async def delete_job(
     job = store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     try:
         store.delete_job(job_id)
@@ -102,7 +102,7 @@ async def delete_job(
     except Exception as exc:
         logger.error(f"❌ Error removing job {job_id}: {exc}")
         raise HTTPException(
-            status_code=500, detail=f"Error removing job: {str(exc)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error removing job: {str(exc)}"
         ) from exc
 
 @router.get("/{job_id}/download", summary="Download results", responses={404: {"description": "Job or results not found"}, 410: {"description": "Job expired"}, 425: {"description": "Results not ready"}, 500: {"description": "Internal server error"}})
@@ -117,18 +117,18 @@ async def download_results(
         job = store.get_job(job_id)
 
         if not job:
-            raise HTTPException(status_code=404, detail="Job not found")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
         if job.is_expired:
-            raise HTTPException(status_code=410, detail="Job expired")
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expired")
 
         if job.status != JobStatus.COMPLETED:
             raise HTTPException(
-                status_code=425, detail=f"Results not ready. Status: {job.status.value}"
+                status_code=status.HTTP_425_TOO_EARLY, detail=f"Results not ready. Status: {job.status.value}"
             )
 
         if not job.result:
-            raise HTTPException(status_code=404, detail="No results available")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No results available")
 
         filename = f"youtube_search_{job.search_type.value}_{job_id}.json"
         result_json = json.dumps(job.result, indent=2, ensure_ascii=False)
@@ -145,7 +145,7 @@ async def download_results(
         raise
     except Exception as exc:
         logger.error(f"Error downloading results: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 @router.get("/{job_id}/wait", summary="Wait for job completion", response_model=Job, responses={404: {"description": "Job not found"}, 408: {"description": "Timeout waiting for job"}, 503: {"description": "Service unavailable"}, 500: {"description": "Internal server error"}})
 async def wait_for_job_completion(
@@ -163,7 +163,7 @@ async def wait_for_job_completion(
     _validate_job_id(job_id)
 
     if store is None:
-        raise HTTPException(status_code=503, detail="Job store not available")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Job store not available")
 
     try:
         validated_timeout = TimeoutValidator.validate(timeout)
@@ -184,7 +184,7 @@ async def wait_for_job_completion(
             job = store.get_job(job_id)
 
             if not job:
-                raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
 
             if job.status in [JobStatus.COMPLETED, JobStatus.FAILED]:
                 elapsed = (now_brazil() - start_time).total_seconds()
@@ -202,7 +202,7 @@ async def wait_for_job_completion(
         elapsed = (now_brazil() - start_time).total_seconds()
         logger.warning(f"Timeout waiting for job {job_id} after {elapsed:.1f}s")
         raise HTTPException(
-            status_code=408,
+            status_code=status.HTTP_408_REQUEST_TIMEOUT,
             detail=f"Timeout waiting for job completion after {validated_timeout}s. "
             f"Use GET /jobs/{job_id} to check current status.",
         )
@@ -211,4 +211,4 @@ async def wait_for_job_completion(
         raise
     except Exception as exc:
         logger.error(f"Error waiting for job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc

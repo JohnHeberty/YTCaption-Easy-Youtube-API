@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 
 from common.log_utils import get_logger
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/voices", tags=["Voices"])
 @router.post(
     "",
     response_model=VoiceProfileCreateResponse,
-    status_code=201,
+    status_code=status.HTTP_201_CREATED,
     responses={400: {"model": ErrorResponse}, 422: {"model": ErrorResponse}},
 )
 async def create_voice_profile(
@@ -35,7 +35,7 @@ async def create_voice_profile(
     try:
         content = await file.read()
         if not content:
-            raise HTTPException(status_code=400, detail="Empty file")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
 
         profile = mgr.create_profile(
             name=name,
@@ -54,7 +54,7 @@ async def create_voice_profile(
         )
 
     except InvalidVoiceSample as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
 
 
 @router.get("", response_model=VoiceProfileListResponse)
@@ -100,7 +100,7 @@ async def get_voice_profile(
             status=profile.status,
         )
     except VoiceProfileNotFound:
-        raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Voice profile not found: {voice_id}")
 
 
 @router.get("/{voice_id}/sample")
@@ -116,7 +116,7 @@ async def download_voice_sample(
             media_type="audio/wav",
         )
     except VoiceProfileNotFound:
-        raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Voice profile not found: {voice_id}")
 
 
 @router.delete(
@@ -135,4 +135,4 @@ async def delete_voice_profile(
             voice_id=voice_id,
         )
     except VoiceProfileNotFound:
-        raise HTTPException(status_code=404, detail=f"Voice profile not found: {voice_id}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Voice profile not found: {voice_id}")

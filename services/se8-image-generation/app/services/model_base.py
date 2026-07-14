@@ -81,7 +81,7 @@ class StableDiffusionModel:
                 self.lora_key_map_unet.update(
                     {x: x for x in self.unet.model.state_dict().keys()}
                 )
-            except Exception as e:
+            except (RuntimeError, ValueError) as e:
                 logger.warning(f"Failed to build UNet LoRA key map: {e}")
 
         if self.clip is not None and hasattr(self.clip, 'cond_stage_model') and self.clip.cond_stage_model is not None:
@@ -92,7 +92,7 @@ class StableDiffusionModel:
                 self.lora_key_map_clip.update(
                     {x: x for x in self.clip.cond_stage_model.state_dict().keys()}
                 )
-            except Exception as e:
+            except (RuntimeError, ValueError) as e:
                 logger.warning(f"Failed to build CLIP LoRA key map: {e}")
 
     @property

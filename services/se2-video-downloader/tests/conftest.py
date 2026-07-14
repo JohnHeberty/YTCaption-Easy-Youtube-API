@@ -3,11 +3,15 @@
 Shared pytest fixtures and configuration.
 """
 
+import os
 import pytest
 import asyncio
 from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch
 from typing import Generator
+
+os.environ.setdefault("REDIS_URL", "redis://192.168.1.110:6379/0")
+os.environ.setdefault("APP_NAME", "se2-video-downloader")
 
 from common.test_utils.mock_redis import MockRedis
 from common.test_utils.mock_celery import mock_celery_app
@@ -66,13 +70,18 @@ def mock_downloader():
 def app_with_overrides(mock_job_store, mock_downloader):
     """FastAPI app with dependency overrides for testing."""
     from app.infrastructure.dependencies import job_store, downloader
-    from app.main import app
+    from app.main import app, verify_api_key
+
+    async def _skip_auth():
+        return None
 
     job_store.set(mock_job_store)
     downloader.set(mock_downloader)
+    app.dependency_overrides[verify_api_key] = _skip_auth
     yield app
     job_store.reset()
     downloader.reset()
+    app.dependency_overrides.pop(verify_api_key, None)
 
 
 @pytest.fixture

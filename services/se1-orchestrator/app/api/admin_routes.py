@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from common.datetime_utils import now_brazil
 
@@ -59,7 +59,7 @@ async def get_stats(redis_store: Any = Depends(_get_redis_store)) -> dict[str, A
 
     except Exception as e:
         logger.error(f"Failed to get stats: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao obter estatisticas: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao obter estatisticas: {str(e)}")
 
 
 @router.post(
@@ -114,7 +114,7 @@ async def cleanup_old_jobs(
 
     except Exception as e:
         logger.error(f"Cleanup failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer cleanup: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao fazer cleanup: {str(e)}")
 
 
 @router.post(
@@ -231,4 +231,4 @@ async def factory_reset(
 
     except Exception as e:
         logger.error(f"Factory reset failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erro ao fazer factory reset: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Erro ao fazer factory reset: {str(e)}")

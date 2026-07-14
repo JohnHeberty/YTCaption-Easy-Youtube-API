@@ -17,6 +17,15 @@ from common.job_utils.models import StandardJob, JobStatus, StageInfo
 from app.core.constants import DEFAULT_QUALITY, QUALITY_FORMATS
 
 
+def _normalize_quality(value: str | None) -> str:
+    """Validate and normalize a quality preset string."""
+    normalized = (value or DEFAULT_QUALITY).lower()
+    if normalized not in QUALITY_FORMATS:
+        allowed = ", ".join(sorted(QUALITY_FORMATS.keys()))
+        raise ValueError(f"Invalid quality '{value}'. Allowed values: {allowed}")
+    return normalized
+
+
 class VideoQuality(str, Enum):
     BEST = "best"
     WORST = "worst"
@@ -83,11 +92,7 @@ class VideoDownloadJob(StandardJob):
     @field_validator("quality")
     @classmethod
     def validate_quality(cls, value: str) -> str:
-        normalized = (value or DEFAULT_QUALITY).lower()
-        if normalized not in QUALITY_FORMATS:
-            allowed = ", ".join(sorted(QUALITY_FORMATS.keys()))
-            raise ValueError(f"Invalid quality '{value}'. Allowed values: {allowed}")
-        return normalized
+        return _normalize_quality(value)
 
     @classmethod
     def create_new(cls, url: str, quality: str = DEFAULT_QUALITY) -> VideoDownloadJob:
@@ -145,11 +150,7 @@ class VideoDownloadJobRequest(BaseModel):
     @field_validator("quality")
     @classmethod
     def validate_request_quality(cls, value: str) -> str:
-        normalized = (value or DEFAULT_QUALITY).lower()
-        if normalized not in QUALITY_FORMATS:
-            allowed = ", ".join(sorted(QUALITY_FORMATS.keys()))
-            raise ValueError(f"Invalid quality '{value}'. Allowed values: {allowed}")
-        return normalized
+        return _normalize_quality(value)
 
     model_config = ConfigDict(json_schema_extra={
         "example": {

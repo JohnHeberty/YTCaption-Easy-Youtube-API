@@ -180,7 +180,7 @@ class AudioFileValidator:
         logger.info(f"✅ Audio file validated: {file_path.name} ({size_mb:.1f}MB)")
     
     @classmethod
-    def _validate_file_type(cls, file_path: Path):
+    def _validate_file_type(cls, file_path: Path) -> None:
         """
         Valida tipo real do arquivo via magic bytes
         

@@ -3,7 +3,7 @@ Testes unitários para os modelos de dados do audio-normalization
 """
 import pytest
 from datetime import datetime
-from app.models import Job, JobStatus
+from app.core.models import Job, JobStatus
 
 
 class TestJobStatus:

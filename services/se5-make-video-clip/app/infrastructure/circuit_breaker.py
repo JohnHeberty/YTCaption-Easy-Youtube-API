@@ -3,6 +3,12 @@ from __future__ import annotations
 
 from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
+from ..core.constants import (
+    CIRCUIT_BREAKER_DEFAULT_THRESHOLD,
+    CIRCUIT_BREAKER_DOWNLOAD_THRESHOLD,
+    CIRCUIT_BREAKER_TRANSCRIPTION_THRESHOLD,
+    CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+)
 
 logger = get_logger(__name__)
 
@@ -10,7 +16,7 @@ logger = get_logger(__name__)
 class SimpleCircuitBreaker:
     """Simplified circuit breaker for external services."""
 
-    def __init__(self, failure_threshold: int = 5) -> None:
+    def __init__(self, failure_threshold: int = CIRCUIT_BREAKER_DEFAULT_THRESHOLD) -> None:
         self.failure_count = 0
         self.failure_threshold = failure_threshold
         self.last_failure_time = None
@@ -34,7 +40,7 @@ class SimpleCircuitBreaker:
 
         if self.last_failure_time:
             elapsed = (now_brazil() - self.last_failure_time).total_seconds()
-            if elapsed > 60:
+            if elapsed > CIRCUIT_BREAKER_COOLDOWN_SECONDS:
                 self.is_open = False
                 self.failure_count = 0
                 logger.info("🔌 [CIRCUIT] Attempting reset")
@@ -45,6 +51,6 @@ class SimpleCircuitBreaker:
 
 # Global circuit breakers
 circuit_breakers = {
-    "download": SimpleCircuitBreaker(failure_threshold=10),
-    "transcription": SimpleCircuitBreaker(failure_threshold=3),
+    "download": SimpleCircuitBreaker(failure_threshold=CIRCUIT_BREAKER_DOWNLOAD_THRESHOLD),
+    "transcription": SimpleCircuitBreaker(failure_threshold=CIRCUIT_BREAKER_TRANSCRIPTION_THRESHOLD),
 }

@@ -191,6 +191,63 @@ class WhisperXManager(IModelManager):
             "align_model_loaded": self.align_model is not None
         }
     
+    def _run_initial_transcription(self, audio: Any, language: str) -> dict[str, Any]:
+        """Run WhisperX initial transcription pass."""
+        transcribe_params: dict[str, Any] = {"audio": audio, "batch_size": 16}
+        if language != "auto":
+            transcribe_params["language"] = language
+        return self.model.transcribe(**transcribe_params)
+
+    def _apply_forced_alignment(
+        self, result: dict[str, Any], audio: Any, detected_language: str,
+    ) -> dict[str, Any]:
+        """Apply forced alignment to improve timestamp precision."""
+        if detected_language == "auto":
+            return result
+        try:
+            if self.align_model is None or self.align_metadata is None:
+                self._load_align_model(detected_language)
+            if self.align_model is not None:
+                logger.info("🔧 Aplicando forced alignment...")
+                result = whisperx.align(
+                    result["segments"],
+                    self.align_model,
+                    self.align_metadata,
+                    audio,
+                    self.device,
+                    return_char_alignments=False,
+                )
+                logger.info("✅ Forced alignment aplicado")
+        except Exception as e:
+            logger.warning(f"⚠️ Erro no alignment, usando timestamps sem alinhamento: {e}")
+        return result
+
+    @staticmethod
+    def _process_segments(result: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+        """Extract and normalize segments from raw WhisperX output."""
+        segments: list[dict[str, Any]] = []
+        full_text = ""
+        for segment in result.get("segments", []):
+            words = []
+            if "words" in segment:
+                for word in segment["words"]:
+                    words.append({
+                        "word": word.get("word", ""),
+                        "start": float(word.get("start", 0.0)),
+                        "end": float(word.get("end", 0.0)),
+                        "probability": float(word.get("score", 1.0)),
+                    })
+            segment_text = segment.get("text", "").strip()
+            full_text += segment_text + " "
+            segments.append({
+                "id": segment.get("id", len(segments)),
+                "start": float(segment.get("start", 0.0)),
+                "end": float(segment.get("end", 0.0)),
+                "text": segment_text,
+                "words": words,
+            })
+        return full_text.strip(), segments
+
     def transcribe(
         self,
         audio_path: Path,
@@ -220,83 +277,16 @@ class WhisperXManager(IModelManager):
         logger.info(f"🎤 Transcrevendo com WhisperX: {audio_path.name} (lang={language}, task={task})")
         
         try:
-            # Carrega áudio
             audio = whisperx.load_audio(str(audio_path))
-            
-            # Transcrição inicial
             start_time = time.time()
             
-            # Prepara parâmetros
-            transcribe_params = {
-                "audio": audio,
-                "batch_size": 16
-            }
-            
-            # Define idioma se não for auto
-            if language != "auto":
-                transcribe_params["language"] = language
-            
-            # Transcreve
-            result = self.model.transcribe(**transcribe_params)
-            
-            # Detecta idioma
+            result = self._run_initial_transcription(audio, language)
             detected_language = result.get("language", language if language != "auto" else "en")
-            
-            # Aplica forced alignment se possível
-            if detected_language != "auto":
-                try:
-                    # Carrega modelo de alinhamento se necessário
-                    if self.align_model is None or self.align_metadata is None:
-                        self._load_align_model(detected_language)
-                    
-                    # Aplica alinhamento
-                    if self.align_model is not None:
-                        logger.info("🔧 Aplicando forced alignment...")
-                        result = whisperx.align(
-                            result["segments"],
-                            self.align_model,
-                            self.align_metadata,
-                            audio,
-                            self.device,
-                            return_char_alignments=False
-                        )
-                        logger.info("✅ Forced alignment aplicado")
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Erro no alignment, usando timestamps sem alinhamento: {e}")
+            result = self._apply_forced_alignment(result, audio, detected_language)
             
             transcription_time = time.time() - start_time
-            
-            # Processa resultado
-            segments = []
-            full_text = ""
-            
-            for segment in result.get("segments", []):
-                # Extrai words
-                words = []
-                if "words" in segment:
-                    for word in segment["words"]:
-                        words.append({
-                            "word": word.get("word", ""),
-                            "start": float(word.get("start", 0.0)),
-                            "end": float(word.get("end", 0.0)),
-                            "probability": float(word.get("score", 1.0))  # WhisperX usa 'score'
-                        })
-                
-                segment_text = segment.get("text", "").strip()
-                full_text += segment_text + " "
-                
-                segments.append({
-                    "id": segment.get("id", len(segments)),
-                    "start": float(segment.get("start", 0.0)),
-                    "end": float(segment.get("end", 0.0)),
-                    "text": segment_text,
-                    "words": words
-                })
-            
-            # Calcula duração
+            full_text, segments = self._process_segments(result)
             duration = segments[-1]["end"] if segments else 0.0
-            
             total_words = sum(len(s["words"]) for s in segments)
             
             logger.info(
@@ -306,11 +296,11 @@ class WhisperXManager(IModelManager):
             
             return {
                 "success": True,
-                "text": full_text.strip(),
+                "text": full_text,
                 "language": detected_language,
                 "segments": segments,
                 "duration": duration,
-                "transcription_time": transcription_time
+                "transcription_time": transcription_time,
             }
             
         except Exception as e:

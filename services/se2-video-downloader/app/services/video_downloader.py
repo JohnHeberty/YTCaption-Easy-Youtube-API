@@ -216,6 +216,97 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
             job.error_message = str(exc)
             return job
 
+    def _download_with_ydl(
+        self, job: VideoDownloadJob, opts: dict[str, Any]
+    ) -> VideoDownloadJob:
+        """Extract video info and download using the given yt-dlp options.
+
+        Args:
+            job: Current download job
+            opts: yt-dlp options dictionary
+
+        Returns:
+            Updated job with download results
+
+        Raises:
+            FileNotFoundError: If downloaded file is not found
+        """
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            logger.info("📥 Extracting video info...")
+            info = _extract_video_info(ydl, job.url)
+
+            job.progress = PROGRESS_POST_DOWNLOAD
+            if self._job_store:
+                self._job_store.update_job(job)
+
+            ext = info.get("ext", "mp4")
+            filename = f"{job.id}.{ext}"
+            job.filename = filename
+            job.file_path = str(self.cache_dir / filename)
+
+            logger.info(f"⬇️ Starting download: {filename}")
+            ydl.download([job.url])
+
+            downloaded_files = list(self.cache_dir.glob(f"{job.id}.*"))
+            if not downloaded_files:
+                raise FileNotFoundError("File not found after download")
+
+            actual_file = downloaded_files[0]
+            job.file_path = str(actual_file)
+            job.filename = actual_file.name
+            job.file_size = actual_file.stat().st_size
+
+            job.mark_as_completed()
+            job.progress = PROGRESS_COMPLETE
+
+            logger.info(
+                f"✅ Download SUCCESS: {job.filename} ({job.file_size} bytes)"
+            )
+            return job
+
+    def _try_download_attempt(
+        self,
+        job: VideoDownloadJob,
+        current_ua: str,
+        global_attempt: int,
+        total_attempts: int,
+    ) -> VideoDownloadJob:
+        """Execute a single download attempt with backoff and progress tracking.
+
+        Args:
+            job: Current download job
+            current_ua: User agent string to use
+            global_attempt: Current attempt number (1-based)
+            total_attempts: Total number of attempts across all UAs
+
+        Returns:
+            Updated job on success
+
+        Raises:
+            Any exception from the download attempt
+        """
+        if global_attempt > 1:
+            delay = min(
+                math.pow(2, 2 + (global_attempt - 2)),
+                MAX_BACKOFF_SECONDS,
+            )
+            logger.warning(f"⏳ Waiting {delay:.0f}s (exponential backoff)...")
+            time.sleep(delay)
+
+        job.current_user_agent = current_ua
+
+        progress_base = PROGRESS_INITIAL + (
+            (PROGRESS_MAX_PRE_DOWNLOAD - PROGRESS_INITIAL)
+            * global_attempt
+            / total_attempts
+        )
+        job.progress = min(progress_base, PROGRESS_MAX_PRE_DOWNLOAD)
+        if self._job_store:
+            self._job_store.update_job(job)
+
+        opts = self._get_ydl_opts(job, current_ua)
+        return self._download_with_ydl(job, opts)
+
     def _sync_download(self, job: VideoDownloadJob) -> VideoDownloadJob:
         """Synchronous download with retry logic.
 
@@ -225,7 +316,6 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
         Returns:
             Updated job
         """
-        # Check disk space first
         if not self._check_disk_space(str(self.cache_dir)):
             job.mark_as_failed("Download failed")
             job.error_message = (
@@ -266,79 +356,9 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
                 )
 
                 try:
-                    # Calculate backoff delay
-                    if global_attempt > 1:
-                        delay = min(
-                            math.pow(2, 2 + (global_attempt - 2)),
-                            MAX_BACKOFF_SECONDS,
-                        )
-                        logger.warning(
-                            f"⏳ Waiting {delay:.0f}s (exponential backoff)..."
-                        )
-                        time.sleep(delay)
-
-                    # Update job with current UA
-                    job.current_user_agent = current_ua
-
-                    # Update progress
-                    progress_base = PROGRESS_INITIAL + (
-                        (PROGRESS_MAX_PRE_DOWNLOAD - PROGRESS_INITIAL)
-                        * global_attempt
-                        / total_attempts
+                    return self._try_download_attempt(
+                        job, current_ua, global_attempt, total_attempts
                     )
-                    job.progress = min(progress_base, PROGRESS_MAX_PRE_DOWNLOAD)
-                    if self._job_store:
-                        self._job_store.update_job(job)
-
-                    # Get yt-dlp options
-                    opts = self._get_ydl_opts(job, current_ua)
-
-                    with yt_dlp.YoutubeDL(opts) as ydl:
-                        logger.info(
-                            f"📥 Extracting video info (attempt {global_attempt})..."
-                        )
-                        info = _extract_video_info(ydl, job.url)
-
-                        # Progress after info extraction
-                        job.progress = PROGRESS_POST_DOWNLOAD
-                        if self._job_store:
-                            self._job_store.update_job(job)
-
-                        # Update job with video info
-                        title = info.get("title", "unknown")
-                        ext = info.get("ext", "mp4")
-
-                        filename = f"{job.id}.{ext}"
-                        job.filename = filename
-                        job.file_path = str(self.cache_dir / filename)
-
-                        logger.info(f"⬇️ Starting download: {filename}")
-
-                        # Download video
-                        ydl.download([job.url])
-
-                        # Verify file was created
-                        downloaded_files = list(self.cache_dir.glob(f"{job.id}.*"))
-                        if downloaded_files:
-                            actual_file = downloaded_files[0]
-                            job.file_path = str(actual_file)
-                            job.filename = actual_file.name
-                            job.file_size = actual_file.stat().st_size
-
-                            job.mark_as_completed()
-                            job.progress = PROGRESS_COMPLETE
-
-                            logger.info(
-                                f"✅ Download SUCCESS after {global_attempt} attempts: "
-                                f"{job.filename} ({job.file_size} bytes)"
-                            )
-
-                            return job
-                        else:
-                            raise FileNotFoundError(
-                                "File not found after download"
-                            )
-
                 except Exception as exc:
                     last_error = exc
                     error_msg = str(exc)
@@ -350,7 +370,6 @@ class YDLPVideoDownloader(VideoDownloaderInterface):
                     if attempt_ua < MAX_ATTEMPTS_PER_UA - 1:
                         continue
                     else:
-                        # Last attempt with this UA - quarantine it
                         error_details = (
                             f"Failed after {MAX_ATTEMPTS_PER_UA} attempts: "
                             f"{error_msg}"

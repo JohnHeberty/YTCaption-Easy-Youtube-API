@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 
 from app.api.schemas import ErrorResponse
@@ -26,17 +26,17 @@ store = ClothesRemovalJobStore()
 async def download_result(job_id: str) -> FileResponse:
     job_data = store.get_job(job_id)
     if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
 
     if job_data["status"] != "completed":
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job is not completed (status: {job_data['status']})",
         )
 
     result_path = job_data.get("result_path")
     if not result_path or not os.path.exists(result_path):
-        raise HTTPException(status_code=404, detail="Result file not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result file not found")
 
     return FileResponse(
         path=result_path,

@@ -60,29 +60,14 @@ def process_download_pipeline(self, job_id: str) -> None:
             pass
 
 
-async def _process_download_pipeline_async(job_id: str) -> None:
-    """Async implementation of download pipeline."""
-    from .. import instances
-
-    store, api_client, video_builder, shorts_cache, subtitle_gen = get_instances()
-    settings = get_settings()
-    job_logger = FileLogger.get_job_logger(job_id)
-
-    job = store.get_job(job_id)
-    if not job:
-        raise MakeVideoException(f"Job {job_id} not found")
-
-    query = job.query or "motivation"
-    max_shorts = job.max_shorts or 50
-
-    job_logger.info("="*80)
-    job_logger.info(f"🚀 STARTING DOWNLOAD PIPELINE: {job_id}")
-    job_logger.info(f"   Query: '{query}', Max shorts: {max_shorts}")
-    job_logger.info("="*80)
-
-    await update_job_status(job_id, JobStatus.PROCESSING, progress=5.0)
-
-    # Etapa 1: Buscar shorts
+async def _search_shorts(
+    api_client: Any,
+    query: str,
+    max_shorts: int,
+    job_id: str,
+    job_logger: Any,
+) -> list[dict[str, Any]]:
+    """Search for shorts via the API. Returns list of search results."""
     job_logger.info(f"🔍 [1/3] Searching shorts for '{query}'...")
     await update_job_status(job_id, JobStatus.PROCESSING, progress=10.0)
 
@@ -92,8 +77,16 @@ async def _process_download_pipeline_async(job_id: str) -> None:
 
     job_logger.info(f"✅ Found {len(results)} shorts")
     await save_checkpoint(job_id, "searching_shorts_completed")
+    return results
 
-    # Etapa 2: Baixar shorts
+
+async def _download_shorts(
+    api_client: Any,
+    results: list[dict[str, Any]],
+    job_id: str,
+    job_logger: Any,
+) -> list[str]:
+    """Download shorts from search results. Returns list of downloaded video IDs."""
     job_logger.info(f"⬇️ [2/3] Downloading {len(results)} shorts...")
     await update_job_status(job_id, JobStatus.PROCESSING, progress=25.0)
 
@@ -104,10 +97,8 @@ async def _process_download_pipeline_async(job_id: str) -> None:
     raw_dir = Path("data/raw/shorts")
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    downloaded_ids = []
+    downloaded_ids: list[str] = []
     total = len(results)
-    aspect_ratio = job.aspect_ratio or "9:16"
-    crop_position = job.crop_position or "center"
 
     for i, item in enumerate(results):
         video_id = item.get('video_id', item.get('id', ''))
@@ -133,15 +124,28 @@ async def _process_download_pipeline_async(job_id: str) -> None:
     if not downloaded_ids:
         raise MakeVideoException("No shorts were downloaded successfully")
 
-    # Etapa 3: Validar cada video
+    return downloaded_ids
+
+
+async def _validate_downloaded_shorts(
+    downloaded_ids: list[str],
+    job_id: str,
+    aspect_ratio: str,
+    crop_position: str,
+    video_builder: Any,
+    job_logger: Any,
+) -> tuple[list[str], list[str]]:
+    """Validate each downloaded video. Returns (approved_ids, rejected_ids)."""
     job_logger.info(f"🔍 [3/3] Validating {len(downloaded_ids)} shorts...")
     await update_job_status(job_id, JobStatus.PROCESSING, progress=55.0)
 
+    from .. import instances
     if instances.video_validator is None or instances.blacklist is None:
         get_instances()
 
-    approved_ids = []
-    rejected_ids = []
+    raw_dir = Path("data/raw/shorts")
+    approved_ids: list[str] = []
+    rejected_ids: list[str] = []
     total_to_validate = len(downloaded_ids)
 
     for i, video_id in enumerate(downloaded_ids):
@@ -189,6 +193,45 @@ async def _process_download_pipeline_async(job_id: str) -> None:
     job_logger.info(f"   ├─ Rejected: {len(rejected_ids)}")
     job_logger.info(f"   └─ Total downloaded: {len(downloaded_ids)}")
 
+    return approved_ids, rejected_ids
+
+
+async def _process_download_pipeline_async(job_id: str) -> None:
+    """Async implementation of download pipeline."""
+    from .. import instances
+
+    store, api_client, video_builder, shorts_cache, subtitle_gen = get_instances()
+    settings = get_settings()
+    job_logger = FileLogger.get_job_logger(job_id)
+
+    job = store.get_job(job_id)
+    if not job:
+        raise MakeVideoException(f"Job {job_id} not found")
+
+    query = job.query or "motivation"
+    max_shorts = job.max_shorts or 50
+
+    job_logger.info("="*80)
+    job_logger.info(f"🚀 STARTING DOWNLOAD PIPELINE: {job_id}")
+    job_logger.info(f"   Query: '{query}', Max shorts: {max_shorts}")
+    job_logger.info("="*80)
+
+    await update_job_status(job_id, JobStatus.PROCESSING, progress=5.0)
+
+    # Step 1: Search
+    results = await _search_shorts(api_client, query, max_shorts, job_id, job_logger)
+
+    # Step 2: Download
+    downloaded_ids = await _download_shorts(api_client, results, job_id, job_logger)
+
+    # Step 3: Validate
+    aspect_ratio = job.aspect_ratio or "9:16"
+    crop_position = job.crop_position or "center"
+    approved_ids, rejected_ids = await _validate_downloaded_shorts(
+        downloaded_ids, job_id, aspect_ratio, crop_position, video_builder, job_logger
+    )
+
+    # Finalize job
     job.status = JobStatus.COMPLETED
     job.progress = 100.0
     job.completed_at = now_brazil()

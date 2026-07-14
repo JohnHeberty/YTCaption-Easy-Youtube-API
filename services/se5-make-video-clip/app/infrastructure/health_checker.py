@@ -13,6 +13,16 @@ from common.datetime_utils import now_brazil
 import shutil
 from pathlib import Path
 from common.log_utils import get_logger
+from ..core.constants import (
+    REDIS_PING_TIMEOUT,
+    REDIS_SET_TIMEOUT,
+    REDIS_GET_TIMEOUT,
+    HEALTH_CHECK_TEST_KEY_TTL,
+    SERVICE_HEALTH_CHECK_TIMEOUT,
+    DISK_SPACE_CRITICAL_GB,
+    DISK_SPACE_WARNING_GB,
+    CELERY_INSPECT_TIMEOUT,
+)
 
 logger = get_logger(__name__)
 
@@ -77,7 +87,7 @@ class HealthChecker:
             # Ping básico
             await asyncio.wait_for(
                 loop.run_in_executor(None, self.redis_store.redis.ping),
-                timeout=2.0
+                timeout=REDIS_PING_TIMEOUT
             )
             
             # Teste de set/get
@@ -87,14 +97,14 @@ class HealthChecker:
             await asyncio.wait_for(
                 loop.run_in_executor(
                     None, 
-                    lambda: self.redis_store.redis.set(test_key, test_value, ex=5)
+                    lambda: self.redis_store.redis.set(test_key, test_value, ex=HEALTH_CHECK_TEST_KEY_TTL)
                 ),
-                timeout=1.0
+                timeout=REDIS_SET_TIMEOUT
             )
             
             retrieved = await asyncio.wait_for(
                 loop.run_in_executor(None, lambda: self.redis_store.redis.get(test_key)),
-                timeout=1.0
+                timeout=REDIS_GET_TIMEOUT
             )
             
             # Redis com decode_responses=True já retorna str
@@ -133,7 +143,7 @@ class HealthChecker:
         try:
             import aiohttp
             
-            timeout = aiohttp.ClientTimeout(total=3.0)
+            timeout = aiohttp.ClientTimeout(total=SERVICE_HEALTH_CHECK_TIMEOUT)
             
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 # Tentar endpoint /health primeiro
@@ -204,11 +214,11 @@ class HealthChecker:
             )
             
             # Crítico: menos de 1GB
-            if free_gb < 1.0:
+            if free_gb < DISK_SPACE_CRITICAL_GB:
                 return HealthCheckResult(False, f"⚠️ LOW SPACE: {details}")
             
             # Warning: menos de 5GB
-            if free_gb < 5.0:
+            if free_gb < DISK_SPACE_WARNING_GB:
                 return HealthCheckResult(True, f"⚠️ Warning: {details}")
             
             # OK
@@ -233,7 +243,7 @@ class HealthChecker:
             # Timeout de 2s
             active_workers = await asyncio.wait_for(
                 asyncio.to_thread(inspect.active),
-                timeout=2.0
+                timeout=CELERY_INSPECT_TIMEOUT
             )
             
             if active_workers is None:

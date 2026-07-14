@@ -266,7 +266,7 @@ class InpaintWorker:
         inpaint_features = inpaint_head_model(x)
 
         # Patch UNet input block 0 to add inpaint features
-        def patched_input_block(block, x_in, transformer_options):
+        def patched_input_block(block, x_in, transformer_options) -> tuple[Any, ...]:
             result = block(x_in, transformer_options)
             if isinstance(result, tuple):
                 h, = result

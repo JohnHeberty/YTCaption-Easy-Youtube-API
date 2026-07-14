@@ -14,7 +14,7 @@ This module contains all search-related endpoints:
 
 from typing import Any
 
-from fastapi import APIRouter, Query, HTTPException, Depends
+from fastapi import APIRouter, Query, HTTPException, Depends, status
 
 from app.core.config import get_settings
 from app.core.constants import SearchType, SearchLimits
@@ -125,7 +125,7 @@ async def get_video_info(
         raise
     except Exception as exc:
         logger.error(f"Error creating video info job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 @router.post("/channel-info", summary="Obter info do canal", response_model=Job, responses={500: {"description": "Internal server error"}})
 async def get_channel_info(
@@ -168,7 +168,7 @@ async def get_channel_info(
         raise
     except Exception as exc:
         logger.error(f"Error creating channel info job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 @router.post("/playlist-info", summary="Obter info da playlist", response_model=Job, responses={500: {"description": "Internal server error"}})
 async def get_playlist_info(
@@ -203,7 +203,7 @@ async def get_playlist_info(
         raise
     except Exception as exc:
         logger.error(f"Error creating playlist info job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 @router.post("/videos", summary="Buscar videos", response_model=Job, responses={500: {"description": "Internal server error"}})
 async def search_videos(
@@ -248,7 +248,7 @@ async def search_videos(
         raise
     except Exception as exc:
         logger.error(f"Error creating video search job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 @router.post("/related-videos", summary="Obter videos relacionados", response_model=Job, responses={500: {"description": "Internal server error"}})
 async def get_related_videos(
@@ -293,7 +293,7 @@ async def get_related_videos(
         raise
     except Exception as exc:
         logger.error(f"Error creating related videos job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 @router.post("/shorts", summary="Buscar shorts", response_model=Job, responses={500: {"description": "Internal server error"}})
 async def search_shorts(
@@ -338,4 +338,4 @@ async def search_shorts(
         raise
     except Exception as exc:
         logger.error(f"Error creating shorts search job: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc

@@ -9,7 +9,124 @@ from common.log_utils import get_logger
 logger = get_logger(__name__)
 from urllib.parse import urlparse, parse_qs
 
-from .utils import INNERTUBE_CLIENT_VERSION, fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
+from .utils import INNERTUBE_CLIENT_VERSION, fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key, parse_duration_to_seconds
+
+
+def _parse_playlist_video_renderer(video_renderer: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse a playlistVideoRenderer into a video_info dict."""
+    if not video_renderer:
+        return None
+
+    video_id = video_renderer.get("videoId")
+    if not video_id:
+        return None
+
+    video_info: dict[str, Any] = {
+        "video_id": video_id,
+        "thumbnails": get_thumbnail_urls(video_id),
+        "url": f"https://www.youtube.com/watch?v={video_id}",
+        "index": video_renderer.get("index", {}).get("simpleText", ""),
+    }
+
+    title_runs = video_renderer.get("title", {}).get("runs", [])
+    if title_runs:
+        video_info["title"] = "".join(run.get("text", "") for run in title_runs)
+
+    length_text = video_renderer.get("lengthText", {}).get("simpleText", "")
+    if length_text:
+        video_info["duration"] = length_text
+        video_info["duration_seconds"] = parse_duration_to_seconds(length_text) or 0
+
+    video_meta_text: list[str] = []
+
+    video_info_runs = video_renderer.get("videoInfo", {}).get("runs", [])
+    if video_info_runs:
+        video_meta_text.append(
+            "".join(run.get("text", "") for run in video_info_runs)
+        )
+
+    byline_text = video_renderer.get("byline", {}).get("simpleText", "")
+    if byline_text:
+        video_meta_text.append(byline_text)
+
+    accessibility_label = (
+        video_renderer.get("accessibility", {})
+        .get("accessibilityData", {})
+        .get("label", "")
+    )
+    if accessibility_label:
+        video_meta_text.append(accessibility_label)
+
+    for meta_text in video_meta_text:
+        view_match = re.search(r"(\d+(?:,\d+)*)\s+views?", meta_text)
+        if view_match and "view_count" not in video_info:
+            video_info["view_count"] = int(view_match.group(1).replace(",", ""))
+
+        relative_match = re.search(r"(\d+\s+\w+\s+ago)", meta_text)
+        if relative_match and "published_date" not in video_info:
+            video_info["published_date"] = relative_match.group(1)
+
+    description_snippet = video_renderer.get("descriptionSnippet", {})
+    if description_snippet:
+        if "simpleText" in description_snippet:
+            video_info["description"] = description_snippet["simpleText"]
+        elif "runs" in description_snippet:
+            video_info["description"] = "".join(
+                run.get("text", "") for run in description_snippet["runs"]
+            )
+
+    badges = video_renderer.get("badges", [])
+    if badges:
+        badge_labels: list[str] = []
+        for badge in badges:
+            if "metadataBadgeRenderer" in badge:
+                label = badge["metadataBadgeRenderer"].get("label", "")
+                if label:
+                    badge_labels.append(label)
+        if badge_labels:
+            video_info["badges"] = badge_labels
+
+    short_byline_text = video_renderer.get("shortBylineText", {}).get("runs", [])
+    if short_byline_text:
+        video_info["channel_name"] = short_byline_text[0].get("text", "")
+        navigation_endpoint = short_byline_text[0].get("navigationEndpoint", {})
+        browse_id = navigation_endpoint.get("browseEndpoint", {}).get("browseId")
+        if browse_id:
+            video_info["channel_id"] = browse_id
+            video_info["channel_url"] = f"https://www.youtube.com/channel/{browse_id}"
+
+    return video_info
+
+
+def _extract_token_from_continuation_endpoint(endpoint: dict[str, Any]) -> str | None:
+    """Extract a continuation token from a continuationEndpoint dict."""
+    executor_token = _extract_continuation_token_from_command_executor(endpoint)
+    if executor_token:
+        return executor_token
+
+    if "continuationCommand" in endpoint:
+        cmd = endpoint["continuationCommand"]
+        if isinstance(cmd, dict) and "token" in cmd:
+            return cmd["token"]
+
+    if "commandMetadata" in endpoint:
+        metadata = endpoint["commandMetadata"]
+        if "webCommandMetadata" in metadata:
+            web_cmd = metadata["webCommandMetadata"]
+            if "url" in web_cmd:
+                url = web_cmd["url"]
+                if "&continuation=" in url:
+                    return url.split("&continuation=")[1]
+
+    if "token" in endpoint:
+        return endpoint["token"]
+
+    if "browseEndpoint" in endpoint:
+        browse = endpoint["browseEndpoint"]
+        if "params" in browse:
+            return browse["params"]
+
+    return None
 
 
 def extract_playlist_id(url_or_id: str | None) -> str | None:
@@ -168,34 +285,9 @@ def _extract_continuation_token(initial_data: dict[str, Any]) -> str | None:
 
                 if "continuationEndpoint" in continuation_renderer:
                     endpoint = continuation_renderer["continuationEndpoint"]
-
-                    executor_token = _extract_continuation_token_from_command_executor(
-                        endpoint
-                    )
-                    if executor_token:
-                        return executor_token
-
-                    if "continuationCommand" in endpoint:
-                        cmd = endpoint["continuationCommand"]
-                        if isinstance(cmd, dict) and "token" in cmd:
-                            return cmd["token"]
-
-                    if "commandMetadata" in endpoint:
-                        metadata = endpoint["commandMetadata"]
-                        if "webCommandMetadata" in metadata:
-                            web_cmd = metadata["webCommandMetadata"]
-                            if "url" in web_cmd:
-                                url = web_cmd["url"]
-                                if "&continuation=" in url:
-                                    return url.split("&continuation=")[1]
-
-                    if "token" in endpoint:
-                        return endpoint["token"]
-
-                    if "browseEndpoint" in endpoint:
-                        browse = endpoint["browseEndpoint"]
-                        if "params" in browse:
-                            return browse["params"]
+                    token = _extract_token_from_continuation_endpoint(endpoint)
+                    if token:
+                        return token
 
         header = initial_data.get("header", {}).get("playlistHeaderRenderer", {})
         playlist_actions = header.get("playlistActions", [])
@@ -260,146 +352,19 @@ def _extract_playlist_videos(
 
                 if "continuationEndpoint" in continuation_renderer:
                     endpoint = continuation_renderer["continuationEndpoint"]
-
-                    executor_token = _extract_continuation_token_from_command_executor(
-                        endpoint
-                    )
-                    if executor_token:
-                        continuation_token = executor_token
+                    token = _extract_token_from_continuation_endpoint(endpoint)
+                    if token:
+                        continuation_token = token
                         continue
-
-                    try:
-                        if "continuationCommand" in endpoint:
-                            cmd = endpoint["continuationCommand"]
-                            if isinstance(cmd, dict) and "token" in cmd:
-                                continuation_token = cmd["token"]
-                                continue
-                    except Exception as e:
-                        logger.debug("continuationCommand parse failed: %s", e)
-
-                    try:
-                        if "commandMetadata" in endpoint:
-                            metadata = endpoint["commandMetadata"]
-                            if "webCommandMetadata" in metadata:
-                                web_cmd = metadata["webCommandMetadata"]
-                                if "url" in web_cmd:
-                                    url = web_cmd["url"]
-                                    if "&continuation=" in url:
-                                        continuation_token = url.split(
-                                            "&continuation="
-                                        )[1]
-                                        continue
-                    except Exception as e:
-                        logger.debug("commandMetadata parse failed: %s", e)
-
-                    try:
-                        if "token" in endpoint:
-                            continuation_token = endpoint["token"]
-                            continue
-                    except Exception as e:
-                        logger.debug("token parse failed: %s", e)
-
-                    try:
-                        if "browseEndpoint" in endpoint:
-                            browse = endpoint["browseEndpoint"]
-                            if "params" in browse:
-                                continuation_token = browse["params"]
-                                continue
-                    except Exception as e:
-                        logger.debug("browseEndpoint parse failed: %s", e)
                 continue
 
             if len(videos) >= max_results:
                 break
 
             video_renderer = item.get("playlistVideoRenderer", {})
-            if not video_renderer:
+            video_info = _parse_playlist_video_renderer(video_renderer)
+            if video_info is None:
                 continue
-
-            video_id = video_renderer.get("videoId")
-            if not video_id:
-                continue
-
-            video_info: dict[str, Any] = {
-                "video_id": video_id,
-                "thumbnails": get_thumbnail_urls(video_id),
-                "url": f"https://www.youtube.com/watch?v={video_id}",
-                "index": video_renderer.get("index", {}).get("simpleText", ""),
-            }
-
-            title_runs = video_renderer.get("title", {}).get("runs", [])
-            if title_runs:
-                video_info["title"] = "".join(run.get("text", "") for run in title_runs)
-
-            length_text = video_renderer.get("lengthText", {}).get("simpleText", "")
-            if length_text:
-                video_info["duration"] = length_text
-                from .utils import parse_duration_to_seconds
-                video_info["duration_seconds"] = parse_duration_to_seconds(length_text) or 0
-
-            video_meta_text: list[str] = []
-
-            video_info_runs = video_renderer.get("videoInfo", {}).get("runs", [])
-            if video_info_runs:
-                video_meta_text.append(
-                    "".join(run.get("text", "") for run in video_info_runs)
-                )
-
-            byline_text = video_renderer.get("byline", {}).get("simpleText", "")
-            if byline_text:
-                video_meta_text.append(byline_text)
-
-            accessibility_label = (
-                video_renderer.get("accessibility", {})
-                .get("accessibilityData", {})
-                .get("label", "")
-            )
-            if accessibility_label:
-                video_meta_text.append(accessibility_label)
-
-            for meta_text in video_meta_text:
-                view_match = re.search(r"(\d+(?:,\d+)*)\s+views?", meta_text)
-                if view_match and "view_count" not in video_info:
-                    video_info["view_count"] = int(view_match.group(1).replace(",", ""))
-
-                relative_match = re.search(r"(\d+\s+\w+\s+ago)", meta_text)
-                if relative_match and "published_date" not in video_info:
-                    video_info["published_date"] = relative_match.group(1)
-
-            description_snippet = video_renderer.get("descriptionSnippet", {})
-            if description_snippet:
-                if "simpleText" in description_snippet:
-                    video_info["description"] = description_snippet["simpleText"]
-                elif "runs" in description_snippet:
-                    video_info["description"] = "".join(
-                        run.get("text", "") for run in description_snippet["runs"]
-                    )
-
-            badges = video_renderer.get("badges", [])
-            if badges:
-                badge_labels: list[str] = []
-                for badge in badges:
-                    if "metadataBadgeRenderer" in badge:
-                        label = badge["metadataBadgeRenderer"].get("label", "")
-                        if label:
-                            badge_labels.append(label)
-                if badge_labels:
-                    video_info["badges"] = badge_labels
-
-            short_byline_text = video_renderer.get("shortBylineText", {}).get(
-                "runs", []
-            )
-            if short_byline_text:
-                video_info["channel_name"] = short_byline_text[0].get("text", "")
-                navigation_endpoint = short_byline_text[0].get("navigationEndpoint", {})
-                browse_id = navigation_endpoint.get("browseEndpoint", {}).get(
-                    "browseId"
-                )
-                if browse_id:
-                    video_info["channel_id"] = browse_id
-                    video_info["channel_url"] = (
-                        f"https://www.youtube.com/channel/{browse_id}"
-                    )
 
             videos.append(video_info)
     except Exception as e:
@@ -466,15 +431,9 @@ def _fetch_continuation_page(
                             endpoint = item["continuationItemRenderer"][
                                 "continuationEndpoint"
                             ]
-                            token = _extract_continuation_token_from_command_executor(
-                                endpoint
-                            )
+                            token = _extract_token_from_continuation_endpoint(endpoint)
                             if token:
                                 next_continuation = token
-                            elif "continuationCommand" in endpoint:
-                                next_continuation = endpoint["continuationCommand"].get(
-                                    "token"
-                                )
 
                 if continuation_items and not next_continuation and debug:
                     print("Found items but no continuation token - likely last page")
@@ -489,93 +448,9 @@ def _fetch_continuation_page(
                 continue
 
             video_renderer = item.get("playlistVideoRenderer", {})
-            if not video_renderer:
+            video_info = _parse_playlist_video_renderer(video_renderer)
+            if video_info is None:
                 continue
-
-            video_id = video_renderer.get("videoId")
-            if not video_id:
-                continue
-
-            video_info: dict[str, Any] = {
-                "video_id": video_id,
-                "thumbnails": get_thumbnail_urls(video_id),
-                "url": f"https://www.youtube.com/watch?v={video_id}",
-                "index": video_renderer.get("index", {}).get("simpleText", ""),
-            }
-
-            title_runs = video_renderer.get("title", {}).get("runs", [])
-            if title_runs:
-                video_info["title"] = "".join(run.get("text", "") for run in title_runs)
-
-            length_text = video_renderer.get("lengthText", {}).get("simpleText", "")
-            if length_text:
-                video_info["duration"] = length_text
-                from .utils import parse_duration_to_seconds
-                video_info["duration_seconds"] = parse_duration_to_seconds(length_text) or 0
-
-            video_meta_text: list[str] = []
-
-            video_info_runs = video_renderer.get("videoInfo", {}).get("runs", [])
-            if video_info_runs:
-                video_meta_text.append(
-                    "".join(run.get("text", "") for run in video_info_runs)
-                )
-
-            byline_text = video_renderer.get("byline", {}).get("simpleText", "")
-            if byline_text:
-                video_meta_text.append(byline_text)
-
-            accessibility_label = (
-                video_renderer.get("accessibility", {})
-                .get("accessibilityData", {})
-                .get("label", "")
-            )
-            if accessibility_label:
-                video_meta_text.append(accessibility_label)
-
-            for meta_text in video_meta_text:
-                view_match = re.search(r"(\d+(?:,\d+)*)\s+views?", meta_text)
-                if view_match and "view_count" not in video_info:
-                    video_info["view_count"] = int(view_match.group(1).replace(",", ""))
-
-                relative_match = re.search(r"(\d+\s+\w+\s+ago)", meta_text)
-                if relative_match and "published_date" not in video_info:
-                    video_info["published_date"] = relative_match.group(1)
-
-            description_snippet = video_renderer.get("descriptionSnippet", {})
-            if description_snippet:
-                if "simpleText" in description_snippet:
-                    video_info["description"] = description_snippet["simpleText"]
-                elif "runs" in description_snippet:
-                    video_info["description"] = "".join(
-                        run.get("text", "") for run in description_snippet["runs"]
-                    )
-
-            badges = video_renderer.get("badges", [])
-            if badges:
-                badge_labels: list[str] = []
-                for badge in badges:
-                    if "metadataBadgeRenderer" in badge:
-                        label = badge["metadataBadgeRenderer"].get("label", "")
-                        if label:
-                            badge_labels.append(label)
-                if badge_labels:
-                    video_info["badges"] = badge_labels
-
-            short_byline_text = video_renderer.get("shortBylineText", {}).get(
-                "runs", []
-            )
-            if short_byline_text:
-                video_info["channel_name"] = short_byline_text[0].get("text", "")
-                navigation_endpoint = short_byline_text[0].get("navigationEndpoint", {})
-                browse_id = navigation_endpoint.get("browseEndpoint", {}).get(
-                    "browseId"
-                )
-                if browse_id:
-                    video_info["channel_id"] = browse_id
-                    video_info["channel_url"] = (
-                        f"https://www.youtube.com/channel/{browse_id}"
-                    )
 
             videos.append(video_info)
 

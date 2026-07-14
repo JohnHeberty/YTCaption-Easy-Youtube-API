@@ -13,7 +13,7 @@ This module contains administrative endpoints:
 from urllib.parse import urlparse
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 
 from app.core.config import get_settings
@@ -71,7 +71,7 @@ async def manual_cleanup(
     except Exception as exc:
         logger.error(f"❌ ERROR in {cleanup_type} cleanup: {exc}")
         raise HTTPException(
-            status_code=500, detail=f"Error during cleanup: {str(exc)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error during cleanup: {str(exc)}"
         ) from exc
 
 async def _perform_basic_cleanup(store: RedisJobStore) -> dict[str, Any]:

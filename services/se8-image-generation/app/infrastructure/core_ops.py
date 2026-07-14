@@ -237,33 +237,6 @@ def ksampler(
     """Run the sampling process (KSampler).
 
     This is the core sampling function that drives the diffusion process.
-
-    Args:
-        model: ModelPatcher with the UNet to sample from.
-        positive: Positive conditioning tensor.
-        negative: Negative conditioning tensor.
-        latent: Dict with 'samples' tensor.
-        seed: Random seed for noise generation.
-        steps: Number of sampling steps.
-        cfg: Classifier-free guidance scale.
-        sampler_name: Name of the sampler (e.g. 'dpmpp_2m_sde_gpu').
-        scheduler: Name of the scheduler (e.g. 'karras').
-        denoise: Denoising strength [0, 1].
-        disable_noise: If True, use zero noise.
-        start_step: Starting step index.
-        last_step: Last step index.
-        force_full_denoise: Force full denoising.
-        callback_function: Callback(step, x0, x, total_steps, preview) for progress.
-        refiner: Optional refiner ModelPatcher.
-        refiner_switch: Step at which to switch to refiner.
-        previewer_start: Start step for preview.
-        previewer_end: End step for preview.
-        sigmas: Optional custom sigma schedule.
-        noise_mean: Optional noise mean tensor.
-        disable_preview: Disable step preview generation.
-
-    Returns:
-        Dict with 'samples' tensor of denoised latent.
     """
     import torch
     from app.services.model_manager import get_model_manager
@@ -274,36 +247,16 @@ def ksampler(
         sigmas = sigmas.clone().to(manager.device)
 
     latent_image = latent["samples"]
-
-    if disable_noise:
-        noise = torch.zeros(
-            latent_image.size(),
-            dtype=latent_image.dtype,
-            layout=latent_image.layout,
-            device="cpu",
-        )
-    else:
-        import ldm_patched.modules.sample
-        batch_inds = latent.get("batch_index", None)
-        noise = ldm_patched.modules.sample.prepare_noise(
-            latent_image, seed, batch_inds
-        )
-
-    if isinstance(noise_mean, torch.Tensor):
-        noise = noise + noise_mean - torch.mean(noise, dim=1, keepdim=True)
-
+    noise = _prepare_noise(latent_image, seed, disable_noise, latent, noise_mean)
     noise_mask = latent.get("noise_mask", None)
 
-    # Previewer
-    from app.infrastructure.core_ops import _get_previewer
     previewer = _get_previewer(model)
-
     if previewer_start is None:
         previewer_start = 0
     if previewer_end is None:
         previewer_end = steps
 
-    def callback(step, x0, x, total_steps):
+    def callback(step, x0, x, total_steps) -> None:
         from app.services.model_manager import get_model_manager
         get_model_manager().throw_if_interrupted()
         y = None
@@ -336,6 +289,33 @@ def ksampler(
         modules.sample_hijack.current_refiner = None
 
     return out
+
+
+def _prepare_noise(
+    latent_image: Any, seed: int | None, disable_noise: bool,
+    latent: dict, noise_mean: Any,
+) -> Any:
+    """Prepare noise tensor for sampling."""
+    import torch
+
+    if disable_noise:
+        return torch.zeros(
+            latent_image.size(),
+            dtype=latent_image.dtype,
+            layout=latent_image.layout,
+            device="cpu",
+        )
+
+    import ldm_patched.modules.sample
+    batch_inds = latent.get("batch_index", None)
+    noise = ldm_patched.modules.sample.prepare_noise(
+        latent_image, seed, batch_inds
+    )
+
+    if isinstance(noise_mean, torch.Tensor):
+        noise = noise + noise_mean - torch.mean(noise, dim=1, keepdim=True)
+
+    return noise
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +412,7 @@ def _get_previewer(model: Any) -> Callable[..., Any] | None:
         vae_approx_model.to(manager.device)
         _vae_approx_cache[vae_approx_filename] = vae_approx_model
 
-    def preview_function(x0, step, total_steps):
+    def preview_function(x0, step, total_steps) -> Any:
         with torch.no_grad():
             x_sample = x0.to(vae_approx_model.current_type)
             x_sample = vae_approx_model(x_sample) * 127.5 + 127.5

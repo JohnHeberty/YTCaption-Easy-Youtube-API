@@ -260,3 +260,168 @@ class Timeouts(TimeoutConstants):
 class Thresholds(ValidationThresholds):
     """Alias para ValidationThresholds"""
     pass
+
+
+# ---------------------------------------------------------------------------
+# FFmpeg Encoding Defaults
+# ---------------------------------------------------------------------------
+FFMPEG_GOP_SIZE = 30
+FFMPEG_B_FRAMES = 2
+AUDIO_BITRATE = "192k"
+AUDIO_BITRATE_LOW = "128k"
+DEFAULT_VIDEO_FPS = 30
+DEFAULT_VIDEO_WIDTH = 1080
+DEFAULT_VIDEO_HEIGHT = 1920
+DEFAULT_CRF = 23
+CRF_VALIDATION_CROP = 28
+TITLE_FONT_SIZE = 48
+TITLE_BORDER_WIDTH = 3
+STEREO_CHANNELS = 2
+DEFAULT_AUDIO_SAMPLE_RATE = 48000
+
+# ---------------------------------------------------------------------------
+# Duration / Timing Defaults
+# ---------------------------------------------------------------------------
+DEFAULT_TITLE_CARD_DURATION = 0.2
+DEFAULT_TRANSITION_DURATION = 0.2
+CONCAT_DURATION_TOLERANCE = 2.0
+DURATION_CHANGE_THRESHOLD = 1.0
+DEFAULT_AUDIO_DURATION = 300.0
+
+# ---------------------------------------------------------------------------
+# Redis / Storage
+# ---------------------------------------------------------------------------
+REDIS_MAX_CONNECTIONS = 50
+REDIS_JOB_TTL_SECONDS = 86400
+DEFAULT_LIST_LIMIT = 100
+ORPHAN_AGE_MINUTES = 10
+ORPHAN_SCAN_MAX_JOBS = 1000
+LOCK_REDIS_MAX_CONNECTIONS = 10
+DEFAULT_LOCK_TTL = 3600
+SECONDS_PER_DAY = 86400
+
+# ---------------------------------------------------------------------------
+# SQLite
+# ---------------------------------------------------------------------------
+SQLITE_CONNECTION_TIMEOUT = 10.0
+SQLITE_BUSY_TIMEOUT_MS = 10000
+SQLITE_BLACKLIST_CONNECTION_TIMEOUT = 5.0
+SQLITE_BLACKLIST_BUSY_TIMEOUT_MS = 5000
+
+# ---------------------------------------------------------------------------
+# Circuit Breaker
+# ---------------------------------------------------------------------------
+CIRCUIT_BREAKER_DEFAULT_THRESHOLD = 5
+CIRCUIT_BREAKER_DOWNLOAD_THRESHOLD = 10
+CIRCUIT_BREAKER_TRANSCRIPTION_THRESHOLD = 3
+CIRCUIT_BREAKER_COOLDOWN_SECONDS = 60
+
+# ---------------------------------------------------------------------------
+# Celery Configuration
+# ---------------------------------------------------------------------------
+DEFAULT_CELERY_CONCURRENCY = 4
+DEFAULT_PREFETCH_MULTIPLIER = 1
+DEFAULT_CELERY_TIME_LIMIT = 3600
+SOFT_LIMIT_RATIO = 0.92
+MAX_TASKS_PER_CHILD = 10
+RESULT_EXPIRY_SECONDS = 86400
+DEFAULT_RETRY_DELAY = 60
+BROKER_VISIBILITY_TIMEOUT = 3600
+CLEANUP_SCHEDULE_SECONDS = 3600.0
+SHORTS_CLEANUP_SCHEDULE_SECONDS = 86400.0
+ORPHAN_RECOVERY_SCHEDULE_SECONDS = 120.0
+TASK_EXPIRY_SECONDS = 60
+
+# ---------------------------------------------------------------------------
+# Status Update / Job Lifecycle
+# ---------------------------------------------------------------------------
+STATUS_UPDATE_MAX_RETRIES = 3
+STATUS_UPDATE_RETRY_DELAY = 1
+COMPLETED_JOB_EXPIRY_HOURS = 24
+JOB_LOG_BACKUP_COUNT = 2
+
+# ---------------------------------------------------------------------------
+# Health Check
+# ---------------------------------------------------------------------------
+REDIS_PING_TIMEOUT = 2.0
+REDIS_SET_TIMEOUT = 1.0
+REDIS_GET_TIMEOUT = 1.0
+HEALTH_CHECK_TEST_KEY_TTL = 5
+SERVICE_HEALTH_CHECK_TIMEOUT = 3.0
+DISK_SPACE_CRITICAL_GB = 1.0
+DISK_SPACE_WARNING_GB = 5.0
+CELERY_INSPECT_TIMEOUT = 2.0
+
+# ---------------------------------------------------------------------------
+# Stage Timeouts
+# ---------------------------------------------------------------------------
+STAGE_TIMEOUT_QUEUED = 10
+STAGE_TIMEOUT_PROCESSING = 300
+STAGE_TIMEOUT_DEFAULT = 300
+AUDIO_TIMEOUT_MULTIPLIER = 30
+TIMEOUT_BACKOFF_BASE = 1.5
+MAX_STAGE_TIMEOUT = 1800
+
+# ---------------------------------------------------------------------------
+# Subprocess / FFmpeg Timeouts
+# ---------------------------------------------------------------------------
+TIMEOUT_TITLE_CARD = 60
+TIMEOUT_SUBTITLE_BURN = 900
+TIMEOUT_CODEC_CONVERSION = 120
+TIMEOUT_FRAME_EXTRACTION = 60
+TIMEOUT_AUDIO_CONVERSION = 30
+
+# ---------------------------------------------------------------------------
+# Download / Task Limits
+# ---------------------------------------------------------------------------
+DOWNLOAD_TASK_TIME_LIMIT = 7200
+DOWNLOAD_TASK_SOFT_TIME_LIMIT = 6600
+STALE_VALIDATION_AGE_MINUTES = 30
+DEFAULT_MAX_SHORTS = 50
+DOWNLOAD_BATCH_SIZE = 5
+
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+DEFAULT_CLEANUP_INTERVAL_MINUTES = 10
+ORPHAN_RETENTION_HOURS = 24
+TEMP_RETENTION_HOURS = 6
+CLEANUP_ERROR_RETRY_SECONDS = 60
+
+# ---------------------------------------------------------------------------
+# API Client Polling
+# ---------------------------------------------------------------------------
+SEARCH_POLL_INTERVAL = 2
+SEARCH_MAX_POLLS = 150
+DOWNLOAD_POLL_INTERVAL = 3
+DOWNLOAD_MAX_POLLS = 40
+DOWNLOAD_LOG_INTERVAL = 7
+TRANSCRIPTION_CREATE_RETRIES = 4
+TRANSCRIPTION_BACKOFF_BASE = 2
+TRANSCRIPTION_BACKOFF_MAX = 20
+TRANSCRIPTION_POLL_INTERVAL = 3
+TRANSCRIPTION_MAX_POLLS = 10
+HTTP_SEARCH_TIMEOUT = 120.0
+HTTP_SEARCH_WAIT_TIMEOUT = 90.0
+HTTP_DOWNLOAD_TIMEOUT = 120.0
+HTTP_FILE_DOWNLOAD_TIMEOUT = 60.0
+
+# ---------------------------------------------------------------------------
+# Video Validation / OCR Weights
+# ---------------------------------------------------------------------------
+VISUAL_SCORE_MAX = 100.0
+CONFIDENCE_WEIGHT_OCR = 0.6
+CONFIDENCE_WEIGHT_VISUAL = 0.4
+VALIDATION_CACHE_TTL_SECONDS = 604800
+PRESET_CODEC_CONVERSION = "ultrafast"
+DEFAULT_DOWNSCALE_WIDTH = 640
+FPS_COMPATIBILITY_TOLERANCE = 0.1
+
+# ---------------------------------------------------------------------------
+# Validators
+# ---------------------------------------------------------------------------
+QUERY_MIN_LENGTH = 3
+QUERY_MAX_LENGTH = 200
+MIN_FILE_CONTENT_BYTES = 12
+MIN_SHORTS_COUNT_VALIDATOR = 10
+MAX_SHORTS_COUNT_VALIDATOR = 500

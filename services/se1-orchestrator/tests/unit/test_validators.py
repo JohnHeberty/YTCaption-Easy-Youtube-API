@@ -3,7 +3,7 @@ Testes unitários para Validators.
 """
 import pytest
 
-from core.validators import JobIdValidator, URLValidator, YouTubeURLValidator
+from app.core.validators import JobIdValidator, URLValidator, YouTubeURLValidator
 
 
 class TestJobIdValidator:

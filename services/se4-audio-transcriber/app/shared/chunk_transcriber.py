@@ -28,6 +28,57 @@ class ChunkTranscriber:
     # Public API
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _load_audio(audio_file: str, audio: AudioSegment | None) -> AudioSegment:
+        """Load audio from file if not already provided."""
+        if audio is not None:
+            return audio
+        logger.info(f"Carregando áudio para chunking (ChunkTranscriber): {audio_file}")
+        try:
+            return AudioSegment.from_file(str(audio_file))
+        except Exception as e:
+            raise AudioTranscriptionException(
+                f"Erro ao carregar arquivo de áudio com pydub: {str(e)}"
+            )
+
+    def _transcribe_chunks(
+        self,
+        chunks: list[Any],
+        chunker: Any,
+        transcribe_fn: Callable[[str, str, str | None], dict[str, Any]],
+        language_in: str,
+        language_out: str | None,
+        job_id: str | None,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Transcribe each chunk and collect results. Returns (segments, text_parts)."""
+        all_segments: list[dict[str, Any]] = []
+        full_text_parts: list[str] = []
+
+        for i, audio_chunk in enumerate(chunks):
+            chunk_file = chunker.export_chunk(i, audio_chunk)
+
+            logger.info(
+                f"Processando chunk {i + 1}/{len(chunks)} "
+                f"(offset: {audio_chunk.start_time_s:.1f}s)"
+            )
+
+            chunk_result = transcribe_fn(str(chunk_file), language_in, language_out)
+
+            for segment in chunk_result["segments"]:
+                adjusted_segment = segment.copy()
+                adjusted_segment["start"] += audio_chunk.start_time_s
+                adjusted_segment["end"] += audio_chunk.start_time_s
+                all_segments.append(adjusted_segment)
+
+            full_text_parts.append(chunk_result["text"])
+            chunker.cleanup_chunk(chunk_file)
+
+            if job_id and self.state:
+                progress = 25.0 + (50.0 * (i + 1) / len(chunks))
+                self.state.set_progress(progress, job_id)
+
+        return all_segments, full_text_parts
+
     async def transcribe(
         self,
         audio_file: str,
@@ -50,7 +101,7 @@ class ChunkTranscriber:
             audio: Pre-loaded AudioSegment (avoids re-reading from disk).
 
         Returns:
-            dict with ``'text'`` and ``'segments'`` in Whisper format.
+            dict with ``'text'`` and ``'segments`` in Whisper format.
         """
         try:
             audio_path = Path(audio_file)
@@ -59,19 +110,9 @@ class ChunkTranscriber:
                     f"Arquivo de áudio não encontrado para chunking: {audio_file}"
                 )
 
-            # Load audio if not provided
-            if audio is None:
-                logger.info(f"Carregando áudio para chunking (ChunkTranscriber): {audio_file}")
-                try:
-                    audio = AudioSegment.from_file(str(audio_path))
-                except Exception as e:
-                    raise AudioTranscriptionException(
-                        f"Erro ao carregar arquivo de áudio com pydub: {str(e)}"
-                    )
-
+            audio = self._load_audio(audio_file, audio)
             duration_seconds = len(audio) / 1000.0
 
-            # Chunking settings
             chunk_length_seconds = self.settings.get("chunk_length_seconds", 30)
             overlap_seconds = self.settings.get("chunk_overlap_seconds", 1.0)
 
@@ -80,7 +121,6 @@ class ChunkTranscriber:
                 f"de {chunk_length_seconds}s com overlap de {overlap_seconds}s"
             )
 
-            # AudioChunker: split + temp file management
             chunker = AudioChunker(
                 temp_dir=self.settings.get("temp_dir", "./data/temp"),
                 chunk_length_seconds=chunk_length_seconds,
@@ -90,41 +130,11 @@ class ChunkTranscriber:
             chunks = chunker.split(audio)
             logger.info(f"Áudio dividido em {len(chunks)} chunks")
 
-            # Transcribe each chunk via the injected callable
-            all_segments: list[dict[str, Any]] = []
-            full_text_parts: list[str] = []
+            all_segments, full_text_parts = self._transcribe_chunks(
+                chunks, chunker, transcribe_fn, language_in, language_out, job_id,
+            )
 
-            for i, audio_chunk in enumerate(chunks):
-                chunk_file = chunker.export_chunk(i, audio_chunk)
-
-                logger.info(
-                    f"Processando chunk {i + 1}/{len(chunks)} "
-                    f"(offset: {audio_chunk.start_time_s:.1f}s)"
-                )
-
-                # Transcribe or translate the chunk through the injected function
-                chunk_result = transcribe_fn(str(chunk_file), language_in, language_out)
-
-                # Adjust segment timestamps with chunk offset
-                for segment in chunk_result["segments"]:
-                    adjusted_segment = segment.copy()
-                    adjusted_segment["start"] += audio_chunk.start_time_s
-                    adjusted_segment["end"] += audio_chunk.start_time_s
-                    all_segments.append(adjusted_segment)
-
-                full_text_parts.append(chunk_result["text"])
-
-                # Cleanup temp file via chunker
-                chunker.cleanup_chunk(chunk_file)
-
-                # Progress update: 25% initial + 50% during chunks
-                if job_id and self.state:
-                    progress = 25.0 + (50.0 * (i + 1) / len(chunks))
-                    self.state.set_progress(progress, job_id)
-
-            # Merge overlapping segments to remove duplicates at overlap boundaries
             merged_segments = self._merge_overlapping_segments(all_segments, overlap_seconds)
-
             full_text = " ".join(full_text_parts)
 
             logger.info(f"Chunking concluído: {len(merged_segments)} segmentos finais")

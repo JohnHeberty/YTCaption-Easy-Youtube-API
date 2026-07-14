@@ -34,6 +34,141 @@ class VideoCompatibilityValidator:
     """
 
     @staticmethod
+    async def _extract_videos_metadata(
+        video_files: list[str],
+        video_builder: Any,
+    ) -> list[dict[str, Any]]:
+        """Extract metadata from all video files."""
+        videos_metadata: list[dict[str, Any]] = []
+        for idx, video_path in enumerate(video_files):
+            video_path_obj = Path(video_path)
+            if not video_path_obj.exists():
+                logger.error(f"Video file not found: {video_path}")
+                raise FileNotFoundError(f"Video file not found: {video_path}")
+            try:
+                info = await video_builder.get_video_info(str(video_path))
+                metadata = {
+                    "index": idx,
+                    "path": str(video_path),
+                    "filename": video_path_obj.name,
+                    "codec": info.get('codec', 'unknown'),
+                    "fps": float(info.get('fps', 0)),
+                    "width": int(info.get('width', 0)),
+                    "height": int(info.get('height', 0)),
+                    "duration": float(info.get('duration', 0)),
+                    "resolution": f"{info.get('width')}x{info.get('height')}"
+                }
+                videos_metadata.append(metadata)
+            except Exception:
+                logger.error(
+                    f"Failed to extract metadata from video {idx}: {video_path}",
+                    exc_info=True
+                )
+                raise
+        return videos_metadata
+
+    @staticmethod
+    def _validate_against_reference(
+        videos_metadata: list[dict[str, Any]],
+        reference: dict[str, Any],
+        fps_tolerance: float,
+    ) -> list[dict[str, Any]]:
+        """Compare each video against reference for codec/FPS/resolution mismatches."""
+        incompatibilities: list[dict[str, Any]] = []
+        for video_meta in videos_metadata[1:]:
+            issues: list[dict[str, Any]] = []
+            if video_meta['codec'] != reference['codec']:
+                issues.append({
+                    "type": "codec",
+                    "expected": reference['codec'],
+                    "actual": video_meta['codec'],
+                    "severity": "high"
+                })
+                logger.warning(
+                    f"⚠️ Video {video_meta['index']} codec mismatch",
+                    extra={
+                        "video": video_meta['filename'],
+                        "expected": reference['codec'],
+                        "actual": video_meta['codec']
+                    }
+                )
+            fps_diff = abs(video_meta['fps'] - reference['fps'])
+            if fps_diff > fps_tolerance:
+                issues.append({
+                    "type": "fps",
+                    "expected": reference['fps'],
+                    "actual": video_meta['fps'],
+                    "diff": fps_diff,
+                    "tolerance": fps_tolerance,
+                    "severity": "high"
+                })
+                logger.warning(
+                    f"⚠️ Video {video_meta['index']} FPS mismatch",
+                    extra={
+                        "video": video_meta['filename'],
+                        "expected": reference['fps'],
+                        "actual": video_meta['fps'],
+                        "diff": fps_diff
+                    }
+                )
+            if (video_meta['width'] != reference['width'] or
+                video_meta['height'] != reference['height']):
+                issues.append({
+                    "type": "resolution",
+                    "expected": reference['resolution'],
+                    "actual": video_meta['resolution'],
+                    "severity": "high"
+                })
+                logger.warning(
+                    f"⚠️ Video {video_meta['index']} resolution mismatch",
+                    extra={
+                        "video": video_meta['filename'],
+                        "expected": reference['resolution'],
+                        "actual": video_meta['resolution']
+                    }
+                )
+            if issues:
+                incompatibilities.append({
+                    "video_index": video_meta['index'],
+                    "video_path": video_meta['path'],
+                    "video_filename": video_meta['filename'],
+                    "issues": issues
+                })
+        return incompatibilities
+
+    @staticmethod
+    def _raise_if_strict(
+        strict: bool,
+        is_compatible: bool,
+        incompatibilities: list[dict[str, Any]],
+        reference: dict[str, Any],
+    ) -> None:
+        """Raise VideoIncompatibleException when strict mode and incompatibilities found."""
+        if not strict or is_compatible:
+            return
+        first_incompat = incompatibilities[0]
+        first_issue = first_incompat['issues'][0]
+        raise VideoIncompatibleException(
+            reason=f"Video {first_incompat['video_index']} ({first_incompat['video_filename']}) has incompatible {first_issue['type']}",
+            mismatches={
+                "video_index": first_incompat['video_index'],
+                "video_path": first_incompat['video_path'],
+                "issues": first_incompat['issues'],
+                "reference": {
+                    "codec": reference['codec'],
+                    "fps": reference['fps'],
+                    "resolution": reference['resolution']
+                }
+            },
+            details={
+                "incompatibility_type": first_issue['type'],
+                "expected": first_issue['expected'],
+                "actual": first_issue['actual'],
+                "total_incompatibilities": len(incompatibilities)
+            }
+        )
+
+    @staticmethod
     async def validate_concat_compatibility(
         video_files: list[str],
         video_builder,  # VideoBuilder instance (avoid circular import)
@@ -65,17 +200,6 @@ class VideoCompatibilityValidator:
         Raises:
             VideoIncompatibleException: If incompatibility detected (strict=True)
             ValueError: If video_files is empty
-
-        Example:
-            try:
-                result = await validator.validate_concat_compatibility(
-                    video_files=shorts,
-                    video_builder=builder,
-                    strict=True
-                )
-                print(f"All {result['total_videos']} videos compatible!")
-            except VideoIncompatibleException as e:
-                print(f"Incompatible video: {e.details['video_path']}")
         """
         if not video_files:
             raise ValueError("No video files to validate")
@@ -93,44 +217,9 @@ class VideoCompatibilityValidator:
             f"🔍 Validating compatibility of {len(video_files)} videos for concatenation"
         )
 
-        # Get metadata for all videos
-        videos_metadata: list[dict[str, Any]] = []
-        for idx, video_path in enumerate(video_files):
-            video_path_obj = Path(video_path)
+        videos_metadata = await VideoCompatibilityValidator._extract_videos_metadata(video_files, video_builder)
 
-            # Validate file exists
-            if not video_path_obj.exists():
-                logger.error(f"Video file not found: {video_path}")
-                raise FileNotFoundError(f"Video file not found: {video_path}")
-
-            try:
-                info = await video_builder.get_video_info(str(video_path))
-
-                # Extract relevant fields
-                metadata = {
-                    "index": idx,
-                    "path": str(video_path),
-                    "filename": video_path_obj.name,
-                    "codec": info.get('codec', 'unknown'),
-                    "fps": float(info.get('fps', 0)),
-                    "width": int(info.get('width', 0)),
-                    "height": int(info.get('height', 0)),
-                    "duration": float(info.get('duration', 0)),
-                    "resolution": f"{info.get('width')}x{info.get('height')}"
-                }
-
-                videos_metadata.append(metadata)
-
-            except Exception as e:
-                logger.error(
-                    f"Failed to extract metadata from video {idx}: {video_path}",
-                    exc_info=True
-                )
-                raise
-
-        # Use first video as reference
         reference = videos_metadata[0]
-
         logger.info(
             f"📐 Reference video (video 0):",
             extra={
@@ -141,90 +230,12 @@ class VideoCompatibilityValidator:
             }
         )
 
-        # Validate each video against reference
-        incompatibilities: list[dict[str, Any]] = []
+        incompatibilities = VideoCompatibilityValidator._validate_against_reference(
+            videos_metadata, reference, fps_tolerance
+        )
 
-        for video_meta in videos_metadata[1:]:
-            issues: list[dict[str, Any]] = []
-
-            # Validate codec
-            if video_meta['codec'] != reference['codec']:
-                issues.append({
-                    "type": "codec",
-                    "expected": reference['codec'],
-                    "actual": video_meta['codec'],
-                    "severity": "high"
-                })
-                logger.warning(
-                    f"⚠️ Video {video_meta['index']} codec mismatch",
-                    extra={
-                        "video": video_meta['filename'],
-                        "expected": reference['codec'],
-                        "actual": video_meta['codec']
-                    }
-                )
-
-            # Validate FPS (with tolerance)
-            fps_diff = abs(video_meta['fps'] - reference['fps'])
-            if fps_diff > fps_tolerance:
-                issues.append({
-                    "type": "fps",
-                    "expected": reference['fps'],
-                    "actual": video_meta['fps'],
-                    "diff": fps_diff,
-                    "tolerance": fps_tolerance,
-                    "severity": "high"
-                })
-                logger.warning(
-                    f"⚠️ Video {video_meta['index']} FPS mismatch",
-                    extra={
-                        "video": video_meta['filename'],
-                        "expected": reference['fps'],
-                        "actual": video_meta['fps'],
-                        "diff": fps_diff
-                    }
-                )
-
-            # Validate resolution
-            if (video_meta['width'] != reference['width'] or
-                video_meta['height'] != reference['height']):
-                issues.append({
-                    "type": "resolution",
-                    "expected": reference['resolution'],
-                    "actual": video_meta['resolution'],
-                    "severity": "high"
-                })
-                logger.warning(
-                    f"⚠️ Video {video_meta['index']} resolution mismatch",
-                    extra={
-                        "video": video_meta['filename'],
-                        "expected": reference['resolution'],
-                        "actual": video_meta['resolution']
-                    }
-                )
-
-            # If issues found, add to incompatibilities
-            if issues:
-                incompatibilities.append({
-                    "video_index": video_meta['index'],
-                    "video_path": video_meta['path'],
-                    "video_filename": video_meta['filename'],
-                    "issues": issues
-                })
-
-        # Build result
         is_compatible = len(incompatibilities) == 0
 
-        result = {
-            "is_compatible": is_compatible,
-            "total_videos": len(video_files),
-            "validated_videos": len(videos_metadata),
-            "reference_video": reference,
-            "incompatibilities": incompatibilities,
-            "incompatibility_count": len(incompatibilities)
-        }
-
-        # Log result
         if is_compatible:
             logger.info(
                 f"✅ All {len(video_files)} videos compatible for concatenation",
@@ -245,30 +256,13 @@ class VideoCompatibilityValidator:
                 }
             )
 
-        # Raise exception if strict=True and incompatibilities found
-        if strict and not is_compatible:
-            # Get first incompatibility for exception message
-            first_incompat = incompatibilities[0]
-            first_issue = first_incompat['issues'][0]
+        VideoCompatibilityValidator._raise_if_strict(strict, is_compatible, incompatibilities, reference)
 
-            raise VideoIncompatibleException(
-                reason=f"Video {first_incompat['video_index']} ({first_incompat['video_filename']}) has incompatible {first_issue['type']}",
-                mismatches={
-                    "video_index": first_incompat['video_index'],
-                    "video_path": first_incompat['video_path'],
-                    "issues": first_incompat['issues'],
-                    "reference": {
-                        "codec": reference['codec'],
-                        "fps": reference['fps'],
-                        "resolution": reference['resolution']
-                    }
-                },
-                details={
-                    "incompatibility_type": first_issue['type'],
-                    "expected": first_issue['expected'],
-                    "actual": first_issue['actual'],
-                    "total_incompatibilities": len(incompatibilities)
-                }
-            )
-
-        return result
+        return {
+            "is_compatible": is_compatible,
+            "total_videos": len(video_files),
+            "validated_videos": len(videos_metadata),
+            "reference_video": reference,
+            "incompatibilities": incompatibilities,
+            "incompatibility_count": len(incompatibilities)
+        }

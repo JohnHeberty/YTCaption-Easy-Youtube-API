@@ -75,6 +75,78 @@ class AdminCleanupService:
         )
         return report
 
+    def _flush_redis_db(self, redis_client: Any) -> dict[str, Any]:
+        """Flush all keys from Redis. Returns {jobs_removed, flushed, errors}."""
+        result: dict[str, Any] = {"jobs_removed": 0, "redis_flushed": False, "errors": []}
+        try:
+            redis_url = (
+                redis_client.connection_pool.connection_kwargs.get("host") or "localhost"
+            )
+            redis_port = (
+                redis_client.connection_pool.connection_kwargs.get("port") or 6379
+            )
+            redis_db = (
+                redis_client.connection_pool.connection_kwargs.get("db") or 0
+            )
+            logger.warning(
+                f"🔥 Executando FLUSHDB no Redis {redis_url}:{redis_port} DB={redis_db}"
+            )
+            keys_before = redis_client.keys("transcription_job:*")
+            result["jobs_removed"] = len(keys_before)
+            redis_client.flushdb()
+            result["redis_flushed"] = True
+            logger.info(
+                f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs + "
+                f"todas as outras keys removidas"
+            )
+        except Exception as e:
+            logger.error(f"❌ Erro ao limpar Redis: {e}")
+            result["errors"].append(f"Redis FLUSHDB: {str(e)}")
+        return result
+
+    def _delete_models_dir(self, models_dir: Path) -> tuple[int, float, list[str]]:
+        """Delete all files in models directory. Returns (count, freed_mb, errors)."""
+        errors: list[str] = []
+        if not models_dir.exists():
+            return 0, 0.0, errors
+        count, size = 0, 0.0
+        for file_path in models_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+            try:
+                size_mb = file_path.stat().st_size / (1024 * 1024)
+                file_path.unlink()
+                count += 1
+                size += size_mb
+            except Exception as e:
+                logger.error(f"❌ Erro ao remover modelo {file_path.name}: {e}")
+                errors.append(f"Models/{file_path.name}: {str(e)}")
+        if count > 0:
+            logger.warning(f"🗑️  Models: {count} arquivos de modelo removidos")
+        else:
+            logger.info("✓ Models: nenhum modelo encontrado")
+        return count, size, errors
+
+    async def _second_flush_if_needed(self, redis_client: Any) -> tuple[int, list[str]]:
+        """Check for jobs created during cleanup and flush again if needed."""
+        errors: list[str] = []
+        extra_removed = 0
+        try:
+            keys_after = redis_client.keys("transcription_job:*")
+            if keys_after:
+                logger.warning(
+                    f"⚠️ {len(keys_after)} jobs salvos DURANTE a limpeza! "
+                    f"Executando FLUSHDB novamente..."
+                )
+                redis_client.flushdb()
+                extra_removed = len(keys_after)
+            else:
+                logger.info("✓ Nenhum job novo detectado após limpeza")
+        except Exception as e:
+            logger.error(f"❌ Erro no segundo FLUSHDB: {e}")
+            errors.append(f"Segundo FLUSHDB: {str(e)}")
+        return extra_removed, errors
+
     async def deep_cleanup(
         self, redis_client: Any, purge_celery_queue: bool = False
     ) -> dict[str, Any]:
@@ -92,34 +164,10 @@ class AdminCleanupService:
 
         logger.warning("🔥 INICIANDO LIMPEZA TOTAL DO SISTEMA - TUDO SERÁ REMOVIDO!")
 
-        try:
-            redis_url = (
-                redis_client.connection_pool.connection_kwargs.get("host") or "localhost"
-            )
-            redis_port = (
-                redis_client.connection_pool.connection_kwargs.get("port") or 6379
-            )
-            redis_db = (
-                redis_client.connection_pool.connection_kwargs.get("db") or 0
-            )
-
-            logger.warning(
-                f"🔥 Executando FLUSHDB no Redis {redis_url}:{redis_port} DB={redis_db}"
-            )
-
-            keys_before = redis_client.keys("transcription_job:*")
-            report["jobs_removed"] = len(keys_before)
-
-            redis_client.flushdb()
-            report["redis_flushed"] = True
-
-            logger.info(
-                f"✅ Redis FLUSHDB executado: {len(keys_before)} jobs + "
-                f"todas as outras keys removidas"
-            )
-        except Exception as e:
-            logger.error(f"❌ Erro ao limpar Redis: {e}")
-            report["errors"].append(f"Redis FLUSHDB: {str(e)}")
+        redis_report = self._flush_redis_db(redis_client)
+        report["jobs_removed"] = redis_report["jobs_removed"]
+        report["redis_flushed"] = redis_report["redis_flushed"]
+        report["errors"].extend(redis_report["errors"])
 
         if purge_celery_queue:
             celery_report = await self._purge_celery_queue(redis_client)
@@ -127,64 +175,24 @@ class AdminCleanupService:
         else:
             logger.info("⏭️  Fila Celery NÃO será limpa (purge_celery_queue=false)")
 
-        upload_dir = Path(self._settings.get("upload_dir", "./data/uploads"))
-        deleted, freed_mb = self._delete_all_files(upload_dir, "Uploads")
-        report["files_deleted"] += deleted
-        report["space_freed_mb"] += freed_mb
-
-        transcription_dir = Path(
-            self._settings.get("transcription_dir", "./data/transcriptions")
-        )
-        deleted, freed_mb = self._delete_all_files(transcription_dir, "Transcriptions")
-        report["files_deleted"] += deleted
-        report["space_freed_mb"] += freed_mb
-
-        temp_dir = Path(self._settings.get("temp_dir", "./data/temp"))
-        deleted, freed_mb = self._delete_all_files(temp_dir, "Temp")
-        report["files_deleted"] += deleted
-        report["space_freed_mb"] += freed_mb
+        for dir_name, dir_key in [("uploads", "upload_dir"), ("transcriptions", "transcription_dir"), ("temp", "temp_dir")]:
+            deleted, freed_mb = self._delete_all_files(
+                Path(self._settings.get(dir_key, f"./data/{dir_name}")), dir_name.capitalize()
+            )
+            report["files_deleted"] += deleted
+            report["space_freed_mb"] += freed_mb
 
         models_dir = Path(self._settings.get("model_dir", "./models"))
-        if models_dir.exists():
-            md_count, md_size = 0, 0.0
-            for file_path in models_dir.rglob("*"):
-                if not file_path.is_file():
-                    continue
-                try:
-                    size_mb = file_path.stat().st_size / (1024 * 1024)
-                    await asyncio.to_thread(file_path.unlink)
-                    md_count += 1
-                    md_size += size_mb
-                except Exception as e:
-                    logger.error(f"❌ Erro ao remover modelo {file_path.name}: {e}")
-                    report["errors"].append(
-                        f"Models/{file_path.name}: {str(e)}"
-                    )
-
-            if md_count > 0:
-                logger.warning(f"🗑️  Models: {md_count} arquivos de modelo removidos")
-            else:
-                logger.info("✓ Models: nenhum modelo encontrado")
-
-            report["models_deleted"] = md_count
-            report["space_freed_mb"] += md_size
+        md_count, md_size, md_errors = self._delete_models_dir(models_dir)
+        report["models_deleted"] = md_count
+        report["space_freed_mb"] += md_size
+        report["errors"].extend(md_errors)
 
         report["space_freed_mb"] = round(report["space_freed_mb"], 2)
 
-        try:
-            keys_after = redis_client.keys("transcription_job:*")
-            if keys_after:
-                logger.warning(
-                    f"⚠️ {len(keys_after)} jobs salvos DURANTE a limpeza! "
-                    f"Executando FLUSHDB novamente..."
-                )
-                redis_client.flushdb()
-                report["jobs_removed"] += len(keys_after)
-            else:
-                logger.info("✓ Nenhum job novo detectado após limpeza")
-        except Exception as e:
-            logger.error(f"❌ Erro no segundo FLUSHDB: {e}")
-            report["errors"].append(f"Segundo FLUSHDB: {str(e)}")
+        extra_removed, flush_errors = await self._second_flush_if_needed(redis_client)
+        report["jobs_removed"] += extra_removed
+        report["errors"].extend(flush_errors)
 
         message = (
             f"🔥 LIMPEZA TOTAL CONCLUÍDA: "
@@ -193,10 +201,8 @@ class AdminCleanupService:
             f"{report['models_deleted']} modelos removidos "
             f"({report['space_freed_mb']}MB liberados)"
         )
-
         if report["errors"]:
             message += f" ⚠️ com {len(report['errors'])} erros"
-
         logger.warning(message)
         return report
 

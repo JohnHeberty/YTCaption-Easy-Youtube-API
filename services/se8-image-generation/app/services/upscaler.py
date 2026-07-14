@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import collections
+from typing import Any
 from common.log_utils import get_logger
 
 import numpy as np
@@ -12,7 +13,7 @@ logger = get_logger(__name__)
 _model = None
 
 
-def _load_model():
+def _load_model() -> dict[str, Any]:
     """Lazy-load ESRGAN model on first use."""
     global _model
     if _model is not None:

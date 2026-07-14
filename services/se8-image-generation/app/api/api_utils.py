@@ -13,7 +13,7 @@ import random
 from pathlib import Path
 from typing import Any
 
-from fastapi import Response
+from fastapi import Response, status
 
 from app.core.config import get_settings
 from app.domain.models import (
@@ -92,6 +92,46 @@ def req_to_params(req: CommonRequest) -> dict[str, Any]:
     refiner_switch = req.refiner_switch
     loras = [(l.model_name, l.weight) for l in req.loras if l.enabled]
 
+    uov_input_image, uov_method, upscale_value = _extract_uov_params(req)
+    inpaint_params = _extract_inpaint_params(req)
+    image_prompts = _extract_image_prompts(req)
+    enhance_params = _extract_enhance_params(req)
+    advanced_params = req.advanced_params or AdvancedParams()
+
+    return {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "style_selections": style_selections,
+        "performance_selection": performance_selection,
+        "aspect_ratios_selection": aspect_ratios_selection,
+        "image_number": image_number,
+        "image_seed": image_seed,
+        "sharpness": sharpness,
+        "guidance_scale": guidance_scale,
+        "base_model_name": base_model_name,
+        "refiner_model_name": refiner_model_name,
+        "refiner_switch": refiner_switch,
+        "loras": loras,
+        "uov_input_image": uov_input_image,
+        "uov_method": uov_method,
+        "upscale_value": upscale_value,
+        **inpaint_params,
+        "image_prompts": image_prompts,
+        "advanced_params": advanced_params,
+        "read_wildcards_in_order": req.read_wildcards_in_order,
+        "save_meta": req.save_meta,
+        "meta_scheme": req.meta_scheme,
+        "save_name": req.save_name,
+        "save_extension": req.save_extension,
+        "require_base64": req.require_base64,
+        "async_process": req.async_process,
+        "webhook_url": req.webhook_url,
+        **enhance_params,
+    }
+
+
+def _extract_uov_params(req: CommonRequest) -> tuple[Any, str, Any]:
+    """Extract upscale/vary parameters from request."""
     uov_input_image = None
     uov_method = "Disabled"
     upscale_value = None
@@ -100,7 +140,11 @@ def req_to_params(req: CommonRequest) -> dict[str, Any]:
         upscale_value = req.upscale_value
         if req.input_image:
             uov_input_image = _decode_image(req.input_image)
+    return uov_input_image, uov_method, upscale_value
 
+
+def _extract_inpaint_params(req: CommonRequest) -> dict[str, Any]:
+    """Extract inpainting/outpainting parameters from request."""
     outpaint_selections = []
     outpaint_distance_left = 0
     outpaint_distance_right = 0
@@ -124,6 +168,19 @@ def req_to_params(req: CommonRequest) -> dict[str, Any]:
                 mask = _decode_image(req.input_mask)
             inpaint_input_image = {"image": img, "mask": mask}
 
+    return {
+        "outpaint_selections": outpaint_selections,
+        "outpaint_distance_left": outpaint_distance_left,
+        "outpaint_distance_right": outpaint_distance_right,
+        "outpaint_distance_top": outpaint_distance_top,
+        "outpaint_distance_bottom": outpaint_distance_bottom,
+        "inpaint_input_image": inpaint_input_image,
+        "inpaint_additional_prompt": inpaint_additional_prompt,
+    }
+
+
+def _extract_image_prompts(req: CommonRequest) -> list:
+    """Extract image prompt list from request."""
     image_prompts = []
     if isinstance(
         req,
@@ -150,7 +207,11 @@ def req_to_params(req: CommonRequest) -> dict[str, Any]:
             )
     while len(image_prompts) < 4:
         image_prompts.append((None, 0.5, 0.6, "ImagePrompt"))
+    return image_prompts
 
+
+def _extract_enhance_params(req: CommonRequest) -> dict[str, Any]:
+    """Extract enhancement parameters from request."""
     enhance_checkbox = False
     enhance_input_image = None
     enhance_uov_method = "Disabled"
@@ -168,48 +229,13 @@ def req_to_params(req: CommonRequest) -> dict[str, Any]:
         if req.enhance_ctrlnets:
             enhance_ctrlnets = req.enhance_ctrlnets
 
-    advanced_params = req.advanced_params or AdvancedParams()
-
     return {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-        "style_selections": style_selections,
-        "performance_selection": performance_selection,
-        "aspect_ratios_selection": aspect_ratios_selection,
-        "image_number": image_number,
-        "image_seed": image_seed,
-        "sharpness": sharpness,
-        "guidance_scale": guidance_scale,
-        "base_model_name": base_model_name,
-        "refiner_model_name": refiner_model_name,
-        "refiner_switch": refiner_switch,
-        "loras": loras,
-        "uov_input_image": uov_input_image,
-        "uov_method": uov_method,
-        "upscale_value": upscale_value,
-        "outpaint_selections": outpaint_selections,
-        "outpaint_distance_left": outpaint_distance_left,
-        "outpaint_distance_right": outpaint_distance_right,
-        "outpaint_distance_top": outpaint_distance_top,
-        "outpaint_distance_bottom": outpaint_distance_bottom,
-        "inpaint_input_image": inpaint_input_image,
-        "inpaint_additional_prompt": inpaint_additional_prompt,
         "enhance_input_image": enhance_input_image,
         "enhance_checkbox": enhance_checkbox,
         "enhance_uov_method": enhance_uov_method,
         "enhance_uov_processing_order": enhance_uov_processing_order,
         "enhance_uov_prompt_type": enhance_uov_prompt_type,
         "enhance_ctrlnets": enhance_ctrlnets,
-        "image_prompts": image_prompts,
-        "advanced_params": advanced_params,
-        "read_wildcards_in_order": req.read_wildcards_in_order,
-        "save_meta": req.save_meta,
-        "meta_scheme": req.meta_scheme,
-        "save_name": req.save_name,
-        "save_extension": req.save_extension,
-        "require_base64": req.require_base64,
-        "async_process": req.async_process,
-        "webhook_url": req.webhook_url,
     }
 
 
@@ -227,7 +253,7 @@ def _decode_image(data: str) -> Any:
             data = data.split(",", 1)[1]
         img_bytes = base64.b64decode(data)
         return img_bytes
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         logger.debug("base64 decode failed, returning raw data: %s", e)
         return data
 
@@ -322,14 +348,14 @@ def generate_async_output(
 def _generate_streaming_output(results: list[ImageGenerationResult]) -> Response:
     """Generate streaming image bytes response."""
     if not results:
-        return Response(status_code=500)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     result = results[0]
     if result.finish_reason == GenerationFinishReason.queue_is_full:
-        return Response(status_code=409, content=result.finish_reason.value)
+        return Response(status_code=status.HTTP_409_CONFLICT, content=result.finish_reason.value)
     if result.finish_reason == GenerationFinishReason.user_cancel:
-        return Response(status_code=400, content=result.finish_reason.value)
+        return Response(status_code=status.HTTP_400_BAD_REQUEST, content=result.finish_reason.value)
     if result.finish_reason == GenerationFinishReason.error:
-        return Response(status_code=500, content=result.finish_reason.value)
+        return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=result.finish_reason.value)
 
     img_bytes = _output_file_to_bytes(result.im)
     return Response(img_bytes, media_type="image/png")
@@ -370,7 +396,7 @@ def _output_file_to_base64(filepath: str) -> str | None:
     try:
         with open(full_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.debug("Failed to read output file %s: %s", full_path, e)
         return None
 
@@ -384,6 +410,6 @@ def _output_file_to_bytes(filepath: str) -> bytes | None:
     try:
         with open(full_path, "rb") as f:
             return f.read()
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.debug("Failed to read output file %s: %s", full_path, e)
         return None

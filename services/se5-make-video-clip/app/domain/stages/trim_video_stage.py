@@ -38,7 +38,7 @@ class TrimVideoStage(JobStage):
         )
         self.video_builder = video_builder
     
-    def validate(self, context: StageContext):
+    def validate(self, context: StageContext) -> None:
         """Validate final video exists"""
         if not context.final_video_path or not context.final_video_path.exists():
             raise VideoProcessingException(

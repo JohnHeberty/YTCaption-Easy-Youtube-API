@@ -30,6 +30,16 @@ router = APIRouter(tags=["Jobs"])
 logger = get_logger(__name__)
 
 
+def _get_job_or_404(store: VideoDownloadJobStore, job_id: str, *, check_expired: bool = True) -> VideoDownloadJob:
+    """Retrieve a job or raise HTTP 404/410."""
+    job = store.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+    if check_expired and job.is_expired:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expired")
+    return job
+
+
 @router.post(
     "/jobs",
     summary="Create download job",
@@ -96,28 +106,19 @@ async def create_download_job(request: VideoDownloadJobRequest, store: VideoDown
 @router.get("/jobs/{job_id}", summary="Get job status", response_model=VideoDownloadJob, responses={404: {"model": ErrorResponse}, 410: {"model": ErrorResponse}})
 async def get_job_status(job_id: str, store: VideoDownloadJobStore = Depends(job_store)) -> VideoDownloadJob:
     """Retrieve the current status and details of a download job."""
-    job = store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expired")
-    return job
+    return _get_job_or_404(store, job_id)
 
 
 @router.get("/jobs/{job_id}/download", summary="Download video file", responses={404: {"description": "Job or file not found"}, 410: {"description": "Job expired"}, 425: {"description": "Download not ready"}})
 async def download_file(job_id: str, store: VideoDownloadJobStore = Depends(job_store), downloader: YDLPVideoDownloader = Depends(downloader)) -> FileResponse:
     """Download the video file for a completed job."""
-    job = store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-    if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expired")
+    job = _get_job_or_404(store, job_id)
     if job.status.value not in ("completed",):
-        raise HTTPException(status_code=425, detail=f"Download not ready. Status: {job.status}")
+        raise HTTPException(status_code=status.HTTP_425_TOO_EARLY, detail=f"Download not ready. Status: {job.status}")
 
     fp = downloader.get_file_path(job)
     if not fp or not Path(str(fp)).exists():
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
     return FileResponse(path=str(fp), filename=job.filename or f"{job_id}.mp4", media_type='application/octet-stream')
 
@@ -131,9 +132,7 @@ async def list_jobs(limit: int = Query(20, ge=1, le=200), store: VideoDownloadJo
 @router.delete("/jobs/{job_id}", summary="Delete job", response_model=DeleteJobResponse, responses={404: {"model": ErrorResponse}})
 async def delete_job(job_id: str, store: VideoDownloadJobStore = Depends(job_store)) -> dict[str, Any]:
     """Delete a download job and its associated files."""
-    job = store.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    job = _get_job_or_404(store, job_id, check_expired=False)
     files_deleted = 0
     if job.file_path:
         try:

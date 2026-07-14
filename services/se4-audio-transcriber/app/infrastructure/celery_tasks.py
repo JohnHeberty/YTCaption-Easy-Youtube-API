@@ -92,6 +92,48 @@ class TranscriptionTask(Task):
                 self._processor.job_store = self._job_store
         return self._job_store
 
+def _reconstruct_job(job_dict: dict[str, Any], job_id: str) -> Job | None:
+    """Reconstruct a Job from a serialized dict. Returns None and marks FAILED on error."""
+    from pydantic import ValidationError
+
+    try:
+        job = Job(**job_dict)
+        logger.info(f"✅ Job {job_id} reconstituído com sucesso")
+        return job
+    except ValidationError as ve:
+        logger.error(f"❌ Erro de validação ao reconstituir job {job_id}: {ve}")
+        try:
+            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+            store = RedisJobStore(redis_url=redis_url)
+            minimal_job = Job(
+                id=job_id,
+                status=JobStatus.FAILED,
+                error_message=f"Schema inválido: {str(ve)}. Job precisa ser recriado com schema atualizado.",
+                input_file=job_dict.get('input_file', 'unknown'),
+                operation=job_dict.get('operation', 'transcribe'),
+                created_at=now_brazil(),
+                received_at=now_brazil(),
+                expires_at=now_brazil() + timedelta(hours=24),
+            )
+            store.save_job(minimal_job)
+            logger.info(f"✅ Job {job_id} marcado como FAILED por schema inválido")
+        except Exception as store_err:
+            logger.error(f"❌ Não foi possível marcar job {job_id} como FAILED: {store_err}")
+        return None
+
+
+def _mark_job_failed(job: Job, error_msg: str, store: RedisJobStore) -> None:
+    """Mark a job as FAILED in Redis with the given error message."""
+    job.status = JobStatus.FAILED
+    job.error_message = error_msg
+    job.completed_at = now_brazil()
+    job.updated_at = now_brazil()
+    job.progress = 0.0
+    try:
+        store.update_job(job)
+    except Exception as store_err:
+        logger.error(f"Erro ao atualizar Redis: {store_err}")
+
 @celery_app.task(
     bind=True, 
     base=TranscriptionTask, 
@@ -116,7 +158,6 @@ def transcribe_audio_task(self, job_dict: dict[str, Any]) -> None:
     - Hard timeout: 60 minutos
     """
     from celery.exceptions import Ignore, WorkerLostError, SoftTimeLimitExceeded
-    from pydantic import ValidationError
     import traceback
     import sys
     
@@ -127,45 +168,16 @@ def transcribe_audio_task(self, job_dict: dict[str, Any]) -> None:
     job = None
     
     try:
-        # Reconstitui job
-        try:
-            job = Job(**job_dict)
-            logger.info(f"✅ Job {job_id} reconstituído com sucesso")
-        except ValidationError as ve:
-            logger.error(f"❌ Erro de validação ao reconstituir job {job_id}: {ve}")
-            
-            # Tenta marcar job como FAILED no Redis
-            try:
-                redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
-                store = RedisJobStore(redis_url=redis_url)
-                
-                # Cria job mínimo com erro
-                minimal_job = Job(
-                    id=job_id,
-                    status=JobStatus.FAILED,
-                    error_message=f"Schema inválido: {str(ve)}. Job precisa ser recriado com schema atualizado.",
-                    input_file=job_dict.get('input_file', 'unknown'),
-                    operation=job_dict.get('operation', 'transcribe'),
-                    created_at=now_brazil(),
-                    received_at=now_brazil(),
-                    expires_at=now_brazil() + timedelta(hours=24)
-                )
-                store.save_job(minimal_job)
-                logger.info(f"✅ Job {job_id} marcado como FAILED por schema inválido")
-            except Exception as store_err:
-                logger.error(f"❌ Não foi possível marcar job {job_id} como FAILED: {store_err}")
-            
-            # Não usa update_state que causa problemas de serialização
+        job = _reconstruct_job(job_dict, job_id)
+        if job is None:
             raise Ignore()
         
-        # Atualiza status
         job.status = JobStatus.PROCESSING
-        job.started_at = now_brazil()  # Marca quando começou
+        job.started_at = now_brazil()
         job.updated_at = now_brazil()
         job.progress = 0.0
         self.job_store.update_job(job)
         
-        # Processa transcrição
         try:
             result_job = self.processor.transcribe_audio(job)
             self.job_store.update_job(result_job)
@@ -175,43 +187,25 @@ def transcribe_audio_task(self, job_dict: dict[str, Any]) -> None:
             if result_job.status == JobStatus.COMPLETED:
                 return result_job.model_dump()
             else:
-                # Job falhou no processor
                 logger.error(f"❌ Job {job_id} falhou: {result_job.error_message}")
                 raise Ignore()
             
         except SoftTimeLimitExceeded:
             logger.error(f"⏰ Job {job_id} excedeu soft time limit")
-            job.status = JobStatus.FAILED
-            job.error_message = "Transcrição excedeu o tempo limite (45 minutos)"
-            job.completed_at = now_brazil()
-            job.updated_at = now_brazil()
-            job.progress = 0.0
-            self.job_store.update_job(job)
+            _mark_job_failed(job, "Transcrição excedeu o tempo limite (45 minutos)", self.job_store)
             raise Ignore()
             
     except WorkerLostError as worker_lost_err:
         error_msg = f"Worker perdido durante processamento (provável OOM): {str(worker_lost_err)}"
         logger.critical(f"💀 Job {job_id} WORKER LOST: {error_msg}")
-        
         if job:
-            job.status = JobStatus.FAILED
-            job.error_message = error_msg
-            job.completed_at = now_brazil()
-            job.updated_at = now_brazil()
-            job.progress = 0.0
-            try:
-                self.job_store.update_job(job)
-            except Exception as store_err:
-                logger.error(f"Erro ao atualizar Redis: {store_err}")
-        
+            _mark_job_failed(job, error_msg, self.job_store)
         raise Ignore()
         
     except Ignore:
-        # Re-raise Ignore sem processar
         raise
         
     except Exception as e:
-        # Captura todas as outras exceções
         exc_type, exc_value, exc_tb = sys.exc_info()
         error_msg = str(e)
         error_traceback = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -220,17 +214,8 @@ def transcribe_audio_task(self, job_dict: dict[str, Any]) -> None:
         logger.error(f"Traceback:\n{error_traceback}")
         
         if job:
-            job.status = JobStatus.FAILED
-            job.error_message = error_msg
-            job.completed_at = now_brazil()
-            job.updated_at = now_brazil()
-            job.progress = 0.0
-            try:
-                self.job_store.update_job(job)
-            except Exception as store_err:
-                logger.error(f"Erro ao atualizar Redis: {store_err}")
+            _mark_job_failed(job, error_msg, self.job_store)
         
-        # Usa Ignore para evitar problemas de serialização do Celery
         raise Ignore()
 
 @celery_app.task(name='cleanup_expired_jobs')

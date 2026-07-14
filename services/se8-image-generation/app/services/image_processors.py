@@ -63,7 +63,7 @@ def apply_freeu(async_task, pipeline: Any) -> None:
                 async_task.freeu_s1,
                 async_task.freeu_s2,
             )
-    except Exception as e:
+    except (RuntimeError, ValueError) as e:
         logger.warning("Failed to apply FreeU: %s", e)
 
 
@@ -97,7 +97,7 @@ def apply_controlnet(
 
     try:
         controlnet = load_controlnet(openpose_path)
-    except Exception as e:
+    except (RuntimeError, OSError) as e:
         logger.warning("Failed to load OpenPose ControlNet: %s", e)
         return positive_cond, negative_cond
 
@@ -108,7 +108,7 @@ def apply_controlnet(
             img_bytes = base64.b64decode(img_b64)
             img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
             return np.array(img).astype(np.uint8)
-        except Exception as e:
+        except (ValueError, OSError) as e:
             logger.warning("Failed to decode control image: %s", e)
             return None
 
@@ -116,7 +116,7 @@ def apply_controlnet(
         try:
             img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
             return np.array(img).astype(np.uint8)
-        except Exception as e:
+        except (ValueError, OSError) as e:
             logger.warning("Failed to decode control image bytes: %s", e)
             return None
 
@@ -161,7 +161,7 @@ def apply_controlnet(
                 end_percent=float(cn_stop),
             )
             logger.info("Applied OpenPose ControlNet | weight=%.2f stop=%.2f", cn_weight, cn_stop)
-        except Exception as e:
+        except (RuntimeError, ValueError) as e:
             logger.warning("Failed to apply OpenPose ControlNet: %s", e)
 
     return positive_cond, negative_cond

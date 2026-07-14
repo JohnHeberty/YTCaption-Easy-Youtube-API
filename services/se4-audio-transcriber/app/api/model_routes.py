@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from common.log_utils import get_logger
@@ -28,19 +28,19 @@ async def load_whisper_model(processor: TranscriptionProcessor = Depends(process
             logger.info(f"✅ Modelo carregado: {result['message']}")
             return JSONResponse(
                 content=result,
-                status_code=200
+                status_code=status.HTTP_200_OK
             )
         else:
             logger.error(f"❌ Falha ao carregar: {result['message']}")
             return JSONResponse(
                 content=result,
-                status_code=500
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     except Exception as e:
         error_msg = f"Erro inesperado ao carregar modelo: {str(e)}"
         logger.error(f"❌ {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_msg)
 
 
 @router.post("/unload", summary="Unload Whisper model", response_model=ModelActionResponse, responses={500: {"description": "Failed to unload model"}})
@@ -54,28 +54,28 @@ async def unload_whisper_model(processor: TranscriptionProcessor = Depends(proce
             logger.info(f"✅ Modelo descarregado: {result['message']}")
             return JSONResponse(
                 content=result,
-                status_code=200
+                status_code=status.HTTP_200_OK
             )
         else:
             logger.error(f"❌ Falha ao descarregar: {result['message']}")
             return JSONResponse(
                 content=result,
-                status_code=500
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
     except Exception as e:
         error_msg = f"Erro inesperado ao descarregar modelo: {str(e)}"
         logger.error(f"❌ {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_msg)
 
 
 @router.get("/status", summary="Model status", response_model=ModelStatusResponse, responses={500: {"description": "Failed to get model status"}})
 async def get_model_status(processor: TranscriptionProcessor = Depends(processor)) -> JSONResponse:
     """Query the current loading status and metadata of the Whisper model."""
     try:
-        status: dict[str, Any] = processor.get_model_status()
-        return JSONResponse(content=status, status_code=200)
+        model_status: dict[str, Any] = processor.get_model_status()
+        return JSONResponse(content=model_status, status_code=status.HTTP_200_OK)
     except Exception as e:
         error_msg = f"Erro ao consultar status do modelo: {str(e)}"
         logger.error(f"❌ {error_msg}")
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=error_msg)

@@ -16,7 +16,7 @@ class TimeoutError(Exception):
     pass
 
 
-def timeout_handler(signum, frame):
+def timeout_handler(signum: int, frame: Any) -> None:
     """Handler para sinal de timeout"""
     raise TimeoutError("Operation timed out")
 

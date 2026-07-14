@@ -136,196 +136,237 @@ def process_generate(async_job: QueueTask) -> None:
     """
     inpaint_worker_ref = None
     try:
-        # Build async task from request params
         async_task = build_async_task(async_job.req_param)
-
-        # Import pipeline
         from app.services.pipeline import get_pipeline
         pipeline = get_pipeline()
-
-        # Create outputs collector
         outputs = TaskOutputs(async_job)
 
-        # Start progress
         async_job.set_progress(0, "Starting...")
         async_job.task_status = "Processing"
 
-        # Step 1: Parse image prompts
-        if async_task.image_prompts:
-            cn_tasks = parse_image_prompts(async_task.image_prompts)
-            async_task.cn_tasks.update(cn_tasks)
+        tasks, use_expansion, loras = _prepare_generation(async_task, pipeline, async_job)
 
-        # Step 2: Process prompt (refresh models, encode text)
-        tasks, use_expansion, loras, progress = process_prompt(async_task, pipeline)
-        async_job.set_progress(10, "Prompt processed")
+        vary_state, inpaint_state, upscale_state = _apply_image_modes(async_task, tasks, pipeline)
 
-        # Step 3: Apply image input modes
-        vary_state = {}
-        inpaint_state = {}
-        upscale_state = {}
-
-        if async_task.uov_method:
-            if async_task.uov_method in ("subtle_variation", "strong_variation"):
-                tasks, vary_state = apply_vary(async_task, tasks)
-            else:
-                tasks, upscale_state = apply_upscale(async_task, tasks)
-
-        if async_task.inpaint_input_image:
-            tasks, inpaint_state = apply_inpaint(async_task, tasks, pipeline)
-
-        # Step 3c: Apply IP-Adapter (visual reference from original image)
-        _apply_ip_adapter(async_task, pipeline)
-
-        # Step 3b: InpaintWorker reference for post_process
-        inpaint_worker_ref = None
-        if inpaint_state.get("mode") == "inpaint":
-            inpaint_worker_ref = inpaint_state["worker"]
-            logger.info("InpaintWorker: crop=%dx%d, will post_process after diffusion",
-                        inpaint_worker_ref.interested_image.shape[1],
-                        inpaint_worker_ref.interested_image.shape[0])
-
-        # Step 4: Apply FreeU
+        inpaint_worker_ref = _get_inpaint_worker_ref(inpaint_state)
         apply_freeu(async_task, pipeline)
 
-        # Step 5: Run diffusion for each task
-        all_images = []
-        total_tasks = len(tasks)
-
-        for idx, task in enumerate(tasks):
-            # Check for interrupt
-            try:
-                from app.services.model_manager import get_model_manager
-                if get_model_manager().processing_interrupted():
-                    async_job.set_result([], True, "Interrupted by user")
-                    return
-            except Exception as exc:
-                logger.debug("Interrupt check failed (non-fatal): %s", exc)
-
-            progress = 20 + int(70 * idx / max(total_tasks, 1))
-            async_job.set_progress(progress, f"Generating {idx + 1}/{total_tasks}")
-
-            def progress_callback(step, x0=None, x=None, total=None, preview=None):
-                total_steps = total if total is not None else 30
-                step_progress = 20 + int(70 * (idx + step / max(total_steps, 1)) / max(total_tasks, 1))
-                async_job.set_progress(step_progress, f"Step {step}/{total_steps}")
-                if x0 is not None:
-                    try:
-                        import numpy as np
-                        from PIL import Image
-                        if isinstance(x0, np.ndarray):
-                            img = Image.fromarray(x0)
-                            buf = io.BytesIO()
-                            img.save(buf, format="PNG")
-                            b64 = base64.b64encode(buf.getvalue()).decode()
-                            async_job.set_step_preview(f"data:image/png;base64,{b64}")
-                    except Exception as exc:
-                        logger.debug("Step preview encode failed (non-fatal): %s", exc)
-
-            imgs = _process_diffusion(pipeline, async_task, task, progress_callback, inpaint_state=inpaint_state)
-
-            # Post-process inpaint: paste crop back into original image
-            if inpaint_worker_ref is not None and imgs:
-                postprocessed = []
-                for img in imgs:
-                    try:
-                        result = inpaint_worker_ref.post_process(img)
-                        postprocessed.append(result)
-                    except Exception as e:
-                        logger.warning("InpaintWorker post_process failed: %s", e)
-                        postprocessed.append(img)
-                imgs = postprocessed
-
-            all_images.extend(imgs)
-
-        # Step 6: Save results
-        async_job.set_progress(95, "Saving results...")
-        img_paths = save_and_log(
-            async_task, all_images, loras, use_expansion,
-            tasks[0]["width"] if tasks else 1024,
-            tasks[0]["height"] if tasks else 1024,
+        all_images = _run_diffusion_loop(
+            async_task, pipeline, tasks, async_job, inpaint_state, inpaint_worker_ref
         )
 
-        # Step 7: Build results
-        results = []
-        for i, path in enumerate(img_paths):
-            seed = tasks[i]["seed"] if i < len(tasks) else 0
-            if async_task.require_base64:
-                try:
-                    with open(path, "rb") as f:
-                        b64 = base64.b64encode(f.read()).decode()
-                    results.append(ImageGenerationResult(
-                        im=None,
-                        seed=str(seed),
-                        finish_reason=GenerationFinishReason.SUCCESS,
-                    ))
-                    results[-1].im = f"data:image/png;base64,{b64}"
-                except Exception as e:
-                    logger.debug("Failed to base64-encode result image: %s", e)
-                    results.append(ImageGenerationResult(
-                        im=path, seed=str(seed),
-                        finish_reason=GenerationFinishReason.SUCCESS,
-                    ))
-            else:
-                results.append(ImageGenerationResult(
-                    im=path, seed=str(seed),
-                    finish_reason=GenerationFinishReason.SUCCESS,
-                ))
-
-        async_job.set_result(results, False)
-        async_job.set_progress(100, "Finished")
-
-        # Prepare encoder for next task
-        pipeline.prepare_text_encoder(async_call=True)
-
-        # Post-generation memory cleanup
-        import gc
-        pipeline.clear_caches()
-        gc.collect()
+        _finalize_generation(async_task, all_images, loras, use_expansion, tasks, async_job, pipeline)
 
     except Exception as e:
         logger.exception("Generation failed: %s", e)
         async_job.set_result([], True, str(e))
     finally:
-        # Clean up InpaintWorker reference and global state
-        inpaint_worker_ref = None
-        try:
-            import modules.inpaint_worker
-            modules.inpaint_worker.current_task = None
-        except (ImportError, AttributeError):
-            pass
+        _cleanup_generation(async_job)
 
-        # Clear pipeline caches
-        try:
-            _p = get_pipeline()
-            _p.loaded_controlnets.clear()
-            _p._clip_cond_cache.clear()
-        except Exception as exc:
-            logger.debug("Pipeline cache clear failed (non-fatal): %s", exc)
 
-        # Unload SE8 model_manager
-        try:
-            from app.services.model_manager import get_model_manager
-            get_model_manager().unload_all()
-        except Exception as exc:
-            logger.debug("Model manager unload failed (non-fatal): %s", exc)
+def _prepare_generation(async_task: Any, pipeline: Any, async_job: QueueTask) -> tuple:
+    """Parse prompts, refresh models, return (tasks, use_expansion, loras)."""
+    if async_task.image_prompts:
+        cn_tasks = parse_image_prompts(async_task.image_prompts)
+        async_task.cn_tasks.update(cn_tasks)
 
-        # Offload GPU models to free VRAM
-        try:
-            import ldm_patched.modules.model_management as model_management
-            model_management.unload_all_models()
-            model_management.soft_empty_cache()
-        except Exception as exc:
-            logger.debug("GPU model offload failed (non-fatal): %s", exc)
+    tasks, use_expansion, loras, progress = process_prompt(async_task, pipeline)
+    async_job.set_progress(10, "Prompt processed")
+    return tasks, use_expansion, loras
 
-        # Full CUDA cleanup (gc → sync → cache → ipc → malloc_trim)
-        try:
-            from common.gpu_utils import cleanup_cuda
-            cleanup_cuda()
-        except Exception as exc:
-            logger.debug("cleanup_cuda failed (non-fatal): %s", exc)
 
-        if worker_queue:
-            worker_queue.finish_task(async_job.job_id)
+def _apply_image_modes(async_task: Any, tasks: list, pipeline: Any) -> tuple:
+    """Apply vary/upscale/inpaint modes. Returns (vary_state, inpaint_state, upscale_state)."""
+    vary_state = {}
+    inpaint_state = {}
+    upscale_state = {}
+
+    if async_task.uov_method:
+        if async_task.uov_method in ("subtle_variation", "strong_variation"):
+            tasks, vary_state = apply_vary(async_task, tasks)
+        else:
+            tasks, upscale_state = apply_upscale(async_task, tasks)
+
+    if async_task.inpaint_input_image:
+        tasks, inpaint_state = apply_inpaint(async_task, tasks, pipeline)
+
+    _apply_ip_adapter(async_task, pipeline)
+    return vary_state, inpaint_state, upscale_state
+
+
+def _get_inpaint_worker_ref(inpaint_state: dict) -> Any:
+    """Extract InpaintWorker reference from inpaint state."""
+    if inpaint_state.get("mode") == "inpaint":
+        worker_ref = inpaint_state["worker"]
+        logger.info("InpaintWorker: crop=%dx%d, will post_process after diffusion",
+                    worker_ref.interested_image.shape[1],
+                    worker_ref.interested_image.shape[0])
+        return worker_ref
+    return None
+
+
+def _run_diffusion_loop(
+    async_task: Any, pipeline: Any, tasks: list, async_job: QueueTask,
+    inpaint_state: dict, inpaint_worker_ref: Any,
+) -> list:
+    """Run diffusion for each task, collect all images."""
+    all_images = []
+    total_tasks = len(tasks)
+
+    for idx, task in enumerate(tasks):
+        if _check_interrupt(async_job):
+            return all_images
+
+        progress = 20 + int(70 * idx / max(total_tasks, 1))
+        async_job.set_progress(progress, f"Generating {idx + 1}/{total_tasks}")
+
+        def progress_callback(step, x0=None, x=None, total=None, preview=None) -> None:
+            total_steps = total if total is not None else 30
+            step_progress = 20 + int(70 * (idx + step / max(total_steps, 1)) / max(total_tasks, 1))
+            async_job.set_progress(step_progress, f"Step {step}/{total_steps}")
+            if x0 is not None:
+                _encode_step_preview(x0, async_job)
+
+        imgs = _process_diffusion(pipeline, async_task, task, progress_callback, inpaint_state=inpaint_state)
+
+        if inpaint_worker_ref is not None and imgs:
+            imgs = _postprocess_inpaint(inpaint_worker_ref, imgs)
+
+        all_images.extend(imgs)
+
+    return all_images
+
+
+def _check_interrupt(async_job: QueueTask) -> bool:
+    """Check if processing was interrupted. Returns True if interrupted."""
+    try:
+        from app.services.model_manager import get_model_manager
+        if get_model_manager().processing_interrupted():
+            async_job.set_result([], True, "Interrupted by user")
+            return True
+    except (RuntimeError, AttributeError) as exc:
+        logger.debug("Interrupt check failed (non-fatal): %s", exc)
+    return False
+
+
+def _encode_step_preview(x0: Any, async_job: QueueTask) -> None:
+    """Encode step preview image to base64 and set on async_job."""
+    try:
+        import numpy as np
+        from PIL import Image
+        if isinstance(x0, np.ndarray):
+            img = Image.fromarray(x0)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode()
+            async_job.set_step_preview(f"data:image/png;base64,{b64}")
+    except (ValueError, TypeError, OSError) as exc:
+        logger.debug("Step preview encode failed (non-fatal): %s", exc)
+
+
+def _postprocess_inpaint(inpaint_worker_ref: Any, imgs: list) -> list:
+    """Paste inpaint crop back into original image."""
+    postprocessed = []
+    for img in imgs:
+        try:
+            result = inpaint_worker_ref.post_process(img)
+            postprocessed.append(result)
+        except Exception as e:
+            logger.warning("InpaintWorker post_process failed: %s", e)
+            postprocessed.append(img)
+    return postprocessed
+
+
+def _finalize_generation(
+    async_task: Any, all_images: list, loras: Any, use_expansion: bool,
+    tasks: list, async_job: QueueTask, pipeline: Any
+) -> None:
+    """Save results, build response, cleanup."""
+    async_job.set_progress(95, "Saving results...")
+    img_paths = save_and_log(
+        async_task, all_images, loras, use_expansion,
+        tasks[0]["width"] if tasks else 1024,
+        tasks[0]["height"] if tasks else 1024,
+    )
+
+    results = _build_generation_results(img_paths, tasks, async_task)
+
+    async_job.set_result(results, False)
+    async_job.set_progress(100, "Finished")
+    pipeline.prepare_text_encoder(async_call=True)
+
+    import gc
+    pipeline.clear_caches()
+    gc.collect()
+
+
+def _build_generation_results(
+    img_paths: list, tasks: list, async_task: Any
+) -> list[ImageGenerationResult]:
+    """Build ImageGenerationResult list from saved image paths."""
+    results = []
+    for i, path in enumerate(img_paths):
+        seed = tasks[i]["seed"] if i < len(tasks) else 0
+        if async_task.require_base64:
+            try:
+                with open(path, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode()
+                result = ImageGenerationResult(
+                    im=None, seed=str(seed),
+                    finish_reason=GenerationFinishReason.SUCCESS,
+                )
+                result.im = f"data:image/png;base64,{b64}"
+                results.append(result)
+            except (OSError, ValueError) as e:
+                logger.debug("Failed to base64-encode result image: %s", e)
+                results.append(ImageGenerationResult(
+                    im=path, seed=str(seed),
+                    finish_reason=GenerationFinishReason.SUCCESS,
+                ))
+        else:
+            results.append(ImageGenerationResult(
+                im=path, seed=str(seed),
+                finish_reason=GenerationFinishReason.SUCCESS,
+            ))
+    return results
+
+
+def _cleanup_generation(async_job: QueueTask) -> None:
+    """Cleanup resources after generation (always runs)."""
+    try:
+        import modules.inpaint_worker
+        modules.inpaint_worker.current_task = None
+    except (ImportError, AttributeError):
+        pass
+
+    try:
+        _p = get_pipeline()
+        _p.loaded_controlnets.clear()
+        _p._clip_cond_cache.clear()
+    except Exception as exc:
+        logger.debug("Pipeline cache clear failed (non-fatal): %s", exc)
+
+    try:
+        from app.services.model_manager import get_model_manager
+        get_model_manager().unload_all()
+    except Exception as exc:
+        logger.debug("Model manager unload failed (non-fatal): %s", exc)
+
+    try:
+        import ldm_patched.modules.model_management as model_management
+        model_management.unload_all_models()
+        model_management.soft_empty_cache()
+    except Exception as exc:
+        logger.debug("GPU model offload failed (non-fatal): %s", exc)
+
+    try:
+        from common.gpu_utils import cleanup_cuda
+        cleanup_cuda()
+    except Exception as exc:
+        logger.debug("cleanup_cuda failed (non-fatal): %s", exc)
+
+    if worker_queue:
+        worker_queue.finish_task(async_job.job_id)
 
 
 def task_schedule_loop() -> None:
@@ -377,7 +418,7 @@ def task_schedule_loop() -> None:
                             import sys
                             os.execv(sys.executable, ["python3.11", "-m", "uvicorn", "app.main:app",
                                                        "--host", "0.0.0.0", "--port", "8008"])
-                    except Exception as exc:
+                    except (OSError, ValueError) as exc:
                         logger.debug("RSS check failed (non-fatal): %s", exc)
             except Exception as e:
                 logger.exception("Task failed: %s", e)

@@ -10,7 +10,7 @@ from typing import Any
 
 from common.log_utils import get_logger
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, status
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
@@ -60,7 +60,7 @@ def _get_job_manager(job_manager: Any = None) -> Any:
 
 def _unavailable() -> JSONResponse:
     return JSONResponse(
-        status_code=503,
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         content=ErrorResponse(error="SERVICE_UNAVAILABLE", message="Job service unavailable").model_dump(),
     )
 
@@ -125,9 +125,9 @@ async def get_job(job_id: str) -> Any:
         mgr = _get_job_manager()
         return mgr.get_job(job_id)
     except JobNotFoundError:
-        return JSONResponse(status_code=404, content=ErrorResponse(error="JOB_NOT_FOUND", message=f"Job {job_id} not found").model_dump())
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=ErrorResponse(error="JOB_NOT_FOUND", message=f"Job {job_id} not found").model_dump())
     except JobExpiredError:
-        return JSONResponse(status_code=410, content=ErrorResponse(error="JOB_EXPIRED", message=f"Job {job_id} has expired").model_dump())
+        return JSONResponse(status_code=status.HTTP_410_GONE, content=ErrorResponse(error="JOB_EXPIRED", message=f"Job {job_id} has expired").model_dump())
     except Exception as e:
         logger.warning("Jobs unavailable (Redis not connected): %s", e)
         return _unavailable()
@@ -150,7 +150,7 @@ async def delete_job(job_id: str) -> DeleteJobResponse:
         mgr.delete_job(job_id)
         return DeleteJobResponse(message=f"Job {job_id} deleted", job_id=job_id)
     except JobNotFoundError:
-        return JSONResponse(status_code=404, content=ErrorResponse(error="JOB_NOT_FOUND", message=f"Job {job_id} not found").model_dump())
+        return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content=ErrorResponse(error="JOB_NOT_FOUND", message=f"Job {job_id} not found").model_dump())
     except Exception as e:
         logger.warning("Jobs unavailable (Redis not connected): %s", e)
         return _unavailable()

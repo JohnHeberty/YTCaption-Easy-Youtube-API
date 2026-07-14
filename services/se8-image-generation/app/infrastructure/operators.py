@@ -78,7 +78,7 @@ class VAEDecode:
         import torch
         try:
             return vae.decode(latent)
-        except Exception as e:
+        except (RuntimeError, OSError) as e:
             logger.warning(f"VAE decode failed: {e}, trying with fp32")
             with torch.autocast("cuda", enabled=False):
                 return vae.decode(latent.float())
@@ -175,7 +175,7 @@ class FreeU_V2:
         }
         on_cpu_devices = {}
 
-        def fourier_filter(x, threshold, scale):
+        def fourier_filter(x, threshold, scale) -> Any:
             """Apply Fourier filter to tensor."""
             x_freq = torch.fft.fftn(x.float(), dim=(-2, -1))
             x_freq = torch.fft.fftshift(x_freq, dim=(-2, -1))
@@ -191,7 +191,7 @@ class FreeU_V2:
             x_filtered = torch.fft.ifftn(x_freq, dim=(-2, -1)).real
             return x_filtered.to(x.dtype)
 
-        def output_block_patch(h, hsp, transformer_options):
+        def output_block_patch(h, hsp, transformer_options) -> tuple[Any, Any]:
             """Patch output blocks with FreeU scaling."""
             scale = scale_dict.get(h.shape[1], None)
             if scale is not None:
@@ -201,7 +201,7 @@ class FreeU_V2:
                 if hsp.device not in on_cpu_devices:
                     try:
                         hsp = fourier_filter(hsp, threshold=1, scale=scale[1])
-                    except Exception:
+                    except RuntimeError:
                         logger.debug(f"Device {hsp.device} doesn't support torch.fft, using CPU")
                         on_cpu_devices[hsp.device] = True
                         hsp = fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)

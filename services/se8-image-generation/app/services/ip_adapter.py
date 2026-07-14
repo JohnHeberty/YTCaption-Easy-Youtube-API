@@ -1,7 +1,7 @@
 """IP-Adapter — CLIP vision encoding + cross-attention injection."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from common.log_utils import get_logger
 
@@ -116,7 +116,7 @@ class IPAdapterModel(nn.Module):
             proj_sd = {k.replace("image_proj.", "").replace("proj.", ""): state_dict[k] for k in proj_keys}
             try:
                 self.image_proj_model.load_state_dict(proj_sd, strict=False)
-            except Exception as e:
+            except (RuntimeError, ValueError) as e:
                 logger.warning("Failed to load image proj weights: %s", e)
 
         ip_keys = [k for k in state_dict.keys() if "ip_layers" in k]
@@ -283,9 +283,9 @@ def _set_ip_adapter_patches(model, ip_kvs, ip_unconds, task_idx: int) -> None:
     # Output block indices for IP-Adapter
     output_block_indices = list(range(6))
 
-    def make_attn_patcher(ip_index):
+    def make_attn_patcher(ip_index: int) -> Callable[..., Any]:
         """Create a closure that patches a specific attention layer."""
-        def patcher(attn2, extra_options):
+        def patcher(attn2, extra_options) -> Any:
             # Original attention
             q = extra_options["query"]
             k = extra_options["key"]

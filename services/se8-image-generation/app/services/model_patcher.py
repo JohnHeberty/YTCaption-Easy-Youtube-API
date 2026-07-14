@@ -19,7 +19,7 @@ from typing import Any
 logger = get_logger(__name__)
 
 
-def _cast_to_device(tensor, device, dtype, copy=False):
+def _cast_to_device(tensor: Any, device: Any, dtype: Any, copy: bool = False) -> Any:
     """Cast tensor to device and dtype with non-blocking where possible."""
     device_supports_cast = False
     if tensor.dtype in (float, type(float)):
@@ -51,6 +51,140 @@ def _module_size(module) -> int:
         t = sd[k]
         mem += t.nelement() * t.element_size()
     return mem
+
+
+def _apply_diff(weight: Any, alpha: float, v: Any, key: str) -> Any:
+    """Apply diff patch to weight tensor."""
+    w1 = v[0]
+    if alpha != 0.0:
+        if w1.shape != weight.shape:
+            logger.warning("SHAPE MISMATCH %s: %s != %s — weight not merged", key, w1.shape, weight.shape)
+        else:
+            weight += alpha * _cast_to_device(w1, weight.device, weight.dtype)
+    return weight
+
+
+def _apply_lora(weight: Any, alpha: float, v: Any, key: str) -> Any:
+    """Apply LoRA patch to weight tensor."""
+    mat1 = _cast_to_device(v[0], weight.device, float)
+    mat2 = _cast_to_device(v[1], weight.device, float)
+    if v[2] is not None:
+        alpha *= v[2] / mat2.shape[0]
+    if v[3] is not None:
+        mat3 = _cast_to_device(v[3], weight.device, float)
+        final_shape = [mat2.shape[1], mat2.shape[0], mat3.shape[2], mat3.shape[3]]
+        mat2 = torch.mm(
+            mat2.transpose(0, 1).flatten(start_dim=1),
+            mat3.transpose(0, 1).flatten(start_dim=1),
+        ).reshape(final_shape).transpose(0, 1)
+    try:
+        weight += (alpha * torch.mm(
+            mat1.flatten(start_dim=1), mat2.flatten(start_dim=1)
+        )).reshape(weight.shape).type(weight.dtype)
+    except (RuntimeError, ValueError) as e:
+        logger.error("LoRA patch error for key %s: %s", key, e)
+    return weight
+
+
+def _apply_lokr(weight: Any, alpha: float, v: Any, key: str) -> Any:
+    """Apply LoKr patch to weight tensor."""
+    w1 = v[0]
+    w2 = v[1]
+    w1_a, w1_b = v[3], v[4]
+    w2_a, w2_b = v[5], v[6]
+    t2 = v[7]
+    dim = None
+
+    if w1 is None:
+        dim = w1_b.shape[0]
+        w1 = torch.mm(
+            _cast_to_device(w1_a, weight.device, float),
+            _cast_to_device(w1_b, weight.device, float),
+        )
+    else:
+        w1 = _cast_to_device(w1, weight.device, float)
+
+    if w2 is None:
+        dim = w2_b.shape[0]
+        if t2 is None:
+            w2 = torch.mm(
+                _cast_to_device(w2_a, weight.device, float),
+                _cast_to_device(w2_b, weight.device, float),
+            )
+        else:
+            w2 = torch.einsum(
+                'i j k l, j r, i p -> p r k l',
+                _cast_to_device(t2, weight.device, float),
+                _cast_to_device(w2_b, weight.device, float),
+                _cast_to_device(w2_a, weight.device, float),
+            )
+    else:
+        w2 = _cast_to_device(w2, weight.device, float)
+
+    if len(w2.shape) == 4:
+        w1 = w1.unsqueeze(2).unsqueeze(2)
+    if v[2] is not None and dim is not None:
+        alpha *= v[2] / dim
+
+    try:
+        weight += alpha * torch.kron(w1, w2).reshape(weight.shape).type(weight.dtype)
+    except (RuntimeError, ValueError) as e:
+        logger.error("LoKr patch error for key %s: %s", key, e)
+    return weight
+
+
+def _apply_loha(weight: Any, alpha: float, v: Any, key: str) -> Any:
+    """Apply LoHa patch to weight tensor."""
+    w1a, w1b = v[0], v[1]
+    if v[2] is not None:
+        alpha *= v[2] / w1b.shape[0]
+    w2a, w2b = v[3], v[4]
+
+    if v[5] is not None:
+        t1, t2 = v[5], v[6]
+        m1 = torch.einsum(
+            'i j k l, j r, i p -> p r k l',
+            _cast_to_device(t1, weight.device, float),
+            _cast_to_device(w1b, weight.device, float),
+            _cast_to_device(w1a, weight.device, float),
+        )
+        m2 = torch.einsum(
+            'i j k l, j r, i p -> p r k l',
+            _cast_to_device(t2, weight.device, float),
+            _cast_to_device(w2b, weight.device, float),
+            _cast_to_device(w2a, weight.device, float),
+        )
+    else:
+        m1 = torch.mm(
+            _cast_to_device(w1a, weight.device, float),
+            _cast_to_device(w1b, weight.device, float),
+        )
+        m2 = torch.mm(
+            _cast_to_device(w2a, weight.device, float),
+            _cast_to_device(w2b, weight.device, float),
+        )
+
+    try:
+        weight += (alpha * m1 * m2).reshape(weight.shape).type(weight.dtype)
+    except (RuntimeError, ValueError) as e:
+        logger.error("LoHa patch error for key %s: %s", key, e)
+    return weight
+
+
+def _apply_glora(weight: Any, alpha: float, v: Any, key: str) -> Any:
+    """Apply GLoRA patch to weight tensor."""
+    if v[4] is not None:
+        alpha *= v[4] / v[0].shape[0]
+
+    a1 = _cast_to_device(v[0].flatten(start_dim=1), weight.device, float)
+    a2 = _cast_to_device(v[1].flatten(start_dim=1), weight.device, float)
+    b1 = _cast_to_device(v[2].flatten(start_dim=1), weight.device, float)
+    b2 = _cast_to_device(v[3].flatten(start_dim=1), weight.device, float)
+
+    weight += (
+        (torch.mm(b2, b1) + torch.mm(torch.mm(weight.flatten(start_dim=1), a2), a1)) * alpha
+    ).reshape(weight.shape).type(weight.dtype)
+    return weight
 
 
 class ModelPatcher:
@@ -209,7 +343,7 @@ class ModelPatcher:
             if hasattr(wrap_func, "to"):
                 self.model_options["model_function_wrapper"] = wrap_func.to(device)
 
-    def model_dtype(self):
+    def model_dtype(self) -> Any | None:
         if hasattr(self.model, "get_dtype"):
             return self.model.get_dtype()
 
@@ -248,7 +382,7 @@ class ModelPatcher:
                     sd.pop(k)
         return sd
 
-    def patch_model(self, device_to=None, patch_weights=True):
+    def patch_model(self, device_to=None, patch_weights=True) -> Any:
         """Apply object patches and weight patches, optionally moving to device."""
         for k in self.object_patches:
             old = getattr(self.model, k)
@@ -288,7 +422,7 @@ class ModelPatcher:
 
         return self.model
 
-    def _calculate_weight(self, patches, weight, key):
+    def _calculate_weight(self, patches, weight, key) -> Any:
         """Apply LoRA/LoKr/LoHa/GLoRA/Diff patches to a weight tensor."""
         for p in patches:
             alpha = p[0]
@@ -308,124 +442,15 @@ class ModelPatcher:
                 v = v[1]
 
             if patch_type == "diff":
-                w1 = v[0]
-                if alpha != 0.0:
-                    if w1.shape != weight.shape:
-                        logger.warning("SHAPE MISMATCH %s: %s != %s — weight not merged", key, w1.shape, weight.shape)
-                    else:
-                        weight += alpha * _cast_to_device(w1, weight.device, weight.dtype)
-
+                weight = _apply_diff(weight, alpha, v, key)
             elif patch_type == "lora":
-                mat1 = _cast_to_device(v[0], weight.device, float)
-                mat2 = _cast_to_device(v[1], weight.device, float)
-                if v[2] is not None:
-                    alpha *= v[2] / mat2.shape[0]
-                if v[3] is not None:
-                    mat3 = _cast_to_device(v[3], weight.device, float)
-                    final_shape = [mat2.shape[1], mat2.shape[0], mat3.shape[2], mat3.shape[3]]
-                    mat2 = torch.mm(
-                        mat2.transpose(0, 1).flatten(start_dim=1),
-                        mat3.transpose(0, 1).flatten(start_dim=1),
-                    ).reshape(final_shape).transpose(0, 1)
-                try:
-                    weight += (alpha * torch.mm(
-                        mat1.flatten(start_dim=1), mat2.flatten(start_dim=1)
-                    )).reshape(weight.shape).type(weight.dtype)
-                except Exception as e:
-                    logger.error("LoRA patch error for key %s: %s", key, e)
-
+                weight = _apply_lora(weight, alpha, v, key)
             elif patch_type == "lokr":
-                w1 = v[0]
-                w2 = v[1]
-                w1_a, w1_b = v[3], v[4]
-                w2_a, w2_b = v[5], v[6]
-                t2 = v[7]
-                dim = None
-
-                if w1 is None:
-                    dim = w1_b.shape[0]
-                    w1 = torch.mm(
-                        _cast_to_device(w1_a, weight.device, float),
-                        _cast_to_device(w1_b, weight.device, float),
-                    )
-                else:
-                    w1 = _cast_to_device(w1, weight.device, float)
-
-                if w2 is None:
-                    dim = w2_b.shape[0]
-                    if t2 is None:
-                        w2 = torch.mm(
-                            _cast_to_device(w2_a, weight.device, float),
-                            _cast_to_device(w2_b, weight.device, float),
-                        )
-                    else:
-                        w2 = torch.einsum(
-                            'i j k l, j r, i p -> p r k l',
-                            _cast_to_device(t2, weight.device, float),
-                            _cast_to_device(w2_b, weight.device, float),
-                            _cast_to_device(w2_a, weight.device, float),
-                        )
-                else:
-                    w2 = _cast_to_device(w2, weight.device, float)
-
-                if len(w2.shape) == 4:
-                    w1 = w1.unsqueeze(2).unsqueeze(2)
-                if v[2] is not None and dim is not None:
-                    alpha *= v[2] / dim
-
-                try:
-                    weight += alpha * torch.kron(w1, w2).reshape(weight.shape).type(weight.dtype)
-                except Exception as e:
-                    logger.error("LoKr patch error for key %s: %s", key, e)
-
+                weight = _apply_lokr(weight, alpha, v, key)
             elif patch_type == "loha":
-                w1a, w1b = v[0], v[1]
-                if v[2] is not None:
-                    alpha *= v[2] / w1b.shape[0]
-                w2a, w2b = v[3], v[4]
-
-                if v[5] is not None:
-                    t1, t2 = v[5], v[6]
-                    m1 = torch.einsum(
-                        'i j k l, j r, i p -> p r k l',
-                        _cast_to_device(t1, weight.device, float),
-                        _cast_to_device(w1b, weight.device, float),
-                        _cast_to_device(w1a, weight.device, float),
-                    )
-                    m2 = torch.einsum(
-                        'i j k l, j r, i p -> p r k l',
-                        _cast_to_device(t2, weight.device, float),
-                        _cast_to_device(w2b, weight.device, float),
-                        _cast_to_device(w2a, weight.device, float),
-                    )
-                else:
-                    m1 = torch.mm(
-                        _cast_to_device(w1a, weight.device, float),
-                        _cast_to_device(w1b, weight.device, float),
-                    )
-                    m2 = torch.mm(
-                        _cast_to_device(w2a, weight.device, float),
-                        _cast_to_device(w2b, weight.device, float),
-                    )
-
-                try:
-                    weight += (alpha * m1 * m2).reshape(weight.shape).type(weight.dtype)
-                except Exception as e:
-                    logger.error("LoHa patch error for key %s: %s", key, e)
-
+                weight = _apply_loha(weight, alpha, v, key)
             elif patch_type == "glora":
-                if v[4] is not None:
-                    alpha *= v[4] / v[0].shape[0]
-
-                a1 = _cast_to_device(v[0].flatten(start_dim=1), weight.device, float)
-                a2 = _cast_to_device(v[1].flatten(start_dim=1), weight.device, float)
-                b1 = _cast_to_device(v[2].flatten(start_dim=1), weight.device, float)
-                b2 = _cast_to_device(v[3].flatten(start_dim=1), weight.device, float)
-
-                weight += (
-                    (torch.mm(b2, b1) + torch.mm(torch.mm(weight.flatten(start_dim=1), a2), a1)) * alpha
-                ).reshape(weight.shape).type(weight.dtype)
-
+                weight = _apply_glora(weight, alpha, v, key)
             else:
                 logger.warning("Unknown patch type '%s' for key '%s'", patch_type, key)
 

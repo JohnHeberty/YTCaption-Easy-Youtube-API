@@ -8,7 +8,7 @@ from common.log_utils import get_logger
 
 import os
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Response, status
 
 from app.api.api_utils import generate_async_output
 from app.api.schemas import (
@@ -51,7 +51,7 @@ def query_job(job_id: str, require_step_preview: bool = False) -> Response | Asy
         )
         content = result.model_dump_json()
         return Response(
-            content=content, media_type="application/json", status_code=404
+            content=content, media_type="application/json", status_code=status.HTTP_404_NOT_FOUND
         )
     return generate_async_output(queue_task, require_step_preview)
 

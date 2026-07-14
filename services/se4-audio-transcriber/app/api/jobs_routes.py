@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Path as PathParam, Query, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Path as PathParam, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 
 from common.datetime_utils import now_brazil
@@ -60,12 +60,12 @@ async def create_transcription_job(
 
     if not is_language_supported(language_in):
         supported = get_supported_languages()
-        raise HTTPException(status_code=400, detail={"error": "Linguagem de entrada não suportada", "language_provided": language_in, "supported_languages": supported[:10], "total_supported": len(supported), "note": "Use GET /languages para ver todas as linguagens suportadas"})
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "Linguagem de entrada não suportada", "language_provided": language_in, "supported_languages": supported[:10], "total_supported": len(supported), "note": "Use GET /languages para ver todas as linguagens suportadas"})
 
     if language_out is not None:
         if not is_language_supported(language_out):
             supported = get_supported_languages()
-            raise HTTPException(status_code=400, detail={"error": "Linguagem de saída não suportada", "language_provided": language_out, "supported_languages": supported[:10], "total_supported": len(supported), "note": "Use GET /languages para ver todas as linguagens suportadas"})
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail={"error": "Linguagem de saída não suportada", "language_provided": language_out, "supported_languages": supported[:10], "total_supported": len(supported), "note": "Use GET /languages para ver todas as linguagens suportadas"})
         if language_out == language_in and language_in != "auto":
             logger.warning(f"language_out='{language_out}' igual a language_in='{language_in}', tradução não será aplicada")
 
@@ -90,7 +90,7 @@ async def create_transcription_job(
         return created_job
 
     except FileUploadError as e:
-        raise HTTPException(status_code=400 if not content else 500, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST if not content else status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.get("/jobs", summary="List jobs", response_model=list[Job])
@@ -111,10 +111,10 @@ async def get_job_status(
     job = job_store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expirado")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expirado")
 
     return job
 
@@ -128,20 +128,20 @@ async def download_file(
     job = job_store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expirado")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expirado")
 
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
-            status_code=425,
+            status_code=status.HTTP_425_TOO_EARLY,
             detail=f"Transcrição não pronta. Status: {job.status}"
         )
 
     file_path = Path(job.output_file) if job.output_file else None
     if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo não encontrado")
 
     return FileResponse(
         path=file_path,
@@ -159,11 +159,11 @@ async def get_transcription_text(
     job = job_store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
-            status_code=425,
+            status_code=status.HTTP_425_TOO_EARLY,
             detail=f"Transcrição não pronta. Status: {job.status}"
         )
 
@@ -178,14 +178,14 @@ async def get_full_transcription(
     job = job_store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     if job.is_expired:
-        raise HTTPException(status_code=410, detail="Job expirado")
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Job expirado")
 
     if job.status != JobStatus.COMPLETED:
         raise HTTPException(
-            status_code=425,
+            status_code=status.HTTP_425_TOO_EARLY,
             detail=f"Transcrição não pronta. Status: {job.status}"
         )
 
@@ -222,7 +222,7 @@ async def delete_job(
     job = job_store.get_job(job_id)
 
     if not job:
-        raise HTTPException(status_code=404, detail="Job não encontrado")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job não encontrado")
 
     try:
         files_deleted = 0
@@ -253,7 +253,7 @@ async def delete_job(
     except Exception as e:
         logger.error(f"❌ Erro ao remover job {job_id}: {e}")
         raise HTTPException(
-            status_code=500,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao remover job: {str(e)}"
         )
 
@@ -295,7 +295,95 @@ async def get_orphaned_jobs(
 
     except Exception as e:
         logger.error(f"Error getting orphaned jobs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get orphaned jobs: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get orphaned jobs: {str(e)}")
+
+
+def _cleanup_job_files(job: Job) -> tuple[list[dict[str, Any]], float, list[str]]:
+    """Delete all files associated with an orphaned job. Returns (files, freed_mb, errors)."""
+    files_deleted: list[dict[str, Any]] = []
+    errors: list[str] = []
+    space_freed = 0.0
+
+    if job.input_file:
+        try:
+            audio_path = Path(job.input_file)
+            if audio_path.exists() and audio_path.is_file():
+                size_mb = audio_path.stat().st_size / BYTES_PER_MB
+                audio_path.unlink(missing_ok=True)
+                files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
+                space_freed += size_mb
+        except Exception as e:
+            errors.append(f"Failed to delete input audio: {str(e)}")
+            logger.warning(f"Failed to delete audio file: {e}")
+
+    try:
+        transcription_path = Path(job.output_file) if job.output_file else None
+        if transcription_path and transcription_path.exists() and transcription_path.is_file():
+            size_mb = transcription_path.stat().st_size / BYTES_PER_MB
+            transcription_path.unlink(missing_ok=True)
+            files_deleted.append({"file": str(transcription_path), "size_mb": round(size_mb, 2)})
+            space_freed += size_mb
+    except Exception as e:
+        errors.append(f"Failed to delete transcription: {str(e)}")
+        logger.warning(f"Failed to delete transcription file: {e}")
+
+    try:
+        temp_dir = Path("./data/temp")
+        if temp_dir.exists() and temp_dir.is_dir():
+            for temp_file in temp_dir.glob(f"*{job.id}*"):
+                if temp_file.is_file():
+                    try:
+                        size_mb = temp_file.stat().st_size / BYTES_PER_MB
+                        temp_file.unlink(missing_ok=True)
+                        files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
+                        space_freed += size_mb
+                    except Exception as e:
+                        errors.append(f"Failed to delete temp {temp_file.name}: {str(e)}")
+                        logger.warning(f"Failed to delete temp file: {e}")
+    except Exception as e:
+        errors.append(f"Failed to scan temp directory: {str(e)}")
+        logger.warning(f"Failed to scan temp directory: {e}")
+
+    return files_deleted, space_freed, errors
+
+
+def _process_single_orphan(
+    job: Job, mark_as_failed: bool, job_store: IJobStore,
+) -> dict[str, Any]:
+    """Process one orphaned job: delete files and mark/delete the job."""
+    reference_time = job.started_at or job.updated_at or job.created_at
+    age_minutes = (now_brazil() - reference_time).total_seconds() / 60
+    files_deleted, space_freed, errors = _cleanup_job_files(job)
+
+    action = "marked_as_failed" if mark_as_failed else "deleted"
+    try:
+        if mark_as_failed:
+            job.status = JobStatus.FAILED
+            job.error_message = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
+            job.completed_at = now_brazil()
+            job.updated_at = now_brazil()
+            job_store.update_job(job)
+        else:
+            job_store.delete_job(job.id)
+    except Exception as e:
+        errors.append(f"Failed to {'mark job as failed' if mark_as_failed else 'delete job'}: {str(e)}")
+        logger.error(f"Failed to process job {job.id}: {e}", exc_info=True)
+        action = "failed_to_update" if mark_as_failed else "failed_to_delete"
+
+    logger.info(
+        f"🧹 Orphaned job {'marked as failed' if mark_as_failed else 'deleted'}: "
+        f"{job.id} (age: {age_minutes:.1f}min, files: {len(files_deleted)}, "
+        f"space freed: {sum(f['size_mb'] for f in files_deleted):.2f}MB)"
+    )
+
+    return {
+        "job_id": job.id,
+        "action": action,
+        "age_minutes": round(age_minutes, 2),
+        "files_deleted": files_deleted,
+        "reason": job.error_message if mark_as_failed and action == "marked_as_failed" else None,
+        "errors": errors if errors else None,
+    }
 
 
 @router.post("/jobs/orphaned/cleanup", summary="Cleanup orphaned jobs", response_model=OrphanCleanupResponse, responses={500: {"description": "Internal server error"}})
@@ -325,108 +413,12 @@ async def cleanup_orphaned_jobs_endpoint(
             }
 
         actions: list[dict[str, Any]] = []
-        space_freed = 0
+        space_freed = 0.0
 
         for job in orphaned:
-            reference_time = job.started_at or job.updated_at or job.created_at
-            age_minutes = (now_brazil() - reference_time).total_seconds() / 60
-
-            files_deleted: list[dict[str, Any]] = []
-            errors: list[str] = []
-
-            if job.input_file:
-                try:
-                    audio_path = Path(job.input_file)
-                    if audio_path.exists() and audio_path.is_file():
-                        size_mb = audio_path.stat().st_size / BYTES_PER_MB
-                        audio_path.unlink(missing_ok=True)
-                        files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
-                        space_freed += size_mb
-                except Exception as e:
-                    errors.append(f"Failed to delete input audio: {str(e)}")
-                    logger.warning(f"Failed to delete audio file: {e}")
-
-            try:
-                transcription_path = Path(job.output_file) if job.output_file else None
-                if transcription_path and transcription_path.exists() and transcription_path.is_file():
-                    size_mb = transcription_path.stat().st_size / BYTES_PER_MB
-                    transcription_path.unlink(missing_ok=True)
-                    files_deleted.append({"file": str(transcription_path), "size_mb": round(size_mb, 2)})
-                    space_freed += size_mb
-            except Exception as e:
-                errors.append(f"Failed to delete transcription: {str(e)}")
-                logger.warning(f"Failed to delete transcription file: {e}")
-
-            try:
-                temp_dir = Path("./data/temp")
-                if temp_dir.exists() and temp_dir.is_dir():
-                    for temp_file in temp_dir.glob(f"*{job.id}*"):
-                        if temp_file.is_file():
-                            try:
-                                size_mb = temp_file.stat().st_size / BYTES_PER_MB
-                                temp_file.unlink(missing_ok=True)
-                                files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
-                                space_freed += size_mb
-                            except Exception as e:
-                                errors.append(f"Failed to delete temp {temp_file.name}: {str(e)}")
-                                logger.warning(f"Failed to delete temp file: {e}")
-            except Exception as e:
-                errors.append(f"Failed to scan temp directory: {str(e)}")
-                logger.warning(f"Failed to scan temp directory: {e}")
-
-            if mark_as_failed:
-                try:
-                    job.status = JobStatus.FAILED
-                    job.error_message = f"Job orphaned: stuck in processing for {age_minutes:.1f} minutes (auto-recovery)"
-                    job.completed_at = now_brazil()
-                    job.updated_at = now_brazil()
-                    job_store.update_job(job)
-
-                    actions.append({
-                        "job_id": job.id,
-                        "action": "marked_as_failed",
-                        "age_minutes": round(age_minutes, 2),
-                        "files_deleted": files_deleted,
-                        "reason": job.error_message,
-                        "errors": errors if errors else None
-                    })
-                except Exception as e:
-                    errors.append(f"Failed to mark job as failed: {str(e)}")
-                    logger.error(f"Failed to mark job {job.id} as failed: {e}", exc_info=True)
-                    actions.append({
-                        "job_id": job.id,
-                        "action": "failed_to_update",
-                        "age_minutes": round(age_minutes, 2),
-                        "files_deleted": files_deleted,
-                        "errors": errors
-                    })
-            else:
-                try:
-                    job_store.delete_job(job.id)
-
-                    actions.append({
-                        "job_id": job.id,
-                        "action": "deleted",
-                        "age_minutes": round(age_minutes, 2),
-                        "files_deleted": files_deleted,
-                        "errors": errors if errors else None
-                    })
-                except Exception as e:
-                    errors.append(f"Failed to delete job: {str(e)}")
-                    logger.error(f"Failed to delete job {job.id}: {e}", exc_info=True)
-                    actions.append({
-                        "job_id": job.id,
-                        "action": "failed_to_delete",
-                        "age_minutes": round(age_minutes, 2),
-                        "files_deleted": files_deleted,
-                        "errors": errors
-                    })
-
-            logger.info(
-                f"🧹 Orphaned job {'marked as failed' if mark_as_failed else 'deleted'}: "
-                f"{job.id} (age: {age_minutes:.1f}min, files: {len(files_deleted)}, "
-                f"space freed: {sum(f['size_mb'] for f in files_deleted):.2f}MB)"
-            )
+            result = _process_single_orphan(job, mark_as_failed, job_store)
+            actions.append(result)
+            space_freed += sum(f["size_mb"] for f in result["files_deleted"])
 
         return {
             "status": "success",
@@ -440,4 +432,4 @@ async def cleanup_orphaned_jobs_endpoint(
 
     except Exception as e:
         logger.error(f"Error cleaning up orphaned jobs: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to cleanup orphaned jobs: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to cleanup orphaned jobs: {str(e)}")
