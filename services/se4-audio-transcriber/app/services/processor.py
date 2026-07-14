@@ -18,6 +18,7 @@ from ..shared.error_handling import retry_on_transient_error, safe_cleanup
 from ..shared.exceptions import AudioTranscriptionException
 from ..shared.job_state_updater import JobStateUpdater
 from ..core.config import get_settings
+from ..core.constants import BYTES_PER_MB
 from .faster_whisper_manager import FasterWhisperModelManager
 from .openai_whisper_manager import OpenAIWhisperManager
 from .whisperx_manager import WhisperXManager
@@ -89,16 +90,16 @@ class TranscriptionProcessor:
             import shutil
             
             file_size = os.path.getsize(file_path)
-            file_size_mb = file_size / (1024 * 1024)
+            file_size_mb = file_size / BYTES_PER_MB
             
             # Estima espaço necessário: 2x o tamanho do arquivo (transcripts são pequenos, mas previne)
             estimated_space_needed = file_size * 2
             
             stat = shutil.disk_usage(output_dir)
             available_space = stat.free
-            available_space_mb = available_space / (1024 * 1024)
+            available_space_mb = available_space / BYTES_PER_MB
             
-            logger.info(f"💾 Espaço em disco - Disponível: {available_space_mb:.2f}MB, Estimado necessário: {estimated_space_needed/(1024*1024):.2f}MB")
+            logger.info(f"💾 Espaço em disco - Disponível: {available_space_mb:.2f}MB, Estimado necessário: {estimated_space_needed/BYTES_PER_MB:.2f}MB")
             
             if available_space < estimated_space_needed:
                 logger.error(f"❌ Espaço em disco insuficiente! Disponível: {available_space_mb:.2f}MB")
@@ -186,7 +187,7 @@ class TranscriptionProcessor:
             # Se está na GPU, captura uso de memória ANTES
             vram_before = 0.0
             if self.device == 'cuda' and torch.cuda.is_available():
-                vram_before = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                vram_before = torch.cuda.memory_allocated(0) / BYTES_PER_MB  # MB
                 logger.info(f"📊 VRAM antes do unload: {vram_before:.2f} MB")
             
             # Remove modelo
@@ -206,7 +207,7 @@ class TranscriptionProcessor:
                 torch.cuda.synchronize()  # Aguarda operações GPU finalizarem
                 
                 # Captura memória APÓS
-                vram_after = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                vram_after = torch.cuda.memory_allocated(0) / BYTES_PER_MB  # MB
                 report["memory_freed"]["vram_mb"] = round(vram_before - vram_after, 2)
                 
                 logger.info(f"📊 VRAM depois do unload: {vram_after:.2f} MB")
@@ -274,7 +275,7 @@ class TranscriptionProcessor:
             # Captura memória GPU ANTES (se disponível)
             vram_before = 0.0
             if torch.cuda.is_available():
-                vram_before = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                vram_before = torch.cuda.memory_allocated(0) / BYTES_PER_MB  # MB
             
             # Carrega modelo (usa _load_model que já tem lógica de retry e device detection)
             self._load_model()
@@ -284,7 +285,7 @@ class TranscriptionProcessor:
             
             # Captura memória GPU DEPOIS
             if self.device == 'cuda' and torch.cuda.is_available():
-                vram_after = torch.cuda.memory_allocated(0) / 1024**2  # MB
+                vram_after = torch.cuda.memory_allocated(0) / BYTES_PER_MB  # MB
                 report["memory_used"]["vram_mb"] = round(vram_after - vram_before, 2)
                 logger.info(f"📊 VRAM usada: {report['memory_used']['vram_mb']} MB")
             
@@ -331,8 +332,8 @@ class TranscriptionProcessor:
         
         # Se modelo está carregado na GPU, mostra uso de VRAM
         if status["loaded"] and self.device == 'cuda' and torch.cuda.is_available():
-            status["memory"]["vram_mb"] = round(torch.cuda.memory_allocated(0) / 1024**2, 2)
-            status["memory"]["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / 1024**2, 2)
+            status["memory"]["vram_mb"] = round(torch.cuda.memory_allocated(0) / BYTES_PER_MB, 2)
+            status["memory"]["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / BYTES_PER_MB, 2)
             
             # Informações da GPU
             status["gpu_info"] = {
@@ -415,7 +416,7 @@ class TranscriptionProcessor:
                     f"Arquivo de entrada está vazio (0 bytes): {actual_file_path}"
                 )
             
-            logger.info(f"📁 Arquivo validado: {actual_file_path} ({file_size / (1024*1024):.2f} MB)")
+            logger.info(f"📁 Arquivo validado: {actual_file_path} ({file_size / BYTES_PER_MB:.2f} MB)")
             
             # Atualiza job com caminho correto e absoluto
             job.input_file = str(actual_file_path.absolute())

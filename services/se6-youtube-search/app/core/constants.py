@@ -3,8 +3,6 @@ from __future__ import annotations
 """
 Core constants for YouTube Search service.
 """
-from datetime import timedelta
-
 from app.domain.models import SearchType, JobStatus  # noqa: F401 — canonical in models.py
 
 

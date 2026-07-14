@@ -503,36 +503,4 @@ def search_shorts(query: str, max_results: int = 10, timeout: int = 10) -> dict[
     }
 
 
-def filter_videos_by_type(videos: list[dict[str, Any]], shorts_only: bool = False, exclude_shorts: bool = False) -> list[dict[str, Any]]:
-    """
-    Filter video list based on shorts preferences
-    
-    Args:
-        videos: List of video dictionaries
-        shorts_only: If True, return only shorts
-        exclude_shorts: If True, exclude shorts from results
-        
-    Returns:
-        Filtered list of videos
-    """
-    if not shorts_only and not exclude_shorts:
-        return videos
-    
-    filtered = []
-    
-    for video in videos:
-        duration_seconds = video.get('duration_seconds', 999)
-        url = video.get('url', '')
-        is_short = duration_seconds <= 60 or '/shorts/' in url
-        
-        if shorts_only and is_short:
-            video['is_short'] = True
-            filtered.append(video)
-        elif exclude_shorts and not is_short:
-            video['is_short'] = False
-            filtered.append(video)
-        elif not shorts_only and not exclude_shorts:
-            video['is_short'] = is_short
-            filtered.append(video)
-    
-    return filtered
+

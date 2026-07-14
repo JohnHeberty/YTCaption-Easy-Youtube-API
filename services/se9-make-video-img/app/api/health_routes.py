@@ -30,28 +30,18 @@ router = APIRouter(tags=["Health"])
 async def health_check() -> dict[str, Any]:
     checker = ServiceHealthChecker("make-video-img", version=settings.app_version)
 
-    async def check_se7() -> dict[str, str]:
+    async def _check_service(url: str) -> dict[str, str]:
         try:
             async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(f"{settings.se7_url}/health")
+                resp = await client.get(f"{url}/health")
                 if resp.status_code == 200:
                     return {"status": "ok"}
                 return {"status": "error", "message": f"HTTP {resp.status_code}"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 
-    async def check_se8() -> dict[str, str]:
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(f"{settings.se8_url}/health")
-                if resp.status_code == 200:
-                    return {"status": "ok"}
-                return {"status": "error", "message": f"HTTP {resp.status_code}"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-    checker.add_check("se7", check_se7)
-    checker.add_check("se8", check_se8)
+    checker.add_check("se7", lambda: _check_service(settings.se7_url))
+    checker.add_check("se8", lambda: _check_service(settings.se8_url))
     checker.add_check("disk", lambda: ServiceHealthChecker.check_disk("/tmp"))
     checker.add_check("ffmpeg", lambda: ServiceHealthChecker.check_ffmpeg())
 

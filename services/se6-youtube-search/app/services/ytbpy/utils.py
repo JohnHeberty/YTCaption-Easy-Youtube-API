@@ -30,17 +30,6 @@ if os.path.exists("proxies.txt"):
             for proxy in proxys_raw
             ]
 
-def next_proxie() -> bool:
-    """Disable proxy settings"""
-    global proxys
-    if proxys:
-        choice_proxy = [(row, index) for row, index in zip(proxys, range(len(proxys))) if row.get("live", True)]
-        if choice_proxy:
-            _, index = choice_proxy[0]
-            proxys[index]["live"] = False
-            return True
-    return False
-
 def get_thumbnail_urls(video_id: str) -> dict[str, dict[str, Any]]:
     """Generate thumbnail URLs for a YouTube video"""
     base_url = f"https://img.youtube.com/vi/{video_id}"

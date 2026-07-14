@@ -12,6 +12,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.constants import DEFAULT_VOICE_ID
+
 
 class FlexibleSchema(BaseModel):
     """Base schema with extra='allow' for forward compatibility."""
@@ -413,7 +415,7 @@ class CreateVideoRequest(BaseModel):
         description="Safety/content notes (metadata only).",
     )
     voice_id: str = Field(
-        default="builtin_feminino",
+        default=DEFAULT_VOICE_ID,
         max_length=100,
         description=(
             "TTS voice identifier.\n\n"
@@ -772,7 +774,7 @@ class VoicesResponse(FlexibleSchema):
         examples=[[{"voice_id": "builtin_feminino", "name": "Feminino"}]],
     )
     default: str = Field(
-        default="builtin_feminino",
+        default=DEFAULT_VOICE_ID,
         description="Default voice ID",
     )
 

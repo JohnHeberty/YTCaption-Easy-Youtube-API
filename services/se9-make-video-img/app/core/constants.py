@@ -184,6 +184,8 @@ PLATFORM_PRESETS = {
 
 DEFAULT_PLATFORM = "tiktok_reels_shorts"
 
+DEFAULT_VOICE_ID = "builtin_feminino"
+
 # Shared FFmpeg H.264 encoding args — used across segments, captions, concat, assembly
 H264_ENCODING_ARGS = [
     "-c:v", "libx264",

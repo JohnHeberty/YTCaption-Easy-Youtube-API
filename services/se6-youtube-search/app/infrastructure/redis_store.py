@@ -6,7 +6,6 @@ YouTube search Redis store adapter.
 import os
 import json
 from typing import Any
-from datetime import timedelta
 
 from common.redis_utils import ResilientRedisStore
 from common.log_utils import get_logger

@@ -5,7 +5,6 @@ from typing import Any
 
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import JSONResponse
-from starlette.applications import Starlette
 
 from common.fastapi_utils import create_service_app, create_api_key_dependency
 from common.log_utils import setup_structured_logging, get_logger

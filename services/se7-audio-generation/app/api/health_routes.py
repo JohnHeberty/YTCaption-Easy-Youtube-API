@@ -9,6 +9,7 @@ from common.datetime_utils import now_brazil
 
 from app.api.schemas import HealthResponse
 from app.core.config import get_settings
+from app.core.constants import DISK_MIN_FREE_GB
 from app.domain.interfaces import IModelManager, IJobStore
 from app.infrastructure.dependencies import model_manager, job_store
 
@@ -57,7 +58,7 @@ async def health(
 
     checker.add_check(
         "disk",
-        lambda: ServiceHealthChecker.check_disk(settings.output_dir, min_free_gb=0.5),
+        lambda: ServiceHealthChecker.check_disk(settings.output_dir, min_free_gb=DISK_MIN_FREE_GB),
     )
 
     checker.add_check("gpu", lambda: ServiceHealthChecker.check_gpu())

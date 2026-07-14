@@ -16,7 +16,6 @@ Usage:
     # → "voce nao sabe o que e um licom"
 """
 
-import re
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)

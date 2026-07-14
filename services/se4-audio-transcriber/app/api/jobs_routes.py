@@ -10,6 +10,7 @@ from common.datetime_utils import now_brazil
 from common.log_utils import get_logger
 
 from app.core.config import get_core, get_supported_languages, is_language_supported
+from app.core.constants import BYTES_PER_MB
 from app.domain.models import Job, JobStatus, TranscriptionResponse, WhisperEngine
 from app.api.schemas import (
     DeleteJobResponse,
@@ -337,7 +338,7 @@ async def cleanup_orphaned_jobs_endpoint(
                 try:
                     audio_path = Path(job.input_file)
                     if audio_path.exists() and audio_path.is_file():
-                        size_mb = audio_path.stat().st_size / (1024 * 1024)
+                        size_mb = audio_path.stat().st_size / BYTES_PER_MB
                         audio_path.unlink(missing_ok=True)
                         files_deleted.append({"file": str(audio_path), "size_mb": round(size_mb, 2)})
                         space_freed += size_mb
@@ -348,7 +349,7 @@ async def cleanup_orphaned_jobs_endpoint(
             try:
                 transcription_path = Path(job.output_file) if job.output_file else None
                 if transcription_path and transcription_path.exists() and transcription_path.is_file():
-                    size_mb = transcription_path.stat().st_size / (1024 * 1024)
+                    size_mb = transcription_path.stat().st_size / BYTES_PER_MB
                     transcription_path.unlink(missing_ok=True)
                     files_deleted.append({"file": str(transcription_path), "size_mb": round(size_mb, 2)})
                     space_freed += size_mb
@@ -362,7 +363,7 @@ async def cleanup_orphaned_jobs_endpoint(
                     for temp_file in temp_dir.glob(f"*{job.id}*"):
                         if temp_file.is_file():
                             try:
-                                size_mb = temp_file.stat().st_size / (1024 * 1024)
+                                size_mb = temp_file.stat().st_size / BYTES_PER_MB
                                 temp_file.unlink(missing_ok=True)
                                 files_deleted.append({"file": str(temp_file), "size_mb": round(size_mb, 2)})
                                 space_freed += size_mb

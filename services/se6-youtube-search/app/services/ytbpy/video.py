@@ -220,34 +220,6 @@ def get_video_info(url_or_id: str, timeout: int = 5) -> dict[str, Any]:
 
     return video_info
 
-def get_video_info_oembed(url_or_id: str, timeout: int = 5) -> dict[str, Any]:
-    """Alternative function to get video info using YouTube's API endpoints without API key"""
-    video_id = extract_video_id(url_or_id)
-    if not video_id:
-        return {"error": "Invalid YouTube video ID or URL"}
-
-    video_info = {
-        "video_id": video_id,
-        "thumbnails": get_thumbnail_urls(video_id),
-    }
-
-    try:
-        oembed_url = (
-            "https://www.youtube.com/oembed?url="
-            f"http://www.youtube.com/watch?v={video_id}&format=json"
-        )
-        oembed_data = fetch_url(oembed_url, timeout=timeout)
-        if oembed_data:
-            oembed_response = json.loads(oembed_data)
-            for key in ["title", "author_name", "author_url"]:
-                if key not in video_info or not video_info[key]:
-                    if key in oembed_response:
-                        video_info[key] = oembed_response[key]
-    except Exception as e:
-        logger.debug("oembed enrichment failed: %s", e)
-
-    return video_info
-
 def get_related_videos(url_or_id: str, max_results: int = 20, timeout: int = 5) -> list[dict[str, Any]]:
     """Get related videos for a YouTube video"""
     video_id = extract_video_id(url_or_id)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 import os
 
 from common.di import Dep
@@ -8,6 +9,9 @@ from common.redis_utils.resilient_store import ResilientRedisStore
 
 from app.core.config import get_settings
 from app.domain.interfaces import IJobStore, IVoiceStore, IModelManager, ITTSGenerator
+
+if TYPE_CHECKING:
+    from app.services.voice_manager import VoiceProfileManager
 
 
 def get_settings_dep() -> AudioGenSettings:
@@ -57,7 +61,7 @@ def get_generator() -> ITTSGenerator:
 
 
 @lru_cache(maxsize=1)
-def get_voice_manager() -> Any:
+def get_voice_manager() -> VoiceProfileManager:
     from app.services.voice_manager import VoiceProfileManager
 
     settings = get_settings()

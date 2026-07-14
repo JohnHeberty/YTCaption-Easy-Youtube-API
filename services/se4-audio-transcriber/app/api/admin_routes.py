@@ -17,6 +17,7 @@ from app.api.schemas import (
     QueueInfoResponse,
 )
 from app.core.config import get_core
+from app.core.constants import BYTES_PER_MB
 from app.domain.interfaces import IJobStore
 from app.infrastructure.dependencies import job_store
 from app.shared.admin_cleanup_service import AdminCleanupService
@@ -96,7 +97,7 @@ async def get_stats(job_store: IJobStore = Depends(job_store)) -> dict[str, Any]
 
     stats["cache"] = {
         "files_count": total_files,
-        "total_size_mb": round(total_size / (1024 * 1024), 2)
+        "total_size_mb": round(total_size / BYTES_PER_MB, 2)
     }
 
     return stats

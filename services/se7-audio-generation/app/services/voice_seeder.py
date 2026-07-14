@@ -6,6 +6,8 @@ from typing import Any
 
 from common.log_utils import get_logger
 
+from app.core.constants import VOICE_SAMPLE_RATE_TARGET
+
 logger = get_logger(__name__)
 
 BUILTIN_VOICES: list[dict[str, str]] = [
@@ -67,7 +69,7 @@ def seed_builtin_voices(voice_manager: Any, voices_dir: str) -> None:
             trimmed_path = voices_path / f"_trim_{voice['id']}.wav"
             _trim_audio(src_path, trimmed_path)
 
-            convert_to_mono_wav(str(trimmed_path), str(final_path), target_sr=24000)
+            convert_to_mono_wav(str(trimmed_path), str(final_path), target_sr=VOICE_SAMPLE_RATE_TARGET)
             trimmed_path.unlink(missing_ok=True)
 
             info = validate_voice_sample(str(final_path))
@@ -78,7 +80,7 @@ def seed_builtin_voices(voice_manager: Any, voices_dir: str) -> None:
                 description=voice["description"],
                 audio_path=str(final_path),
                 duration_seconds=info["duration_seconds"],
-                sample_rate=24000,
+                sample_rate=VOICE_SAMPLE_RATE_TARGET,
                 status="active",
             )
             voice_manager._store.save_profile(profile)

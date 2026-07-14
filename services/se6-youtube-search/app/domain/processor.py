@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Callable
-from datetime import datetime
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -14,7 +13,7 @@ from tenacity import (
 from common.datetime_utils import now_brazil
 
 from .models import Job, JobStatus, SearchType
-from ..shared.exceptions import YouTubeSearchException, YouTubeAPIError, ProcessingTimeoutError
+from ..shared.exceptions import YouTubeSearchException, YouTubeAPIError
 from ..core.config import get_settings
 
 # Import ytbpy functions

@@ -6,7 +6,7 @@ import re
 
 from common.log_utils import get_logger
 
-from app.core.constants import CHATTERBOX_MAX_CHARS
+from app.core.constants import CHATTERBOX_MAX_CHARS, DEFAULT_VOICE_ID
 from app.core.models import NarrationSegment
 from app.infrastructure.ffmpeg_utils import get_audio_duration
 from app.infrastructure.http_client import SE7Client
@@ -74,7 +74,7 @@ class AudioGenerator:
     async def generate(
         self,
         narration: list[NarrationSegment],
-        voice_id: str = "builtin_feminino",
+        voice_id: str = DEFAULT_VOICE_ID,
         output_dir: str = "/tmp",
         normalize_text: bool = True,
     ) -> tuple[str, float]:

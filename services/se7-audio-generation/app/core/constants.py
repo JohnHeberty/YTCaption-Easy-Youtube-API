@@ -34,6 +34,9 @@ VOICE_FORMAT = "wav"
 SUPPORTED_AUDIO_EXTENSIONS = frozenset({".wav", ".mp3", ".m4a", ".ogg"})
 OUTPUT_AUDIO_FORMAT = "wav"
 
+# ===== HEALTH =====
+DISK_MIN_FREE_GB = 0.5
+
 # ===== TTS DEFAULTS =====
 DEFAULT_EXAGGERATION = 0.5
 DEFAULT_CFG_WEIGHT = 0.5

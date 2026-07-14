@@ -9,6 +9,7 @@ from common.log_utils import get_logger
 import httpx
 
 from app.core.config import settings
+from app.core.constants import DEFAULT_VOICE_ID
 
 logger = get_logger(__name__)
 
@@ -66,7 +67,7 @@ class SE7Client(ServiceClient):
     async def create_job(
         self,
         text: str,
-        voice_id: str = "builtin_feminino",
+        voice_id: str = DEFAULT_VOICE_ID,
         exaggeration: float | None = None,
         cfg_weight: float | None = None,
         temperature: float | None = None,
@@ -119,7 +120,7 @@ class SE7Client(ServiceClient):
         except Exception as e:
             logger.warning("Failed to fetch voices from SE7: %s, using defaults", e)
             return [
-                {"id": "builtin_feminino", "name": "Feminino"},
+                {"id": DEFAULT_VOICE_ID, "name": "Feminino"},
                 {"id": "builtin_masculino", "name": "Masculino"},
             ]
 

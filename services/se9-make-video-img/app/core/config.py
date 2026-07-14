@@ -7,6 +7,8 @@ from pydantic import ConfigDict, Field
 
 from common.config_utils.base_settings import BaseServiceSettings
 
+from app.core.constants import DEFAULT_VOICE_ID
+
 
 class MakeVideoImgSettings(BaseServiceSettings):
     """Core settings for the Make Video IMG service.
@@ -27,7 +29,7 @@ class MakeVideoImgSettings(BaseServiceSettings):
     se8_api_key: str = "se8-test-key-2026"
 
     # === VIDEO DEFAULTS ===
-    default_voice_id: str = "builtin_feminino"
+    default_voice_id: str = DEFAULT_VOICE_ID
     default_aspect_ratio: str = "9:16"
     default_width: int = 1080
     default_height: int = 1920

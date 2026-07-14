@@ -16,6 +16,7 @@ from app.core.constants import (
     ZOOM_STYLES,
     IMAGE_ASPECT_RATIOS,
     CAMERA_MOVEMENT_MAP,
+    DEFAULT_VOICE_ID,
 )
 from app.core.models import (
     CreateVideoRequest,
@@ -192,7 +193,7 @@ async def list_voices() -> VoicesResponse:
 
     return VoicesResponse(
         voices=[{"voice_id": v["id"], "name": v["name"]} for v in voices],
-        default="builtin_feminino",
+        default=DEFAULT_VOICE_ID,
     )
 
 

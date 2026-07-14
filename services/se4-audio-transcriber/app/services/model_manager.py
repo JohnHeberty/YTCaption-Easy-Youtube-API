@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ..core.constants import OPENAI_WHISPER_MODEL_SIZES
+from ..core.constants import BYTES_PER_MB, OPENAI_WHISPER_MODEL_SIZES
 import torch
 import whisper
 
@@ -128,7 +128,7 @@ class WhisperModelManager(IModelManager):
             # Captura VRAM antes (se GPU)
             vram_before = 0.0
             if self.device == 'cuda' and torch.cuda.is_available():
-                vram_before = torch.cuda.memory_allocated(0) / 1024**2
+                vram_before = torch.cuda.memory_allocated(0) / BYTES_PER_MB
             
             # Remove modelo
             del self.model
@@ -143,7 +143,7 @@ class WhisperModelManager(IModelManager):
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
                 
-                vram_after = torch.cuda.memory_allocated(0) / 1024**2
+                vram_after = torch.cuda.memory_allocated(0) / BYTES_PER_MB
                 result["memory_freed"]["vram_mb"] = round(vram_before - vram_after, 2)
             
             # Estima RAM liberada
@@ -170,8 +170,8 @@ class WhisperModelManager(IModelManager):
         }
         
         if self.is_loaded and self.device == 'cuda' and torch.cuda.is_available():
-            status["vram_mb"] = round(torch.cuda.memory_allocated(0) / 1024**2, 2)
-            status["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / 1024**2, 2)
+            status["vram_mb"] = round(torch.cuda.memory_allocated(0) / BYTES_PER_MB, 2)
+            status["vram_reserved_mb"] = round(torch.cuda.memory_reserved(0) / BYTES_PER_MB, 2)
         
         return status
     

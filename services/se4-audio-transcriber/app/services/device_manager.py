@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 import torch
 
+from ..core.constants import BYTES_PER_MB
 from ..domain.interfaces import IDeviceManager
 from common.log_utils import get_logger
 
@@ -103,7 +104,7 @@ class TorchDeviceManager(IDeviceManager):
                         "id": i,
                         "name": torch.cuda.get_device_name(i),
                         "memory_total_mb": round(
-                            torch.cuda.get_device_properties(i).total_memory / 1024**2, 2
+                            torch.cuda.get_device_properties(i).total_memory / BYTES_PER_MB, 2
                         ),
                         "compute_capability": f"{torch.cuda.get_device_properties(i).major}.{torch.cuda.get_device_properties(i).minor}"
                     }
@@ -111,10 +112,10 @@ class TorchDeviceManager(IDeviceManager):
                     # Memória atual (se disponível)
                     if i == 0:  # Apenas GPU 0 por simplicidade
                         device_props["memory_allocated_mb"] = round(
-                            torch.cuda.memory_allocated(i) / 1024**2, 2
+                            torch.cuda.memory_allocated(i) / BYTES_PER_MB, 2
                         )
                         device_props["memory_reserved_mb"] = round(
-                            torch.cuda.memory_reserved(i) / 1024**2, 2
+                            torch.cuda.memory_reserved(i) / BYTES_PER_MB, 2
                         )
                     
                     info["gpu"]["devices"].append(device_props)

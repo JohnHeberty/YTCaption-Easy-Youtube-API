@@ -20,6 +20,7 @@ from pathlib import Path
 
 from ..domain.models import WhisperEngine, JobStatus
 from .config import get_supported_languages
+from .constants import BYTES_PER_MB
 
 
 class ValidationError(Exception):
@@ -253,7 +254,7 @@ class FileValidator:
 
         # Tamanho
         try:
-            size_mb = file_path.stat().st_size / (1024 * 1024)
+            size_mb = file_path.stat().st_size / BYTES_PER_MB
             if size_mb > cls.MAX_FILE_SIZE_MB:
                 return False, (
                     f"Arquivo muito grande ({size_mb:.1f}MB). "
@@ -291,7 +292,7 @@ class FileValidator:
         if not content:
             return False, "Conteúdo do arquivo está vazio"
 
-        size_mb = len(content) / (1024 * 1024)
+        size_mb = len(content) / BYTES_PER_MB
         if size_mb > max_size:
             return False, (
                 f"Arquivo muito grande ({size_mb:.1f}MB). "

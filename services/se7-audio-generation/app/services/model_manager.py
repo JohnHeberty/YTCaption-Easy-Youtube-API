@@ -8,6 +8,7 @@ from typing import Any
 from common.log_utils import get_logger
 
 from app.core.config import get_settings
+from app.core.constants import VOICE_SAMPLE_RATE_TARGET
 from app.domain.exceptions import ModelNotAvailable, ResourceExhausted
 from app.domain.interfaces import IModelManager
 
@@ -28,7 +29,7 @@ class ChatterboxModelManager(IModelManager):
         self._model_dir.mkdir(parents=True, exist_ok=True)
         self._device = self._resolve_device(settings.device)
         self._model: Any = None
-        self._sr = 24000
+        self._sr = VOICE_SAMPLE_RATE_TARGET
         self._loaded_at: float | None = None
         self._last_used: float | None = None
 
