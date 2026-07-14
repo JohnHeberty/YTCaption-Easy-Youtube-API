@@ -46,7 +46,7 @@
 | 16 | 70 `except Exception` | 4 bare `except:` sem tipo (captura SystemExit) | `[x]` 5 silent catches fixed 2026-07-13 |
 | 17 | 12 funções >100L | `submit_processing_task` (407L!), `transcribe_audio` (238L) | `[ ]` |
 | 18 | Model size dicts inconsistentes | 5 arquivos com 3 valores diferentes para o mesmo conceito | `[x]` Consolidated to constants.py 2026-07-13 |
-| 19 | 29x `bytes_to_mb` duplicado | `BYTES_PER_MB` definido mas nunca usado | `[ ]` |
+| 19 | 29x `bytes_to_mb` duplicado | `BYTES_PER_MB` definido mas nunca usado | `[x]` 19 replaced 2026-07-13 |
 | 20 | `TorchDeviceManager` duplicado | `app/shared/device_manager.py` e `app/services/device_manager.py` | `[x]` shared/ re-exports from services/ 2026-07-13 |
 | 21 | 2 health check modules | `health_checkers.py` (funções) vs `health_checker.py` (classe) | `[ ]` |
 
@@ -77,10 +77,10 @@
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
 | 34 | 55 `except Exception` | Muitos silent `except Exception: pass` em `video.py`, `playlist.py`, `search.py` | `[x]` 13 silent catches fixed 2026-07-13 |
-| 35 | 7 dead code | Funções nunca chamadas: `get_video_info_oembed()`, `filter_videos_by_type()`, `next_proxie()` | `[ ]` |
+| 35 | 7 dead code | Funções nunca chamadas: `get_video_info_oembed()`, `filter_videos_by_type()`, `next_proxie()` | `[x]` 3 removed 2026-07-13 |
 | 36 | InnerTube clientVersion inconsistente | `video.py` usa `"2.20220502.01.00"`, `search.py` usa `"2.20200720.00.00"` | `[ ]` |
 | 37 | ~100L código duplicado em playlist.py | `_extract_playlist_videos` vs `_fetch_continuation_page` | `[ ]` |
-| 38 | 6 unused imports | `datetime`, `timedelta`, `json`, `ProcessingTimeoutError`, `now_brazil` | `[ ]` |
+| 38 | 6 unused imports | `datetime`, `timedelta`, `json`, `ProcessingTimeoutError`, `now_brazil` | `[x]` 5 removed 2026-07-13 |
 | 39 | 24 magic numbers | Disk thresholds, progress %, timeouts, thumbnail dimensions | `[ ]` |
 
 ### SE7 — Audio Generation
@@ -88,8 +88,8 @@
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
 | 40 | 22 `except Exception` | 6 com tuple redundante `(CircuitBreakerOpenError, Exception)` — subclasse | `[x]` 6 tuples cleaned 2026-07-13 |
-| 41 | 6 unused imports | `Starlette`, `Enum`, `UploadFile`, `BytesIO`, `re`, return type `Any` | `[ ]` |
-| 42 | 9 magic numbers | `24000` sample rate repetido 3x, disk threshold `0.5` | `[ ]` |
+| 41 | 6 unused imports | `Starlette`, `Enum`, `UploadFile`, `BytesIO`, `re`, return type `Any` | `[x]` 6 removed 2026-07-13 |
+| 42 | 9 magic numbers | `24000` sample rate repetido 3x, disk threshold `0.5` | `[x]` 4 consolidated 2026-07-13 |
 | 43 | 6 padrões duplicados | HuggingFace download logic copiada em `model_manager.py` e `generate_test.py` | `[ ]` |
 
 ### SE9 — Make Video Image
@@ -97,8 +97,8 @@
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
 | 44 | FFmpeg H264 args duplicados 5+ vezes | Mesma string em `ffmpeg_segments.py`, `ffmpeg_captions.py`, `ffmpeg_concat.py` | `[x]` H264_ENCODING_ARGS constant 2026-07-13 |
-| 45 | `check_se7`/`check_se8` idênticos | `health_routes.py:33-51` — mesma lógica, URL diferente | `[ ]` |
-| 46 | `"builtin_feminino"` repetido 7x | Deveria ser `DEFAULT_VOICE_ID` em `constants.py` | `[ ]` |
+| 45 | `check_se7`/`check_se8` idênticos | `health_routes.py:33-51` — mesma lógica, URL diferente | `[x]` deduplicated 2026-07-13 |
+| 46 | `"builtin_feminino"` repetido 7x | Deveria ser `DEFAULT_VOICE_ID` em `constants.py` | `[x]` constant added 2026-07-13 |
 | 47 | 11 `except Exception` | 2 silent em `redis_store.py:228,255` | `[ ]` |
 | 48 | 12 magic numbers | Zoom speed, CRF quality, crossfade ratios, Redis pool sizes | `[ ]` |
 
