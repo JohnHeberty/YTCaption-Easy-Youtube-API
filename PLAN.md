@@ -34,10 +34,10 @@
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
 | 11 | 42 `except Exception` | 16 em `admin_routes.py`, 7 em `celery_tasks.py` | `[x]` 5 silent fixed 2026-07-13 |
-| 12 | 30+ magic numbers | Timeouts `600/1800/2400`, limits `50/100/10000`, weights `0.25` | `[ ]` |
+| 12 | 30+ magic numbers | Timeouts `600/1800/2400`, limits `50/100/10000`, weights `0.25` | `[x]` 8 constants added 2026-07-13 |
 | 13 | 2 funções >100L | `_perform_total_cleanup` (209L), `_sync_download` (162L) | `[ ]` |
 | 14 | 5 padrões duplicados | File cleanup loops (3x), regex extractions (3x), store instantiations (4x) | `[ ]` |
-| 15 | `import json` dentro de funções | `admin_routes.py:27,419` | `[ ]` |
+| 15 | `import json` dentro de funções | `admin_routes.py:27,419` | `[x]` moved to top-level 2026-07-13 |
 
 ### SE4 — Audio Transcriber
 
@@ -78,7 +78,7 @@
 |---|----------|---------|--------|
 | 34 | 55 `except Exception` | Muitos silent `except Exception: pass` em `video.py`, `playlist.py`, `search.py` | `[x]` 13 silent catches fixed 2026-07-13 |
 | 35 | 7 dead code | Funções nunca chamadas: `get_video_info_oembed()`, `filter_videos_by_type()`, `next_proxie()` | `[x]` 3 removed 2026-07-13 |
-| 36 | InnerTube clientVersion inconsistente | `video.py` usa `"2.20220502.01.00"`, `search.py` usa `"2.20200720.00.00"` | `[ ]` |
+| 36 | InnerTube clientVersion inconsistente | `video.py` usa `"2.20220502.01.00"`, `search.py` usa `"2.20200720.00.00"` | `[x]` normalized to INNERTUBE_CLIENT_VERSION 2026-07-13 |
 | 37 | ~100L código duplicado em playlist.py | `_extract_playlist_videos` vs `_fetch_continuation_page` | `[ ]` |
 | 38 | 6 unused imports | `datetime`, `timedelta`, `json`, `ProcessingTimeoutError`, `now_brazil` | `[x]` 5 removed 2026-07-13 |
 | 39 | 24 magic numbers | Disk thresholds, progress %, timeouts, thumbnail dimensions | `[ ]` |
@@ -90,7 +90,7 @@
 | 40 | 22 `except Exception` | 6 com tuple redundante `(CircuitBreakerOpenError, Exception)` — subclasse | `[x]` 6 tuples cleaned 2026-07-13 |
 | 41 | 6 unused imports | `Starlette`, `Enum`, `UploadFile`, `BytesIO`, `re`, return type `Any` | `[x]` 6 removed 2026-07-13 |
 | 42 | 9 magic numbers | `24000` sample rate repetido 3x, disk threshold `0.5` | `[x]` 4 consolidated 2026-07-13 |
-| 43 | 6 padrões duplicados | HuggingFace download logic copiada em `model_manager.py` e `generate_test.py` | `[ ]` |
+| 43 | 6 padrões duplicados | HuggingFace download logic copiada em `model_manager.py` e `generate_test.py` | `[x]` shared hf_downloader.py 2026-07-13 |
 
 ### SE9 — Make Video Image
 
