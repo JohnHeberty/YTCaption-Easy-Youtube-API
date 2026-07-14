@@ -24,7 +24,7 @@
 |---|----------|---------|--------|
 | 5 | 61 `except Exception` catches | Maioria em `main.py` (14), `celery_tasks.py` (13) | `[x]` 3 silent fixed 2026-07-13 |
 | 6 | Duplicação `bytes_to_mb` | `1024*1024` repetido 11x — `BYTES_PER_MB` existe mas não usado | `[x]` FILE_CONSTANTS.BYTES_PER_MB 2026-07-13 |
-| 7 | `AudioNormalizer` definido 2x | `audio_normalizer.py` e `audio_processor.py` — APIs diferentes | `[ ]` |
+| 7 | `AudioNormalizer` definido 2x | `audio_normalizer.py` e `audio_processor.py` — APIs diferentes | `[x]` Renamed to AudioFilters 2026-07-13 |
 | 8 | Dead code | `audio_processor.py:389` `if remove_noise: pass` + `__init__.py` 8 imports mortos | `[x]` Cleaned 2026-07-13 |
 | 9 | Unused imports | `timedelta` em `main.py`, `numpy` em 2 arquivos, `datetime` em `job_manager.py` | `[x]` Removed 2026-07-13 |
 | 10 | Hardcoded HTTP status | ~39x `status_code=400/404/500` — usar `fastapi.status` | `[ ]` |
@@ -45,9 +45,9 @@
 |---|----------|---------|--------|
 | 16 | 70 `except Exception` | 4 bare `except:` sem tipo (captura SystemExit) | `[x]` 5 silent catches fixed 2026-07-13 |
 | 17 | 12 funções >100L | `submit_processing_task` (407L!), `transcribe_audio` (238L) | `[ ]` |
-| 18 | Model size dicts inconsistentes | 5 arquivos com 3 valores diferentes para o mesmo conceito | `[ ]` |
+| 18 | Model size dicts inconsistentes | 5 arquivos com 3 valores diferentes para o mesmo conceito | `[x]` Consolidated to constants.py 2026-07-13 |
 | 19 | 29x `bytes_to_mb` duplicado | `BYTES_PER_MB` definido mas nunca usado | `[ ]` |
-| 20 | `TorchDeviceManager` duplicado | `app/shared/device_manager.py` e `app/services/device_manager.py` | `[ ]` |
+| 20 | `TorchDeviceManager` duplicado | `app/shared/device_manager.py` e `app/services/device_manager.py` | `[x]` shared/ re-exports from services/ 2026-07-13 |
 | 21 | 2 health check modules | `health_checkers.py` (funções) vs `health_checker.py` (classe) | `[ ]` |
 
 ### SE5 — Make Video Clip
@@ -76,7 +76,7 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 34 | 55 `except Exception` | Muitos silent `except Exception: pass` em `video.py`, `playlist.py`, `search.py` | `[ ]` |
+| 34 | 55 `except Exception` | Muitos silent `except Exception: pass` em `video.py`, `playlist.py`, `search.py` | `[x]` 13 silent catches fixed 2026-07-13 |
 | 35 | 7 dead code | Funções nunca chamadas: `get_video_info_oembed()`, `filter_videos_by_type()`, `next_proxie()` | `[ ]` |
 | 36 | InnerTube clientVersion inconsistente | `video.py` usa `"2.20220502.01.00"`, `search.py` usa `"2.20200720.00.00"` | `[ ]` |
 | 37 | ~100L código duplicado em playlist.py | `_extract_playlist_videos` vs `_fetch_continuation_page` | `[ ]` |
@@ -96,7 +96,7 @@
 
 | # | Problema | Detalhe | Status |
 |---|----------|---------|--------|
-| 44 | FFmpeg H264 args duplicados 5+ vezes | Mesma string em `ffmpeg_segments.py`, `ffmpeg_captions.py`, `ffmpeg_concat.py` | `[ ]` |
+| 44 | FFmpeg H264 args duplicados 5+ vezes | Mesma string em `ffmpeg_segments.py`, `ffmpeg_captions.py`, `ffmpeg_concat.py` | `[x]` H264_ENCODING_ARGS constant 2026-07-13 |
 | 45 | `check_se7`/`check_se8` idênticos | `health_routes.py:33-51` — mesma lógica, URL diferente | `[ ]` |
 | 46 | `"builtin_feminino"` repetido 7x | Deveria ser `DEFAULT_VOICE_ID` em `constants.py` | `[ ]` |
 | 47 | 11 `except Exception` | 2 silent em `redis_store.py:228,255` | `[ ]` |
