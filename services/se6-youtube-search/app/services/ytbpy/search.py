@@ -5,7 +5,7 @@ import json
 from typing import Any
 from urllib.parse import quote_plus
 
-from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
+from .utils import INNERTUBE_CLIENT_VERSION, fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
 from common.log_utils import get_logger
 
 logger = get_logger(__name__)
@@ -224,13 +224,13 @@ def _fetch_continuation_page(continuation_token: str, timeout: int = 10) -> tupl
 
     headers = {
         "X-YouTube-Client-Name": "1",
-        "X-YouTube-Client-Version": "2.20200720.00.00",
+        "X-YouTube-Client-Version": INNERTUBE_CLIENT_VERSION,
         "Content-Type": "application/json",
     }
 
     data = {
         "context": {
-            "client": {"clientName": "WEB", "clientVersion": "2.20200720.00.00"}
+            "client": {"clientName": "WEB", "clientVersion": INNERTUBE_CLIENT_VERSION}
         },
         "continuation": continuation_token,
     }

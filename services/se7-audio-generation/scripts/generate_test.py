@@ -11,75 +11,29 @@ import sys
 import time
 from pathlib import Path
 
+from app.infrastructure.hf_downloader import (
+    T3_FILENAME,
+    S3GEN_FILENAME,
+    REQUIRED_FILES,
+    download_chatterbox_model,
+)
+
 MODEL_DIR = Path("./data/models")
 OUTPUT_DIR = Path("./data/outputs")
-
-REPO_ID = "ResembleAI/Chatterbox-Multilingual-pt-br"
-BASE_REPO_ID = "ResembleAI/chatterbox"
-T3_FILENAME = "t3_pt_br.safetensors"
-S3GEN_FILENAME = "s3gen_v3.pt"
-REQUIRED_FILES = ["ve.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt", T3_FILENAME, S3GEN_FILENAME]
-
-
-def download_model(model_dir: Path) -> Path:
-    token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
-    if token:
-        from huggingface_hub import login
-        login(token=token)
-
-    existing = [f for f in REQUIRED_FILES if (model_dir / f).exists()]
-    if len(existing) == len(REQUIRED_FILES):
-        print(f"[OK] All {len(REQUIRED_FILES)} model files already in {model_dir}")
-        return model_dir
-
-    print(f"[1/5] Downloading model to {model_dir}...")
-    model_dir.mkdir(parents=True, exist_ok=True)
-
-    from huggingface_hub import snapshot_download, hf_hub_download
-
-    t0 = time.time()
-    base_files = ["ve.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt"]
-    snapshot_download(
-        repo_id=BASE_REPO_ID,
-        repo_type="model",
-        revision="main",
-        allow_patterns=base_files,
-        token=token,
-        local_dir=str(model_dir),
-        local_dir_use_symlinks=False,
-    )
-    print(f"  Base files: {time.time() - t0:.1f}s")
-
-    t1 = time.time()
-    for filename in (T3_FILENAME, S3GEN_FILENAME):
-        dest = model_dir / filename
-        if not dest.exists():
-            hf_hub_download(
-                repo_id=REPO_ID,
-                filename=filename,
-                repo_type="model",
-                token=token,
-                local_dir=str(model_dir),
-                local_dir_use_symlinks=False,
-            )
-    print(f"  PT-BR files: {time.time() - t1:.1f}s")
-
-    for f in REQUIRED_FILES:
-        exists = (model_dir / f).exists()
-        size = (model_dir / f).stat().st_size / (1024 * 1024) if exists else 0
-        status = f"{size:.1f}MB" if exists else "MISSING"
-        print(f"    {f}: {status}")
-
-    print(f"[OK] Model downloaded to {model_dir}")
-    return model_dir
 
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    ckpt_dir = download_model(MODEL_DIR)
+    ckpt_dir = download_chatterbox_model(MODEL_DIR)
 
-    print("[2/5] Loading Chatterbox TTS from local files...")
+    for f in REQUIRED_FILES:
+        exists = (ckpt_dir / f).exists()
+        size = (ckpt_dir / f).stat().st_size / (1024 * 1024) if exists else 0
+        status = f"{size:.1f}MB" if exists else "MISSING"
+        print(f"  {f}: {status}")
+
+    print(f"[2/5] Loading Chatterbox TTS from local files...")
     t0 = time.time()
     from chatterbox.src.chatterbox.tts import ChatterboxTTS
     model = ChatterboxTTS.from_local(

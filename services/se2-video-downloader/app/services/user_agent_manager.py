@@ -12,6 +12,8 @@ from common.datetime_utils import now_brazil
 
 from pathlib import Path
 from common.log_utils import get_logger
+
+from app.core.constants import UA_QUALITY_CRITERION_WEIGHT
          
 logger = get_logger(__name__)
             
@@ -311,16 +313,16 @@ class UserAgentManager:
         
         # Pontuações por critérios
         if ua.startswith('Mozilla/'):
-            score += 0.25
+            score += UA_QUALITY_CRITERION_WEIGHT
         
         if 'AppleWebKit' in ua:
-            score += 0.25
+            score += UA_QUALITY_CRITERION_WEIGHT
         
         if any(browser in ua for browser in ['Chrome', 'Firefox', 'Safari']):
-            score += 0.25
+            score += UA_QUALITY_CRITERION_WEIGHT
         
         if 50 <= len(ua) <= 200:  # Tamanho ideal
-            score += 0.25
+            score += UA_QUALITY_CRITERION_WEIGHT
         
         return min(score, 1.0)
     

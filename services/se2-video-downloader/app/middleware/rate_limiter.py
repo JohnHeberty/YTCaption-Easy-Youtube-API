@@ -30,6 +30,8 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
+from app.core.constants import DEFAULT_RATE_LIMIT_MAX_REQUESTS
+
 logger = get_logger(__name__)
 
 
@@ -70,7 +72,7 @@ class RateLimiterMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
-        max_requests: int = 100,
+        max_requests: int = DEFAULT_RATE_LIMIT_MAX_REQUESTS,
         window_seconds: int = 60,
         exclude_paths: tuple[str, ...] = ("/health", "/metrics", "/docs", "/openapi.json"),
     ) -> None:

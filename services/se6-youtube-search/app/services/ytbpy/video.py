@@ -11,6 +11,7 @@ import json
 from typing import Any
 
 from .utils import (
+    INNERTUBE_CLIENT_VERSION,
     fetch_url,
     get_thumbnail_urls,
     get_innertube_api_key,
@@ -23,7 +24,7 @@ INNERTUBE_PAYLOAD_BASE: dict[str, Any] = {
     "context": {
         "client": {
             "clientName": "WEB",
-            "clientVersion": "2.20220502.01.00",
+            "clientVersion": INNERTUBE_CLIENT_VERSION,
             "hl": "en",
         }
     }

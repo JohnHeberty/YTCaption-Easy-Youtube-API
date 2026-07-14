@@ -16,6 +16,7 @@ from app.infrastructure.dependencies import (
 )
 from app.core.models import RootResponse, VideoDownloadJob
 from app.core.config import get_settings
+from app.core.constants import MAX_REQUEST_BODY_SIZE_MB
 from app.api import jobs_router, admin_router, health_router
 
 settings = get_settings()
@@ -60,7 +61,7 @@ app = create_service_app(
     version="3.0.0",
     settings=settings,
     lifespan=lifespan,
-    body_size_mb=100,
+    body_size_mb=MAX_REQUEST_BODY_SIZE_MB,
     dependencies=[Depends(verify_api_key)],
     setup_routers=lambda a: (
         a.include_router(jobs_router),

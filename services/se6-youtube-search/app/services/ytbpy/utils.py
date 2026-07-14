@@ -141,6 +141,8 @@ def parse_view_count(view_count_text: str) -> int | None:
         return None
 
 
+INNERTUBE_CLIENT_VERSION = "2.20220502.01.00"
+
 _DEFAULT_INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 
 

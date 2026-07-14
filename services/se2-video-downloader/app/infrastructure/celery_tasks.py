@@ -19,6 +19,12 @@ from ..core.models import VideoDownloadJob
 from ..services.video_downloader import YDLPVideoDownloader as SimpleDownloader
 from .redis_store import VideoDownloadJobStore
 from ..core.config import get_settings
+from ..core.constants import (
+    DEFAULT_JOB_TIMEOUT_SECONDS,
+    CELERY_HARD_TIME_LIMIT_SECONDS,
+    CELERY_SOFT_TIME_LIMIT_SECONDS,
+    CELERY_RETRY_BACKOFF_MAX_SECONDS,
+)
 
 logger = get_logger(__name__)
 
@@ -118,11 +124,11 @@ class CallbackTask(Task):
     name='download_video_task',
     autoretry_for=(ConnectionError, IOError, OSError),
     retry_backoff=True,
-    retry_backoff_max=600,
+    retry_backoff_max=CELERY_RETRY_BACKOFF_MAX_SECONDS,
     retry_jitter=True,
     max_retries=3,
-    soft_time_limit=1800,
-    time_limit=2400
+    soft_time_limit=DEFAULT_JOB_TIMEOUT_SECONDS,
+    time_limit=CELERY_HARD_TIME_LIMIT_SECONDS
 )
 def download_video_task(self: CallbackTask, job_dict: dict[str, Any]) -> dict[str, Any]:
     """

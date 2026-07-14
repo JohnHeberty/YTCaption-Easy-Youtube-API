@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core import models
+from app.core.constants import DEFAULT_LIST_JOBS_LIMIT
 
 VideoDownloadJob = models.VideoDownloadJob
 Job = VideoDownloadJob  # alias for compatibility
@@ -116,7 +117,7 @@ class JobStoreInterface(ABC):
         pass
 
     @abstractmethod
-    def list_jobs(self, limit: int = 100) -> list[VideoDownloadJob]:
+    def list_jobs(self, limit: int = DEFAULT_LIST_JOBS_LIMIT) -> list[VideoDownloadJob]:
         """List jobs from storage.
 
         Args:

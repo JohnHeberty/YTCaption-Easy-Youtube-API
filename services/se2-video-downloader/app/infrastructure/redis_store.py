@@ -18,6 +18,11 @@ from common.job_utils.models import StandardJob
 from common.datetime_utils import now_brazil, ensure_timezone_aware
 
 from app.core.models import VideoDownloadJob
+from app.core.constants import (
+    DEFAULT_REDIS_MAX_CONNECTIONS,
+    DEFAULT_LIST_JOBS_LIMIT,
+    MAX_QUEUE_INFO_LIST_LIMIT,
+)
 
 logger = get_logger(__name__)
 
@@ -31,7 +36,7 @@ class VideoDownloadJobStore:
     def __init__(self, redis_url: str = "redis://localhost:6379/0") -> None:
         self._resilient = ResilientRedisStore(
             redis_url=redis_url,
-            max_connections=50,
+            max_connections=DEFAULT_REDIS_MAX_CONNECTIONS,
             circuit_breaker_enabled=True,
             circuit_breaker_max_failures=int(os.getenv('REDIS_CIRCUIT_BREAKER_MAX_FAILURES', '5')),
             circuit_breaker_timeout=int(os.getenv('REDIS_CIRCUIT_BREAKER_TIMEOUT', '60')),
@@ -74,7 +79,7 @@ class VideoDownloadJobStore:
         result = self._resilient.delete(key)
         return result > 0
 
-    def list_jobs(self, limit: int = 100) -> list[VideoDownloadJob]:
+    def list_jobs(self, limit: int = DEFAULT_LIST_JOBS_LIMIT) -> list[VideoDownloadJob]:
         all_ids = self.redis.zrevrange("video_downloader:jobs:list", 0, -1)
         jobs = []
         for jid in all_ids[:limit * 2]:
@@ -161,7 +166,7 @@ class VideoDownloadJobStore:
         return orphaned
 
     async def get_queue_info(self) -> dict[str, Any]:
-        jobs = self.list_jobs(limit=10000)
+        jobs = self.list_jobs(limit=MAX_QUEUE_INFO_LIST_LIMIT)
         queue_info: dict[str, Any] = {
             "total_jobs": len(jobs),
             "by_status": {"queued": 0, "processing": 0, "completed": 0, "failed": 0},

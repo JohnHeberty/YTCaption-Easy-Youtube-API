@@ -2,6 +2,28 @@
 
 ## Sessão atual (2026-07-13) — Clean Code Audit + SE11 Multi-Person + SE8 GPU/Memory
 
+### SE6 #36 — InnerTube clientVersion Normalized ✅
+- **Problem:** `clientVersion` inconsistent across 3 files in `services/se6-youtube-search/app/services/ytbpy/`:
+  - `video.py` used `"2.20220502.01.00"` (2022)
+  - `search.py` used `"2.20200720.00.00"` (2020)
+  - `playlist.py` used `"2.20200720.00.00"` (2020)
+- **Fix:** Added `INNERTUBE_CLIENT_VERSION = "2.20220502.01.00"` constant to `utils.py`
+- **Files modified:**
+  - `services/se6-youtube-search/app/services/ytbpy/utils.py` — added `INNERTUBE_CLIENT_VERSION` constant
+  - `services/se6-youtube-search/app/services/ytbpy/video.py` — import + use constant in `INNERTUBE_PAYLOAD_BASE`
+  - `services/se6-youtube-search/app/services/ytbpy/search.py` — import + replace hardcoded version in headers + data payload
+  - `services/se6-youtube-search/app/services/ytbpy/playlist.py` — import + replace hardcoded version in headers + data payload
+- **Validated:** py_compile 4/4 OK, 52 unit tests pass (1 pre-existing error unrelated)
+
+### SE7 #43 — HuggingFace Download Logic Deduplicated ✅
+- **Problem:** Model download logic duplicated between `model_manager.py:_ensure_model_files()` and `generate_test.py:download_model()`
+- **Fix:** Extracted shared `download_chatterbox_model()` function into `app/infrastructure/hf_downloader.py`
+- **Files modified:**
+  - `services/se7-audio-generation/app/infrastructure/hf_downloader.py` — NEW: shared download function with constants
+  - `services/se7-audio-generation/app/services/model_manager.py` — imports from `hf_downloader`, `_ensure_model_files()` delegates to shared function
+  - `services/se7-audio-generation/scripts/generate_test.py` — imports from `hf_downloader`, removed inline download logic
+- **Validated:** py_compile 3/3 OK, 24 unit tests pass, 0 regressions
+
 ### Clean Code Audit — COMPLETE ✅
 - Scanned all 11 services (SE1-SE11) for code quality issues
 - **282+ `except Exception`** broad catches across all services

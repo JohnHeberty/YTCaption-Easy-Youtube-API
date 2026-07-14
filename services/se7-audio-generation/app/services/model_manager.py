@@ -11,14 +11,14 @@ from app.core.config import get_settings
 from app.core.constants import VOICE_SAMPLE_RATE_TARGET
 from app.domain.exceptions import ModelNotAvailable, ResourceExhausted
 from app.domain.interfaces import IModelManager
+from app.infrastructure.hf_downloader import (
+    REQUIRED_FILES,
+    T3_FILENAME,
+    S3GEN_FILENAME,
+    download_chatterbox_model,
+)
 
 logger = get_logger(__name__)
-
-REPO_ID = "ResembleAI/Chatterbox-Multilingual-pt-br"
-BASE_REPO_ID = "ResembleAI/chatterbox"
-T3_FILENAME = "t3_pt_br.safetensors"
-S3GEN_FILENAME = "s3gen_v3.pt"
-REQUIRED_FILES = ["ve.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt", T3_FILENAME, S3GEN_FILENAME]
 
 
 class ChatterboxModelManager(IModelManager):
@@ -54,48 +54,7 @@ class ChatterboxModelManager(IModelManager):
 
     def _ensure_model_files(self) -> Path:
         """Download model files to model_dir if not already present."""
-        existing = [f for f in REQUIRED_FILES if (self._model_dir / f).exists()]
-        if len(existing) == len(REQUIRED_FILES):
-            logger.info(f"All {len(REQUIRED_FILES)} model files found in {self._model_dir}")
-            return self._model_dir
-
-        logger.info(f"Downloading model to {self._model_dir}...")
-        token = os.getenv("HUGGINGFACE_TOKEN") or os.getenv("HF_TOKEN")
-
-        from huggingface_hub import snapshot_download, hf_hub_download
-
-        t0 = time.time()
-
-        base_files = ["ve.pt", "grapheme_mtl_merged_expanded_v1.json", "conds.pt"]
-        base_dir = Path(snapshot_download(
-            repo_id=BASE_REPO_ID,
-            repo_type="model",
-            revision="main",
-            allow_patterns=base_files,
-            token=token,
-            local_dir=str(self._model_dir),
-            local_dir_use_symlinks=False,
-        ))
-        logger.info(f"Base model files downloaded in {time.time() - t0:.1f}s")
-
-        t1 = time.time()
-        for filename in (T3_FILENAME, S3GEN_FILENAME):
-            dest = self._model_dir / filename
-            if not dest.exists():
-                src = Path(hf_hub_download(
-                    repo_id=REPO_ID,
-                    filename=filename,
-                    repo_type="model",
-                    token=token,
-                    local_dir=str(self._model_dir),
-                    local_dir_use_symlinks=False,
-                ))
-                if src != dest and not dest.exists():
-                    import shutil
-                    shutil.copy2(src, dest)
-        logger.info(f"PT-BR model files downloaded in {time.time() - t1:.1f}s")
-
-        return self._model_dir
+        return download_chatterbox_model(self._model_dir, do_login=False)
 
     def load_model(self) -> None:
         if self._model is not None:

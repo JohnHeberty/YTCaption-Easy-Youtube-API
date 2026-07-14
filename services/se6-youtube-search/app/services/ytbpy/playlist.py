@@ -9,7 +9,7 @@ from common.log_utils import get_logger
 logger = get_logger(__name__)
 from urllib.parse import urlparse, parse_qs
 
-from .utils import fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
+from .utils import INNERTUBE_CLIENT_VERSION, fetch_url, get_thumbnail_urls, extract_initial_data, get_innertube_api_key
 
 
 def extract_playlist_id(url_or_id: str | None) -> str | None:
@@ -422,13 +422,13 @@ def _fetch_continuation_page(
 
     headers: dict[str, str] = {
         "X-YouTube-Client-Name": "1",
-        "X-YouTube-Client-Version": "2.20200720.00.00",
+        "X-YouTube-Client-Version": INNERTUBE_CLIENT_VERSION,
         "Content-Type": "application/json",
     }
 
     data: dict[str, Any] = {
         "context": {
-            "client": {"clientName": "WEB", "clientVersion": "2.20200720.00.00"}
+            "client": {"clientName": "WEB", "clientVersion": INNERTUBE_CLIENT_VERSION}
         },
         "continuation": continuation_token,
     }

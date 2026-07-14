@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List
@@ -24,7 +25,6 @@ logger = get_logger(__name__)
 
 async def _perform_basic_cleanup(store: VideoDownloadJobStore, settings: Settings) -> dict[str, Any]:
     from redis import Redis
-    import json
 
     try:
         report = {
@@ -415,9 +415,6 @@ async def fix_stuck_jobs(
     settings: Settings = Depends(get_settings_dep),
 ) -> dict[str, Any]:
     """Mark download jobs stuck in QUEUED status beyond a threshold as FAILED."""
-    from datetime import timedelta
-    import json
-
     try:
         logger.info(f"🔍 Procurando jobs travados em QUEUED (>{max_age_minutes}min)")
 

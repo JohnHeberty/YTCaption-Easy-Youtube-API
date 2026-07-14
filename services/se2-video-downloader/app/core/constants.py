@@ -26,6 +26,18 @@ MIN_DISK_SPACE_BYTES = int(MIN_DISK_SPACE_GB * 1024 ** 3)
 # Default job timeout (30 minutes)
 DEFAULT_JOB_TIMEOUT_SECONDS = 1800
 
+# Celery hard time limit (40 minutes — kills worker process)
+CELERY_HARD_TIME_LIMIT_SECONDS = 2400
+
+# Celery soft time limit (28 minutes — raises SoftTimeLimitExceeded)
+CELERY_SOFT_TIME_LIMIT_SECONDS = 1700
+
+# Celery retry backoff max (10 minutes)
+CELERY_RETRY_BACKOFF_MAX_SECONDS = 600
+
+# Celery worker max tasks before respawn
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 50
+
 # Cache TTL (24 hours)
 CACHE_TTL_HOURS = 24
 CACHE_TTL_SECONDS = CACHE_TTL_HOURS * 3600
@@ -63,6 +75,20 @@ DEFAULT_UA_MAX_ERRORS = 3
 DEFAULT_REDIS_MAX_CONNECTIONS = 50
 DEFAULT_REDIS_CIRCUIT_BREAKER_MAX_FAILURES = 5
 DEFAULT_REDIS_CIRCUIT_BREAKER_TIMEOUT = 60
+
+
+# =============================================================================
+# Request and List Limits
+# =============================================================================
+
+# Maximum request body size in MB
+MAX_REQUEST_BODY_SIZE_MB = 100
+
+# Default limit for list_jobs() queries
+DEFAULT_LIST_JOBS_LIMIT = 100
+
+# Maximum jobs to load for queue info / stats
+MAX_QUEUE_INFO_LIST_LIMIT = 10000
 
 
 # =============================================================================
@@ -134,6 +160,14 @@ DEFAULT_LOGS_DIR = './data/logs'
 
 # User agents file
 USER_AGENTS_FILENAME = 'user-agents.txt'
+
+
+# =============================================================================
+# User-Agent Quality Scoring
+# =============================================================================
+
+# Weight per criterion when scoring user-agent quality (4 criteria = 1.0 max)
+UA_QUALITY_CRITERION_WEIGHT = 0.25
 
 
 # =============================================================================
