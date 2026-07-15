@@ -11,9 +11,6 @@ from pathlib import Path
 from typing import Any, Callable, Awaitable
 from pydub import AudioSegment
 from pydub.effects import normalize, high_pass_filter
-import noisereduce as nr
-import soundfile as sf
-import librosa
 
 from ..shared.exceptions import AudioNormalizationException
 from ..core.constants import FILE_CONSTANTS
@@ -126,6 +123,10 @@ class AudioNormalizer:
     async def _remove_noise(self, input_path: str) -> str:
         """Remove ruído de fundo do áudio"""
         try:
+            import noisereduce as nr
+            import soundfile as sf
+            import librosa
+
             logger.info("🔇 Removing background noise...")
 
             # Load audio
@@ -148,6 +149,9 @@ class AudioNormalizer:
     async def _isolate_vocals(self, input_path: str) -> str:
         """Isola vocais usando separação de fontes"""
         try:
+            import soundfile as sf
+            import librosa
+
             logger.info("🎤 Isolating vocals...")
 
             # Load audio

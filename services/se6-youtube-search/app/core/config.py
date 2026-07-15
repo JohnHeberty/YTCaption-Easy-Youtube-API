@@ -19,12 +19,11 @@ class ServiceSettings(BaseServiceSettings):
     port: int = 8006
 
     # YouTube API
-    youtube_default_timeout: int = Field(default=10, env="YOUTUBE_DEFAULT_TIMEOUT")
-    youtube_max_results: int = Field(default=50, env="YOUTUBE_MAX_RESULTS")
-    youtube_max_videos_per_channel: int = Field(default=100, env="YOUTUBE_MAX_VIDEOS_PER_CHANNEL")
+    youtube_default_timeout: int = Field(default=10)
+    youtube_max_results: int = Field(default=50)
+    youtube_max_videos_per_channel: int = Field(default=100)
     youtube_innertube_api_key: str = Field(
         default="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8",
-        env="YOUTUBE_INNERTUBE_API_KEY",
     )
 
     # Cache
@@ -33,23 +32,23 @@ class ServiceSettings(BaseServiceSettings):
     cache_max_size_mb: int = 512
 
     # Rate limiting
-    rate_limit_enabled: bool = Field(default=True, env="RATE_LIMIT_ENABLED")
-    rate_limit_requests: int = Field(default=100, env="RATE_LIMIT_REQUESTS")
-    rate_limit_period: int = Field(default=60, env="RATE_LIMIT_PERIOD")
+    rate_limit_enabled: bool = Field(default=True)
+    rate_limit_requests: int = Field(default=100)
+    rate_limit_period: int = Field(default=60)
 
     # Logging
     log_dir: str = "./data/logs"
 
     # Timeouts
-    async_timeout_seconds: int = Field(default=120, env="ASYNC_TIMEOUT_SECONDS")
-    job_processing_timeout_seconds: int = Field(default=300, env="JOB_PROCESSING_TIMEOUT_SECONDS")
-    poll_interval_seconds: int = Field(default=2, env="POLL_INTERVAL_SECONDS")
+    async_timeout_seconds: int = Field(default=120)
+    job_processing_timeout_seconds: int = Field(default=300)
+    poll_interval_seconds: int = Field(default=2)
 
     # Celery
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
-    celery_task_time_limit: int = Field(default=600, env="CELERY_TASK_TIME_LIMIT")
-    celery_task_soft_time_limit: int = Field(default=500, env="CELERY_TASK_SOFT_TIME_LIMIT")
+    celery_task_time_limit: int = Field(default=600)
+    celery_task_soft_time_limit: int = Field(default=500)
 
     @field_validator("port")
     @classmethod

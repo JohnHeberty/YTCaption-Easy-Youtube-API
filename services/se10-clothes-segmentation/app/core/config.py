@@ -22,33 +22,33 @@ class ClothesSegSettings(BaseServiceSettings):
     workers: int = 1
 
     # ML / Model
-    device: str = Field(default="auto", env="DEVICE")  # auto | cpu | cuda
-    checkpoint_dir: str = Field(default="./checkpoints", env="CHECKPOINT_DIR")
-    external_dir: str = Field(default="./external", env="EXTERNAL_DIR")
+    device: str = Field(default="auto")  # auto | cpu | cuda
+    checkpoint_dir: str = Field(default="./checkpoints")
+    external_dir: str = Field(default="./external")
 
     # Segmentation parameters
-    box_threshold: float = Field(default=0.10, env="BOX_THRESHOLD")
-    text_threshold: float = Field(default=0.10, env="TEXT_THRESHOLD")
-    max_area_pct: float = Field(default=0.29, env="MAX_AREA_PCT")
-    max_objects: int = Field(default=50, env="MAX_OBJECTS")
+    box_threshold: float = Field(default=0.10)
+    text_threshold: float = Field(default=0.10)
+    max_area_pct: float = Field(default=0.29)
+    max_objects: int = Field(default=50)
 
     # Pose control image
-    pose_min_confidence: float = Field(default=0.5, env="POSE_MIN_CONFIDENCE")
+    pose_min_confidence: float = Field(default=0.5)
 
     # Worker
-    worker_threads: int = Field(default=2, env="WORKER_THREADS")
+    worker_threads: int = Field(default=2)
 
     # Auth
-    se10_api_key: str | None = Field(default=None, env="SE10_API_KEY")
+    se10_api_key: str | None = Field(default=None)
 
     # Redis
-    redis_url: str = Field(default="redis://localhost:6379/10", env="REDIS_URL")
+    redis_url: str = Field(default="redis://localhost:6379/10")
 
     # Paths
-    output_dir: str = Field(default="./data/outputs", env="OUTPUT_DIR")
-    temp_dir: str = Field(default="./data/temp", env="TEMP_DIR")
+    output_dir: str = Field(default="./data/outputs")
+    temp_dir: str = Field(default="./data/temp")
 
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    log_level: str = Field(default="INFO")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "allow"}
 

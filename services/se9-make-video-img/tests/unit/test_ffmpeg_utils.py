@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.infrastructure import ffmpeg_utils
+from app.infrastructure import ffmpeg_segments, ffmpeg_concat, ffmpeg_assembly
 
 
 @pytest.mark.asyncio
@@ -35,7 +36,7 @@ async def test_get_audio_duration_failure():
 async def test_create_segment_zoom_in():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_segments, "run_ffmpeg", mock_run):
         await ffmpeg_utils.create_segment(
             image_path="/tmp/img.png",
             output_path="/tmp/seg.mp4",
@@ -62,7 +63,7 @@ async def test_create_segment_zoom_in():
 async def test_create_segment_zoom_out():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_segments, "run_ffmpeg", mock_run):
         await ffmpeg_utils.create_segment(
             image_path="/tmp/img.png",
             output_path="/tmp/seg.mp4",
@@ -82,7 +83,7 @@ async def test_create_segment_zoom_out():
 async def test_create_segment_zoom_expression_contains_duration():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_segments, "run_ffmpeg", mock_run):
         await ffmpeg_utils.create_segment(
             image_path="/tmp/img.png",
             output_path="/tmp/seg.mp4",
@@ -102,7 +103,7 @@ async def test_create_segment_zoom_expression_contains_duration():
 async def test_create_segment_codec_flags():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_segments, "run_ffmpeg", mock_run):
         await ffmpeg_utils.create_segment(
             image_path="/tmp/img.png",
             output_path="/tmp/seg.mp4",
@@ -123,7 +124,7 @@ async def test_create_segment_codec_flags():
 async def test_concat_segments_single_segment():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_concat, "run_ffmpeg", mock_run):
         await ffmpeg_utils.concat_segments(
             segment_paths=["/tmp/seg.mp4"],
             output_path="/tmp/concat.mp4",
@@ -141,7 +142,7 @@ async def test_concat_segments_single_segment():
 async def test_concat_simple_multiple_segments():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_concat, "run_ffmpeg", mock_run):
         await ffmpeg_utils.concat_simple(
             segment_paths=["/tmp/a.mp4", "/tmp/b.mp4"],
             output_path="/tmp/out.mp4",
@@ -163,7 +164,7 @@ async def test_concat_simple_multiple_segments():
 async def test_concat_simple_creates_list_file():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_concat, "run_ffmpeg", mock_run):
         await ffmpeg_utils.concat_simple(
             segment_paths=["/tmp/a.mp4", "/tmp/b.mp4", "/tmp/c.mp4"],
             output_path="/tmp/out.mp4",
@@ -177,7 +178,7 @@ async def test_concat_simple_creates_list_file():
 async def test_add_audio():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_assembly, "run_ffmpeg", mock_run):
         await ffmpeg_utils.add_audio(
             video_path="/tmp/video.mp4",
             audio_path="/tmp/audio.wav",
@@ -200,7 +201,7 @@ async def test_add_audio():
 async def test_trim_to_duration():
     mock_run = AsyncMock()
 
-    with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+    with patch.object(ffmpeg_assembly, "run_ffmpeg", mock_run):
         await ffmpeg_utils.trim_to_duration(
             video_path="/tmp/video.mp4",
             duration=30.5,
@@ -227,7 +228,7 @@ async def test_concat_simple_single_segment_copies():
     dst = src + "_out.mp4"
 
     try:
-        with patch.object(ffmpeg_utils, "run_ffmpeg", mock_run):
+        with patch.object(ffmpeg_concat, "run_ffmpeg", mock_run):
             await ffmpeg_utils.concat_simple(
                 segment_paths=[src],
                 output_path=dst,

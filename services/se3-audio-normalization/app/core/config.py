@@ -7,7 +7,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 
 from common.config_utils.base_settings import BaseServiceSettings
 
@@ -27,39 +27,45 @@ class ServiceSettings(BaseServiceSettings):
     # Celery
     celery_broker_url: str | None = None
     celery_result_backend: str | None = None
-    celery_task_time_limit: int = Field(default=1800, env="CELERY_TASK_TIME_LIMIT")
-    celery_task_soft_time_limit: int = Field(default=1500, env="CELERY_TASK_SOFT_TIME_LIMIT")
+    celery_task_time_limit: int = Field(default=1800)
+    celery_task_soft_time_limit: int = Field(default=1500)
 
     # Processing
-    processing_max_concurrent_jobs: int = Field(default=3, env="PROCESSING__MAX_CONCURRENT_JOBS")
-    processing_job_timeout_minutes: int = Field(default=30, env="PROCESSING__JOB_TIMEOUT_MINUTES")
+    processing_max_concurrent_jobs: int = Field(
+        default=3,
+        validation_alias=AliasChoices("PROCESSING__MAX_CONCURRENT_JOBS", "processing_max_concurrent_jobs"),
+    )
+    processing_job_timeout_minutes: int = Field(
+        default=30,
+        validation_alias=AliasChoices("PROCESSING__JOB_TIMEOUT_MINUTES", "processing_job_timeout_minutes"),
+    )
 
     # Audio chunking
-    audio_enable_chunking: bool = Field(default=True, env="AUDIO_ENABLE_CHUNKING")
-    audio_chunk_size_mb: int = Field(default=30, env="AUDIO_CHUNK_SIZE_MB")
-    audio_chunk_duration_sec: int = Field(default=60, env="AUDIO_CHUNK_DURATION_SEC")
-    audio_chunk_overlap_sec: int = Field(default=1, env="AUDIO_CHUNK_OVERLAP_SEC")
+    audio_enable_chunking: bool = Field(default=True)
+    audio_chunk_size_mb: int = Field(default=30)
+    audio_chunk_duration_sec: int = Field(default=60)
+    audio_chunk_overlap_sec: int = Field(default=1)
 
     # Noise reduction
-    noise_reduction_max_duration_sec: int = Field(default=300, env="NOISE_REDUCTION_MAX_DURATION_SEC")
-    noise_reduction_sample_rate: int = Field(default=22050, env="NOISE_REDUCTION_SAMPLE_RATE")
-    noise_reduction_chunk_size_sec: int = Field(default=30, env="NOISE_REDUCTION_CHUNK_SIZE_SEC")
+    noise_reduction_max_duration_sec: int = Field(default=300)
+    noise_reduction_sample_rate: int = Field(default=22050)
+    noise_reduction_chunk_size_sec: int = Field(default=30)
 
     # Vocal isolation
-    vocal_isolation_max_duration_sec: int = Field(default=180, env="VOCAL_ISOLATION_MAX_DURATION_SEC")
+    vocal_isolation_max_duration_sec: int = Field(default=180)
 
     # Extraction
-    extraction_timeout_sec: int = Field(default=300, env="EXTRACTION_TIMEOUT_SEC")
+    extraction_timeout_sec: int = Field(default=300)
 
     # Timeouts
-    async_timeout_seconds: int = Field(default=900, env="ASYNC_TIMEOUT_SECONDS")
-    job_processing_timeout_seconds: int = Field(default=3600, env="JOB_PROCESSING_TIMEOUT_SECONDS")
+    async_timeout_seconds: int = Field(default=900)
+    job_processing_timeout_seconds: int = Field(default=3600)
 
     # Ffmpeg
-    ffmpeg_threads: int = Field(default=0, env="FFMPEG_THREADS")
-    ffmpeg_preset: str = Field(default="medium", env="FFMPEG_PRESET")
-    ffmpeg_audio_codec: str = Field(default="libopus", env="FFMPEG_AUDIO_CODEC")
-    ffmpeg_audio_bitrate: str = Field(default="128k", env="FFMPEG_AUDIO_BITRATE")
+    ffmpeg_threads: int = Field(default=0)
+    ffmpeg_preset: str = Field(default="medium")
+    ffmpeg_audio_codec: str = Field(default="libopus")
+    ffmpeg_audio_bitrate: str = Field(default="128k")
 
     # Directories
     upload_dir: str = "./data/uploads"

@@ -34,10 +34,12 @@ def _check(url: str) -> bool:
         return False
 
 
-SE7_ONLINE = _check(settings.se7_url)
-SE8_ONLINE = _check(settings.se8_url)
-
 pytestmark = pytest.mark.e2e
+
+
+@pytest.fixture(scope="module")
+def services_status():
+    return {"se7": _check(settings.se7_url), "se8": _check(settings.se8_url)}
 
 
 @pytest.fixture(scope="module")
@@ -47,8 +49,6 @@ def real_output_dir():
     return d
 
 
-@pytest.mark.skipif(not SE7_ONLINE, reason="SE7 offline")
-@pytest.mark.skipif(not SE8_ONLINE, reason="SE8 offline")
 class TestRealPipeline:
     """Full pipeline with real SE7 + SE8 + CSV fixtures."""
 

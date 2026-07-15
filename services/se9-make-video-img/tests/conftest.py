@@ -1,5 +1,4 @@
 """Shared test fixtures for SE9 tests."""
-import asyncio
 import os
 import shutil
 import tempfile
@@ -36,14 +35,14 @@ def temp_dir():
     shutil.rmtree(d, ignore_errors=True)
 
 
-async def _check_service(url: str, timeout: float = 3.0) -> bool:
-    """Check if a service is reachable via /ping or /health."""
+def _check_service_sync(url: str, timeout: float = 3.0) -> bool:
+    """Check if a service is reachable via /ping or /health (sync)."""
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.get(f"{url}/ping")
+        with httpx.Client(timeout=timeout) as client:
+            r = client.get(f"{url}/ping")
             if r.status_code == 200:
                 return True
-            r = await client.get(f"{url}/health")
+            r = client.get(f"{url}/health")
             return r.status_code == 200
     except Exception:
         return False
@@ -55,12 +54,10 @@ def services_online():
 
     Returns dict with se7/se8 booleans.
     """
-    async def _check():
-        se7 = await _check_service(settings.se7_url)
-        se8 = await _check_service(settings.se8_url)
-        return {"se7": se7, "se8": se8}
-
-    return asyncio.get_event_loop().run_until_complete(_check())
+    return {
+        "se7": _check_service_sync(settings.se7_url),
+        "se8": _check_service_sync(settings.se8_url),
+    }
 
 
 @pytest.fixture(scope="session")

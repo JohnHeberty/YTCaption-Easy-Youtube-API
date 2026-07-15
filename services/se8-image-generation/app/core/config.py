@@ -19,41 +19,41 @@ class ImageEngineSettings(BaseServiceSettings):
     workers: int = 1
 
     # GPU
-    gpu_mode: str = Field(default="lazy", env="GPU_MODE")  # lazy | eager | auto
-    gpu_device_id: int | None = Field(default=None, env="GPU_DEVICE_ID")
-    max_vram_mb: int = Field(default=0, env="MAX_VRAM_MB")  # 0 = auto-detect
-    model_idle_timeout: int = Field(default=60, env="MODEL_IDLE_TIMEOUT")  # seconds
+    gpu_mode: str = Field(default="lazy")  # lazy | eager | auto
+    gpu_device_id: int | None = Field(default=None)
+    max_vram_mb: int = Field(default=0)  # 0 = auto-detect
+    model_idle_timeout: int = Field(default=60)  # seconds
 
     # Paths
-    output_dir: str = Field(default="./data/outputs", env="OUTPUT_DIR")
-    model_dir: str = Field(default="./data/models", env="MODEL_DIR")
-    temp_dir: str = Field(default="./data/temp", env="TEMP_DIR")
+    output_dir: str = Field(default="./data/outputs")
+    model_dir: str = Field(default="./data/models")
+    temp_dir: str = Field(default="./data/temp")
 
     # Queue
     max_queue_size: int = 100
 
     # Auth
-    se8_api_key: str | None = Field(default=None, env="SE8_API_KEY")
+    se8_api_key: str | None = Field(default=None)
 
     # Redis
-    redis_url: str = Field(default="redis://localhost:6379/8", env="REDIS_URL")
+    redis_url: str = Field(default="redis://localhost:6379/8")
 
     # Celery
-    celery_broker_url: str | None = Field(default=None, env="CELERY_BROKER_URL")
-    celery_result_backend: str | None = Field(default=None, env="CELERY_RESULT_BACKEND")
+    celery_broker_url: str | None = Field(default=None)
+    celery_result_backend: str | None = Field(default=None)
 
     # Generation defaults
-    default_performance: str = Field(default="Speed", env="DEFAULT_PERFORMANCE")
-    default_cfg_scale: float = Field(default=4.0, env="DEFAULT_CFG_SCALE")
-    default_sharpness: float = Field(default=2.0, env="DEFAULT_SHARPNESS")
-    default_width: int = Field(default=1024, env="DEFAULT_WIDTH")
-    default_height: int = Field(default=1024, env="DEFAULT_HEIGHT")
+    default_performance: str = Field(default="Speed")
+    default_cfg_scale: float = Field(default=4.0)
+    default_sharpness: float = Field(default=2.0)
+    default_width: int = Field(default=1024)
+    default_height: int = Field(default=1024)
     default_base_model: str = Field(
-        default="juggernautXL_v8Rundiffusion.safetensors", env="DEFAULT_BASE_MODEL"
+        default="juggernautXL_v8Rundiffusion.safetensors",
     )
-    default_refiner_model: str = Field(default="None", env="DEFAULT_REFINER_MODEL")
+    default_refiner_model: str = Field(default="None")
 
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    log_level: str = Field(default="INFO")
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "allow"}
 
